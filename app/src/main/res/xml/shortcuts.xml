@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="home"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shortcut_home"
+        android:shortcutLongLabel="@string/shortcut_home">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:data="https://zstream.mov/"
+            android:targetPackage="com.zstream.android"
+            android:targetClass="com.zstream.android.MainActivity" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="discover"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shortcut_discover"
+        android:shortcutLongLabel="@string/shortcut_discover">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:data="https://zstream.mov/discover/"
+            android:targetPackage="com.zstream.android"
+            android:targetClass="com.zstream.android.MainActivity" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="settings"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shortcut_settings"
+        android:shortcutLongLabel="@string/shortcut_settings">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:data="https://zstream.mov/settings/"
+            android:targetPackage="com.zstream.android"
+            android:targetClass="com.zstream.android.MainActivity" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="migration"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shortcut_migration"
+        android:shortcutLongLabel="@string/shortcut_migration">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:data="https://zstream.mov/migration/"
+            android:targetPackage="com.zstream.android"
+            android:targetClass="com.zstream.android.MainActivity" />
+    </shortcut>
+</shortcuts>

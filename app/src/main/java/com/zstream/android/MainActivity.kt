@@ -48,6 +48,11 @@ import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 class MainActivity : AppCompatActivity() {
+    companion object {
+        const val SITE_HOST = "zstream.mov"
+        const val SITE_URL = "https://zstream.mov"
+    }
+
     private lateinit var webView: WebView
     private lateinit var bridge: ExtensionBridge
     private lateinit var swipeRefresh: SwipeRefreshLayout
@@ -75,6 +80,10 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         // (1) PREWARM: instantiate WebView before setContentView to warm up the renderer
         WebView(applicationContext).also { it.destroy() }
+        // DNS prefetch for zstream.mov
+        lifecycleScope.launch(Dispatchers.IO) {
+            try { java.net.InetAddress.getByName(SITE_HOST) } catch (_: Exception) {}
+        }
 
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -94,6 +103,10 @@ class MainActivity : AppCompatActivity() {
             databaseEnabled = true
         }
         webView.importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_YES
+
+        // Safe browsing opt-out (site is legitimate, avoids false-positive interstitials)
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.SAFE_BROWSING_ENABLE))
+            WebSettingsCompat.setSafeBrowsingEnabled(webView.settings, false)
 
         if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_AUTHENTICATION)) {
             WebSettingsCompat.setWebAuthenticationSupport(
@@ -230,13 +243,15 @@ class MainActivity : AppCompatActivity() {
         // (3) CRASH RECOVERY: handle WebView renderer crash
         webView.webViewClient = object : WebViewClient() {
             override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
+                if (url == "about:blank") return
                 view.evaluateJavascript(polyfill, null)
             }
 
             override fun onPageFinished(view: WebView, url: String) {
+                if (url == "about:blank") return
                 view.evaluateJavascript(polyfill, null)
                 swipeRefresh.isRefreshing = false
-                if (url.contains("zstream.mov")) {
+                if (url.contains(SITE_HOST)) {
                     saveCurrentUrl()
                     view.postDelayed({ snapshotLocalStorage(view) }, 3000)
                     if (!isOnline()) view.loadUrl("file:///android_asset/error.html")
@@ -309,15 +324,44 @@ class MainActivity : AppCompatActivity() {
             webView.restoreState(savedInstanceState)
             if (webView.url.isNullOrEmpty()) loadLastUrlOrSite()
         } else {
-            loadLastUrlOrSite()
+            handleIntent(intent) ?: loadLastUrlOrSite()
         }
     }
 
-    // (4) SNAPSHOT ON PAUSE — also keep WebView timers running so audio continues in background
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleIntent(intent)
+    }
+
+    // Returns the URL loaded if the intent had one, null otherwise
+    private fun handleIntent(intent: Intent?): String? {
+        val url = when (intent?.action) {
+            Intent.ACTION_VIEW -> intent.data?.toString()
+            Intent.ACTION_SEND -> intent.getStringExtra(Intent.EXTRA_TEXT)
+                ?.let { Regex("https?://\\S+").find(it)?.value }
+            else -> null
+        } ?: return null
+        // Only handle zstream.mov URLs; open others in browser
+        return if (url.contains(SITE_HOST)) {
+            if (isOnline()) webView.loadUrl(url) else webView.loadUrl("file:///android_asset/error.html")
+            url
+        } else null
+    }
+
+    private val snapshotHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val snapshotRunnable = object : Runnable {
+        override fun run() {
+            val url = webView.url ?: ""
+            if (url.contains(SITE_HOST)) snapshotLocalStorage(webView)
+            snapshotHandler.postDelayed(this, 60_000)
+        }
+    }
+
     override fun onPause() {
         super.onPause()
+        snapshotHandler.removeCallbacks(snapshotRunnable)
         val url = webView.url ?: ""
-        if (url.contains("zstream.mov")) {
+        if (url.contains(SITE_HOST)) {
             snapshotLocalStorage(webView)
             saveCurrentUrl()
         }
@@ -328,6 +372,7 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         webView.onResume()
         webView.resumeTimers()
+        snapshotHandler.postDelayed(snapshotRunnable, 60_000)
     }
 
     override fun onStop() {
@@ -349,7 +394,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun loadSiteOrError() {
-        if (isOnline()) webView.loadUrl("https://zstream.mov/")
+        if (isOnline()) webView.loadUrl("$SITE_URL/")
         else webView.loadUrl("file:///android_asset/error.html")
     }
 
@@ -357,12 +402,12 @@ class MainActivity : AppCompatActivity() {
         if (!isOnline()) { webView.loadUrl("file:///android_asset/error.html"); return }
         val prefs = getSharedPreferences("zstream", MODE_PRIVATE)
         val last = prefs.getString("last_url", null)
-        webView.loadUrl(if (!last.isNullOrEmpty() && last.startsWith("https://zstream.mov")) last else "https://zstream.mov/")
+        webView.loadUrl(if (!last.isNullOrEmpty() && last.startsWith(SITE_URL)) last else "$SITE_URL/")
     }
 
     private fun saveCurrentUrl() {
         val url = webView.url ?: return
-        if (url.startsWith("https://zstream.mov")) {
+        if (url.startsWith(SITE_URL)) {
             getSharedPreferences("zstream", MODE_PRIVATE).edit().putString("last_url", url).apply()
         }
     }
