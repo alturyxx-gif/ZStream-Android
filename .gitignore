@@ -21,3 +21,6 @@ local.properties
 .AppleDouble
 .LSOverride
 Thumbs.db
+
+API_READ_ACCESS_TOKEN
+API_KEY

@@ -1,16 +1,15 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
-    id("org.jlleitschuh.gradle.ktlint") version "12.1.2"
+    alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.ksp)
+    alias(libs.plugins.hilt)
 }
 
 android {
     namespace = "com.zstream.android"
-    compileSdk {
-        version =
-            release(36) {
-                minorApiLevel = 1
-            }
-    }
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.zstream.android"
@@ -18,8 +17,12 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "1.0"
-
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        val props = Properties().also { p ->
+            rootProject.file("local.properties").inputStream().use { p.load(it) }
+        }
+        buildConfigField("String", "TMDB_TOKEN", "\"${props["tmdb.read_token"]}\"")
     }
 
     signingConfigs {
@@ -38,24 +41,63 @@ android {
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
+
+    buildFeatures {
+        compose = true
+        buildConfig = true
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
+
+    kotlin {
+        jvmToolchain(11)
+    }
 }
 
 dependencies {
-    implementation(libs.androidx.appcompat)
     implementation(libs.androidx.core.ktx)
-    implementation(libs.material)
-    implementation(libs.androidx.credentials)
-    implementation(libs.androidx.credentials.play.services)
-    implementation(libs.androidx.webkit)
+    implementation(libs.androidx.activity.compose)
+    implementation(libs.androidx.lifecycle.viewmodel)
+    implementation(libs.androidx.lifecycle.runtime.compose)
+
+    implementation(platform(libs.compose.bom))
+    implementation(libs.compose.ui)
+    implementation(libs.compose.ui.tooling.preview)
+    implementation(libs.compose.material3)
+    implementation(libs.compose.material.icons)
+    debugImplementation(libs.compose.ui.tooling)
+
+    implementation(libs.navigation.compose)
+
+    implementation(libs.hilt.android)
+    ksp(libs.hilt.compiler)
+    implementation(libs.hilt.navigation.compose)
+
+    implementation(libs.media3.exoplayer)
+    implementation(libs.media3.exoplayer.hls)
+    implementation(libs.media3.exoplayer.dash)
+    implementation(libs.media3.ui)
+    implementation(libs.media3.session)
+
+    implementation(libs.coil.compose)
+
+    implementation(libs.room.runtime)
+    implementation(libs.room.ktx)
+    ksp(libs.room.compiler)
+
+    implementation(libs.retrofit)
+    implementation(libs.retrofit.gson)
     implementation(libs.okhttp)
+    implementation(libs.okhttp.logging)
+
     implementation(libs.kotlinx.coroutines)
-    implementation(libs.androidx.swiperefreshlayout)
-    implementation(libs.androidx.media)
+    implementation(libs.datastore)
+    implementation(libs.androidx.webkit)
+
     testImplementation(libs.junit)
-    androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.junit)
+    androidTestImplementation(libs.androidx.espresso.core)
 }
