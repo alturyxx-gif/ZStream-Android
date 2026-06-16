@@ -172,9 +172,8 @@ class MainActivity : AppCompatActivity() {
             override fun onPageFinished(view: WebView, url: String) {
                 view.evaluateJavascript(polyfill, null)
                 swipeRefresh.isRefreshing = false
-
+                Log.d("DataExport", "onPageFinished url=$url")
                 if (url.contains("zstream.mov")) {
-                    // Delay snapshot so the site's JS has time to populate localStorage
                     view.postDelayed({ snapshotLocalStorage(view) }, 3000)
                     if (!isOnline()) view.loadUrl("file:///android_asset/error.html")
                 }
@@ -322,21 +321,43 @@ class MainActivity : AppCompatActivity() {
     private fun snapshotLocalStorage(view: WebView) {
         val js = """
             (function() {
-                var data = {};
-                for (var i = 0; i < localStorage.length; i++) {
-                    var k = localStorage.key(i);
-                    try { data[k] = JSON.parse(localStorage.getItem(k)); }
-                    catch(e) { data[k] = localStorage.getItem(k); }
+                function get(key) {
+                    try { var s = localStorage.getItem(key); return s ? JSON.parse(s).state : null; }
+                    catch(e) { return null; }
                 }
-                return JSON.stringify(data);
+                var auth = get('__MW::auth') || {};
+                var bookmarks = get('__MW::bookmarks') || {};
+                var progress = get('__MW::progress') || {};
+                var watchHistory = get('__MW::watchHistory') || {};
+                var groupOrder = get('__MW::groupOrder') || {};
+                var prefs = get('__MW::preferences') || {};
+                var subtitles = get('__MW::subtitles') || {};
+                var theme = get('__MW::theme') || {};
+                var locale = get('__MW::locale') || {};
+                var result = {
+                    account: auth.account ? { profile: auth.account.profile, deviceName: auth.account.deviceName } : null,
+                    bookmarks: bookmarks.bookmarks || {},
+                    progress: progress.items || {},
+                    watchHistory: watchHistory.items || {},
+                    groupOrder: groupOrder.groupOrder || [],
+                    settings: Object.assign({}, prefs, { defaultSubtitleLanguage: subtitles.lastSelectedLanguage || null }),
+                    theme: theme.theme || null,
+                    language: locale.language || null,
+                    exportDate: new Date().toISOString()
+                };
+                return JSON.stringify(result);
             })()
         """.trimIndent()
         view.evaluateJavascript(js) { result ->
+            Log.d("DataExport", "snapshot keys result length=${result?.length} starts=${result?.take(100)}")
             if (result != null && result.length > 2) {
-                localStorageSnapshot = result.substring(1, result.length - 1)
+                // result is a JSON-encoded string from evaluateJavascript — unwrap one level of escaping
+                val unwrapped = result
+                    .removePrefix("\"").removeSuffix("\"")
                     .replace("\\\"", "\"")
                     .replace("\\\\", "\\")
                     .replace("\\/", "/")
+                localStorageSnapshot = unwrapped
             }
         }
     }
@@ -360,7 +381,9 @@ class MainActivity : AppCompatActivity() {
         @JavascriptInterface
         fun requestExport() {
             val snapshot = localStorageSnapshot
-            if (snapshot.isNullOrEmpty() || snapshot == "{}") {
+            Log.d("DataExport", "requestExport called, snapshot=${snapshot?.take(200)}")
+            if (snapshot.isNullOrEmpty() || snapshot == "{}" ||
+                (snapshot.contains("\"bookmarks\":{}") && snapshot.contains("\"progress\":{}") && snapshot.contains("\"watchHistory\":{}"))) {
                 runOnUiThread {
                     webView.evaluateJavascript("window.__exportResult('empty')", null)
                 }
