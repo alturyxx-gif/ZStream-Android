@@ -156,6 +156,17 @@ class MainActivity : AppCompatActivity() {
                 swipeRefresh.isRefreshing = false
             }
 
+            override fun onReceivedError(
+                view: WebView,
+                request: android.webkit.WebResourceRequest,
+                error: android.webkit.WebResourceError
+            ) {
+                // Only show error page for the main frame (not sub-resources)
+                if (request.isForMainFrame) {
+                    view.loadUrl("file:///android_asset/error.html")
+                }
+            }
+
             override fun shouldInterceptRequest(
                 view: WebView,
                 request: WebResourceRequest

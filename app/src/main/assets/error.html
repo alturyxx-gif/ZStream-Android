@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #000;
+    color: #fff;
+    font-family: sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+    gap: 16px;
+    text-align: center;
+    padding: 32px;
+  }
+  .icon { font-size: 48px; }
+  h1 { font-size: 20px; font-weight: 600; }
+  p { font-size: 14px; color: #888; }
+  button {
+    margin-top: 8px;
+    background: #6c63ff;
+    color: #fff;
+    border: none;
+    border-radius: 24px;
+    padding: 12px 32px;
+    font-size: 16px;
+    cursor: pointer;
+  }
+</style>
+</head>
+<body>
+  <div class="icon">📡</div>
+  <h1>No connection</h1>
+  <p>Check your internet connection and try again.</p>
+  <button onclick="window.location.reload()">Retry</button>
+</body>
+</html>
