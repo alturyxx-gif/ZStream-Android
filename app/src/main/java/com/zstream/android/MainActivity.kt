@@ -1,14 +1,18 @@
 package com.zstream.android
 
+import android.app.PictureInPictureParams
 import android.content.pm.ActivityInfo
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
+import android.util.Rational
 import android.view.View
 import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.webkit.ConsoleMessage
+import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -70,6 +74,7 @@ class MainActivity : AppCompatActivity() {
         webView.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
+            mediaPlaybackRequiresUserGesture = false
         }
         webView.importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_YES
 
@@ -82,6 +87,7 @@ class MainActivity : AppCompatActivity() {
 
         bridge = ExtensionBridge(webView, lifecycleScope)
         webView.addJavascriptInterface(bridge, "AndroidBridge")
+        webView.addJavascriptInterface(PipBridge(), "AndroidPip")
 
         // Hardware back gesture (replaces deprecated onBackPressed)
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
@@ -229,6 +235,14 @@ class MainActivity : AppCompatActivity() {
         webView.saveState(outState)
     }
 
+    // Hide/show UI when entering/leaving PiP
+    override fun onPictureInPictureModeChanged(isInPiP: Boolean, newConfig: Configuration) {
+        super.onPictureInPictureModeChanged(isInPiP, newConfig)
+        swipeRefresh.isEnabled = !isInPiP
+        progressBar.visibility = View.GONE
+        if (!isInPiP) hideSystemUI()
+    }
+
     private fun hideCustomView() {
         customView ?: return
         (window.decorView as FrameLayout).removeView(fullscreenContainer)
@@ -253,6 +267,21 @@ class MainActivity : AppCompatActivity() {
                 View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
                 View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
             )
+        }
+    }
+
+    inner class PipBridge {
+        @JavascriptInterface
+        fun enter(width: Int, height: Int) {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+            val w = if (width > 0) width else 16
+            val h = if (height > 0) height else 9
+            runOnUiThread {
+                val params = PictureInPictureParams.Builder()
+                    .setAspectRatio(Rational(w, h))
+                    .build()
+                enterPictureInPictureMode(params)
+            }
         }
     }
 }

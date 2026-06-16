@@ -69,4 +69,17 @@
       console.error('[Bridge] Failed to resolve callback', id, e);
     }
   };
+
+  // Intercept video.requestPictureInPicture() and route to Android native PiP
+  var _origGetContext = HTMLVideoElement.prototype.requestPictureInPicture;
+  HTMLVideoElement.prototype.requestPictureInPicture = function () {
+    try {
+      if (typeof AndroidPip !== 'undefined') {
+        AndroidPip.enter(this.videoWidth || 16, this.videoHeight || 9);
+        return Promise.resolve();
+      }
+    } catch (e) {}
+    if (_origGetContext) return _origGetContext.call(this);
+    return Promise.reject(new Error('PiP not supported'));
+  };
 })();
