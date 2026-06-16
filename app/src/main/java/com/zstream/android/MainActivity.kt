@@ -34,6 +34,7 @@ import android.widget.FrameLayout
 import android.widget.ProgressBar
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import androidx.webkit.WebSettingsCompat
@@ -87,6 +88,7 @@ class MainActivity : AppCompatActivity() {
         prefetchDns()
 
         super.onCreate(savedInstanceState)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
         setContentView(R.layout.activity_main)
 
         webView = findViewById(R.id.webview)
@@ -215,6 +217,7 @@ class MainActivity : AppCompatActivity() {
             requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
             swipeRefresh.isEnabled = false
             fullscreenContainer = FrameLayout(this@MainActivity).also {
+                it.fitsSystemWindows = false
                 it.addView(view, FrameLayout.LayoutParams(-1, -1))
                 (window.decorView as FrameLayout).addView(it, FrameLayout.LayoutParams(-1, -1))
             }
