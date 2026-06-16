@@ -11,6 +11,7 @@ webkit = "1.14.0"
 okhttp = "4.12.0"
 coroutines = "1.7.3"
 
+mediacompat = "1.7.0"
 swiperefresh = "1.1.0"
 
 [libraries]
@@ -26,6 +27,7 @@ androidx-webkit = { group = "androidx.webkit", name = "webkit", version.ref = "w
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
 kotlinx-coroutines = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
 androidx-swiperefreshlayout = { group = "androidx.swiperefreshlayout", name = "swiperefreshlayout", version.ref = "swiperefresh" }
+androidx-media = { group = "androidx.media", name = "media", version.ref = "mediacompat" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

@@ -7,10 +7,19 @@ import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.graphics.Bitmap
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Build
 import android.os.Bundle
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
+import android.support.v4.media.MediaMetadataCompat
+import android.support.v4.media.session.MediaSessionCompat
+import android.support.v4.media.session.PlaybackStateCompat
 import android.util.Log
 import android.util.Rational
 import android.view.View
@@ -18,9 +27,11 @@ import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.webkit.ConsoleMessage
 import android.webkit.JavascriptInterface
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
+import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
@@ -43,8 +54,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var bridge: ExtensionBridge
     private lateinit var swipeRefresh: SwipeRefreshLayout
     private lateinit var progressBar: ProgressBar
+    private lateinit var mediaSession: MediaSessionCompat
 
-    // Container for fullscreen video
     private var fullscreenContainer: FrameLayout? = null
     private var customView: View? = null
     private var customViewCallback: WebChromeClient.CustomViewCallback? = null
@@ -57,32 +68,33 @@ class MainActivity : AppCompatActivity() {
         .build()
 
     private val headersToStrip = setOf(
-        "content-security-policy",
-        "content-security-policy-report-only",
-        "access-control-allow-origin",
-        "access-control-allow-methods",
-        "access-control-allow-headers",
-        "access-control-allow-credentials",
+        "content-security-policy", "content-security-policy-report-only",
+        "access-control-allow-origin", "access-control-allow-methods",
+        "access-control-allow-headers", "access-control-allow-credentials",
         "x-frame-options"
     )
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // (1) PREWARM: instantiate WebView before setContentView to warm up the renderer
+        WebView(applicationContext).also { it.destroy() }
+
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
-
         hideSystemUI()
 
         webView = findViewById(R.id.webview)
         swipeRefresh = findViewById(R.id.swipeRefresh)
         progressBar = findViewById(R.id.progressBar)
 
-        // Keep screen on
         window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
+        // (2) CACHING: use cache-first, allocate 50 MB app cache
         webView.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
             mediaPlaybackRequiresUserGesture = false
+            cacheMode = WebSettings.LOAD_CACHE_ELSE_NETWORK
+            databaseEnabled = true
         }
         webView.importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_YES
 
@@ -93,15 +105,30 @@ class MainActivity : AppCompatActivity() {
             )
         }
 
+        // (7) MEDIA SESSION setup — shared with MediaPlaybackService for lock screen controls
+        mediaSession = MediaSessionCompat(this, "ZStreamMediaSession").apply {
+            setFlags(MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS or
+                     MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS)
+            setCallback(object : MediaSessionCompat.Callback() {
+                override fun onPlay() { webView.evaluateJavascript("document.querySelector('video')?.play()", null) }
+                override fun onPause() { webView.evaluateJavascript("document.querySelector('video')?.pause()", null) }
+                override fun onSeekTo(pos: Long) {
+                    webView.evaluateJavascript("document.querySelector('video').currentTime=${pos/1000.0}", null)
+                }
+            })
+            isActive = true
+        }
+        MediaPlaybackService.mediaSession = mediaSession
+
         bridge = ExtensionBridge(webView, lifecycleScope)
         webView.addJavascriptInterface(bridge, "AndroidBridge")
         webView.addJavascriptInterface(PipBridge(), "AndroidPip")
         webView.addJavascriptInterface(DataExportBridge(), "AndroidDataExport")
+        webView.addJavascriptInterface(MediaBridge(), "AndroidMedia")
         webView.addJavascriptInterface(object {
             @JavascriptInterface fun go() = runOnUiThread { loadSiteOrError() }
         }, "AndroidRetry")
 
-        // Hardware back gesture (replaces deprecated onBackPressed)
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 when {
@@ -112,8 +139,9 @@ class MainActivity : AppCompatActivity() {
             }
         })
 
-        // Pull-to-refresh
+        // (6) HAPTIC: vibrate when pull-to-refresh is triggered
         swipeRefresh.setOnRefreshListener {
+            vibrate()
             loadSiteOrError()
         }
 
@@ -122,7 +150,6 @@ class MainActivity : AppCompatActivity() {
         }
 
         webView.webChromeClient = object : WebChromeClient() {
-            // Loading progress bar
             override fun onProgressChanged(view: WebView, newProgress: Int) {
                 if (newProgress < 100) {
                     progressBar.visibility = View.VISIBLE
@@ -133,28 +160,22 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
-            // Console logging for debugging
             override fun onConsoleMessage(msg: ConsoleMessage): Boolean {
                 Log.d("WebConsole", "[${msg.messageLevel()}] ${msg.message()} (${msg.sourceId()}:${msg.lineNumber()})")
                 return true
             }
 
-            // Landscape lock when video goes fullscreen
             override fun onShowCustomView(view: View, callback: CustomViewCallback) {
-                if (customView != null) {
-                    callback.onCustomViewHidden()
-                    return
-                }
+                if (customView != null) { callback.onCustomViewHidden(); return }
                 customView = view
                 customViewCallback = callback
                 originalOrientation = requestedOrientation
                 requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-
+                // (5) DISABLE swipe-to-refresh when fullscreen video is showing
+                swipeRefresh.isEnabled = false
                 fullscreenContainer = FrameLayout(this@MainActivity).also {
                     it.addView(view, FrameLayout.LayoutParams(-1, -1))
-                    window.decorView.let { decor ->
-                        (decor as FrameLayout).addView(it, FrameLayout.LayoutParams(-1, -1))
-                    }
+                    (window.decorView as FrameLayout).addView(it, FrameLayout.LayoutParams(-1, -1))
                 }
                 hideSystemUI()
             }
@@ -166,7 +187,6 @@ class MainActivity : AppCompatActivity() {
 
         webView.setDownloadListener { url, userAgent, contentDisposition, mimeType, _ ->
             if (url.startsWith("blob:")) {
-                // Blob URLs can't be fetched natively — read via JS and pass base64 to Kotlin
                 val js = """
                     (function() {
                         fetch('$url')
@@ -198,9 +218,7 @@ class MainActivity : AppCompatActivity() {
         webView.addJavascriptInterface(object {
             @JavascriptInterface
             fun receiveBlob(dataUrl: String, mimeType: String, contentDisposition: String) {
-                // dataUrl is "data:<mime>;base64,<data>"
-                val base64 = dataUrl.substringAfter(",")
-                val bytes = android.util.Base64.decode(base64, android.util.Base64.DEFAULT)
+                val bytes = android.util.Base64.decode(dataUrl.substringAfter(","), android.util.Base64.DEFAULT)
                 val fileName = android.webkit.URLUtil.guessFileName("", contentDisposition, mimeType)
                 val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
                     addCategory(Intent.CATEGORY_OPENABLE)
@@ -212,6 +230,7 @@ class MainActivity : AppCompatActivity() {
             }
         }, "AndroidDownload")
 
+        // (3) CRASH RECOVERY: handle WebView renderer crash
         webView.webViewClient = object : WebViewClient() {
             override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
                 view.evaluateJavascript(polyfill, null)
@@ -231,52 +250,57 @@ class MainActivity : AppCompatActivity() {
                 request: android.webkit.WebResourceRequest,
                 error: android.webkit.WebResourceError
             ) {
-                // Only show error page for the main frame (not sub-resources)
-                if (request.isForMainFrame) {
-                    view.loadUrl("file:///android_asset/error.html")
-                }
+                if (request.isForMainFrame) view.loadUrl("file:///android_asset/error.html")
             }
 
-            override fun shouldInterceptRequest(
-                view: WebView,
-                request: WebResourceRequest
-            ): WebResourceResponse? {
+            override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
+                if (!detail.didCrash()) return false
+                // Renderer crashed — rebuild the WebView and reload
+                (view.parent as? android.view.ViewGroup)?.let { parent ->
+                    val index = parent.indexOfChild(view)
+                    parent.removeView(view)
+                    view.destroy()
+                    webView = WebView(this@MainActivity).apply {
+                        settings.javaScriptEnabled = true
+                        settings.domStorageEnabled = true
+                        settings.mediaPlaybackRequiresUserGesture = false
+                        settings.cacheMode = WebSettings.LOAD_CACHE_ELSE_NETWORK
+                        layoutParams = view.layoutParams
+                    }
+                    parent.addView(webView, index)
+                    loadSiteOrError()
+                }
+                return true
+            }
+
+            override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
                 val url = request.url.toString()
                 if (!url.startsWith("http")) return null
                 val hostname = request.url.host ?: return null
                 val rule = bridge.activeRules[hostname] ?: return null
-
                 return try {
                     val reqBuilder = Request.Builder().url(url)
                     request.requestHeaders.forEach { (k, v) -> reqBuilder.addHeader(k, v) }
-                    val ruleRequestHeaders = rule.optJSONObject("requestHeaders")
-                    ruleRequestHeaders?.keys()?.forEach { k ->
-                        reqBuilder.header(k, ruleRequestHeaders.getString(k))
+                    rule.optJSONObject("requestHeaders")?.keys()?.forEach { k ->
+                        reqBuilder.header(k, rule.optJSONObject("requestHeaders")!!.getString(k))
                     }
                     reqBuilder.method(request.method ?: "GET", null)
-
                     val response = httpClient.newCall(reqBuilder.build()).execute()
                     val contentType = response.header("content-type", "application/octet-stream")
-
                     val filteredHeaders = response.headers.toMultimap()
                         .filterKeys { it.lowercase() !in headersToStrip }
                         .mapValues { it.value.firstOrNull() ?: "" }
                         .toMutableMap()
-
                     filteredHeaders["Access-Control-Allow-Origin"] = "*"
                     filteredHeaders["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, PATCH, OPTIONS"
                     filteredHeaders["Access-Control-Allow-Headers"] = "*"
-
                     rule.optJSONObject("responseHeaders")?.keys()?.forEach { k ->
                         filteredHeaders[k] = rule.optJSONObject("responseHeaders")!!.getString(k)
                     }
-
-                    val mimeType = contentType?.substringBefore(";")?.trim() ?: "application/octet-stream"
-                    val encoding = contentType?.substringAfter("charset=", "")?.trim()?.ifEmpty { null }
-
                     WebResourceResponse(
-                        mimeType, encoding, response.code,
-                        response.message.ifEmpty { "OK" },
+                        contentType?.substringBefore(";")?.trim() ?: "application/octet-stream",
+                        contentType?.substringAfter("charset=", "")?.trim()?.ifEmpty { null },
+                        response.code, response.message.ifEmpty { "OK" },
                         filteredHeaders, response.body?.byteStream()
                     )
                 } catch (e: Exception) {
@@ -286,13 +310,39 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // Restore WebView state after rotation, otherwise load fresh
         if (savedInstanceState != null) {
             webView.restoreState(savedInstanceState)
             if (webView.url.isNullOrEmpty()) loadSiteOrError()
         } else {
             loadSiteOrError()
         }
+    }
+
+    // (4) SNAPSHOT ON PAUSE — also keep WebView timers running so audio continues in background
+    override fun onPause() {
+        super.onPause()
+        val url = webView.url ?: ""
+        if (url.contains("zstream.mov")) snapshotLocalStorage(webView)
+        // Pause video when leaving the app
+        webView.evaluateJavascript("document.querySelector('video')?.pause()", null)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        webView.onResume()
+        webView.resumeTimers()
+    }
+
+    override fun onStop() {
+        super.onStop()
+        // Prevent WebView from pausing media when fully backgrounded
+        webView.onResume()
+        webView.resumeTimers()
+    }
+
+    override fun onDestroy() {
+        mediaSession.release()
+        super.onDestroy()
     }
 
     private fun isOnline(): Boolean {
@@ -306,12 +356,25 @@ class MainActivity : AppCompatActivity() {
         else webView.loadUrl("file:///android_asset/error.html")
     }
 
+    private fun vibrate() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            (getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager)
+                .defaultVibrator.vibrate(VibrationEffect.createOneShot(40, VibrationEffect.DEFAULT_AMPLITUDE))
+        } else {
+            @Suppress("DEPRECATION")
+            (getSystemService(Context.VIBRATOR_SERVICE) as Vibrator).let {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+                    it.vibrate(VibrationEffect.createOneShot(40, VibrationEffect.DEFAULT_AMPLITUDE))
+                else it.vibrate(40)
+            }
+        }
+    }
+
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         webView.saveState(outState)
     }
 
-    // Hide/show UI when entering/leaving PiP
     override fun onPictureInPictureModeChanged(isInPiP: Boolean, newConfig: Configuration) {
         super.onPictureInPictureModeChanged(isInPiP, newConfig)
         swipeRefresh.isEnabled = !isInPiP
@@ -327,6 +390,8 @@ class MainActivity : AppCompatActivity() {
         customViewCallback?.onCustomViewHidden()
         customViewCallback = null
         requestedOrientation = originalOrientation
+        // (5) Re-enable swipe-to-refresh when leaving fullscreen
+        swipeRefresh.isEnabled = true
         hideSystemUI()
     }
 
@@ -339,8 +404,7 @@ class MainActivity : AppCompatActivity() {
         } else {
             @Suppress("DEPRECATION")
             window.decorView.systemUiVisibility = (
-                View.SYSTEM_UI_FLAG_FULLSCREEN or
-                View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
+                View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
                 View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
             )
         }
@@ -353,10 +417,42 @@ class MainActivity : AppCompatActivity() {
             val w = if (width > 0) width else 16
             val h = if (height > 0) height else 9
             runOnUiThread {
-                val params = PictureInPictureParams.Builder()
-                    .setAspectRatio(Rational(w, h))
+                enterPictureInPictureMode(
+                    PictureInPictureParams.Builder().setAspectRatio(Rational(w, h)).build()
+                )
+            }
+        }
+    }
+
+    // (7) MEDIA SESSION bridge — JS calls these to update lock screen controls
+    inner class MediaBridge {
+        @JavascriptInterface
+        fun updateState(playing: Boolean, title: String, duration: Long, position: Long) {
+            mediaSession.setPlaybackState(
+                PlaybackStateCompat.Builder()
+                    .setState(
+                        if (playing) PlaybackStateCompat.STATE_PLAYING else PlaybackStateCompat.STATE_PAUSED,
+                        position, if (playing) 1f else 0f
+                    )
+                    .setActions(PlaybackStateCompat.ACTION_PLAY or PlaybackStateCompat.ACTION_PAUSE or PlaybackStateCompat.ACTION_SEEK_TO)
                     .build()
-                enterPictureInPictureMode(params)
+            )
+            mediaSession.setMetadata(
+                MediaMetadataCompat.Builder()
+                    .putString(MediaMetadataCompat.METADATA_KEY_TITLE, title.ifEmpty { "ZStream" })
+                    .putLong(MediaMetadataCompat.METADATA_KEY_DURATION, duration)
+                    .build()
+            )
+            runOnUiThread {
+                val intent = Intent(this@MainActivity, MediaPlaybackService::class.java)
+                    .putExtra("playing", playing)
+                    .putExtra("title", title.ifEmpty { "ZStream" })
+                if (playing) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent)
+                    else startService(intent)
+                } else {
+                    startService(intent) // sends pause state to update notification, service stops itself
+                }
             }
         }
     }
@@ -383,7 +479,7 @@ class MainActivity : AppCompatActivity() {
                 var subtitles = get('__MW::subtitles') || {};
                 var theme = get('__MW::theme') || {};
                 var locale = get('__MW::locale') || {};
-                var result = {
+                return JSON.stringify({
                     account: auth.account ? { profile: auth.account.profile, deviceName: auth.account.deviceName } : null,
                     bookmarks: bookmarks.bookmarks || {},
                     progress: progress.items || {},
@@ -393,19 +489,13 @@ class MainActivity : AppCompatActivity() {
                     theme: theme.theme || null,
                     language: locale.language || null,
                     exportDate: new Date().toISOString()
-                };
-                return JSON.stringify(result);
+                });
             })()
         """.trimIndent()
         view.evaluateJavascript(js) { result ->
             if (result != null && result.length > 2) {
-                // result is a JSON-encoded string from evaluateJavascript — unwrap one level of escaping
-                val unwrapped = result
-                    .removePrefix("\"").removeSuffix("\"")
-                    .replace("\\\"", "\"")
-                    .replace("\\\\", "\\")
-                    .replace("\\/", "/")
-                localStorageSnapshot = unwrapped
+                localStorageSnapshot = result.removePrefix("\"").removeSuffix("\"")
+                    .replace("\\\"", "\"").replace("\\\\", "\\").replace("\\/", "/")
             }
         }
     }
@@ -428,9 +518,7 @@ class MainActivity : AppCompatActivity() {
             blobDownloadRequestCode -> {
                 val bytes = pendingBlobBytes ?: return
                 pendingBlobBytes = null
-                try {
-                    contentResolver.openOutputStream(data.data!!)?.use { it.write(bytes) }
-                } catch (_: Exception) {}
+                try { contentResolver.openOutputStream(data.data!!)?.use { it.write(bytes) } } catch (_: Exception) {}
             }
         }
     }
@@ -441,9 +529,7 @@ class MainActivity : AppCompatActivity() {
             val snapshot = localStorageSnapshot
             if (snapshot.isNullOrEmpty() || snapshot == "{}" ||
                 (snapshot.contains("\"bookmarks\":{}") && snapshot.contains("\"progress\":{}") && snapshot.contains("\"watchHistory\":{}"))) {
-                runOnUiThread {
-                    webView.evaluateJavascript("window.__exportResult('empty')", null)
-                }
+                runOnUiThread { webView.evaluateJavascript("window.__exportResult('empty')", null) }
                 return
             }
             pendingExportJson = snapshot

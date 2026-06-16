@@ -71,7 +71,7 @@
   };
 
   // Intercept video.requestPictureInPicture() and route to Android native PiP
-  var _origGetContext = HTMLVideoElement.prototype.requestPictureInPicture;
+  var _origPip = HTMLVideoElement.prototype.requestPictureInPicture;
   HTMLVideoElement.prototype.requestPictureInPicture = function () {
     try {
       if (typeof AndroidPip !== 'undefined') {
@@ -79,7 +79,23 @@
         return Promise.resolve();
       }
     } catch (e) {}
-    if (_origGetContext) return _origGetContext.call(this);
+    if (_origPip) return _origPip.call(this);
     return Promise.reject(new Error('PiP not supported'));
   };
+
+  // Poll video state every second and update Android MediaSession (lock screen controls)
+  if (typeof AndroidMedia !== 'undefined') {
+    setInterval(function() {
+      var v = document.querySelector('video');
+      if (!v) return;
+      try {
+        AndroidMedia.updateState(
+          !v.paused && !v.ended,
+          document.title || '',
+          Math.round((v.duration || 0) * 1000),
+          Math.round((v.currentTime || 0) * 1000)
+        );
+      } catch(e) {}
+    }, 1000);
+  }
 })();
