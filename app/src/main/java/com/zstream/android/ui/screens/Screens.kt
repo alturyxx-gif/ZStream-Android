@@ -8,7 +8,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.navigation.NavController
 
-@Composable fun PlayerScreen(nav: NavController) = Placeholder("Player — coming soon")
 @Composable fun SettingsScreen(nav: NavController) = Placeholder("Settings — coming soon")
 
 @Composable

@@ -21,6 +21,8 @@ import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import com.zstream.android.data.model.TvDetail
 
+private fun String.encode() = java.net.URLEncoder.encode(this, "UTF-8").replace("+", "%20")
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DetailScreen(nav: NavController, vm: DetailViewModel = hiltViewModel()) {
@@ -65,7 +67,7 @@ private fun MovieDetailContent(state: DetailState.Movie, nav: NavController, mod
                 Spacer(Modifier.height(8.dp))
                 Text(d.overview ?: "", style = MaterialTheme.typography.bodyMedium)
                 Spacer(Modifier.height(16.dp))
-                Button(onClick = { nav.navigate("player/movie/${d.id}") }, modifier = Modifier.fillMaxWidth()) { Text("Play") }
+                Button(onClick = { nav.navigate("player/movie/${d.id}?title=${d.title.encode()}&year=${d.releaseDate?.take(4)?.toIntOrNull() ?: 0}") }, modifier = Modifier.fillMaxWidth()) { Text("Play") }
             }
         }
     }
@@ -124,7 +126,9 @@ private fun TvDetailContent(state: DetailState.Tv, vm: DetailViewModel, nav: Nav
                         }
                     },
                     modifier = Modifier.clickable {
-                        nav.navigate("player/tv/${d.id}?season=${ep.seasonNumber}&episode=${ep.episodeNumber}")
+                        val encodedTitle = d.name.encode()
+                        val year = d.firstAirDate?.take(4)?.toIntOrNull() ?: 0
+                        nav.navigate("player/tv/${d.id}?season=${ep.seasonNumber}&episode=${ep.episodeNumber}&title=$encodedTitle&year=$year")
                     }
                 )
                 HorizontalDivider()
