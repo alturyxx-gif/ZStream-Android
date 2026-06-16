@@ -9,6 +9,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.supervisorScope
 import javax.inject.Inject
 
 data class HomeState(
@@ -29,11 +30,13 @@ class HomeViewModel @Inject constructor(private val repo: TmdbRepository) : View
         viewModelScope.launch {
             _state.value = HomeState(loading = true)
             runCatching {
-                val movies = async { repo.trendingMovies() }
-                val tv = async { repo.trendingTv() }
-                _state.value = HomeState(movies = movies.await(), tv = tv.await(), loading = false)
+                supervisorScope {
+                    val movies = async { repo.trendingMovies() }
+                    val tv = async { repo.trendingTv() }
+                    _state.value = HomeState(movies = movies.await(), tv = tv.await(), loading = false)
+                }
             }.onFailure {
-                _state.value = HomeState(loading = false, error = it.message)
+                _state.value = HomeState(loading = false, error = "No connection")
             }
         }
     }
