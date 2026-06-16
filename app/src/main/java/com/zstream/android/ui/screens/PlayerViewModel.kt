@@ -43,7 +43,6 @@ class PlayerViewModel @Inject constructor(
 
     init { load() }
 
-    fun getPlayerWebView() = engine.getActiveWebView()
     fun getProxyPort() = engine.proxy.port
 
     fun load() {

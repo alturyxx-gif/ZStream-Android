@@ -18,14 +18,23 @@ import java.util.concurrent.TimeUnit
 private const val TAG = "WebViewProxy"
 
 /**
- * Local HTTP proxy. ExoPlayer requests http://127.0.0.1:{port}/{url-encoded-real-url}.
- * The proxy fetches the real URL directly with OkHttp (sending Referer/Origin headers
- * that the CDN requires), rewrites m3u8 playlists so child URLs route back through the
- * proxy, and streams the response to ExoPlayer.
+ * Local HTTP proxy that lets native ExoPlayer fetch a CDN-protected HLS stream.
+ *
+ * ExoPlayer requests `http://127.0.0.1:{port}/{url-encoded-real-url}`. The proxy decodes
+ * the real URL, fetches it with OkHttp while injecting [playbackHeaders] (the headers the
+ * CDN edge validates — usually a Referer), rewrites m3u8 playlists so every child URL
+ * routes back through the proxy, and streams the bytes to ExoPlayer.
+ *
+ * Provider-agnostic: the only per-source input is [playbackHeaders], set by the caller
+ * once the active stream is known.
  */
 class WebViewProxyServer {
     private val serverSocket = ServerSocket(0)
     val port: Int get() = serverSocket.localPort
+
+    /** Headers injected into every upstream fetch. Set per active source before playback. */
+    @Volatile
+    var playbackHeaders: Map<String, String> = emptyMap()
 
     private val okhttp = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
@@ -53,13 +62,11 @@ class WebViewProxyServer {
             val isM3u8 = targetUrl.contains(".m3u8")
             Log.d(TAG, "serving ${if (isM3u8) "M3U8" else "SEG"} ${targetUrl.takeLast(45)}")
 
-            val req = Request.Builder().url(targetUrl)
-                .header("Referer", "https://vidlink.pro/")
-                .header("Origin", "https://vidlink.pro")
+            val reqBuilder = Request.Builder().url(targetUrl)
                 .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36")
-                .build()
+            playbackHeaders.forEach { (k, v) -> reqBuilder.header(k, v) }
 
-            val response = okhttp.newCall(req).execute()
+            val response = okhttp.newCall(reqBuilder.build()).execute()
             val bytes = response.body?.bytes()
             val out = socket.getOutputStream()
 
