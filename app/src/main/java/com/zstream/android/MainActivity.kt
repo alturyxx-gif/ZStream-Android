@@ -1,9 +1,14 @@
 package com.zstream.android
 
+import android.app.Activity
 import android.app.PictureInPictureParams
+import android.content.Context
+import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.graphics.Bitmap
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
@@ -28,6 +33,9 @@ import androidx.webkit.WebSettingsCompat
 import androidx.webkit.WebViewFeature
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 class MainActivity : AppCompatActivity() {
@@ -88,6 +96,10 @@ class MainActivity : AppCompatActivity() {
         bridge = ExtensionBridge(webView, lifecycleScope)
         webView.addJavascriptInterface(bridge, "AndroidBridge")
         webView.addJavascriptInterface(PipBridge(), "AndroidPip")
+        webView.addJavascriptInterface(DataExportBridge(), "AndroidDataExport")
+        webView.addJavascriptInterface(object {
+            @JavascriptInterface fun go() = runOnUiThread { loadSiteOrError() }
+        }, "AndroidRetry")
 
         // Hardware back gesture (replaces deprecated onBackPressed)
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
@@ -102,7 +114,7 @@ class MainActivity : AppCompatActivity() {
 
         // Pull-to-refresh
         swipeRefresh.setOnRefreshListener {
-            webView.reload()
+            loadSiteOrError()
         }
 
         val polyfill by lazy {
@@ -160,6 +172,12 @@ class MainActivity : AppCompatActivity() {
             override fun onPageFinished(view: WebView, url: String) {
                 view.evaluateJavascript(polyfill, null)
                 swipeRefresh.isRefreshing = false
+
+                if (url.contains("zstream.mov")) {
+                    // Delay snapshot so the site's JS has time to populate localStorage
+                    view.postDelayed({ snapshotLocalStorage(view) }, 3000)
+                    if (!isOnline()) view.loadUrl("file:///android_asset/error.html")
+                }
             }
 
             override fun onReceivedError(
@@ -225,9 +243,21 @@ class MainActivity : AppCompatActivity() {
         // Restore WebView state after rotation, otherwise load fresh
         if (savedInstanceState != null) {
             webView.restoreState(savedInstanceState)
+            if (webView.url.isNullOrEmpty()) loadSiteOrError()
         } else {
-            webView.loadUrl("https://zstream.mov/")
+            loadSiteOrError()
         }
+    }
+
+    private fun isOnline(): Boolean {
+        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val cap = cm.getNetworkCapabilities(cm.activeNetwork) ?: return false
+        return cap.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+    }
+
+    private fun loadSiteOrError() {
+        if (isOnline()) webView.loadUrl("https://zstream.mov/")
+        else webView.loadUrl("file:///android_asset/error.html")
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -282,6 +312,68 @@ class MainActivity : AppCompatActivity() {
                     .build()
                 enterPictureInPictureMode(params)
             }
+        }
+    }
+
+    private var pendingExportJson: String? = null
+    private var localStorageSnapshot: String? = null
+    private val exportRequestCode = 1001
+
+    private fun snapshotLocalStorage(view: WebView) {
+        val js = """
+            (function() {
+                var data = {};
+                for (var i = 0; i < localStorage.length; i++) {
+                    var k = localStorage.key(i);
+                    try { data[k] = JSON.parse(localStorage.getItem(k)); }
+                    catch(e) { data[k] = localStorage.getItem(k); }
+                }
+                return JSON.stringify(data);
+            })()
+        """.trimIndent()
+        view.evaluateJavascript(js) { result ->
+            if (result != null && result.length > 2) {
+                localStorageSnapshot = result.substring(1, result.length - 1)
+                    .replace("\\\"", "\"")
+                    .replace("\\\\", "\\")
+                    .replace("\\/", "/")
+            }
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != exportRequestCode) return
+        val json = pendingExportJson ?: return
+        pendingExportJson = null
+        if (resultCode != Activity.RESULT_OK || data?.data == null) return
+        try {
+            contentResolver.openOutputStream(data.data!!)?.use { it.write(json.toByteArray()) }
+            webView.evaluateJavascript("window.__exportResult('done')", null)
+        } catch (e: Exception) {
+            webView.evaluateJavascript("window.__exportResult('error')", null)
+        }
+    }
+
+    inner class DataExportBridge {
+        @JavascriptInterface
+        fun requestExport() {
+            val snapshot = localStorageSnapshot
+            if (snapshot.isNullOrEmpty() || snapshot == "{}") {
+                runOnUiThread {
+                    webView.evaluateJavascript("window.__exportResult('empty')", null)
+                }
+                return
+            }
+            pendingExportJson = snapshot
+            val date = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+            val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = "application/json"
+                putExtra(Intent.EXTRA_TITLE, "zstream-data-$date.json")
+            }
+            runOnUiThread { startActivityForResult(intent, exportRequestCode) }
         }
     }
 }

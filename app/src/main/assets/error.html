@@ -20,8 +20,8 @@
   .icon { font-size: 48px; }
   h1 { font-size: 20px; font-weight: 600; }
   p { font-size: 14px; color: #888; }
+  .divider { width: 48px; height: 1px; background: #333; margin: 8px 0; }
   button {
-    margin-top: 8px;
     background: #6c63ff;
     color: #fff;
     border: none;
@@ -30,12 +30,57 @@
     font-size: 16px;
     cursor: pointer;
   }
+  #exportBtn { background: #333; font-size: 14px; padding: 10px 24px; }
+  #exportStatus { font-size: 13px; color: #888; min-height: 18px; }
 </style>
 </head>
 <body>
   <div class="icon">📡</div>
   <h1>No connection</h1>
   <p>Check your internet connection and try again.</p>
-  <button onclick="window.location.reload()">Retry</button>
+  <button onclick="retry()">Retry</button>
+
+  <div id="exportSection" style="display:none; flex-direction:column; align-items:center; gap:12px; margin-top:8px;">
+    <div class="divider"></div>
+    <p>You can export your data while offline.</p>
+    <button id="exportBtn" onclick="startExport()">Download my data</button>
+    <span id="exportStatus"></span>
+  </div>
+
+  <script>
+    if (typeof AndroidDataExport !== 'undefined') {
+      document.getElementById('exportSection').style.display = 'flex';
+    }
+
+    function retry() {
+      if (typeof AndroidBridge !== 'undefined') {
+        AndroidRetry.go();
+      } else {
+        location.reload();
+      }
+    }
+
+    function startExport() {
+      document.getElementById('exportStatus').textContent = 'Reading data…';
+      document.getElementById('exportBtn').disabled = true;
+      AndroidDataExport.requestExport();
+    }
+
+    window.__exportResult = function(status) {
+      var btn = document.getElementById('exportBtn');
+      var msg = document.getElementById('exportStatus');
+      btn.disabled = false;
+      if (status === 'done') {
+        msg.style.color = '#4caf50';
+        msg.textContent = 'Saved!';
+      } else if (status === 'empty') {
+        msg.style.color = '#888';
+        msg.textContent = 'No data found.';
+      } else {
+        msg.style.color = '#f44336';
+        msg.textContent = 'Export failed.';
+      }
+    };
+  </script>
 </body>
 </html>
