@@ -22,11 +22,20 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        create("release") {
+            storeFile = file("../zstream.jks")
+            storePassword = "REDACTED"
+            keyAlias = "zstream"
+            keyPassword = "REDACTED"
+        }
+    }
+
     buildTypes {
         release {
-            optimization {
-                enable = false
-            }
+            signingConfig = signingConfigs.getByName("release")
+            isMinifyEnabled = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
     compileOptions {
