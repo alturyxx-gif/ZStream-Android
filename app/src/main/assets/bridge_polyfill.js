@@ -84,17 +84,20 @@
   };
 
   // Poll video state every second and update Android MediaSession (lock screen controls)
+  // Also toggle swipe-to-refresh based on whether a video is playing
   if (typeof AndroidMedia !== 'undefined') {
     setInterval(function() {
       var v = document.querySelector('video');
       if (!v) return;
       try {
+        var playing = !v.paused && !v.ended;
         AndroidMedia.updateState(
-          !v.paused && !v.ended,
+          playing,
           document.title || '',
           Math.round((v.duration || 0) * 1000),
           Math.round((v.currentTime || 0) * 1000)
         );
+        AndroidMedia.setSwipeRefresh(!playing);
       } catch(e) {}
     }, 1000);
   }

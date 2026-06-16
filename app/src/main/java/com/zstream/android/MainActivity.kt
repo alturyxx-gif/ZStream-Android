@@ -427,6 +427,13 @@ class MainActivity : AppCompatActivity() {
     // (7) MEDIA SESSION bridge — JS calls these to update lock screen controls
     inner class MediaBridge {
         @JavascriptInterface
+        fun setSwipeRefresh(enabled: Boolean) = runOnUiThread {
+            // Only re-enable if we're not in fullscreen (customView check)
+            if (enabled && customView == null) swipeRefresh.isEnabled = true
+            else if (!enabled) swipeRefresh.isEnabled = false
+        }
+
+        @JavascriptInterface
         fun updateState(playing: Boolean, title: String, duration: Long, position: Long) {
             mediaSession.setPlaybackState(
                 PlaybackStateCompat.Builder()
