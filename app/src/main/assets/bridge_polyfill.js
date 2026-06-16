@@ -78,6 +78,8 @@
     function removeZoomSlider() {
       var old = document.getElementById('__zs_zoom');
       if (old) old.remove();
+      var oldTab = document.getElementById('__zs_tab');
+      if (oldTab) oldTab.remove();
     }
 
     function injectZoomSlider() {
@@ -91,8 +93,26 @@
       el.innerHTML =
         '<span style="color:#aaa;font-size:13px;white-space:nowrap">Page Zoom</span>' +
         '<input id="__zs_range" type="range" min="50" max="150" value="' + z + '" style="width:160px;accent-color:#a855f7">' +
-        '<span id="__zs_label" style="color:#fff;font-size:13px;width:36px;text-align:right">' + z + '%</span>';
+        '<span id="__zs_label" style="color:#fff;font-size:13px;width:36px;text-align:right">' + z + '%</span>' +
+        '<button id="__zs_hide" style="background:none;border:none;color:#666;font-size:16px;cursor:pointer;padding:0 0 0 4px;line-height:1">✕</button>';
       document.body.appendChild(el);
+
+      // Tab/ribbon shown when pill is hidden
+      var tab = document.createElement('div');
+      tab.id = '__zs_tab';
+      tab.textContent = 'Zoom';
+      tab.style.cssText = 'display:none;position:fixed;bottom:120px;right:0;z-index:99999;background:#1c1c2e;border:1px solid rgba(255,255,255,0.1);border-right:none;border-radius:8px 0 0 8px;padding:8px 10px;color:#aaa;font-size:12px;cursor:pointer;writing-mode:vertical-rl;letter-spacing:1px;box-shadow:-2px 2px 8px rgba(0,0,0,0.4)';
+      document.body.appendChild(tab);
+
+      document.getElementById('__zs_hide').addEventListener('click', function() {
+        el.style.display = 'none';
+        tab.style.display = 'block';
+      });
+      tab.addEventListener('click', function() {
+        tab.style.display = 'none';
+        el.style.display = 'flex';
+      });
+
       document.getElementById('__zs_range').addEventListener('input', function() {
         var v = parseInt(this.value);
         document.documentElement.style.zoom = (v / 100).toFixed(2);
