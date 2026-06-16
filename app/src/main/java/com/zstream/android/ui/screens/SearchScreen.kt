@@ -22,6 +22,7 @@ fun SearchScreen(nav: NavController, vm: SearchViewModel = hiltViewModel()) {
     val query by vm.query.collectAsState()
     val results by vm.results.collectAsState()
     val loading by vm.loading.collectAsState()
+    val error by vm.error.collectAsState()
 
     Scaffold(
         topBar = {
@@ -50,6 +51,7 @@ fun SearchScreen(nav: NavController, vm: SearchViewModel = hiltViewModel()) {
         Box(Modifier.padding(padding).fillMaxSize()) {
             when {
                 loading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
+                error != null -> Text(error!!, Modifier.align(Alignment.Center), color = MaterialTheme.colorScheme.error)
                 results.isEmpty() && query.isNotBlank() -> Text("No results", Modifier.align(Alignment.Center))
                 else -> LazyVerticalGrid(
                     columns = GridCells.Fixed(3),
