@@ -86,7 +86,9 @@
       var path = window.location.pathname.replace(/\/$/, '');
       if (path !== '/settings') { removeZoomSlider(); return; }
       if (document.getElementById('__zs_zoom')) return;
+      if (!document.body) { document.addEventListener('DOMContentLoaded', injectZoomSlider); return; }
       var z = AndroidZoom.getZoom();
+      var hidden = AndroidZoom.isHidden();
       var el = document.createElement('div');
       el.id = '__zs_zoom';
       el.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);z-index:99999;background:#1c1c2e;border:1px solid rgba(255,255,255,0.1);border-radius:16px;padding:12px 20px;display:flex;align-items:center;gap:12px;box-shadow:0 4px 24px rgba(0,0,0,0.6)';
@@ -107,11 +109,18 @@
       document.getElementById('__zs_hide').addEventListener('click', function() {
         el.style.display = 'none';
         tab.style.display = 'block';
+        AndroidZoom.setHidden(true);
       });
       tab.addEventListener('click', function() {
         tab.style.display = 'none';
         el.style.display = 'flex';
+        AndroidZoom.setHidden(false);
       });
+
+      if (hidden) {
+        el.style.display = 'none';
+        tab.style.display = 'block';
+      }
 
       document.getElementById('__zs_range').addEventListener('input', function() {
         var v = parseInt(this.value);

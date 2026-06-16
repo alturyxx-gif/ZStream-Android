@@ -480,6 +480,10 @@ class MainActivity : AppCompatActivity() {
         @JavascriptInterface fun setZoom(percent: Int) {
             prefs.edit().putInt("zoom", percent.coerceIn(50, 150)).apply()
         }
+        @JavascriptInterface fun isHidden(): Boolean = prefs.getBoolean("zoom_hidden", false)
+        @JavascriptInterface fun setHidden(hidden: Boolean) {
+            prefs.edit().putBoolean("zoom_hidden", hidden).apply()
+        }
     }
 
     inner class PipBridge {
