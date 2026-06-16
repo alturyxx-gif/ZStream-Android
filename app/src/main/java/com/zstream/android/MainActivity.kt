@@ -135,6 +135,7 @@ class MainActivity : AppCompatActivity() {
         webView.addJavascriptInterface(PipBridge(), "AndroidPip")
         webView.addJavascriptInterface(DataExportBridge(), "AndroidDataExport")
         webView.addJavascriptInterface(MediaBridge(), "AndroidMedia")
+        webView.addJavascriptInterface(ZoomBridge(), "AndroidZoom")
         webView.addJavascriptInterface(object {
             @JavascriptInterface fun go() = runOnUiThread { loadSiteOrError() }
         }, "AndroidRetry")
@@ -470,6 +471,14 @@ class MainActivity : AppCompatActivity() {
         } else {
             @Suppress("DEPRECATION")
             window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
+        }
+    }
+
+    inner class ZoomBridge {
+        private val prefs get() = getSharedPreferences("zstream", MODE_PRIVATE)
+        @JavascriptInterface fun getZoom(): Int = prefs.getInt("zoom", 100)
+        @JavascriptInterface fun setZoom(percent: Int) {
+            prefs.edit().putInt("zoom", percent.coerceIn(50, 150)).apply()
         }
     }
 

@@ -70,7 +70,48 @@
     }
   };
 
-  // Remove default browser video poster (ugly play icon) — set black bg instead
+  // Apply saved zoom level to page
+  if (typeof AndroidZoom !== 'undefined') {
+    var zoom = AndroidZoom.getZoom();
+    document.documentElement.style.zoom = (zoom / 100).toFixed(2);
+
+    function removeZoomSlider() {
+      var old = document.getElementById('__zs_zoom');
+      if (old) old.remove();
+    }
+
+    function injectZoomSlider() {
+      var path = window.location.pathname.replace(/\/$/, '');
+      if (path !== '/settings') { removeZoomSlider(); return; }
+      if (document.getElementById('__zs_zoom')) return;
+      var z = AndroidZoom.getZoom();
+      var el = document.createElement('div');
+      el.id = '__zs_zoom';
+      el.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);z-index:99999;background:#1c1c2e;border:1px solid rgba(255,255,255,0.1);border-radius:16px;padding:12px 20px;display:flex;align-items:center;gap:12px;box-shadow:0 4px 24px rgba(0,0,0,0.6)';
+      el.innerHTML =
+        '<span style="color:#aaa;font-size:13px;white-space:nowrap">Page Zoom</span>' +
+        '<input id="__zs_range" type="range" min="50" max="150" value="' + z + '" style="width:160px;accent-color:#a855f7">' +
+        '<span id="__zs_label" style="color:#fff;font-size:13px;width:36px;text-align:right">' + z + '%</span>';
+      document.body.appendChild(el);
+      document.getElementById('__zs_range').addEventListener('input', function() {
+        var v = parseInt(this.value);
+        document.documentElement.style.zoom = (v / 100).toFixed(2);
+        document.getElementById('__zs_label').textContent = v + '%';
+        AndroidZoom.setZoom(v);
+      });
+    }
+
+    // SPA navigation — intercept history.pushState/replaceState
+    var _push = history.pushState.bind(history);
+    var _replace = history.replaceState.bind(history);
+    history.pushState = function() { _push.apply(history, arguments); injectZoomSlider(); };
+    history.replaceState = function() { _replace.apply(history, arguments); injectZoomSlider(); };
+    window.addEventListener('popstate', injectZoomSlider);
+
+    if (document.body) injectZoomSlider();
+    else document.addEventListener('DOMContentLoaded', injectZoomSlider);
+  }
+
   // Observe DOM so it catches dynamically added videos too
   function patchVideos() {
     document.querySelectorAll('video[poster]').forEach(function(v) {
