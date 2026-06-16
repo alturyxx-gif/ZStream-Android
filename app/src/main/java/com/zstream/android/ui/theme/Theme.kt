@@ -4,6 +4,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.zstream.android.theme.LocalZStreamTheme
+import com.zstream.android.theme.ThemeViewModel
 
 private val ColorScheme = darkColorScheme(
     primary = Color(0xFFE50914),
@@ -18,5 +21,12 @@ private val ColorScheme = darkColorScheme(
 
 @Composable
 fun ZStreamTheme(content: @Composable () -> Unit) {
-    MaterialTheme(colorScheme = ColorScheme, content = content)
+    val themeVm: ThemeViewModel = viewModel()
+    val currentTheme = themeVm.currentTheme.value
+    
+    androidx.compose.runtime.CompositionLocalProvider(
+        LocalZStreamTheme provides currentTheme
+    ) {
+        MaterialTheme(colorScheme = ColorScheme, content = content)
+    }
 }
