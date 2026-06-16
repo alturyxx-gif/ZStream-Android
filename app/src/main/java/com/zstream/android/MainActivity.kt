@@ -11,6 +11,8 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
@@ -19,14 +21,12 @@ import android.support.v4.media.session.MediaSessionCompat
 import android.support.v4.media.session.PlaybackStateCompat
 import android.util.Rational
 import android.view.View
-import android.view.WindowInsets
-import android.view.WindowInsetsController
+import android.view.WindowManager
 import android.webkit.ConsoleMessage
 import android.webkit.JavascriptInterface
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
-import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -41,13 +41,10 @@ import androidx.webkit.WebViewFeature
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
-import okhttp3.Request
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 class MainActivity : AppCompatActivity() {
+
     companion object {
         const val SITE_HOST = "zstream.mov"
         const val SITE_URL = "https://zstream.mov"
@@ -58,11 +55,19 @@ class MainActivity : AppCompatActivity() {
     private lateinit var swipeRefresh: SwipeRefreshLayout
     private lateinit var progressBar: ProgressBar
     private lateinit var mediaSession: MediaSessionCompat
+    private lateinit var systemUi: SystemUiController
+    private lateinit var downloader: DownloadHandler
+    private lateinit var storage: LocalStorageManager
+    private lateinit var interceptor: ExtensionInterceptor
 
     private var fullscreenContainer: FrameLayout? = null
     private var customView: View? = null
     private var customViewCallback: WebChromeClient.CustomViewCallback? = null
     private var originalOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+
+    private var pendingExportJson: String? = null
+    private val exportRequestCode = 1001
+    private val blobDownloadRequestCode = 1002
 
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
@@ -70,25 +75,16 @@ class MainActivity : AppCompatActivity() {
         .followRedirects(true)
         .build()
 
-    // Headers that would block the WebView from rendering cross-origin content
-    private val headersToStrip = setOf(
-        "content-security-policy", "content-security-policy-report-only",
-        "access-control-allow-origin", "access-control-allow-methods",
-        "access-control-allow-headers", "access-control-allow-credentials",
-        "x-frame-options"
-    )
+    private val polyfill by lazy {
+        assets.open("bridge_polyfill.js").bufferedReader().use { it.readText() }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         // Instantiate and immediately destroy a WebView to warm up the renderer process
         // before setContentView, reducing first-load latency
         WebView(applicationContext).also { it.destroy() }
 
-        lifecycleScope.launch(Dispatchers.IO) {
-            try {
-                java.net.InetAddress.getByName(SITE_HOST)
-            } catch (_: Exception) {
-            }
-        }
+        prefetchDns()
 
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -97,6 +93,37 @@ class MainActivity : AppCompatActivity() {
         swipeRefresh = findViewById(R.id.swipeRefresh)
         progressBar = findViewById(R.id.progressBar)
 
+        systemUi = SystemUiController(window)
+        downloader = DownloadHandler(this, webView)
+        storage = LocalStorageManager(webView)
+        bridge = ExtensionBridge(webView, lifecycleScope)
+        interceptor = ExtensionInterceptor(httpClient, bridge)
+
+        configureWebView()
+        setupMediaSession()
+        registerJsBridges()
+        setupBackHandler()
+        setupSwipeRefresh()
+
+        webView.webChromeClient = buildChromeClient()
+        webView.webViewClient = buildWebViewClient()
+        webView.setDownloadListener { url, ua, cd, mime, _ -> downloader.handleDownload(url, ua, cd, mime) }
+
+        if (savedInstanceState != null) {
+            webView.restoreState(savedInstanceState)
+            if (webView.url.isNullOrEmpty()) loadLastUrlOrSite()
+        } else {
+            handleIntent(intent) ?: loadLastUrlOrSite()
+        }
+    }
+
+    private fun prefetchDns() {
+        lifecycleScope.launch(Dispatchers.IO) {
+            try { java.net.InetAddress.getByName(SITE_HOST) } catch (_: Exception) {}
+        }
+    }
+
+    private fun configureWebView() {
         webView.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
@@ -105,256 +132,141 @@ class MainActivity : AppCompatActivity() {
             databaseEnabled = true
         }
         webView.importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_YES
-
         if (WebViewFeature.isFeatureSupported(WebViewFeature.SAFE_BROWSING_ENABLE))
             WebSettingsCompat.setSafeBrowsingEnabled(webView.settings, false)
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_AUTHENTICATION))
+            WebSettingsCompat.setWebAuthenticationSupport(webView.settings, WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_APP)
+    }
 
-        if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_AUTHENTICATION)) {
-            WebSettingsCompat.setWebAuthenticationSupport(
-                webView.settings,
-                WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_APP
-            )
-        }
-
+    private fun setupMediaSession() {
         mediaSession = MediaSessionCompat(this, "ZStreamMediaSession").apply {
-            setFlags(
-                MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS or
-                        MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS
-            )
+            setFlags(MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS or MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS)
             setCallback(object : MediaSessionCompat.Callback() {
-                override fun onPlay() {
-                    webView.evaluateJavascript("document.querySelector('video')?.play()", null)
-                }
-
-                override fun onPause() {
-                    webView.evaluateJavascript("document.querySelector('video')?.pause()", null)
-                }
-
+                override fun onPlay() { webView.evaluateJavascript("document.querySelector('video')?.play()", null) }
+                override fun onPause() { webView.evaluateJavascript("document.querySelector('video')?.pause()", null) }
                 override fun onSeekTo(pos: Long) {
-                    webView.evaluateJavascript(
-                        "document.querySelector('video').currentTime=${pos / 1000.0}",
-                        null
-                    )
+                    webView.evaluateJavascript("document.querySelector('video').currentTime=${pos / 1000.0}", null)
                 }
             })
             isActive = true
         }
         MediaPlaybackService.mediaSession = mediaSession
+    }
 
-        bridge = ExtensionBridge(webView, lifecycleScope)
+    private fun registerJsBridges() {
         webView.addJavascriptInterface(bridge, "AndroidBridge")
         webView.addJavascriptInterface(PipBridge(), "AndroidPip")
-        webView.addJavascriptInterface(DataExportBridge(), "AndroidDataExport")
         webView.addJavascriptInterface(MediaBridge(), "AndroidMedia")
         webView.addJavascriptInterface(ZoomBridge(), "AndroidZoom")
         webView.addJavascriptInterface(object {
-            @JavascriptInterface
-            fun go() = runOnUiThread { loadSiteOrError() }
+            @JavascriptInterface fun go() = runOnUiThread { loadSiteOrError() }
         }, "AndroidRetry")
+        webView.addJavascriptInterface(downloader.BlobReceiverBridge { bytes, mimeType, cd ->
+            downloader.pendingBlobBytes = bytes
+            runOnUiThread { startActivityForResult(downloader.createSaveIntent(mimeType, cd), blobDownloadRequestCode) }
+        }, "AndroidDownload")
+        webView.addJavascriptInterface(storage.ExportBridge {
+            if (storage.isEmpty()) {
+                webView.evaluateJavascript("window.__exportResult('empty')", null)
+                return@ExportBridge
+            }
+            pendingExportJson = storage.snapshot
+            runOnUiThread { startActivityForResult(storage.createExportIntent(), exportRequestCode) }
+        }, "AndroidDataExport")
+    }
 
+    private fun setupBackHandler() {
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
-            override fun handleOnBackPressed() {
-                when {
-                    customView != null -> hideCustomView()
-                    webView.canGoBack() -> webView.goBack()
-                    else -> finish()
-                }
+            override fun handleOnBackPressed() = when {
+                customView != null -> hideCustomView()
+                webView.canGoBack() -> webView.goBack()
+                else -> finish()
             }
         })
+    }
 
+    private fun setupSwipeRefresh() {
         swipeRefresh.setOnRefreshListener {
             vibrate()
             loadSiteOrError()
         }
+    }
 
-        val polyfill by lazy {
-            assets.open("bridge_polyfill.js").bufferedReader().use { it.readText() }
-        }
+    private fun buildChromeClient() = object : WebChromeClient() {
+        override fun getDefaultVideoPoster(): Bitmap = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
 
-        webView.webChromeClient = object : WebChromeClient() {
-            override fun getDefaultVideoPoster(): Bitmap =
-                Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
-
-            override fun onProgressChanged(view: WebView, newProgress: Int) {
-                if (newProgress < 100) {
-                    progressBar.visibility = View.VISIBLE
-                    progressBar.progress = newProgress
-                } else {
-                    progressBar.visibility = View.GONE
-                    swipeRefresh.isRefreshing = false
-                }
-            }
-
-            override fun onConsoleMessage(msg: ConsoleMessage) = true
-
-            override fun onShowCustomView(view: View, callback: CustomViewCallback) {
-                if (customView != null) {
-                    callback.onCustomViewHidden(); return
-                }
-                customView = view
-                customViewCallback = callback
-                originalOrientation = requestedOrientation
-                requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-                swipeRefresh.isEnabled = false
-                fullscreenContainer = FrameLayout(this@MainActivity).also {
-                    it.addView(view, FrameLayout.LayoutParams(-1, -1))
-                    (window.decorView as FrameLayout).addView(it, FrameLayout.LayoutParams(-1, -1))
-                }
-                hideSystemUI()
-            }
-
-            override fun onHideCustomView() {
-                hideCustomView()
-            }
-        }
-
-        webView.setDownloadListener { url, userAgent, contentDisposition, mimeType, _ ->
-            if (url.startsWith("blob:")) {
-                // Blob URLs can't be downloaded directly — read via JS and pass bytes to Kotlin
-                val js = """
-                    (function() {
-                        fetch('$url')
-                            .then(r => r.blob())
-                            .then(b => {
-                                var reader = new FileReader();
-                                reader.onload = function() {
-                                    AndroidDownload.receiveBlob(reader.result, '$mimeType', '$contentDisposition');
-                                };
-                                reader.readAsDataURL(b);
-                            });
-                    })()
-                """.trimIndent()
-                webView.evaluateJavascript(js, null)
+        override fun onProgressChanged(view: WebView, newProgress: Int) {
+            if (newProgress < 100) {
+                progressBar.visibility = View.VISIBLE
+                progressBar.progress = newProgress
             } else {
-                val request =
-                    android.app.DownloadManager.Request(android.net.Uri.parse(url)).apply {
-                        setMimeType(mimeType)
-                        addRequestHeader("User-Agent", userAgent)
-                        setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                        setDestinationInExternalPublicDir(
-                            android.os.Environment.DIRECTORY_DOWNLOADS,
-                            android.webkit.URLUtil.guessFileName(url, contentDisposition, mimeType)
-                        )
-                    }
-                (getSystemService(DOWNLOAD_SERVICE) as android.app.DownloadManager).enqueue(request)
-            }
-        }
-
-        webView.addJavascriptInterface(object {
-            @JavascriptInterface
-            fun receiveBlob(dataUrl: String, mimeType: String, contentDisposition: String) {
-                val bytes = android.util.Base64.decode(
-                    dataUrl.substringAfter(","),
-                    android.util.Base64.DEFAULT
-                )
-                val fileName =
-                    android.webkit.URLUtil.guessFileName("", contentDisposition, mimeType)
-                val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
-                    addCategory(Intent.CATEGORY_OPENABLE)
-                    type = mimeType.ifEmpty { "application/octet-stream" }
-                    putExtra(Intent.EXTRA_TITLE, fileName)
-                }
-                pendingBlobBytes = bytes
-                runOnUiThread { startActivityForResult(intent, blobDownloadRequestCode) }
-            }
-        }, "AndroidDownload")
-
-        webView.webViewClient = object : WebViewClient() {
-            override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
-                if (url == "about:blank") return
-                view.evaluateJavascript(polyfill, null)
-            }
-
-            override fun onPageFinished(view: WebView, url: String) {
-                if (url == "about:blank") return
-                view.evaluateJavascript(polyfill, null)
+                progressBar.visibility = View.GONE
                 swipeRefresh.isRefreshing = false
-                if (url.contains(SITE_HOST)) {
-                    saveCurrentUrl()
-                    view.postDelayed({ snapshotLocalStorage(view) }, 3000)
-                    if (!isOnline()) view.loadUrl("file:///android_asset/error.html")
-                }
-            }
-
-            override fun onReceivedError(
-                view: WebView,
-                request: WebResourceRequest,
-                error: android.webkit.WebResourceError
-            ) {
-                if (request.isForMainFrame) view.loadUrl("file:///android_asset/error.html")
-            }
-
-            // Rebuild the WebView in-place if the renderer crashes
-            override fun onRenderProcessGone(
-                view: WebView,
-                detail: RenderProcessGoneDetail
-            ): Boolean {
-                if (!detail.didCrash()) return false
-                (view.parent as? android.view.ViewGroup)?.let { parent ->
-                    val index = parent.indexOfChild(view)
-                    parent.removeView(view)
-                    view.destroy()
-                    webView = WebView(this@MainActivity).apply {
-                        settings.javaScriptEnabled = true
-                        settings.domStorageEnabled = true
-                        settings.mediaPlaybackRequiresUserGesture = false
-                        settings.cacheMode = WebSettings.LOAD_CACHE_ELSE_NETWORK
-                        layoutParams = view.layoutParams
-                    }
-                    parent.addView(webView, index)
-                    loadSiteOrError()
-                }
-                return true
-            }
-
-            // Route requests for prepareStream-registered hostnames through OkHttp,
-            // stripping restrictive headers and injecting CORS overrides
-            override fun shouldInterceptRequest(
-                view: WebView,
-                request: WebResourceRequest
-            ): WebResourceResponse? {
-                val url = request.url.toString()
-                if (!url.startsWith("http")) return null
-                val hostname = request.url.host ?: return null
-                val rule = bridge.activeRules[hostname] ?: return null
-                return try {
-                    val reqBuilder = Request.Builder().url(url)
-                    request.requestHeaders.forEach { (k, v) -> reqBuilder.addHeader(k, v) }
-                    rule.optJSONObject("requestHeaders")?.keys()?.forEach { k ->
-                        reqBuilder.header(k, rule.optJSONObject("requestHeaders")!!.getString(k))
-                    }
-                    reqBuilder.method(request.method ?: "GET", null)
-                    val response = httpClient.newCall(reqBuilder.build()).execute()
-                    val contentType = response.header("content-type", "application/octet-stream")
-                    val filteredHeaders = response.headers.toMultimap()
-                        .filterKeys { it.lowercase() !in headersToStrip }
-                        .mapValues { it.value.firstOrNull() ?: "" }
-                        .toMutableMap()
-                    filteredHeaders["Access-Control-Allow-Origin"] = "*"
-                    filteredHeaders["Access-Control-Allow-Methods"] =
-                        "GET, POST, PUT, DELETE, PATCH, OPTIONS"
-                    filteredHeaders["Access-Control-Allow-Headers"] = "*"
-                    rule.optJSONObject("responseHeaders")?.keys()?.forEach { k ->
-                        filteredHeaders[k] = rule.optJSONObject("responseHeaders")!!.getString(k)
-                    }
-                    WebResourceResponse(
-                        contentType?.substringBefore(";")?.trim() ?: "application/octet-stream",
-                        contentType?.substringAfter("charset=", "")?.trim()?.ifEmpty { null },
-                        response.code, response.message.ifEmpty { "OK" },
-                        filteredHeaders, response.body?.byteStream()
-                    )
-                } catch (e: Exception) {
-                    null
-                }
             }
         }
 
-        if (savedInstanceState != null) {
-            webView.restoreState(savedInstanceState)
-            if (webView.url.isNullOrEmpty()) loadLastUrlOrSite()
-        } else {
-            handleIntent(intent) ?: loadLastUrlOrSite()
+        override fun onConsoleMessage(msg: ConsoleMessage) = true
+
+        override fun onShowCustomView(view: View, callback: CustomViewCallback) {
+            if (customView != null) { callback.onCustomViewHidden(); return }
+            customView = view
+            customViewCallback = callback
+            originalOrientation = requestedOrientation
+            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            swipeRefresh.isEnabled = false
+            fullscreenContainer = FrameLayout(this@MainActivity).also {
+                it.addView(view, FrameLayout.LayoutParams(-1, -1))
+                (window.decorView as FrameLayout).addView(it, FrameLayout.LayoutParams(-1, -1))
+            }
+            systemUi.hideForFullscreen()
         }
+
+        override fun onHideCustomView() = hideCustomView()
+    }
+
+    private fun buildWebViewClient() = object : WebViewClient() {
+        override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
+            if (url == "about:blank") return
+            view.evaluateJavascript(polyfill, null)
+        }
+
+        override fun onPageFinished(view: WebView, url: String) {
+            if (url == "about:blank") return
+            view.evaluateJavascript(polyfill, null)
+            swipeRefresh.isRefreshing = false
+            if (url.contains(SITE_HOST)) {
+                saveCurrentUrl()
+                view.postDelayed({ storage.takeSnapshot() }, 3000)
+                if (!isOnline()) view.loadUrl("file:///android_asset/error.html")
+            }
+        }
+
+        override fun onReceivedError(view: WebView, request: android.webkit.WebResourceRequest, error: android.webkit.WebResourceError) {
+            if (request.isForMainFrame) view.loadUrl("file:///android_asset/error.html")
+        }
+
+        // Rebuild the WebView in-place if the renderer crashes
+        override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
+            if (!detail.didCrash()) return false
+            (view.parent as? android.view.ViewGroup)?.let { parent ->
+                val index = parent.indexOfChild(view)
+                parent.removeView(view)
+                view.destroy()
+                webView = WebView(this@MainActivity).apply {
+                    settings.javaScriptEnabled = true
+                    settings.domStorageEnabled = true
+                    settings.mediaPlaybackRequiresUserGesture = false
+                    settings.cacheMode = WebSettings.LOAD_CACHE_ELSE_NETWORK
+                    layoutParams = view.layoutParams
+                }
+                parent.addView(webView, index)
+                loadSiteOrError()
+            }
+            return true
+        }
+
+        override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest) =
+            interceptor.intercept(request)
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -367,7 +279,6 @@ class MainActivity : AppCompatActivity() {
             Intent.ACTION_VIEW -> intent.data?.toString()
             Intent.ACTION_SEND -> intent.getStringExtra(Intent.EXTRA_TEXT)
                 ?.let { Regex("https?://\\S+").find(it)?.value }
-
             else -> null
         } ?: return null
         return if (url.contains(SITE_HOST)) {
@@ -377,11 +288,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     // Periodic localStorage snapshot while the app is in the foreground
-    private val snapshotHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val snapshotHandler = Handler(Looper.getMainLooper())
     private val snapshotRunnable = object : Runnable {
         override fun run() {
-            val url = webView.url ?: ""
-            if (url.contains(SITE_HOST)) snapshotLocalStorage(webView)
+            if (webView.url?.contains(SITE_HOST) == true) storage.takeSnapshot()
             snapshotHandler.postDelayed(this, 60_000)
         }
     }
@@ -389,9 +299,8 @@ class MainActivity : AppCompatActivity() {
     override fun onPause() {
         super.onPause()
         snapshotHandler.removeCallbacks(snapshotRunnable)
-        val url = webView.url ?: ""
-        if (url.contains(SITE_HOST)) {
-            snapshotLocalStorage(webView)
+        if (webView.url?.contains(SITE_HOST) == true) {
+            storage.takeSnapshot()
             saveCurrentUrl()
         }
         webView.evaluateJavascript("document.querySelector('video')?.pause()", null)
@@ -416,52 +325,6 @@ class MainActivity : AppCompatActivity() {
         super.onDestroy()
     }
 
-    private fun isOnline(): Boolean {
-        val cm = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
-        val cap = cm.getNetworkCapabilities(cm.activeNetwork) ?: return false
-        return cap.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-    }
-
-    private fun loadSiteOrError() {
-        if (isOnline()) webView.loadUrl("$SITE_URL/")
-        else webView.loadUrl("file:///android_asset/error.html")
-    }
-
-    private fun loadLastUrlOrSite() {
-        if (!isOnline()) {
-            webView.loadUrl("file:///android_asset/error.html"); return
-        }
-        val prefs = getSharedPreferences("zstream", MODE_PRIVATE)
-        val last = prefs.getString("last_url", null)
-        webView.loadUrl(if (!last.isNullOrEmpty() && last.startsWith(SITE_URL)) last else "$SITE_URL/")
-    }
-
-    private fun saveCurrentUrl() {
-        val url = webView.url ?: return
-        if (url.startsWith(SITE_URL)) {
-            getSharedPreferences("zstream", MODE_PRIVATE).edit().putString("last_url", url).apply()
-        }
-    }
-
-    private fun vibrate() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            (getSystemService(VIBRATOR_MANAGER_SERVICE) as VibratorManager)
-                .defaultVibrator.vibrate(
-                    VibrationEffect.createOneShot(
-                        40,
-                        VibrationEffect.DEFAULT_AMPLITUDE
-                    )
-                )
-        } else {
-            @Suppress("DEPRECATION")
-            (getSystemService(VIBRATOR_SERVICE) as Vibrator).let {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
-                    it.vibrate(VibrationEffect.createOneShot(40, VibrationEffect.DEFAULT_AMPLITUDE))
-                else it.vibrate(40)
-            }
-        }
-    }
-
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         webView.saveState(outState)
@@ -473,6 +336,29 @@ class MainActivity : AppCompatActivity() {
         progressBar.visibility = View.GONE
     }
 
+    @Suppress("DEPRECATION")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (resultCode != Activity.RESULT_OK || data?.data == null) return
+        when (requestCode) {
+            exportRequestCode -> {
+                val json = pendingExportJson ?: return
+                pendingExportJson = null
+                try {
+                    contentResolver.openOutputStream(data.data!!)?.use { it.write(json.toByteArray()) }
+                    webView.evaluateJavascript("window.__exportResult('done')", null)
+                } catch (_: Exception) {
+                    webView.evaluateJavascript("window.__exportResult('error')", null)
+                }
+            }
+            blobDownloadRequestCode -> {
+                val bytes = downloader.pendingBlobBytes ?: return
+                downloader.pendingBlobBytes = null
+                try { contentResolver.openOutputStream(data.data!!)?.use { it.write(bytes) } } catch (_: Exception) {}
+            }
+        }
+    }
+
     private fun hideCustomView() {
         customView ?: return
         (window.decorView as FrameLayout).removeView(fullscreenContainer)
@@ -482,60 +368,60 @@ class MainActivity : AppCompatActivity() {
         customViewCallback = null
         requestedOrientation = originalOrientation
         swipeRefresh.isEnabled = true
-        showSystemUI()
+        systemUi.show()
     }
 
-    private fun hideSystemUI() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            window.insetsController?.apply {
-                hide(WindowInsets.Type.statusBars() or WindowInsets.Type.navigationBars())
-                systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+    private fun isOnline(): Boolean {
+        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        return cm.getNetworkCapabilities(cm.activeNetwork)
+            ?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+    }
+
+    private fun loadSiteOrError() {
+        if (isOnline()) webView.loadUrl("$SITE_URL/") else webView.loadUrl("file:///android_asset/error.html")
+    }
+
+    private fun loadLastUrlOrSite() {
+        if (!isOnline()) { webView.loadUrl("file:///android_asset/error.html"); return }
+        val last = getSharedPreferences("zstream", MODE_PRIVATE).getString("last_url", null)
+        webView.loadUrl(if (!last.isNullOrEmpty() && last.startsWith(SITE_URL)) last else "$SITE_URL/")
+    }
+
+    private fun saveCurrentUrl() {
+        val url = webView.url ?: return
+        if (url.startsWith(SITE_URL))
+            getSharedPreferences("zstream", MODE_PRIVATE).edit().putString("last_url", url).apply()
+    }
+
+    private fun vibrate() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            (getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager)
+                .defaultVibrator.vibrate(VibrationEffect.createOneShot(40, VibrationEffect.DEFAULT_AMPLITUDE))
+        } else {
+            @Suppress("DEPRECATION")
+            (getSystemService(Context.VIBRATOR_SERVICE) as Vibrator).let {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+                    it.vibrate(VibrationEffect.createOneShot(40, VibrationEffect.DEFAULT_AMPLITUDE))
+                else it.vibrate(40)
             }
-        } else {
-            @Suppress("DEPRECATION")
-            window.decorView.systemUiVisibility = (
-                    View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
-                            View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-                    )
-        }
-    }
-
-    private fun showSystemUI() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            window.insetsController?.show(WindowInsets.Type.statusBars() or WindowInsets.Type.navigationBars())
-        } else {
-            @Suppress("DEPRECATION")
-            window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
         }
     }
 
     inner class ZoomBridge {
         private val prefs get() = getSharedPreferences("zstream", MODE_PRIVATE)
-        @JavascriptInterface
-        fun getZoom(): Int = prefs.getInt("zoom", 100)
-        @JavascriptInterface
-        fun setZoom(percent: Int) {
-            prefs.edit().putInt("zoom", percent.coerceIn(50, 150)).apply()
-        }
-
-        @JavascriptInterface
-        fun isHidden(): Boolean = prefs.getBoolean("zoom_hidden", false)
-        @JavascriptInterface
-        fun setHidden(hidden: Boolean) {
-            prefs.edit().putBoolean("zoom_hidden", hidden).apply()
-        }
+        @JavascriptInterface fun getZoom(): Int = prefs.getInt("zoom", 100)
+        @JavascriptInterface fun setZoom(percent: Int) = prefs.edit().putInt("zoom", percent.coerceIn(50, 150)).apply()
+        @JavascriptInterface fun isHidden(): Boolean = prefs.getBoolean("zoom_hidden", false)
+        @JavascriptInterface fun setHidden(hidden: Boolean) = prefs.edit().putBoolean("zoom_hidden", hidden).apply()
     }
 
     inner class PipBridge {
         @JavascriptInterface
         fun enter(width: Int, height: Int) {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
-            val w = if (width > 0) width else 16
-            val h = if (height > 0) height else 9
+            val aspectRatio = Rational(if (width > 0) width else 16, if (height > 0) height else 9)
             runOnUiThread {
-                enterPictureInPictureMode(
-                    PictureInPictureParams.Builder().setAspectRatio(Rational(w, h)).build()
-                )
+                enterPictureInPictureMode(PictureInPictureParams.Builder().setAspectRatio(aspectRatio).build())
             }
         }
     }
@@ -549,11 +435,26 @@ class MainActivity : AppCompatActivity() {
 
         @JavascriptInterface
         fun updateState(playing: Boolean, title: String, duration: Long, position: Long) {
+            updateMediaSession(playing, title, duration, position)
+            runOnUiThread {
+                // Keep screen on only while video is actively playing
+                if (playing) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                val intent = Intent(this@MainActivity, MediaPlaybackService::class.java)
+                    .putExtra("playing", playing)
+                    .putExtra("title", title.ifEmpty { "ZStream" })
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent)
+                else startService(intent)
+            }
+        }
+
+        private fun updateMediaSession(playing: Boolean, title: String, duration: Long, position: Long) {
             mediaSession.setPlaybackState(
                 PlaybackStateCompat.Builder()
                     .setState(
                         if (playing) PlaybackStateCompat.STATE_PLAYING else PlaybackStateCompat.STATE_PAUSED,
-                        position, if (playing) 1f else 0f
+                        position,
+                        if (playing) 1f else 0f,
                     )
                     .setActions(PlaybackStateCompat.ACTION_PLAY or PlaybackStateCompat.ACTION_PAUSE or PlaybackStateCompat.ACTION_SEEK_TO)
                     .build()
@@ -564,109 +465,6 @@ class MainActivity : AppCompatActivity() {
                     .putLong(MediaMetadataCompat.METADATA_KEY_DURATION, duration)
                     .build()
             )
-            runOnUiThread {
-                // Keep screen on only while video is actively playing
-                if (playing) window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-                else window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-                val intent = Intent(this@MainActivity, MediaPlaybackService::class.java)
-                    .putExtra("playing", playing).putExtra("title", title.ifEmpty { "ZStream" })
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent)
-                else startService(intent)
-            }
-        }
-    }
-
-    private var pendingExportJson: String? = null
-    private var pendingBlobBytes: ByteArray? = null
-    private var localStorageSnapshot: String? = null
-    private val exportRequestCode = 1001
-    private val blobDownloadRequestCode = 1002
-
-    private fun snapshotLocalStorage(view: WebView) {
-        val js = """
-            (function() {
-                function get(key) {
-                    try { var s = localStorage.getItem(key); return s ? JSON.parse(s).state : null; }
-                    catch(e) { return null; }
-                }
-                var auth = get('__MW::auth') || {};
-                var bookmarks = get('__MW::bookmarks') || {};
-                var progress = get('__MW::progress') || {};
-                var watchHistory = get('__MW::watchHistory') || {};
-                var groupOrder = get('__MW::groupOrder') || {};
-                var prefs = get('__MW::preferences') || {};
-                var subtitles = get('__MW::subtitles') || {};
-                var theme = get('__MW::theme') || {};
-                var locale = get('__MW::locale') || {};
-                return JSON.stringify({
-                    account: auth.account ? { profile: auth.account.profile, deviceName: auth.account.deviceName } : null,
-                    bookmarks: bookmarks.bookmarks || {},
-                    progress: progress.items || {},
-                    watchHistory: watchHistory.items || {},
-                    groupOrder: groupOrder.groupOrder || [],
-                    settings: Object.assign({}, prefs, { defaultSubtitleLanguage: subtitles.lastSelectedLanguage || null }),
-                    theme: theme.theme || null,
-                    language: locale.language || null,
-                    exportDate: new Date().toISOString()
-                });
-            })()
-        """.trimIndent()
-        view.evaluateJavascript(js) { result ->
-            if (result != null && result.length > 2) {
-                localStorageSnapshot = result.removePrefix("\"").removeSuffix("\"")
-                    .replace("\\\"", "\"").replace("\\\\", "\\").replace("\\/", "/")
-            }
-        }
-    }
-
-    @Suppress("DEPRECATION")
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (resultCode != RESULT_OK || data?.data == null) return
-        when (requestCode) {
-            exportRequestCode -> {
-                val json = pendingExportJson ?: return
-                pendingExportJson = null
-                try {
-                    contentResolver.openOutputStream(data.data!!)
-                        ?.use { it.write(json.toByteArray()) }
-                    webView.evaluateJavascript("window.__exportResult('done')", null)
-                } catch (e: Exception) {
-                    webView.evaluateJavascript("window.__exportResult('error')", null)
-                }
-            }
-
-            blobDownloadRequestCode -> {
-                val bytes = pendingBlobBytes ?: return
-                pendingBlobBytes = null
-                try {
-                    contentResolver.openOutputStream(data.data!!)?.use { it.write(bytes) }
-                } catch (_: Exception) {
-                }
-            }
-        }
-    }
-
-    inner class DataExportBridge {
-        @JavascriptInterface
-        fun requestExport() {
-            val snapshot = localStorageSnapshot
-            if (snapshot.isNullOrEmpty() || snapshot == "{}" ||
-                (snapshot.contains("\"bookmarks\":{}") && snapshot.contains("\"progress\":{}") && snapshot.contains(
-                    "\"watchHistory\":{}"
-                ))
-            ) {
-                runOnUiThread { webView.evaluateJavascript("window.__exportResult('empty')", null) }
-                return
-            }
-            pendingExportJson = snapshot
-            val date = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
-            val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
-                addCategory(Intent.CATEGORY_OPENABLE)
-                type = "application/json"
-                putExtra(Intent.EXTRA_TITLE, "zstream-data-$date.json")
-            }
-            runOnUiThread { startActivityForResult(intent, exportRequestCode) }
         }
     }
 }
