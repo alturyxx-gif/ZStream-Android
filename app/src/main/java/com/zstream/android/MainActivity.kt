@@ -70,6 +70,7 @@ class MainActivity : AppCompatActivity() {
         .followRedirects(true)
         .build()
 
+    // Headers that would block the WebView from rendering cross-origin content
     private val headersToStrip = setOf(
         "content-security-policy", "content-security-policy-report-only",
         "access-control-allow-origin", "access-control-allow-methods",
@@ -78,11 +79,15 @@ class MainActivity : AppCompatActivity() {
     )
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        // (1) PREWARM: instantiate WebView before setContentView to warm up the renderer
+        // Instantiate and immediately destroy a WebView to warm up the renderer process
+        // before setContentView, reducing first-load latency
         WebView(applicationContext).also { it.destroy() }
-        // DNS prefetch for zstream.mov
+
         lifecycleScope.launch(Dispatchers.IO) {
-            try { java.net.InetAddress.getByName(SITE_HOST) } catch (_: Exception) {}
+            try {
+                java.net.InetAddress.getByName(SITE_HOST)
+            } catch (_: Exception) {
+            }
         }
 
         super.onCreate(savedInstanceState)
@@ -92,9 +97,6 @@ class MainActivity : AppCompatActivity() {
         swipeRefresh = findViewById(R.id.swipeRefresh)
         progressBar = findViewById(R.id.progressBar)
 
-        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-
-        // (2) CACHING: use cache-first, allocate 50 MB app cache
         webView.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
@@ -104,7 +106,6 @@ class MainActivity : AppCompatActivity() {
         }
         webView.importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_YES
 
-        // Safe browsing opt-out (site is legitimate, avoids false-positive interstitials)
         if (WebViewFeature.isFeatureSupported(WebViewFeature.SAFE_BROWSING_ENABLE))
             WebSettingsCompat.setSafeBrowsingEnabled(webView.settings, false)
 
@@ -115,15 +116,25 @@ class MainActivity : AppCompatActivity() {
             )
         }
 
-        // (7) MEDIA SESSION setup — shared with MediaPlaybackService for lock screen controls
         mediaSession = MediaSessionCompat(this, "ZStreamMediaSession").apply {
-            setFlags(MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS or
-                     MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS)
+            setFlags(
+                MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS or
+                        MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS
+            )
             setCallback(object : MediaSessionCompat.Callback() {
-                override fun onPlay() { webView.evaluateJavascript("document.querySelector('video')?.play()", null) }
-                override fun onPause() { webView.evaluateJavascript("document.querySelector('video')?.pause()", null) }
+                override fun onPlay() {
+                    webView.evaluateJavascript("document.querySelector('video')?.play()", null)
+                }
+
+                override fun onPause() {
+                    webView.evaluateJavascript("document.querySelector('video')?.pause()", null)
+                }
+
                 override fun onSeekTo(pos: Long) {
-                    webView.evaluateJavascript("document.querySelector('video').currentTime=${pos/1000.0}", null)
+                    webView.evaluateJavascript(
+                        "document.querySelector('video').currentTime=${pos / 1000.0}",
+                        null
+                    )
                 }
             })
             isActive = true
@@ -137,7 +148,8 @@ class MainActivity : AppCompatActivity() {
         webView.addJavascriptInterface(MediaBridge(), "AndroidMedia")
         webView.addJavascriptInterface(ZoomBridge(), "AndroidZoom")
         webView.addJavascriptInterface(object {
-            @JavascriptInterface fun go() = runOnUiThread { loadSiteOrError() }
+            @JavascriptInterface
+            fun go() = runOnUiThread { loadSiteOrError() }
         }, "AndroidRetry")
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
@@ -150,7 +162,6 @@ class MainActivity : AppCompatActivity() {
             }
         })
 
-        // (6) HAPTIC: vibrate when pull-to-refresh is triggered
         swipeRefresh.setOnRefreshListener {
             vibrate()
             loadSiteOrError()
@@ -177,12 +188,13 @@ class MainActivity : AppCompatActivity() {
             override fun onConsoleMessage(msg: ConsoleMessage) = true
 
             override fun onShowCustomView(view: View, callback: CustomViewCallback) {
-                if (customView != null) { callback.onCustomViewHidden(); return }
+                if (customView != null) {
+                    callback.onCustomViewHidden(); return
+                }
                 customView = view
                 customViewCallback = callback
                 originalOrientation = requestedOrientation
                 requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-                // (5) DISABLE swipe-to-refresh when fullscreen video is showing
                 swipeRefresh.isEnabled = false
                 fullscreenContainer = FrameLayout(this@MainActivity).also {
                     it.addView(view, FrameLayout.LayoutParams(-1, -1))
@@ -198,6 +210,7 @@ class MainActivity : AppCompatActivity() {
 
         webView.setDownloadListener { url, userAgent, contentDisposition, mimeType, _ ->
             if (url.startsWith("blob:")) {
+                // Blob URLs can't be downloaded directly — read via JS and pass bytes to Kotlin
                 val js = """
                     (function() {
                         fetch('$url')
@@ -213,24 +226,29 @@ class MainActivity : AppCompatActivity() {
                 """.trimIndent()
                 webView.evaluateJavascript(js, null)
             } else {
-                val request = android.app.DownloadManager.Request(android.net.Uri.parse(url)).apply {
-                    setMimeType(mimeType)
-                    addRequestHeader("User-Agent", userAgent)
-                    setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                    setDestinationInExternalPublicDir(
-                        android.os.Environment.DIRECTORY_DOWNLOADS,
-                        android.webkit.URLUtil.guessFileName(url, contentDisposition, mimeType)
-                    )
-                }
-                (getSystemService(Context.DOWNLOAD_SERVICE) as android.app.DownloadManager).enqueue(request)
+                val request =
+                    android.app.DownloadManager.Request(android.net.Uri.parse(url)).apply {
+                        setMimeType(mimeType)
+                        addRequestHeader("User-Agent", userAgent)
+                        setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                        setDestinationInExternalPublicDir(
+                            android.os.Environment.DIRECTORY_DOWNLOADS,
+                            android.webkit.URLUtil.guessFileName(url, contentDisposition, mimeType)
+                        )
+                    }
+                (getSystemService(DOWNLOAD_SERVICE) as android.app.DownloadManager).enqueue(request)
             }
         }
 
         webView.addJavascriptInterface(object {
             @JavascriptInterface
             fun receiveBlob(dataUrl: String, mimeType: String, contentDisposition: String) {
-                val bytes = android.util.Base64.decode(dataUrl.substringAfter(","), android.util.Base64.DEFAULT)
-                val fileName = android.webkit.URLUtil.guessFileName("", contentDisposition, mimeType)
+                val bytes = android.util.Base64.decode(
+                    dataUrl.substringAfter(","),
+                    android.util.Base64.DEFAULT
+                )
+                val fileName =
+                    android.webkit.URLUtil.guessFileName("", contentDisposition, mimeType)
                 val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
                     addCategory(Intent.CATEGORY_OPENABLE)
                     type = mimeType.ifEmpty { "application/octet-stream" }
@@ -241,7 +259,6 @@ class MainActivity : AppCompatActivity() {
             }
         }, "AndroidDownload")
 
-        // (3) CRASH RECOVERY: handle WebView renderer crash
         webView.webViewClient = object : WebViewClient() {
             override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
                 if (url == "about:blank") return
@@ -261,15 +278,18 @@ class MainActivity : AppCompatActivity() {
 
             override fun onReceivedError(
                 view: WebView,
-                request: android.webkit.WebResourceRequest,
+                request: WebResourceRequest,
                 error: android.webkit.WebResourceError
             ) {
                 if (request.isForMainFrame) view.loadUrl("file:///android_asset/error.html")
             }
 
-            override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
+            // Rebuild the WebView in-place if the renderer crashes
+            override fun onRenderProcessGone(
+                view: WebView,
+                detail: RenderProcessGoneDetail
+            ): Boolean {
                 if (!detail.didCrash()) return false
-                // Renderer crashed — rebuild the WebView and reload
                 (view.parent as? android.view.ViewGroup)?.let { parent ->
                     val index = parent.indexOfChild(view)
                     parent.removeView(view)
@@ -287,7 +307,12 @@ class MainActivity : AppCompatActivity() {
                 return true
             }
 
-            override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
+            // Route requests for prepareStream-registered hostnames through OkHttp,
+            // stripping restrictive headers and injecting CORS overrides
+            override fun shouldInterceptRequest(
+                view: WebView,
+                request: WebResourceRequest
+            ): WebResourceResponse? {
                 val url = request.url.toString()
                 if (!url.startsWith("http")) return null
                 val hostname = request.url.host ?: return null
@@ -306,7 +331,8 @@ class MainActivity : AppCompatActivity() {
                         .mapValues { it.value.firstOrNull() ?: "" }
                         .toMutableMap()
                     filteredHeaders["Access-Control-Allow-Origin"] = "*"
-                    filteredHeaders["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, PATCH, OPTIONS"
+                    filteredHeaders["Access-Control-Allow-Methods"] =
+                        "GET, POST, PUT, DELETE, PATCH, OPTIONS"
                     filteredHeaders["Access-Control-Allow-Headers"] = "*"
                     rule.optJSONObject("responseHeaders")?.keys()?.forEach { k ->
                         filteredHeaders[k] = rule.optJSONObject("responseHeaders")!!.getString(k)
@@ -317,7 +343,9 @@ class MainActivity : AppCompatActivity() {
                         response.code, response.message.ifEmpty { "OK" },
                         filteredHeaders, response.body?.byteStream()
                     )
-                } catch (e: Exception) { null }
+                } catch (e: Exception) {
+                    null
+                }
             }
         }
 
@@ -334,21 +362,21 @@ class MainActivity : AppCompatActivity() {
         handleIntent(intent)
     }
 
-    // Returns the URL loaded if the intent had one, null otherwise
     private fun handleIntent(intent: Intent?): String? {
         val url = when (intent?.action) {
             Intent.ACTION_VIEW -> intent.data?.toString()
             Intent.ACTION_SEND -> intent.getStringExtra(Intent.EXTRA_TEXT)
                 ?.let { Regex("https?://\\S+").find(it)?.value }
+
             else -> null
         } ?: return null
-        // Only handle zstream.mov URLs; open others in browser
         return if (url.contains(SITE_HOST)) {
             if (isOnline()) webView.loadUrl(url) else webView.loadUrl("file:///android_asset/error.html")
             url
         } else null
     }
 
+    // Periodic localStorage snapshot while the app is in the foreground
     private val snapshotHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private val snapshotRunnable = object : Runnable {
         override fun run() {
@@ -378,7 +406,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onStop() {
         super.onStop()
-        // Prevent WebView from pausing media when fully backgrounded
+        // Prevent WebView from pausing timers/media when the activity is fully obscured
         webView.onResume()
         webView.resumeTimers()
     }
@@ -389,7 +417,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun isOnline(): Boolean {
-        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val cm = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
         val cap = cm.getNetworkCapabilities(cm.activeNetwork) ?: return false
         return cap.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
     }
@@ -400,7 +428,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun loadLastUrlOrSite() {
-        if (!isOnline()) { webView.loadUrl("file:///android_asset/error.html"); return }
+        if (!isOnline()) {
+            webView.loadUrl("file:///android_asset/error.html"); return
+        }
         val prefs = getSharedPreferences("zstream", MODE_PRIVATE)
         val last = prefs.getString("last_url", null)
         webView.loadUrl(if (!last.isNullOrEmpty() && last.startsWith(SITE_URL)) last else "$SITE_URL/")
@@ -415,11 +445,16 @@ class MainActivity : AppCompatActivity() {
 
     private fun vibrate() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            (getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager)
-                .defaultVibrator.vibrate(VibrationEffect.createOneShot(40, VibrationEffect.DEFAULT_AMPLITUDE))
+            (getSystemService(VIBRATOR_MANAGER_SERVICE) as VibratorManager)
+                .defaultVibrator.vibrate(
+                    VibrationEffect.createOneShot(
+                        40,
+                        VibrationEffect.DEFAULT_AMPLITUDE
+                    )
+                )
         } else {
             @Suppress("DEPRECATION")
-            (getSystemService(Context.VIBRATOR_SERVICE) as Vibrator).let {
+            (getSystemService(VIBRATOR_SERVICE) as Vibrator).let {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
                     it.vibrate(VibrationEffect.createOneShot(40, VibrationEffect.DEFAULT_AMPLITUDE))
                 else it.vibrate(40)
@@ -459,9 +494,9 @@ class MainActivity : AppCompatActivity() {
         } else {
             @Suppress("DEPRECATION")
             window.decorView.systemUiVisibility = (
-                View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
-                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-            )
+                    View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
+                            View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                    )
         }
     }
 
@@ -476,12 +511,17 @@ class MainActivity : AppCompatActivity() {
 
     inner class ZoomBridge {
         private val prefs get() = getSharedPreferences("zstream", MODE_PRIVATE)
-        @JavascriptInterface fun getZoom(): Int = prefs.getInt("zoom", 100)
-        @JavascriptInterface fun setZoom(percent: Int) {
+        @JavascriptInterface
+        fun getZoom(): Int = prefs.getInt("zoom", 100)
+        @JavascriptInterface
+        fun setZoom(percent: Int) {
             prefs.edit().putInt("zoom", percent.coerceIn(50, 150)).apply()
         }
-        @JavascriptInterface fun isHidden(): Boolean = prefs.getBoolean("zoom_hidden", false)
-        @JavascriptInterface fun setHidden(hidden: Boolean) {
+
+        @JavascriptInterface
+        fun isHidden(): Boolean = prefs.getBoolean("zoom_hidden", false)
+        @JavascriptInterface
+        fun setHidden(hidden: Boolean) {
             prefs.edit().putBoolean("zoom_hidden", hidden).apply()
         }
     }
@@ -500,7 +540,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // (7) MEDIA SESSION bridge — JS calls these to update lock screen controls
     inner class MediaBridge {
         @JavascriptInterface
         fun setSwipeRefresh(enabled: Boolean) = runOnUiThread {
@@ -526,6 +565,9 @@ class MainActivity : AppCompatActivity() {
                     .build()
             )
             runOnUiThread {
+                // Keep screen on only while video is actively playing
+                if (playing) window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                else window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                 val intent = Intent(this@MainActivity, MediaPlaybackService::class.java)
                     .putExtra("playing", playing).putExtra("title", title.ifEmpty { "ZStream" })
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent)
@@ -580,22 +622,27 @@ class MainActivity : AppCompatActivity() {
     @Suppress("DEPRECATION")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (resultCode != Activity.RESULT_OK || data?.data == null) return
+        if (resultCode != RESULT_OK || data?.data == null) return
         when (requestCode) {
             exportRequestCode -> {
                 val json = pendingExportJson ?: return
                 pendingExportJson = null
                 try {
-                    contentResolver.openOutputStream(data.data!!)?.use { it.write(json.toByteArray()) }
+                    contentResolver.openOutputStream(data.data!!)
+                        ?.use { it.write(json.toByteArray()) }
                     webView.evaluateJavascript("window.__exportResult('done')", null)
                 } catch (e: Exception) {
                     webView.evaluateJavascript("window.__exportResult('error')", null)
                 }
             }
+
             blobDownloadRequestCode -> {
                 val bytes = pendingBlobBytes ?: return
                 pendingBlobBytes = null
-                try { contentResolver.openOutputStream(data.data!!)?.use { it.write(bytes) } } catch (_: Exception) {}
+                try {
+                    contentResolver.openOutputStream(data.data!!)?.use { it.write(bytes) }
+                } catch (_: Exception) {
+                }
             }
         }
     }
@@ -605,7 +652,10 @@ class MainActivity : AppCompatActivity() {
         fun requestExport() {
             val snapshot = localStorageSnapshot
             if (snapshot.isNullOrEmpty() || snapshot == "{}" ||
-                (snapshot.contains("\"bookmarks\":{}") && snapshot.contains("\"progress\":{}") && snapshot.contains("\"watchHistory\":{}"))) {
+                (snapshot.contains("\"bookmarks\":{}") && snapshot.contains("\"progress\":{}") && snapshot.contains(
+                    "\"watchHistory\":{}"
+                ))
+            ) {
                 runOnUiThread { webView.evaluateJavascript("window.__exportResult('empty')", null) }
                 return
             }

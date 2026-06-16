@@ -1,13 +1,15 @@
 plugins {
     alias(libs.plugins.android.application)
+    id("org.jlleitschuh.gradle.ktlint") version "12.1.2"
 }
 
 android {
     namespace = "com.zstream.android"
     compileSdk {
-        version = release(36) {
-            minorApiLevel = 1
-        }
+        version =
+            release(36) {
+                minorApiLevel = 1
+            }
     }
 
     defaultConfig {

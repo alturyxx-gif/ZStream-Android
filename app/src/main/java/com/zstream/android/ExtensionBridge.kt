@@ -86,8 +86,10 @@ class ExtensionBridge(
             requestBodyRaw == null || method == "GET" || method == "HEAD" -> null
             bodyType == "object" -> requestBodyRaw.toString()
                 .toRequestBody("application/json".toMediaTypeOrNull())
+
             bodyType == "URLSearchParams" -> requestBodyRaw.toString()
                 .toRequestBody("application/x-www-form-urlencoded".toMediaTypeOrNull())
+
             else -> requestBodyRaw.toString().toRequestBody(null)
         }
 
@@ -102,7 +104,11 @@ class ExtensionBridge(
         val responseBodyStr = response.body?.string() ?: ""
 
         val responseBody: Any = if (contentType?.contains("application/json") == true) {
-            try { JSONObject(responseBodyStr) } catch (e: Exception) { responseBodyStr }
+            try {
+                JSONObject(responseBodyStr)
+            } catch (e: Exception) {
+                responseBodyStr
+            }
         } else {
             responseBodyStr
         }

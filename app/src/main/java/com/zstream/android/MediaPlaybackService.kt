@@ -26,7 +26,11 @@ class MediaPlaybackService : Service() {
     override fun onCreate() {
         super.onCreate()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(CHANNEL_ID, "Media Playback", NotificationManager.IMPORTANCE_LOW)
+            val channel = NotificationChannel(
+                CHANNEL_ID,
+                "Media Playback",
+                NotificationManager.IMPORTANCE_LOW
+            )
             getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
         }
     }
@@ -48,7 +52,8 @@ class MediaPlaybackService : Service() {
         val state = session?.controller?.playbackState?.state
         val isPlaying = state == PlaybackStateCompat.STATE_PLAYING
         val title = session?.controller?.metadata
-            ?.getString(android.support.v4.media.MediaMetadataCompat.METADATA_KEY_TITLE) ?: "ZStream"
+            ?.getString(android.support.v4.media.MediaMetadataCompat.METADATA_KEY_TITLE)
+            ?: "ZStream"
 
         val openIntent = PendingIntent.getActivity(
             this, 0, Intent(this, MainActivity::class.java),
