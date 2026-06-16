@@ -164,6 +164,54 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        webView.setDownloadListener { url, userAgent, contentDisposition, mimeType, _ ->
+            if (url.startsWith("blob:")) {
+                // Blob URLs can't be fetched natively — read via JS and pass base64 to Kotlin
+                val js = """
+                    (function() {
+                        fetch('$url')
+                            .then(r => r.blob())
+                            .then(b => {
+                                var reader = new FileReader();
+                                reader.onload = function() {
+                                    AndroidDownload.receiveBlob(reader.result, '$mimeType', '$contentDisposition');
+                                };
+                                reader.readAsDataURL(b);
+                            });
+                    })()
+                """.trimIndent()
+                webView.evaluateJavascript(js, null)
+            } else {
+                val request = android.app.DownloadManager.Request(android.net.Uri.parse(url)).apply {
+                    setMimeType(mimeType)
+                    addRequestHeader("User-Agent", userAgent)
+                    setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                    setDestinationInExternalPublicDir(
+                        android.os.Environment.DIRECTORY_DOWNLOADS,
+                        android.webkit.URLUtil.guessFileName(url, contentDisposition, mimeType)
+                    )
+                }
+                (getSystemService(Context.DOWNLOAD_SERVICE) as android.app.DownloadManager).enqueue(request)
+            }
+        }
+
+        webView.addJavascriptInterface(object {
+            @JavascriptInterface
+            fun receiveBlob(dataUrl: String, mimeType: String, contentDisposition: String) {
+                // dataUrl is "data:<mime>;base64,<data>"
+                val base64 = dataUrl.substringAfter(",")
+                val bytes = android.util.Base64.decode(base64, android.util.Base64.DEFAULT)
+                val fileName = android.webkit.URLUtil.guessFileName("", contentDisposition, mimeType)
+                val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                    type = mimeType.ifEmpty { "application/octet-stream" }
+                    putExtra(Intent.EXTRA_TITLE, fileName)
+                }
+                pendingBlobBytes = bytes
+                runOnUiThread { startActivityForResult(intent, blobDownloadRequestCode) }
+            }
+        }, "AndroidDownload")
+
         webView.webViewClient = object : WebViewClient() {
             override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
                 view.evaluateJavascript(polyfill, null)
@@ -172,7 +220,6 @@ class MainActivity : AppCompatActivity() {
             override fun onPageFinished(view: WebView, url: String) {
                 view.evaluateJavascript(polyfill, null)
                 swipeRefresh.isRefreshing = false
-                Log.d("DataExport", "onPageFinished url=$url")
                 if (url.contains("zstream.mov")) {
                     view.postDelayed({ snapshotLocalStorage(view) }, 3000)
                     if (!isOnline()) view.loadUrl("file:///android_asset/error.html")
@@ -315,8 +362,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private var pendingExportJson: String? = null
+    private var pendingBlobBytes: ByteArray? = null
     private var localStorageSnapshot: String? = null
     private val exportRequestCode = 1001
+    private val blobDownloadRequestCode = 1002
 
     private fun snapshotLocalStorage(view: WebView) {
         val js = """
@@ -349,7 +398,6 @@ class MainActivity : AppCompatActivity() {
             })()
         """.trimIndent()
         view.evaluateJavascript(js) { result ->
-            Log.d("DataExport", "snapshot keys result length=${result?.length} starts=${result?.take(100)}")
             if (result != null && result.length > 2) {
                 // result is a JSON-encoded string from evaluateJavascript — unwrap one level of escaping
                 val unwrapped = result
@@ -365,15 +413,25 @@ class MainActivity : AppCompatActivity() {
     @Suppress("DEPRECATION")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode != exportRequestCode) return
-        val json = pendingExportJson ?: return
-        pendingExportJson = null
         if (resultCode != Activity.RESULT_OK || data?.data == null) return
-        try {
-            contentResolver.openOutputStream(data.data!!)?.use { it.write(json.toByteArray()) }
-            webView.evaluateJavascript("window.__exportResult('done')", null)
-        } catch (e: Exception) {
-            webView.evaluateJavascript("window.__exportResult('error')", null)
+        when (requestCode) {
+            exportRequestCode -> {
+                val json = pendingExportJson ?: return
+                pendingExportJson = null
+                try {
+                    contentResolver.openOutputStream(data.data!!)?.use { it.write(json.toByteArray()) }
+                    webView.evaluateJavascript("window.__exportResult('done')", null)
+                } catch (e: Exception) {
+                    webView.evaluateJavascript("window.__exportResult('error')", null)
+                }
+            }
+            blobDownloadRequestCode -> {
+                val bytes = pendingBlobBytes ?: return
+                pendingBlobBytes = null
+                try {
+                    contentResolver.openOutputStream(data.data!!)?.use { it.write(bytes) }
+                } catch (_: Exception) {}
+            }
         }
     }
 
@@ -381,7 +439,6 @@ class MainActivity : AppCompatActivity() {
         @JavascriptInterface
         fun requestExport() {
             val snapshot = localStorageSnapshot
-            Log.d("DataExport", "requestExport called, snapshot=${snapshot?.take(200)}")
             if (snapshot.isNullOrEmpty() || snapshot == "{}" ||
                 (snapshot.contains("\"bookmarks\":{}") && snapshot.contains("\"progress\":{}") && snapshot.contains("\"watchHistory\":{}"))) {
                 runOnUiThread {
