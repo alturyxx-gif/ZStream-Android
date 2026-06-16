@@ -11,6 +11,8 @@ webkit = "1.14.0"
 okhttp = "4.12.0"
 coroutines = "1.7.3"
 
+swiperefresh = "1.1.0"
+
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
@@ -23,6 +25,7 @@ androidx-credentials-play-services = { group = "androidx.credentials", name = "c
 androidx-webkit = { group = "androidx.webkit", name = "webkit", version.ref = "webkit" }
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
 kotlinx-coroutines = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
+androidx-swiperefreshlayout = { group = "androidx.swiperefreshlayout", name = "swiperefreshlayout", version.ref = "swiperefresh" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

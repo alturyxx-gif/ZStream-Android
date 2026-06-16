@@ -1,5 +1,6 @@
 package com.zstream.android
 
+import android.content.pm.ActivityInfo
 import android.graphics.Bitmap
 import android.os.Build
 import android.os.Bundle
@@ -13,18 +14,29 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.FrameLayout
+import android.widget.ProgressBar
+import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import androidx.webkit.WebSettingsCompat
 import androidx.webkit.WebViewFeature
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
 class MainActivity : AppCompatActivity() {
     private lateinit var webView: WebView
     private lateinit var bridge: ExtensionBridge
+    private lateinit var swipeRefresh: SwipeRefreshLayout
+    private lateinit var progressBar: ProgressBar
+
+    // Container for fullscreen video
+    private var fullscreenContainer: FrameLayout? = null
+    private var customView: View? = null
+    private var customViewCallback: WebChromeClient.CustomViewCallback? = null
+    private var originalOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
 
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
@@ -32,7 +44,6 @@ class MainActivity : AppCompatActivity() {
         .followRedirects(true)
         .build()
 
-    // Headers the extension sets on stream source responses
     private val headersToStrip = setOf(
         "content-security-policy",
         "content-security-policy-report-only",
@@ -47,21 +58,15 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            window.insetsController?.apply {
-                hide(WindowInsets.Type.statusBars() or WindowInsets.Type.navigationBars())
-                systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            }
-        } else {
-            @Suppress("DEPRECATION")
-            window.decorView.systemUiVisibility = (
-                View.SYSTEM_UI_FLAG_FULLSCREEN or
-                View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
-                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-            )
-        }
+        hideSystemUI()
 
         webView = findViewById(R.id.webview)
+        swipeRefresh = findViewById(R.id.swipeRefresh)
+        progressBar = findViewById(R.id.progressBar)
+
+        // Keep screen on
+        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+
         webView.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
@@ -78,16 +83,67 @@ class MainActivity : AppCompatActivity() {
         bridge = ExtensionBridge(webView, lifecycleScope)
         webView.addJavascriptInterface(bridge, "AndroidBridge")
 
-        // Forward console.log/error to Logcat for debugging
-        webView.webChromeClient = object : WebChromeClient() {
-            override fun onConsoleMessage(msg: ConsoleMessage): Boolean {
-                Log.d("WebConsole", "[${msg.messageLevel()}] ${msg.message()} (${msg.sourceId()}:${msg.lineNumber()})")
-                return true
+        // Hardware back gesture (replaces deprecated onBackPressed)
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                when {
+                    customView != null -> hideCustomView()
+                    webView.canGoBack() -> webView.goBack()
+                    else -> finish()
+                }
             }
+        })
+
+        // Pull-to-refresh
+        swipeRefresh.setOnRefreshListener {
+            webView.reload()
         }
 
         val polyfill by lazy {
             assets.open("bridge_polyfill.js").bufferedReader().use { it.readText() }
+        }
+
+        webView.webChromeClient = object : WebChromeClient() {
+            // Loading progress bar
+            override fun onProgressChanged(view: WebView, newProgress: Int) {
+                if (newProgress < 100) {
+                    progressBar.visibility = View.VISIBLE
+                    progressBar.progress = newProgress
+                } else {
+                    progressBar.visibility = View.GONE
+                    swipeRefresh.isRefreshing = false
+                }
+            }
+
+            // Console logging for debugging
+            override fun onConsoleMessage(msg: ConsoleMessage): Boolean {
+                Log.d("WebConsole", "[${msg.messageLevel()}] ${msg.message()} (${msg.sourceId()}:${msg.lineNumber()})")
+                return true
+            }
+
+            // Landscape lock when video goes fullscreen
+            override fun onShowCustomView(view: View, callback: CustomViewCallback) {
+                if (customView != null) {
+                    callback.onCustomViewHidden()
+                    return
+                }
+                customView = view
+                customViewCallback = callback
+                originalOrientation = requestedOrientation
+                requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+
+                fullscreenContainer = FrameLayout(this@MainActivity).also {
+                    it.addView(view, FrameLayout.LayoutParams(-1, -1))
+                    window.decorView.let { decor ->
+                        (decor as FrameLayout).addView(it, FrameLayout.LayoutParams(-1, -1))
+                    }
+                }
+                hideSystemUI()
+            }
+
+            override fun onHideCustomView() {
+                hideCustomView()
+            }
         }
 
         webView.webViewClient = object : WebViewClient() {
@@ -97,6 +153,7 @@ class MainActivity : AppCompatActivity() {
 
             override fun onPageFinished(view: WebView, url: String) {
                 view.evaluateJavascript(polyfill, null)
+                swipeRefresh.isRefreshing = false
             }
 
             override fun shouldInterceptRequest(
@@ -105,72 +162,86 @@ class MainActivity : AppCompatActivity() {
             ): WebResourceResponse? {
                 val url = request.url.toString()
                 if (!url.startsWith("http")) return null
-
                 val hostname = request.url.host ?: return null
-
-                // Only intercept domains that were registered via prepareStream
                 val rule = bridge.activeRules[hostname] ?: return null
 
                 return try {
                     val reqBuilder = Request.Builder().url(url)
                     request.requestHeaders.forEach { (k, v) -> reqBuilder.addHeader(k, v) }
-
-                    // Apply any request headers from the rule
                     val ruleRequestHeaders = rule.optJSONObject("requestHeaders")
                     ruleRequestHeaders?.keys()?.forEach { k ->
                         reqBuilder.header(k, ruleRequestHeaders.getString(k))
                     }
-
                     reqBuilder.method(request.method ?: "GET", null)
 
                     val response = httpClient.newCall(reqBuilder.build()).execute()
                     val contentType = response.header("content-type", "application/octet-stream")
 
-                    // Strip restricted headers, keep the rest
                     val filteredHeaders = response.headers.toMultimap()
                         .filterKeys { it.lowercase() !in headersToStrip }
                         .mapValues { it.value.firstOrNull() ?: "" }
                         .toMutableMap()
 
-                    // Apply CORS headers
                     filteredHeaders["Access-Control-Allow-Origin"] = "*"
                     filteredHeaders["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, PATCH, OPTIONS"
                     filteredHeaders["Access-Control-Allow-Headers"] = "*"
 
-                    // Apply any custom response headers from the rule
-                    val ruleResponseHeaders = rule.optJSONObject("responseHeaders")
-                    ruleResponseHeaders?.keys()?.forEach { k ->
-                        filteredHeaders[k] = ruleResponseHeaders.getString(k)
+                    rule.optJSONObject("responseHeaders")?.keys()?.forEach { k ->
+                        filteredHeaders[k] = rule.optJSONObject("responseHeaders")!!.getString(k)
                     }
 
                     val mimeType = contentType?.substringBefore(";")?.trim() ?: "application/octet-stream"
                     val encoding = contentType?.substringAfter("charset=", "")?.trim()?.ifEmpty { null }
 
                     WebResourceResponse(
-                        mimeType,
-                        encoding,
-                        response.code,
+                        mimeType, encoding, response.code,
                         response.message.ifEmpty { "OK" },
-                        filteredHeaders,
-                        response.body?.byteStream()
+                        filteredHeaders, response.body?.byteStream()
                     )
                 } catch (e: Exception) {
-                    Log.e("ExtBridge", "Failed to intercept $url: ${e.message}")
+                    Log.e("ExtBridge", "Intercept failed for $url: ${e.message}")
                     null
                 }
             }
         }
 
-        webView.loadUrl("https://zstream.mov/")
+        // Restore WebView state after rotation, otherwise load fresh
+        if (savedInstanceState != null) {
+            webView.restoreState(savedInstanceState)
+        } else {
+            webView.loadUrl("https://zstream.mov/")
+        }
     }
 
-    @Deprecated("Deprecated in Java")
-    override fun onBackPressed() {
-        if (webView.canGoBack()) {
-            webView.goBack()
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        webView.saveState(outState)
+    }
+
+    private fun hideCustomView() {
+        customView ?: return
+        (window.decorView as FrameLayout).removeView(fullscreenContainer)
+        fullscreenContainer = null
+        customView = null
+        customViewCallback?.onCustomViewHidden()
+        customViewCallback = null
+        requestedOrientation = originalOrientation
+        hideSystemUI()
+    }
+
+    private fun hideSystemUI() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            window.insetsController?.apply {
+                hide(WindowInsets.Type.statusBars() or WindowInsets.Type.navigationBars())
+                systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            }
         } else {
             @Suppress("DEPRECATION")
-            super.onBackPressed()
+            window.decorView.systemUiVisibility = (
+                View.SYSTEM_UI_FLAG_FULLSCREEN or
+                View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
+                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+            )
         }
     }
 }
