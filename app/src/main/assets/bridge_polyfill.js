@@ -70,6 +70,17 @@
     }
   };
 
+  // Remove default browser video poster (ugly play icon) — set black bg instead
+  // Observe DOM so it catches dynamically added videos too
+  function patchVideos() {
+    document.querySelectorAll('video[poster]').forEach(function(v) {
+      v.removeAttribute('poster');
+      v.style.background = '#000';
+    });
+  }
+  patchVideos();
+  new MutationObserver(patchVideos).observe(document.documentElement, { childList: true, subtree: true });
+
   // Intercept video.requestPictureInPicture() and route to Android native PiP
   var _origPip = HTMLVideoElement.prototype.requestPictureInPicture;
   HTMLVideoElement.prototype.requestPictureInPicture = function () {
@@ -91,9 +102,11 @@
       if (!v) return;
       try {
         var playing = !v.paused && !v.ended;
+        var meta = navigator.mediaSession && navigator.mediaSession.metadata;
+        var title = (meta && meta.title) ? meta.title : (document.title || '');
         AndroidMedia.updateState(
           playing,
-          document.title || '',
+          title,
           Math.round((v.duration || 0) * 1000),
           Math.round((v.currentTime || 0) * 1000)
         );

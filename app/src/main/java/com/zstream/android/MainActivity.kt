@@ -7,9 +7,6 @@ import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.graphics.Bitmap
-import android.media.AudioAttributes
-import android.media.AudioFocusRequest
-import android.media.AudioManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Build
@@ -20,7 +17,6 @@ import android.os.VibratorManager
 import android.support.v4.media.MediaMetadataCompat
 import android.support.v4.media.session.MediaSessionCompat
 import android.support.v4.media.session.PlaybackStateCompat
-import android.util.Log
 import android.util.Rational
 import android.view.View
 import android.view.WindowInsets
@@ -42,6 +38,8 @@ import androidx.lifecycle.lifecycleScope
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import androidx.webkit.WebSettingsCompat
 import androidx.webkit.WebViewFeature
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.text.SimpleDateFormat
@@ -80,7 +78,6 @@ class MainActivity : AppCompatActivity() {
 
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
-        hideSystemUI()
 
         webView = findViewById(R.id.webview)
         swipeRefresh = findViewById(R.id.swipeRefresh)
@@ -150,6 +147,9 @@ class MainActivity : AppCompatActivity() {
         }
 
         webView.webChromeClient = object : WebChromeClient() {
+            override fun getDefaultVideoPoster(): Bitmap =
+                Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
+
             override fun onProgressChanged(view: WebView, newProgress: Int) {
                 if (newProgress < 100) {
                     progressBar.visibility = View.VISIBLE
@@ -160,10 +160,7 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
-            override fun onConsoleMessage(msg: ConsoleMessage): Boolean {
-                Log.d("WebConsole", "[${msg.messageLevel()}] ${msg.message()} (${msg.sourceId()}:${msg.lineNumber()})")
-                return true
-            }
+            override fun onConsoleMessage(msg: ConsoleMessage) = true
 
             override fun onShowCustomView(view: View, callback: CustomViewCallback) {
                 if (customView != null) { callback.onCustomViewHidden(); return }
@@ -240,6 +237,7 @@ class MainActivity : AppCompatActivity() {
                 view.evaluateJavascript(polyfill, null)
                 swipeRefresh.isRefreshing = false
                 if (url.contains("zstream.mov")) {
+                    saveCurrentUrl()
                     view.postDelayed({ snapshotLocalStorage(view) }, 3000)
                     if (!isOnline()) view.loadUrl("file:///android_asset/error.html")
                 }
@@ -303,18 +301,15 @@ class MainActivity : AppCompatActivity() {
                         response.code, response.message.ifEmpty { "OK" },
                         filteredHeaders, response.body?.byteStream()
                     )
-                } catch (e: Exception) {
-                    Log.e("ExtBridge", "Intercept failed for $url: ${e.message}")
-                    null
-                }
+                } catch (e: Exception) { null }
             }
         }
 
         if (savedInstanceState != null) {
             webView.restoreState(savedInstanceState)
-            if (webView.url.isNullOrEmpty()) loadSiteOrError()
+            if (webView.url.isNullOrEmpty()) loadLastUrlOrSite()
         } else {
-            loadSiteOrError()
+            loadLastUrlOrSite()
         }
     }
 
@@ -322,8 +317,10 @@ class MainActivity : AppCompatActivity() {
     override fun onPause() {
         super.onPause()
         val url = webView.url ?: ""
-        if (url.contains("zstream.mov")) snapshotLocalStorage(webView)
-        // Pause video when leaving the app
+        if (url.contains("zstream.mov")) {
+            snapshotLocalStorage(webView)
+            saveCurrentUrl()
+        }
         webView.evaluateJavascript("document.querySelector('video')?.pause()", null)
     }
 
@@ -356,6 +353,20 @@ class MainActivity : AppCompatActivity() {
         else webView.loadUrl("file:///android_asset/error.html")
     }
 
+    private fun loadLastUrlOrSite() {
+        if (!isOnline()) { webView.loadUrl("file:///android_asset/error.html"); return }
+        val prefs = getSharedPreferences("zstream", MODE_PRIVATE)
+        val last = prefs.getString("last_url", null)
+        webView.loadUrl(if (!last.isNullOrEmpty() && last.startsWith("https://zstream.mov")) last else "https://zstream.mov/")
+    }
+
+    private fun saveCurrentUrl() {
+        val url = webView.url ?: return
+        if (url.startsWith("https://zstream.mov")) {
+            getSharedPreferences("zstream", MODE_PRIVATE).edit().putString("last_url", url).apply()
+        }
+    }
+
     private fun vibrate() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             (getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager)
@@ -379,7 +390,6 @@ class MainActivity : AppCompatActivity() {
         super.onPictureInPictureModeChanged(isInPiP, newConfig)
         swipeRefresh.isEnabled = !isInPiP
         progressBar.visibility = View.GONE
-        if (!isInPiP) hideSystemUI()
     }
 
     private fun hideCustomView() {
@@ -390,9 +400,8 @@ class MainActivity : AppCompatActivity() {
         customViewCallback?.onCustomViewHidden()
         customViewCallback = null
         requestedOrientation = originalOrientation
-        // (5) Re-enable swipe-to-refresh when leaving fullscreen
         swipeRefresh.isEnabled = true
-        hideSystemUI()
+        showSystemUI()
     }
 
     private fun hideSystemUI() {
@@ -407,6 +416,15 @@ class MainActivity : AppCompatActivity() {
                 View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
                 View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
             )
+        }
+    }
+
+    private fun showSystemUI() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            window.insetsController?.show(WindowInsets.Type.statusBars() or WindowInsets.Type.navigationBars())
+        } else {
+            @Suppress("DEPRECATION")
+            window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
         }
     }
 
@@ -428,7 +446,6 @@ class MainActivity : AppCompatActivity() {
     inner class MediaBridge {
         @JavascriptInterface
         fun setSwipeRefresh(enabled: Boolean) = runOnUiThread {
-            // Only re-enable if we're not in fullscreen (customView check)
             if (enabled && customView == null) swipeRefresh.isEnabled = true
             else if (!enabled) swipeRefresh.isEnabled = false
         }
@@ -452,14 +469,9 @@ class MainActivity : AppCompatActivity() {
             )
             runOnUiThread {
                 val intent = Intent(this@MainActivity, MediaPlaybackService::class.java)
-                    .putExtra("playing", playing)
-                    .putExtra("title", title.ifEmpty { "ZStream" })
-                if (playing) {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent)
-                    else startService(intent)
-                } else {
-                    startService(intent) // sends pause state to update notification, service stops itself
-                }
+                    .putExtra("playing", playing).putExtra("title", title.ifEmpty { "ZStream" })
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent)
+                else startService(intent)
             }
         }
     }

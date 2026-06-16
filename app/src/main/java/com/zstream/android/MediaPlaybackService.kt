@@ -37,11 +37,9 @@ class MediaPlaybackService : Service() {
             ACTION_PAUSE -> mediaSession?.controller?.transportControls?.pause()
         }
         val playing = intent?.getBooleanExtra("playing", true) ?: true
-        if (playing) {
-            startForeground(NOTIF_ID, buildNotification())
-        } else {
-            stopSelf()
-        }
+        startForeground(NOTIF_ID, buildNotification())
+        // Stop only when explicitly told there's no media (no video element), not on pause
+        if (intent?.getBooleanExtra("noMedia", false) == true) stopSelf()
         return START_NOT_STICKY
     }
 
