@@ -60,7 +60,7 @@ fun SearchScreen(nav: NavController, vm: SearchViewModel = hiltViewModel()) {
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     items(results) { media ->
-                        PosterCard(media) { nav.navigate("detail/${media.type}/${media.id}") }
+                        MediaCard(media) { nav.navigate("detail/${media.type}/${media.id}") }
                     }
                 }
             }
