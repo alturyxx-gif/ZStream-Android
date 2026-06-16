@@ -413,7 +413,11 @@ class MainActivity : AppCompatActivity() {
     inner class ZoomBridge {
         private val prefs get() = getSharedPreferences("zstream", MODE_PRIVATE)
         @JavascriptInterface fun getZoom(): Int = prefs.getInt("zoom", 100)
-        @JavascriptInterface fun setZoom(percent: Int) = prefs.edit().putInt("zoom", percent.coerceIn(50, 150)).apply()
+        @JavascriptInterface fun setZoom(percent: Int) {
+            prefs.edit().putInt("zoom", percent.coerceIn(50, 150)).apply()
+            runOnUiThread { webView.setInitialScale(percent) }
+        }
+        @JavascriptInterface fun applyZoom() = runOnUiThread { webView.setInitialScale(prefs.getInt("zoom", 100)) }
         @JavascriptInterface fun isHidden(): Boolean = prefs.getBoolean("zoom_hidden", false)
         @JavascriptInterface fun setHidden(hidden: Boolean) = prefs.edit().putBoolean("zoom_hidden", hidden).apply()
     }

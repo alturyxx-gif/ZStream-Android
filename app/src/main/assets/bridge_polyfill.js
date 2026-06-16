@@ -70,10 +70,9 @@
     }
   };
 
-  // Apply saved zoom level to page
+  // Apply saved zoom level via native WebView scale (no CSS, no layout side-effects)
   if (typeof AndroidZoom !== 'undefined') {
-    var zoom = AndroidZoom.getZoom();
-    document.documentElement.style.zoom = (zoom / 100).toFixed(2);
+    AndroidZoom.applyZoom();
 
     function removeZoomSlider() {
       var old = document.getElementById('__zs_zoom');
@@ -124,7 +123,7 @@
 
       document.getElementById('__zs_range').addEventListener('input', function() {
         var v = parseInt(this.value);
-        document.documentElement.style.zoom = (v / 100).toFixed(2);
+        document.documentElement.style.minHeight = (10000 / v).toFixed(2) + 'vh';
         document.getElementById('__zs_label').textContent = v + '%';
         AndroidZoom.setZoom(v);
       });

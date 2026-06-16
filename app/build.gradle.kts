@@ -22,11 +22,20 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        create("release") {
+            storeFile = file("../zstream.jks")
+            storePassword = "legacy-appeasing-bagpipe-swimwear-stretch"
+            keyAlias = "zstream"
+            keyPassword = "legacy-appeasing-bagpipe-swimwear-stretch"
+        }
+    }
+
     buildTypes {
         release {
-            optimization {
-                enable = false
-            }
+            signingConfig = signingConfigs.getByName("release")
+            isMinifyEnabled = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
     compileOptions {
