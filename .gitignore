@@ -1,0 +1,23 @@
+# IDE
+*.iml
+.idea/
+.vscode/
+
+# Gradle
+.gradle
+build/
+
+# Local properties
+local.properties
+/local.properties
+
+# Build artifacts
+/captures
+.externalNativeBuild
+.cxx
+
+# OS
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
