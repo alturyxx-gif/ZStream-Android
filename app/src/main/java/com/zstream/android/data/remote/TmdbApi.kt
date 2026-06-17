@@ -15,7 +15,15 @@ interface TmdbApi {
     @GET("tv/top_rated") suspend fun topRatedTv(): PagedResponse<Media>
     @GET("tv/on_the_air") suspend fun onAirTv(): PagedResponse<Media>
     @GET("search/multi") suspend fun search(@Query("query") query: String, @Query("page") page: Int = 1): PagedResponse<Media>
-    @GET("movie/{id}") suspend fun movieDetail(@Path("id") id: Int, @Query("append_to_response") append: String = "credits"): MovieDetail
-    @GET("tv/{id}") suspend fun tvDetail(@Path("id") id: Int, @Query("append_to_response") append: String = "credits"): TvDetail
+    @GET("movie/{id}") suspend fun movieDetail(
+        @Path("id") id: Int,
+        @Query("append_to_response") append: String = "credits,images,videos,similar",
+        @Query("include_image_language") imageLanguage: String = "en,null"
+    ): MovieDetail
+    @GET("tv/{id}") suspend fun tvDetail(
+        @Path("id") id: Int,
+        @Query("append_to_response") append: String = "credits,images,videos,similar",
+        @Query("include_image_language") imageLanguage: String = "en,null"
+    ): TvDetail
     @GET("tv/{id}/season/{season}") suspend fun season(@Path("id") id: Int, @Path("season") season: Int): Season
 }

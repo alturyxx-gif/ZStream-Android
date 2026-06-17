@@ -36,9 +36,13 @@ data class MovieDetail(
     @SerializedName("runtime") val runtime: Int?,
     val genres: List<Genre>?,
     val credits: Credits?,
+    val images: ImageData? = null,
+    val videos: VideoData? = null,
+    val similar: SimilarMoviesResponse? = null,
 ) {
     fun posterUrl(size: String = "w500") = posterPath?.let { Urls.TMDB_IMAGE + "$size$it" }
     fun backdropUrl(size: String = "w1280") = backdropPath?.let { Urls.TMDB_IMAGE + "$size$it" }
+    fun logoUrl(size: String = "w500"): String? = images?.logos?.firstOrNull()?.file_path?.let { Urls.TMDB_IMAGE + "$size$it" }
 }
 
 data class TvDetail(
@@ -53,9 +57,13 @@ data class TvDetail(
     val seasons: List<Season>?,
     val genres: List<Genre>?,
     val credits: Credits?,
+    val images: ImageData? = null,
+    val videos: VideoData? = null,
+    val similar: SimilarShowsResponse? = null,
 ) {
     fun posterUrl(size: String = "w500") = posterPath?.let { Urls.TMDB_IMAGE + "$size$it" }
     fun backdropUrl(size: String = "w1280") = backdropPath?.let { Urls.TMDB_IMAGE + "$size$it" }
+    fun logoUrl(size: String = "w500"): String? = images?.logos?.firstOrNull()?.file_path?.let { Urls.TMDB_IMAGE + "$size$it" }
 }
 
 data class Season(
@@ -87,3 +95,32 @@ data class CastMember(
 )
 
 data class Genre(val id: Int, val name: String)
+
+// TMDB append_to_response data models
+data class ImageData(
+    val logos: List<LogoData>? = null,
+)
+
+data class LogoData(
+    @SerializedName("file_path") val file_path: String,
+)
+
+data class VideoData(
+    val results: List<TrailerData>? = null,
+)
+
+data class TrailerData(
+    val id: String,
+    val name: String,
+    val key: String,
+    val site: String, // "YouTube" or others
+    val type: String, // "Trailer", "Teaser", etc.
+)
+
+data class SimilarMoviesResponse(
+    val results: List<Media>? = null,
+)
+
+data class SimilarShowsResponse(
+    val results: List<Media>? = null,
+)
