@@ -165,7 +165,7 @@ private fun MovieDetailModal(state: DetailState.Movie, nav: NavController, conte
         TrailerGrid(d.videos?.results?.filter { it.site == "YouTube" && it.type == "Trailer" }.orEmpty(), theme, context)
         
         SectionHeader("Similar", theme)
-        SimilarMoviesGrid(d.similar?.results.orEmpty(), theme)
+        SimilarMoviesGrid(d.similar?.results.orEmpty(), theme, nav)
     }
 }
 
@@ -266,7 +266,7 @@ private fun TvDetailModal(state: DetailState.Tv, vm: DetailViewModel, nav: NavCo
         TrailerGrid(d.videos?.results?.filter { it.site == "YouTube" && it.type == "Trailer" }.orEmpty(), theme, context)
         
         SectionHeader("Similar", theme)
-        SimilarMoviesGrid(d.similar?.results.orEmpty(), theme)
+        SimilarMoviesGrid(d.similar?.results.orEmpty(), theme, nav)
     }
 }
 
@@ -382,7 +382,7 @@ private fun TrailerGrid(trailers: List<com.zstream.android.data.model.TrailerDat
 }
 
 @Composable
-private fun SimilarMoviesGrid(similar: List<com.zstream.android.data.model.Media>, theme: com.zstream.android.theme.ZStreamTheme) {
+private fun SimilarMoviesGrid(similar: List<com.zstream.android.data.model.Media>, theme: com.zstream.android.theme.ZStreamTheme, nav: NavController) {
     if (similar.isEmpty()) {
         Text("No similar movies available", modifier = Modifier.padding(horizontal = 32.dp, vertical = 12.dp), color = theme.colors.type.secondary)
         return
@@ -391,7 +391,14 @@ private fun SimilarMoviesGrid(similar: List<com.zstream.android.data.model.Media
     Column(Modifier.padding(horizontal = 32.dp, vertical = 12.dp)) {
         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             items(similar.take(6)) { movie ->
-                Column(modifier = Modifier.width(140.dp)) {
+                Column(
+                    modifier = Modifier
+                        .width(140.dp)
+                        .clickable {
+                            val mediaType = movie.type
+                            nav.navigate("detail/$mediaType/${movie.id}")
+                        }
+                ) {
                     Box(modifier = Modifier.fillMaxWidth().height(205.dp).clip(RoundedCornerShape(8.dp)).background(theme.colors.modal.background)) {
                         movie.posterUrl()?.let {
                             AsyncImage(model = it, contentDescription = movie.displayTitle, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
