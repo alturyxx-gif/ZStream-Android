@@ -134,49 +134,7 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
                     } else {
                         item { HomeTabs(state.activeTab, vm::setTab) }
                         item { Spacer(Modifier.height(16.dp)) }
-                        // ── Synced sections ──────────────────────────────────
-                        if (showBookmarks && session != null && bookmarks.isNotEmpty()) {
-                            item {
-                                SyncedSectionHeader("Bookmarks", theme)
-                                LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                    items(bookmarks) { b ->
-                                        val mediaType = b.meta.type
-                                        val tmdbId = b.tmdbId.toIntOrNull() ?: 0
-                                        MediaCard(
-                                            media = com.zstream.android.data.model.Media(
-                                                id = tmdbId, title = if (mediaType == "movie") b.meta.title else null,
-                                                name = if (mediaType != "movie") b.meta.title else null,
-                                                overview = null, posterPath = b.meta.poster, backdropPath = null,
-                                                releaseDate = b.meta.year.toString(), firstAirDate = null,
-                                                voteAverage = null, mediaType = mediaType, genreIds = null,
-                                            ),
-                                            onClick = { nav.navigate("detail/$mediaType/$tmdbId") },
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                        if (showContinueWatching && session != null && progress.isNotEmpty()) {
-                            item {
-                                SyncedSectionHeader("Continue Watching", theme)
-                                LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                    items(progress.take(10)) { p ->
-                                        val mediaType = p.meta.type
-                                        val tmdbId = p.tmdbId.toIntOrNull() ?: 0
-                                        MediaCard(
-                                            media = com.zstream.android.data.model.Media(
-                                                id = tmdbId, title = if (mediaType == "movie") p.meta.title else null,
-                                                name = if (mediaType != "movie") p.meta.title else null,
-                                                overview = null, posterPath = p.meta.poster, backdropPath = null,
-                                                releaseDate = p.meta.year.toString(), firstAirDate = null,
-                                                voteAverage = null, mediaType = mediaType, genreIds = null,
-                                            ),
-                                            onClick = { nav.navigate("detail/$mediaType/$tmdbId") },
-                                        )
-                                    }
-                                }
-                            }
-                        }
+
                         val sections = state.currentSections
                             .map { section ->
                                 val filtered = if (state.selectedGenreId != null)

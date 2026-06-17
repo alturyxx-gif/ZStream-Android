@@ -151,14 +151,14 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                 val existingProgress = remember(progressList) {
                     progressList.firstOrNull { p ->
                         p.tmdbId == vm.tmdbId &&
-                        (vm.episodeId == null || p.episode.id == vm.episodeId)
+                        (vm.episodeId == null || p.episodeId == vm.episodeId)
                     }
                 }
                 val resumeWatched = remember(existingProgress) {
-                    existingProgress?.watched?.toLongOrNull() ?: 0L
+                    existingProgress?.watched?.toLong() ?: 0L
                 }
                 val resumeDuration = remember(existingProgress) {
-                    existingProgress?.duration?.toLongOrNull() ?: 0L
+                    existingProgress?.duration?.toLong() ?: 0L
                 }
                 // shouldShowProgress: watched >= 20s AND not within 120s of end
                 val shouldResume = remember(resumeWatched, resumeDuration) {
@@ -220,7 +220,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                                         vm.title, vm.year, vm.mediaType,
                                         vm.seasonId, vm.episodeId,
                                         vm.season, vm.episode,
-                                        existingProgress?.meta?.poster,
+                                        existingProgress?.posterPath,
                                     )
                                 }
                             }
@@ -239,7 +239,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                                             vm.title, vm.year, vm.mediaType,
                                             vm.seasonId, vm.episodeId,
                                             vm.season, vm.episode,
-                                            existingProgress?.meta?.poster,
+                                            existingProgress?.posterPath,
                                         )
                                     }
                                 }

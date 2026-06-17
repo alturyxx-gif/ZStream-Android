@@ -28,9 +28,9 @@ import com.zstream.android.data.remote.ProgressResponse
 import com.zstream.android.theme.LocalZStreamTheme
 
 /** Mirrors p-stream shouldShowProgress: watched>=20s AND not within 120s of end */
-private fun shouldShowProgress(p: ProgressResponse): Boolean {
-    val watched = p.watched.toLongOrNull() ?: return false
-    val duration = p.duration.toLongOrNull() ?: return false
+private fun shouldShowProgress(p: com.zstream.android.data.local.entity.ProgressEntity): Boolean {
+    val watched = p.watched.toLong()
+    val duration = p.duration.toLong()
     if (watched < 20) return false
     if (duration > 0 && (duration - watched) < 120) return false
     return true
@@ -48,7 +48,7 @@ fun WatchHistoryScreen(nav: NavController) {
             .filter { shouldShowProgress(it) }
             .sortedByDescending { it.updatedAt }
             // Deduplicate: one card per tmdbId+episodeNumber combo, keep most recent
-            .distinctBy { "${it.tmdbId}:${it.episode.number}:${it.season.number}" }
+            .distinctBy { "${it.tmdbId}:${it.episodeNumber}:${it.seasonNumber}" }
     }
 
     Column(Modifier.fillMaxSize().background(theme.colors.background.main)) {
@@ -70,12 +70,12 @@ fun WatchHistoryScreen(nav: NavController) {
             }
         } else {
             LazyColumn(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)) {
-                items(items, key = { it.tmdbId + (it.episode.id ?: "") }) { p ->
+                items(items, key = { it.tmdbId + (it.episodeId ?: "") }) { p ->
                     WatchHistoryItem(p, theme) {
-                        val mediaType = if (p.meta.type == "show") "tv" else "movie"
-                        val base = "player/$mediaType/${p.tmdbId}?title=${p.meta.title}&year=${p.meta.year}"
-                        val route = if (p.season.number != null && p.episode.number != null)
-                            "$base&season=${p.season.number}&episode=${p.episode.number}"
+                        val mediaType = if (p.type == "show") "tv" else "movie"
+                        val base = "player/$mediaType/${p.tmdbId}?title=${p.title}&year=${p.year}"
+                        val route = if (p.seasonNumber != null && p.episodeNumber != null)
+                            "$base&season=${p.seasonNumber}&episode=${p.episodeNumber}"
                         else base
                         nav.navigate(route)
                     }
@@ -88,12 +88,12 @@ fun WatchHistoryScreen(nav: NavController) {
 
 @Composable
 private fun WatchHistoryItem(
-    p: ProgressResponse,
+    p: com.zstream.android.data.local.entity.ProgressEntity,
     theme: com.zstream.android.theme.ZStreamTheme,
     onClick: () -> Unit,
 ) {
-    val watched = p.watched.toLongOrNull() ?: 0L
-    val duration = p.duration.toLongOrNull() ?: 0L
+    val watched = p.watched.toLong()
+    val duration = p.duration.toLong()
     val pct = if (duration > 0) (watched.toFloat() / duration).coerceIn(0f, 1f) else 0f
 
     Row(
@@ -107,7 +107,7 @@ private fun WatchHistoryItem(
     ) {
         // Poster
         AsyncImage(
-            model = p.meta.poster,
+            model = p.posterPath,
             contentDescription = null,
             contentScale = ContentScale.Crop,
             modifier = Modifier.size(width = 60.dp, height = 88.dp).clip(RoundedCornerShape(6.dp))
@@ -115,13 +115,13 @@ private fun WatchHistoryItem(
         Spacer(Modifier.width(12.dp))
 
         Column(Modifier.weight(1f)) {
-            Text(p.meta.title, color = theme.colors.type.emphasis, fontSize = 15.sp,
+            Text(p.title, color = theme.colors.type.emphasis, fontSize = 15.sp,
                 fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(2.dp))
             val subtitle = buildString {
-                append(p.meta.year)
-                if (p.season.number != null) append(" · S${p.season.number}")
-                if (p.episode.number != null) append("E${p.episode.number}")
+                append(p.year ?: "")
+                if (p.seasonNumber != null) append(" · S${p.seasonNumber}")
+                if (p.episodeNumber != null) append("E${p.episodeNumber}")
             }
             Text(subtitle, color = theme.colors.type.secondary, fontSize = 12.sp)
             Spacer(Modifier.height(8.dp))

@@ -60,12 +60,18 @@ data class ProgressResponse(
 )
 
 data class BookmarkMeta(val title: String, val year: Int, val poster: String?, val type: String)
-data class BookmarkResponse(val tmdbId: String, val meta: BookmarkMeta, val updatedAt: String)
+data class BookmarkResponse(
+    val tmdbId: String,
+    val meta: BookmarkMeta,
+    val group: List<String>? = null,
+    val favoriteEpisodes: List<String>? = null,
+    val updatedAt: String
+)
 
 data class ProgressInput(
     val tmdbId: String,
-    val watched: Long,
-    val duration: Long,
+    val watched: Int,
+    val duration: Int,
     val meta: ProgressMeta,
     val seasonId: String? = null,
     val episodeId: String? = null,
@@ -73,7 +79,50 @@ data class ProgressInput(
     val episodeNumber: Int? = null,
 )
 
-data class BookmarkInput(val tmdbId: String, val meta: BookmarkMeta)
+data class BookmarkInput(
+    val tmdbId: String,
+    val meta: BookmarkMeta,
+    val group: List<String>? = null,
+    val favoriteEpisodes: List<String>? = null
+)
+
+data class SettingsResponse(
+    val applicationTheme: String? = null,
+    val applicationLanguage: String? = null,
+    val defaultSubtitleLanguage: String? = null,
+    val proxyUrls: List<String>? = null,
+    val febboxKey: String? = null,
+    val debridToken: String? = null,
+    val debridService: String? = null,
+    val tidbKey: String? = null,
+    val enableThumbnails: Boolean? = null,
+    val enableAutoplay: Boolean? = null,
+    val enableSkipCredits: Boolean? = null,
+    val enableAutoSkipSegments: Boolean? = null,
+    val enableDiscover: Boolean? = null,
+    val enableFeatured: Boolean? = null,
+    val enableDetailsModal: Boolean? = null,
+    val enableImageLogos: Boolean? = null,
+    val enableCarouselView: Boolean? = null,
+    val enableMinimalCards: Boolean? = null,
+    val forceCompactEpisodeView: Boolean? = null,
+    val lastSuccessfulSource: String? = null,
+    val enableLastSuccessfulSource: Boolean? = null,
+    val enableLowPerformanceMode: Boolean? = null,
+    val enableNativeSubtitles: Boolean? = null,
+    val enableHoldToBoost: Boolean? = null,
+    val manualSourceSelection: Boolean? = null,
+    val enableDoubleClickToSeek: Boolean? = null,
+    val enableAutoResumeOnPlaybackError: Boolean? = null,
+    val enablePauseOverlay: Boolean? = null,
+    val enableNumberKeySeeking: Boolean? = null,
+    val sourceOrder: List<String>? = null,
+    val enableSourceOrder: Boolean? = null,
+    val embedOrder: List<String>? = null,
+    val enableEmbedOrder: Boolean? = null,
+    val proxyTmdb: Boolean? = null,
+    val homeSectionOrder: List<String>? = null
+)
 
 // ── Retrofit service ──────────────────────────────────────────────────────────
 
@@ -93,12 +142,22 @@ interface BackendApi {
     @GET("users/@me")
     suspend fun getMe(@Header("Authorization") auth: String): UserWithSession
 
+    @GET("users/{id}/settings")
+    suspend fun getSettings(@Path("id") userId: String, @Header("Authorization") auth: String): SettingsResponse
+
+    @PUT("users/{id}/settings")
+    suspend fun updateSettings(@Path("id") userId: String, @Header("Authorization") auth: String, @Body body: SettingsResponse): SettingsResponse
+
     @GET("users/{id}/progress")
     suspend fun getProgress(@Path("id") userId: String, @Header("Authorization") auth: String): List<ProgressResponse>
 
     @PUT("users/{id}/progress/{tmdbId}")
     suspend fun setProgress(@Path("id") userId: String, @Path("tmdbId") tmdbId: String,
                             @Header("Authorization") auth: String, @Body body: ProgressInput): ProgressResponse
+
+    @DELETE("users/{id}/progress/{tmdbId}")
+    suspend fun removeProgress(@Path("id") userId: String, @Path("tmdbId") tmdbId: String,
+                               @Header("Authorization") auth: String)
 
     @GET("users/{id}/bookmarks")
     suspend fun getBookmarks(@Path("id") userId: String, @Header("Authorization") auth: String): List<BookmarkResponse>

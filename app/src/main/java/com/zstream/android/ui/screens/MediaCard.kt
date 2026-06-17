@@ -22,15 +22,22 @@ import com.zstream.android.theme.LocalZStreamTheme
 @Composable
 fun MediaCard(media: Media, onClick: () -> Unit) {
     val theme = LocalZStreamTheme.current
+    val posterUrl = media.posterUrl("w342")
+    
+    android.util.Log.d("MediaCard", "Model: ${media.displayTitle} ID: ${media.id} URL: $posterUrl")
+
     Column(
         modifier = Modifier
             .width(110.dp)
             .clickable(onClick = onClick)
     ) {
         AsyncImage(
-            model = media.posterUrl("w342"),
+            model = posterUrl,
             contentDescription = media.displayTitle,
             contentScale = ContentScale.Crop,
+            onError = { state ->
+                android.util.Log.e("MediaCard", "Failed to load image: $posterUrl", state.result.throwable)
+            },
             modifier = Modifier
                 .fillMaxWidth()
                 .height(165.dp)

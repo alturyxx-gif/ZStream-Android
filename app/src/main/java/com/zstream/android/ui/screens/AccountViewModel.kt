@@ -2,12 +2,7 @@ package com.zstream.android.ui.screens
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.zstream.android.data.AccountRepository
-import com.zstream.android.data.AccountSession
-import com.zstream.android.data.remote.BookmarkResponse
-import com.zstream.android.data.remote.ProgressInput
-import com.zstream.android.data.remote.ProgressMeta
-import com.zstream.android.data.remote.ProgressResponse
+import com.zstream.android.data.*
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -24,20 +19,29 @@ sealed interface AuthState {
 }
 
 @HiltViewModel
-class AccountViewModel @Inject constructor(private val repo: AccountRepository) : ViewModel() {
+class AccountViewModel @Inject constructor(
+    private val repo: AccountRepository,
+    private val syncManager: DataSyncManager,
+    private val progressRepo: ProgressRepository,
+    private val bookmarkRepo: BookmarkRepository,
+) : ViewModel() {
 
     val authState = MutableStateFlow<AuthState>(AuthState.Idle)
 
     val session: StateFlow<AccountSession?> = repo.session
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
-    val bookmarks = MutableStateFlow<List<BookmarkResponse>>(emptyList())
-    val progress  = MutableStateFlow<List<ProgressResponse>>(emptyList())
+    // Observe bookmarks and progress from persistent local storage (Room)
+    val bookmarks = bookmarkRepo.observeAllBookmarks()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        
+    val progress = progressRepo.observeAllProgress()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     init {
         // Auto-fetch sync data whenever session is available
         viewModelScope.launch {
-            session.collect { s -> if (s != null) fetchSyncData(s) }
+            session.collect { s -> if (s != null) syncManager.syncAllFromRemote() }
         }
     }
 
@@ -59,10 +63,9 @@ class AccountViewModel @Inject constructor(private val repo: AccountRepository) 
 
     fun logout() {
         viewModelScope.launch {
+            syncManager.clearAllLocalData()
             repo.logout()
             authState.value = AuthState.Idle
-            bookmarks.value = emptyList()
-            progress.value  = emptyList()
         }
     }
 
@@ -84,41 +87,21 @@ class AccountViewModel @Inject constructor(private val repo: AccountRepository) 
         poster: String?,
     ) {
         val type = if (mediaType == "tv") "show" else "movie"
-        // Find best existing record: same show+episode number, pick highest watched (most authoritative)
-        val existing = progress.value
-            .filter { p ->
-                p.tmdbId == tmdbId &&
-                (episodeNumber == null || p.episode.number == episodeNumber) &&
-                (seasonNumber == null || p.season.number == seasonNumber)
-            }
-            .maxByOrNull { it.watched.toLongOrNull() ?: 0L }
-        // Always reuse the existing episodeId/seasonId to avoid creating duplicate records
-        val realSeasonId = existing?.season?.id ?: seasonId
-        val realEpisodeId = existing?.episode?.id ?: episodeId
-        val input = ProgressInput(
+        
+        // Use the repository which handles both local update and remote sync
+        progressRepo.updateProgress(
             tmdbId = tmdbId,
-            watched = watchedSec,
-            duration = durationSec,
-            meta = ProgressMeta(title, year, poster, type),
-            seasonId = realSeasonId,
-            episodeId = realEpisodeId,
-            seasonNumber = seasonNumber,
+            title = title,
+            type = type,
+            watched = watchedSec.toInt(),
+            duration = durationSec.toInt(),
+            year = year,
+            posterPath = poster,
+            episodeId = episodeId,
+            seasonId = seasonId,
             episodeNumber = episodeNumber,
+            seasonNumber = seasonNumber
         )
-        repo.setProgress(s, input)
-    }
-
-    private fun fetchSyncData(s: AccountSession) {
-        viewModelScope.launch {
-            runCatching { bookmarks.value = repo.getBookmarks(s) }
-            runCatching {
-                val raw = repo.getProgress(s)
-                // Deduplicate: keep highest-watched entry per tmdbId+episode+season
-                progress.value = raw
-                    .sortedByDescending { it.watched.toLongOrNull() ?: 0L }
-                    .distinctBy { "${it.tmdbId}:${it.episode.number}:${it.season.number}" }
-            }
-        }
     }
 
     private fun launch(block: suspend () -> AccountSession) {
