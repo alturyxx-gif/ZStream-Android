@@ -56,6 +56,8 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
     val state by vm.state.collectAsState()
     val searchResults by vm.searchResults.collectAsState()
     val theme = LocalZStreamTheme.current
+    val accountVm: AccountViewModel = hiltViewModel()
+    val session by accountVm.session.collectAsState()
     var showLayoutMenu by remember { mutableStateOf(false) }
     var showSandwichMenu by remember { mutableStateOf(false) }
     var showContinueWatching by remember { mutableStateOf(true) }
@@ -86,6 +88,9 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
                         searchResults.filter { it.genreIds?.contains(state.selectedGenreId) == true }
                     else searchResults
                 } else emptyList()
+
+                val bookmarks by accountVm.bookmarks.collectAsState()
+                val progress  by accountVm.progress.collectAsState()
 
                 LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {
                     item { TopNavBar(onLayout = { showLayoutMenu = true }, onMenu = { showSandwichMenu = true }) }
@@ -123,6 +128,49 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
                     } else {
                         item { HomeTabs(state.activeTab, vm::setTab) }
                         item { Spacer(Modifier.height(16.dp)) }
+                        // ── Synced sections ──────────────────────────────────
+                        if (showBookmarks && session != null && bookmarks.isNotEmpty()) {
+                            item {
+                                SyncedSectionHeader("Bookmarks", theme)
+                                LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    items(bookmarks) { b ->
+                                        val mediaType = b.meta.type
+                                        val tmdbId = b.tmdbId.toIntOrNull() ?: 0
+                                        MediaCard(
+                                            media = com.zstream.android.data.model.Media(
+                                                id = tmdbId, title = if (mediaType == "movie") b.meta.title else null,
+                                                name = if (mediaType != "movie") b.meta.title else null,
+                                                overview = null, posterPath = b.meta.poster, backdropPath = null,
+                                                releaseDate = b.meta.year.toString(), firstAirDate = null,
+                                                voteAverage = null, mediaType = mediaType, genreIds = null,
+                                            ),
+                                            onClick = { nav.navigate("detail/$mediaType/$tmdbId") },
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        if (showContinueWatching && session != null && progress.isNotEmpty()) {
+                            item {
+                                SyncedSectionHeader("Continue Watching", theme)
+                                LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    items(progress.take(10)) { p ->
+                                        val mediaType = p.meta.type
+                                        val tmdbId = p.tmdbId.toIntOrNull() ?: 0
+                                        MediaCard(
+                                            media = com.zstream.android.data.model.Media(
+                                                id = tmdbId, title = if (mediaType == "movie") p.meta.title else null,
+                                                name = if (mediaType != "movie") p.meta.title else null,
+                                                overview = null, posterPath = p.meta.poster, backdropPath = null,
+                                                releaseDate = p.meta.year.toString(), firstAirDate = null,
+                                                voteAverage = null, mediaType = mediaType, genreIds = null,
+                                            ),
+                                            onClick = { nav.navigate("detail/$mediaType/$tmdbId") },
+                                        )
+                                    }
+                                }
+                            }
+                        }
                         val sections = state.currentSections
                             .map { section ->
                                 val filtered = if (state.selectedGenreId != null)
@@ -146,9 +194,15 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
             )
         }
         if (showSandwichMenu) {
-            SandwichMenuDialog(nav = nav, onDismiss = { showSandwichMenu = false })
+            SandwichMenuDialog(nav = nav, session = session, accountVm = accountVm, onDismiss = { showSandwichMenu = false })
         }
     }
+}
+
+@Composable
+private fun SyncedSectionHeader(title: String, theme: com.zstream.android.theme.ZStreamTheme) {
+    Text(title, color = theme.colors.type.text, fontSize = 14.sp, fontWeight = FontWeight.Bold,
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
 }
 
 @Composable
@@ -502,12 +556,18 @@ private fun LayoutToggleRow(label: String, checked: Boolean, onToggle: (Boolean)
 }
 
 @Composable
-private fun SandwichMenuDialog(nav: NavController, onDismiss: () -> Unit) {
+private fun SandwichMenuDialog(nav: NavController, session: com.zstream.android.data.AccountSession?, accountVm: AccountViewModel, onDismiss: () -> Unit) {
     val theme = LocalZStreamTheme.current
     Dialog(onDismissRequest = onDismiss) {
         Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(theme.colors.modal.background).padding(vertical = 8.dp)) {
             Column {
-                SandwichItem(Icons.Default.Star, "Sync to Cloud", Color(0xFFD8C947), theme = theme) {}
+                if (session != null) {
+                    SandwichItem(Icons.Default.CheckCircle, "Synced: ${session.nickname.ifBlank { session.userId.take(8) }}", Color(0xFF4ADE80), theme = theme) {
+                        accountVm.logout(); onDismiss()
+                    }
+                } else {
+                    SandwichItem(Icons.Default.Star, "Sync to Cloud", Color(0xFFD8C947), theme = theme) { nav.navigate("login"); onDismiss() }
+                }
                 HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp), color = theme.colors.type.divider.copy(alpha = 0.15f))
                 SandwichItem(Icons.Default.Settings, "Settings", theme = theme) { nav.navigate("settings"); onDismiss() }
                 SandwichItem(Icons.Default.History, "Watch History", theme = theme) { onDismiss() }

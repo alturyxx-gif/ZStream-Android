@@ -14,6 +14,8 @@ okhttp = "4.12.0"
 coroutines = "1.9.0"
 datastore = "1.1.4"
 coreKtx = "1.16.0"
+credentials = "1.5.0-rc01"
+bouncycastle = "1.79"
 lifecycle = "2.9.1"
 activity-compose = "1.10.1"
 junit = "4.13.2"
@@ -69,6 +71,10 @@ kotlinx-coroutines = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutin
 
 # DataStore
 datastore = { group = "androidx.datastore", name = "datastore-preferences", version.ref = "datastore" }
+
+credentials = { group = "androidx.credentials", name = "credentials", version.ref = "credentials" }
+credentials-play = { group = "androidx.credentials", name = "credentials-play-services-auth", version.ref = "credentials" }
+bouncycastle = { group = "org.bouncycastle", name = "bcprov-jdk15to18", version.ref = "bouncycastle" }
 
 # Webkit (for provider engine WebView)
 androidx-webkit = { group = "androidx.webkit", name = "webkit", version = "1.14.0" }
