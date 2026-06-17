@@ -22,9 +22,7 @@ data class Media(
     
     fun posterUrl(size: String = "w500"): String? {
         val path = posterPath ?: return null
-        val url = if (path.startsWith("http")) path else Urls.TMDB_IMAGE + "$size$path"
-        android.util.Log.d("MediaModel", "posterUrl: $url (path: $path)")
-        return url
+        return if (path.startsWith("http")) path else Urls.TMDB_IMAGE + "$size$path"
     }
     
     fun backdropUrl(size: String = "w1280"): String? {

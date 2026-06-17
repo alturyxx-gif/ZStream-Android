@@ -16,6 +16,7 @@ class BookmarkRepository @Inject constructor(
     private val bookmarkDao: BookmarkDao,
     private val accountRepo: AccountRepository,
     private val api: BackendApi,
+    private val tmdbRepo: TmdbRepository,
 ) {
     /**
      * Get bookmark from local cache
@@ -253,8 +254,41 @@ class BookmarkRepository @Inject constructor(
             }
             
             if (entities.isNotEmpty()) {
-                bookmarkDao.insertAll(entities)
-                Log.d(TAG, "Successfully synced ${entities.size} bookmarks from remote")
+                // Before inserting, check if we have existing entities with posters to avoid overwriting with null
+                val updatedEntities = entities.map { entity ->
+                    var current = entity
+                    
+                    // 1. Try to recover poster from local DB
+                    if (current.posterPath == null) {
+                        val existing = bookmarkDao.getByTmdbId(current.tmdbId)
+                        if (existing?.posterPath != null) {
+                            current = current.copy(posterPath = existing.posterPath)
+                        }
+                    }
+                    
+                    // 2. If still null, try to fetch from TMDB
+                    if (current.posterPath == null) {
+                        try {
+                            val id = current.tmdbId.toIntOrNull()
+                            if (id != null) {
+                                if (current.type == "movie") {
+                                    val detail = tmdbRepo.movieDetail(id)
+                                    current = current.copy(posterPath = detail.posterPath, title = detail.title)
+                                } else {
+                                    val detail = tmdbRepo.tvDetail(id)
+                                    current = current.copy(posterPath = detail.posterPath, title = detail.name)
+                                }
+                            }
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Failed to fetch missing TMDB metadata for ${current.tmdbId}")
+                        }
+                    }
+                    
+                    current
+                }
+                
+                bookmarkDao.insertAll(updatedEntities)
+                Log.d(TAG, "Successfully synced ${updatedEntities.size} bookmarks from remote")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to sync bookmarks from remote", e)

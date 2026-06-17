@@ -4,6 +4,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.Tv
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -23,27 +27,39 @@ import com.zstream.android.theme.LocalZStreamTheme
 fun MediaCard(media: Media, onClick: () -> Unit) {
     val theme = LocalZStreamTheme.current
     val posterUrl = media.posterUrl("w342")
-    
-    android.util.Log.d("MediaCard", "Model: ${media.displayTitle} ID: ${media.id} URL: $posterUrl")
 
     Column(
         modifier = Modifier
             .width(110.dp)
             .clickable(onClick = onClick)
     ) {
-        AsyncImage(
-            model = posterUrl,
-            contentDescription = media.displayTitle,
-            contentScale = ContentScale.Crop,
-            onError = { state ->
-                android.util.Log.e("MediaCard", "Failed to load image: $posterUrl", state.result.throwable)
-            },
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(165.dp)
                 .clip(RoundedCornerShape(10.dp))
-                .background(theme.colors.background.secondary)
-        )
+                .background(theme.colors.background.secondary),
+            contentAlignment = Alignment.Center
+        ) {
+            if (posterUrl != null) {
+                AsyncImage(
+                    model = posterUrl,
+                    contentDescription = media.displayTitle,
+                    contentScale = ContentScale.Crop,
+                    onError = { state ->
+                        android.util.Log.e("MediaCard", "Failed to load image for ${media.displayTitle} (${media.id}): $posterUrl", state.result.throwable)
+                    },
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                Icon(
+                    imageVector = if (media.type == "tv") Icons.Filled.Tv else Icons.Filled.Movie,
+                    contentDescription = null,
+                    tint = theme.colors.type.dimmed.copy(alpha = 0.5f),
+                    modifier = Modifier.size(40.dp)
+                )
+            }
+        }
         Spacer(Modifier.height(6.dp))
         Text(
             text = media.displayTitle,

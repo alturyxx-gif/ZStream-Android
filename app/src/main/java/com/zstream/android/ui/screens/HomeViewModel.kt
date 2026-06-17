@@ -42,7 +42,14 @@ data class HomeState(
         if (continueWatching.isNotEmpty()) userContent.addAll(continueWatching)
         if (bookmarks.isNotEmpty()) userContent.addAll(bookmarks)
         
-        return userContent + base
+        val allSections = userContent + base
+        
+        // Deduplicate items across sections
+        val seenIds = mutableSetOf<Int>()
+        return allSections.map { section ->
+            val uniqueItems = section.items.filter { seenIds.add(it.id) }
+            section.copy(items = uniqueItems)
+        }.filter { it.items.isNotEmpty() }
     }
 }
 
@@ -103,6 +110,11 @@ class HomeViewModel @Inject constructor(
                         genreIds = null
                     )
                 }
+                
+                // Deduplicate: If an item is in "Continue Watching", maybe we should still show it in bookmarks?
+                // Actually, the requirement was to fix duplicate show cards.
+                // The grouping in ProgressRepository already fixed the "two episodes = two cards" issue.
+                
                 if (bookmarkMedia.isNotEmpty()) {
                     _state.update { it.copy(bookmarks = listOf(MediaSection("My Bookmarks", bookmarkMedia))) }
                 } else {
@@ -114,7 +126,7 @@ class HomeViewModel @Inject constructor(
 
     fun load() {
         viewModelScope.launch {
-            _state.value = HomeState(loading = true)
+            _state.update { it.copy(loading = true) }
             android.util.Log.d("HomeVM", "Loading home sections from TMDB...")
             runCatching {
                 supervisorScope {
@@ -130,7 +142,7 @@ class HomeViewModel @Inject constructor(
                     val movies = trendMovies.await()
                     android.util.Log.d("HomeVM", "Loaded ${movies.size} trending movies")
 
-                    _state.value = HomeState(
+                    _state.update { it.copy(
                         loading = false,
                         movieSections = listOf(
                             MediaSection("Most Popular", popularMovies.await()),
@@ -148,11 +160,11 @@ class HomeViewModel @Inject constructor(
                             MediaSection("Editor Picks — Movies", topMovies.await().take(10)),
                             MediaSection("Editor Picks — Shows", topTv.await().take(10)),
                         ),
-                    )
+                    ) }
                 }
-            }.onFailure {
-                android.util.Log.e("HomeVM", "Failed to load home sections", it)
-                _state.value = HomeState(loading = false, error = it.message ?: "No connection")
+            }.onFailure { e ->
+                android.util.Log.e("HomeVM", "Failed to load home sections", e)
+                _state.update { it.copy(loading = false, error = e.message ?: "No connection") }
             }
         }
     }
