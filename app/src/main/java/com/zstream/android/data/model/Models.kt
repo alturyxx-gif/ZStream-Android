@@ -39,6 +39,7 @@ data class MovieDetail(
     val images: ImageData? = null,
     val videos: VideoData? = null,
     val similar: SimilarMoviesResponse? = null,
+    @SerializedName("imdb_id") val imdbId: String? = null,
 ) {
     fun posterUrl(size: String = "w500") = posterPath?.let { Urls.TMDB_IMAGE + "$size$it" }
     fun backdropUrl(size: String = "w1280") = backdropPath?.let { Urls.TMDB_IMAGE + "$size$it" }
@@ -60,6 +61,7 @@ data class TvDetail(
     val images: ImageData? = null,
     val videos: VideoData? = null,
     val similar: SimilarShowsResponse? = null,
+    @SerializedName("imdb_id") val imdbId: String? = null,
 ) {
     fun posterUrl(size: String = "w500") = posterPath?.let { Urls.TMDB_IMAGE + "$size$it" }
     fun backdropUrl(size: String = "w1280") = backdropPath?.let { Urls.TMDB_IMAGE + "$size$it" }
@@ -92,6 +94,11 @@ data class CastMember(
     val name: String?,
     val character: String?,
     @SerializedName("profile_path") val profilePath: String?,
+    @SerializedName("external_ids") val externalIds: ExternalIds? = null,
+)
+
+data class ExternalIds(
+    @SerializedName("imdb_id") val imdbId: String? = null,
 )
 
 data class Genre(val id: Int, val name: String)

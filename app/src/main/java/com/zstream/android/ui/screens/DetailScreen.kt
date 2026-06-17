@@ -67,6 +67,7 @@ private fun String.encode() = java.net.URLEncoder.encode(this, "UTF-8").replace(
 fun DetailScreen(nav: NavController, vm: DetailViewModel = hiltViewModel()) {
     val state by vm.state.collectAsState()
     val theme = LocalZStreamTheme.current
+    val context = androidx.compose.ui.platform.LocalContext.current
 
     when (val s = state) {
         is DetailState.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -79,14 +80,14 @@ fun DetailScreen(nav: NavController, vm: DetailViewModel = hiltViewModel()) {
                 Button(onClick = vm::load) { Text("Retry") }
             }
         }
-        is DetailState.Movie -> MovieDetailModal(s, nav, theme)
-        is DetailState.Tv -> TvDetailModal(s, vm, nav, theme)
+        is DetailState.Movie -> MovieDetailModal(s, nav, context, theme)
+        is DetailState.Tv -> TvDetailModal(s, vm, nav, context, theme)
     }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun MovieDetailModal(state: DetailState.Movie, nav: NavController, theme: com.zstream.android.theme.ZStreamTheme) {
+private fun MovieDetailModal(state: DetailState.Movie, nav: NavController, context: android.content.Context, theme: com.zstream.android.theme.ZStreamTheme) {
     val d = state.detail
     val genres = d.genres.orEmpty()
     val cast = d.credits?.cast.orEmpty().take(8)
@@ -122,7 +123,7 @@ private fun MovieDetailModal(state: DetailState.Movie, nav: NavController, theme
                     Text(d.title.uppercase(), color = theme.colors.type.emphasis, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.ExtraBold, letterSpacing = 4.sp)
                 }
                 Spacer(Modifier.height(8.dp))
-                MetadataRow(listOfNotNull(d.releaseDate?.take(4), d.runtime?.let { "$it min" }, d.voteAverage?.let { "⭐ ${"%.1f".format(it)}" }))
+                MetadataRow(listOfNotNull(d.releaseDate?.take(4), d.runtime?.let { "$it min" }, d.voteAverage?.let { "⭐ ${"%.1f".format(it)}" }), theme)
             }
         }
 
@@ -136,7 +137,9 @@ private fun MovieDetailModal(state: DetailState.Movie, nav: NavController, theme
                 Spacer(Modifier.width(6.dp))
                 Text("Resume", color = theme.colors.buttons.primaryText)
             }
-            ActionPill(Icons.Filled.Share, "Share", theme)
+            ActionPill(Icons.Filled.Share, "Share", theme) {
+                openShareSheet(context, d.title, d.id, "movie")
+            }
         }
 
         Row(Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(40.dp)) {
@@ -156,10 +159,10 @@ private fun MovieDetailModal(state: DetailState.Movie, nav: NavController, theme
         }
 
         SectionHeader("Cast", theme)
-        CastRow(cast, theme)
+        CastRow(cast, theme, context)
         
         SectionHeader("Trailers", theme)
-        TrailerGrid(d.videos?.results?.filter { it.site == "YouTube" && it.type == "Trailer" }.orEmpty(), theme)
+        TrailerGrid(d.videos?.results?.filter { it.site == "YouTube" && it.type == "Trailer" }.orEmpty(), theme, context)
         
         SectionHeader("Similar", theme)
         SimilarMoviesGrid(d.similar?.results.orEmpty(), theme)
@@ -168,7 +171,7 @@ private fun MovieDetailModal(state: DetailState.Movie, nav: NavController, theme
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun TvDetailModal(state: DetailState.Tv, vm: DetailViewModel, nav: NavController, theme: com.zstream.android.theme.ZStreamTheme) {
+private fun TvDetailModal(state: DetailState.Tv, vm: DetailViewModel, nav: NavController, context: android.content.Context, theme: com.zstream.android.theme.ZStreamTheme) {
     val d = state.detail
     val season = state.selectedSeason
     var selectedSeasonNum by remember { mutableIntStateOf(season?.seasonNumber ?: 1) }
@@ -204,7 +207,7 @@ private fun TvDetailModal(state: DetailState.Tv, vm: DetailViewModel, nav: NavCo
                     Text(d.name.uppercase(), color = theme.colors.type.emphasis, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.ExtraBold, letterSpacing = 4.sp)
                 }
                 Spacer(Modifier.height(8.dp))
-                MetadataRow(listOfNotNull(d.firstAirDate?.take(4), d.voteAverage?.let { "⭐ ${"%.1f".format(it)}" }))
+               MetadataRow(listOfNotNull(d.firstAirDate?.take(4), d.voteAverage?.let { "⭐ ${"%.1f".format(it)}" }), theme)
             }
         }
 
@@ -223,29 +226,31 @@ private fun TvDetailModal(state: DetailState.Tv, vm: DetailViewModel, nav: NavCo
                 Spacer(Modifier.width(6.dp))
                 Text("Resume", color = theme.colors.buttons.primaryText)
             }
-            ActionPill(Icons.Filled.Share, "Share", theme)
+            ActionPill(Icons.Filled.Share, "Share", theme) {
+               openShareSheet(context, d.name, d.id, "tv")
+            }
         }
 
         Row(Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(40.dp)) {
             Column(Modifier.weight(1f)) {
-                d.overview?.takeIf { it.isNotBlank() }?.let { Text(it, color = theme.colors.type.text, fontSize = 14.sp) }
-                Spacer(Modifier.height(18.dp))
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    d.genres.orEmpty().forEach { GenreChip(it.name, theme) }
-                }
+               d.overview?.takeIf { it.isNotBlank() }?.let { Text(it, color = theme.colors.type.text, fontSize = 14.sp) }
+               Spacer(Modifier.height(18.dp))
+               FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                   d.genres.orEmpty().forEach { GenreChip(it.name, theme) }
+               }
             }
             Column(Modifier.widthIn(max = 240.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                DetailSpec("Seasons", d.numberOfSeasons?.toString() ?: "—", theme)
-                DetailSpec("Language", "EN", theme)
-                DetailSpec("Release Date", d.firstAirDate ?: "—", theme)
-                DetailSpec("Rating", "TV-14", theme)
+               DetailSpec("Seasons", d.numberOfSeasons?.toString() ?: "—", theme)
+               DetailSpec("Language", "EN", theme)
+               DetailSpec("Release Date", d.firstAirDate ?: "—", theme)
+               DetailSpec("Rating", "TV-14", theme)
             }
         }
 
         SectionHeader("Seasons", theme)
         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(horizontal = 32.dp)) {
             items(d.seasons.orEmpty().filter { it.seasonNumber > 0 }) { s ->
-                FilterChip(selected = s.seasonNumber == selectedSeasonNum, onClick = { selectedSeasonNum = s.seasonNumber; vm.selectSeason(s.seasonNumber) }, label = { Text("S${s.seasonNumber}") })
+               FilterChip(selected = s.seasonNumber == selectedSeasonNum, onClick = { selectedSeasonNum = s.seasonNumber; vm.selectSeason(s.seasonNumber) }, label = { Text("S${s.seasonNumber}") })
             }
         }
         Spacer(Modifier.height(16.dp))
@@ -255,10 +260,10 @@ private fun TvDetailModal(state: DetailState.Tv, vm: DetailViewModel, nav: NavCo
         }
         
         SectionHeader("Cast", theme)
-        CastRow(d.credits?.cast.orEmpty().take(8), theme)
+        CastRow(d.credits?.cast.orEmpty().take(8), theme, context)
         
         SectionHeader("Trailers", theme)
-        TrailerGrid(d.videos?.results?.filter { it.site == "YouTube" && it.type == "Trailer" }.orEmpty(), theme)
+        TrailerGrid(d.videos?.results?.filter { it.site == "YouTube" && it.type == "Trailer" }.orEmpty(), theme, context)
         
         SectionHeader("Similar", theme)
         SimilarMoviesGrid(d.similar?.results.orEmpty(), theme)
@@ -284,10 +289,12 @@ private fun EpisodeRow(ep: Episode, showId: Int, title: String, nav: NavControll
 }
 
 @Composable
-private fun CastRow(cast: List<CastMember>, theme: com.zstream.android.theme.ZStreamTheme) {
+private fun CastRow(cast: List<CastMember>, theme: com.zstream.android.theme.ZStreamTheme, context: android.content.Context) {
     LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.padding(horizontal = 32.dp, vertical = 8.dp)) {
         items(cast) { member ->
-            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(105.dp)) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(105.dp).clickable {
+                openCastProfile(context, member.id, member.externalIds?.imdbId)
+            }) {
                 AsyncImage(
                     model = member.profilePath?.let { "${Urls.TMDB_IMAGE}w185$it" },
                     contentDescription = member.name,
@@ -323,18 +330,18 @@ private fun GenreChip(label: String, theme: com.zstream.android.theme.ZStreamThe
 }
 
 @Composable
-private fun MetadataRow(parts: List<String>) {
+private fun MetadataRow(parts: List<String>, theme: com.zstream.android.theme.ZStreamTheme) {
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
         parts.forEachIndexed { index, part ->
-            if (index > 0) Text("•", fontSize = 12.sp)
-            Text(part, fontSize = 12.sp)
+            if (index > 0) Text("•", fontSize = 12.sp, color = androidx.compose.ui.graphics.Color.White)
+            Text(part, fontSize = 12.sp, color = androidx.compose.ui.graphics.Color.White)
         }
     }
 }
 
 @Composable
-private fun ActionPill(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, theme: com.zstream.android.theme.ZStreamTheme) {
-    Surface(shape = RoundedCornerShape(6.dp), color = theme.colors.type.text.copy(alpha = 0.05f)) {
+private fun ActionPill(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, theme: com.zstream.android.theme.ZStreamTheme, onClick: () -> Unit) {
+    Surface(shape = RoundedCornerShape(6.dp), color = theme.colors.type.text.copy(alpha = 0.05f), modifier = Modifier.clickable(onClick = onClick)) {
         Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(icon, null, modifier = Modifier.size(18.dp), tint = theme.colors.type.text)
             Spacer(Modifier.width(6.dp))
@@ -344,7 +351,7 @@ private fun ActionPill(icon: androidx.compose.ui.graphics.vector.ImageVector, la
 }
 
 @Composable
-private fun TrailerGrid(trailers: List<com.zstream.android.data.model.TrailerData>, theme: com.zstream.android.theme.ZStreamTheme) {
+private fun TrailerGrid(trailers: List<com.zstream.android.data.model.TrailerData>, theme: com.zstream.android.theme.ZStreamTheme, context: android.content.Context) {
     if (trailers.isEmpty()) {
         Text("No trailers available", modifier = Modifier.padding(horizontal = 32.dp, vertical = 12.dp), color = theme.colors.type.secondary)
         return
@@ -359,7 +366,7 @@ private fun TrailerGrid(trailers: List<com.zstream.android.data.model.TrailerDat
                         .aspectRatio(16f / 9f)
                         .clip(RoundedCornerShape(8.dp))
                         .background(theme.colors.modal.background)
-                        .clickable { /* Open trailer */ }
+                        .clickable { openYoutubeTrailer(context, trailer.key) }
                 ) {
                     AsyncImage(
                         model = "https://img.youtube.com/vi/${trailer.key}/0.jpg",
@@ -398,4 +405,32 @@ private fun SimilarMoviesGrid(similar: List<com.zstream.android.data.model.Media
             }
         }
     }
+}
+
+private fun openShareSheet(context: android.content.Context, title: String, id: Int, mediaType: String) {
+   val url = "https://www.themoviedb.org/$mediaType/$id"
+   val shareText = "Check out $title on ZStream!\n$url"
+   val intent = android.content.Intent().apply {
+       action = android.content.Intent.ACTION_SEND
+       putExtra(android.content.Intent.EXTRA_TEXT, shareText)
+       type = "text/plain"
+   }
+   val chooser = android.content.Intent.createChooser(intent, "Share")
+   context.startActivity(chooser)
+}
+
+private fun openCastProfile(context: android.content.Context, castId: Int, imdbId: String?) {
+   val url = if (!imdbId.isNullOrEmpty()) {
+       "https://www.imdb.com/name/$imdbId/"
+   } else {
+       "https://www.themoviedb.org/person/$castId"
+   }
+   val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))
+   context.startActivity(intent)
+}
+
+private fun openYoutubeTrailer(context: android.content.Context, youtubeKey: String) {
+   val url = "https://www.youtube.com/watch?v=$youtubeKey"
+   val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))
+   context.startActivity(intent)
 }
