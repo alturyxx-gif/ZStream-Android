@@ -22,6 +22,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -31,6 +32,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import com.zstream.android.R
+import com.zstream.android.Urls
 import com.zstream.android.data.model.Media
 import com.zstream.android.theme.LocalZStreamTheme
 import kotlinx.coroutines.delay
@@ -63,7 +65,9 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
     var showContinueWatching by remember { mutableStateOf(true) }
     var showBookmarks by remember { mutableStateOf(true) }
 
-    Box(modifier = Modifier.fillMaxSize().background(theme.colors.background.main)) {
+    Box(modifier = Modifier
+        .fillMaxSize()
+        .background(theme.colors.background.main)) {
         CosmicBackground()
         ParticleOverlay()
 
@@ -102,7 +106,9 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
                         // Show live TMDB search results as a 3-column grid
                         if (displayedSearchResults.isEmpty()) {
                             item {
-                                Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                                Box(Modifier
+                                    .fillMaxWidth()
+                                    .padding(32.dp), contentAlignment = Alignment.Center) {
                                     Text(
                                         if (searchResults.isEmpty()) "Searching…" else "No results",
                                         color = theme.colors.type.dimmed,
@@ -250,24 +256,42 @@ private fun CosmicBackground() {
     val flickerAlpha by rememberFlickerAlpha()
     val accent = theme.colors.global.accentA
     Box(
-        modifier = Modifier.fillMaxWidth().height(320.dp)
-            .background(Brush.verticalGradient(colors = listOf(
-                theme.colors.background.accentA.copy(alpha = 0.55f),
-                theme.colors.background.main.copy(alpha = 0.85f),
-                theme.colors.background.main,
-            )))
-    ) {
-        Box(modifier = Modifier.fillMaxWidth().height(220.dp).background(
-            Brush.radialGradient(
-                colors = listOf(accent.copy(alpha = 0.22f * flickerAlpha), Color.Transparent),
-                center = Offset(Float.MAX_VALUE / 2, 0f), radius = 600f,
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(320.dp)
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        theme.colors.background.accentA.copy(alpha = 0.55f),
+                        theme.colors.background.main.copy(alpha = 0.85f),
+                        theme.colors.background.main,
+                    )
+                )
             )
-        ))
+    ) {
         Box(modifier = Modifier
-            .fillMaxWidth(0.8f).height(1.5.dp).align(Alignment.TopCenter).offset(y = 3.dp)
-            .background(Brush.horizontalGradient(colors = listOf(
-                Color.Transparent, accent.copy(alpha = 0.9f * flickerAlpha), Color.Transparent,
-            )))
+            .fillMaxWidth()
+            .height(220.dp)
+            .background(
+                Brush.radialGradient(
+                    colors = listOf(accent.copy(alpha = 0.22f * flickerAlpha), Color.Transparent),
+                    center = Offset(Float.MAX_VALUE / 2, 0f), radius = 600f,
+                )
+            ))
+        Box(modifier = Modifier
+            .fillMaxWidth(0.8f)
+            .height(1.5.dp)
+            .align(Alignment.TopCenter)
+            .offset(y = 3.dp)
+            .background(
+                Brush.horizontalGradient(
+                    colors = listOf(
+                        Color.Transparent,
+                        accent.copy(alpha = 0.9f * flickerAlpha),
+                        Color.Transparent,
+                    )
+                )
+            )
         )
     }
 }
@@ -291,7 +315,9 @@ private fun ParticleOverlay() {
             }
         }
     }
-    Canvas(modifier = Modifier.fillMaxWidth().height(300.dp)) {
+    Canvas(modifier = Modifier
+        .fillMaxWidth()
+        .height(300.dp)) {
         val t = tickSecs.floatValue  // state read inside Canvas — only invalidates this node
         val h = size.height; val w = size.width
         particles.forEach { p ->
@@ -308,7 +334,10 @@ private fun ParticleOverlay() {
 private fun TopNavBar(onLayout: () -> Unit, onMenu: () -> Unit) {
     val theme = LocalZStreamTheme.current
     Row(
-        modifier = Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 16.dp, vertical = 12.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .statusBarsPadding()
+            .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
@@ -324,7 +353,9 @@ private fun TopNavBar(onLayout: () -> Unit, onMenu: () -> Unit) {
             coil.compose.AsyncImage(
                 model = R.mipmap.ic_launcher,
                 contentDescription = null,
-                modifier = Modifier.size(22.dp).clip(CircleShape),
+                modifier = Modifier
+                    .size(22.dp)
+                    .clip(CircleShape),
             )
             Text(
                 "Z-Stream",
@@ -339,7 +370,11 @@ private fun TopNavBar(onLayout: () -> Unit, onMenu: () -> Unit) {
                 modifier = Modifier
                     .clip(RoundedCornerShape(50))
                     .background(theme.colors.background.secondary.copy(alpha = 0.8f))
-                    .border(1.dp, theme.colors.type.divider.copy(alpha = 0.3f), RoundedCornerShape(50))
+                    .border(
+                        1.dp,
+                        theme.colors.type.divider.copy(alpha = 0.3f),
+                        RoundedCornerShape(50)
+                    )
                     .clickable(onClick = onLayout)
                     .padding(horizontal = 10.dp, vertical = 7.dp),
                 contentAlignment = Alignment.Center,
@@ -351,7 +386,11 @@ private fun TopNavBar(onLayout: () -> Unit, onMenu: () -> Unit) {
                 modifier = Modifier
                     .clip(RoundedCornerShape(50))
                     .background(theme.colors.background.secondary.copy(alpha = 0.8f))
-                    .border(1.dp, theme.colors.type.divider.copy(alpha = 0.3f), RoundedCornerShape(50))
+                    .border(
+                        1.dp,
+                        theme.colors.type.divider.copy(alpha = 0.3f),
+                        RoundedCornerShape(50)
+                    )
                     .clickable(onClick = onMenu)
                     .padding(horizontal = 10.dp, vertical = 7.dp),
             ) {
@@ -376,7 +415,9 @@ private fun HeroSection(searchQuery: String, onSearch: (String) -> Unit, nav: Na
     )
 
     Column(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(
@@ -400,7 +441,9 @@ private fun HeroSection(searchQuery: String, onSearch: (String) -> Unit, nav: Na
                 contentAlignment = Alignment.CenterStart,
             ) {
                 Row(
-                    modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
@@ -434,7 +477,10 @@ private fun HeroSection(searchQuery: String, onSearch: (String) -> Unit, nav: Na
                             start = Offset(w - shift, 0f),
                             end = Offset(w * 2 - shift, size.height),
                         )
-                        drawRoundRect(brush = brush, cornerRadius = androidx.compose.ui.geometry.CornerRadius(14.dp.toPx()))
+                        drawRoundRect(
+                            brush = brush,
+                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(14.dp.toPx())
+                        )
                     }
                     .padding(2.dp)
                     .clip(RoundedCornerShape(12.dp))
@@ -465,8 +511,16 @@ private fun GenrePills(selectedGenreId: Int?, onSelect: (Int?) -> Unit) {
                 fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
                 modifier = Modifier
                     .clip(RoundedCornerShape(50))
-                    .background(if (selected) theme.colors.global.accentA else theme.colors.background.secondary.copy(alpha = 0.5f))
-                    .border(1.dp, if (selected) Color.Transparent else theme.colors.type.divider.copy(alpha = 0.25f), RoundedCornerShape(50))
+                    .background(
+                        if (selected) theme.colors.global.accentA else theme.colors.background.secondary.copy(
+                            alpha = 0.5f
+                        )
+                    )
+                    .border(
+                        1.dp,
+                        if (selected) Color.Transparent else theme.colors.type.divider.copy(alpha = 0.25f),
+                        RoundedCornerShape(50)
+                    )
                     .clickable { onSelect(if (selected) null else id) }
                     .padding(horizontal = 12.dp, vertical = 6.dp)
             )
@@ -478,7 +532,9 @@ private fun GenrePills(selectedGenreId: Int?, onSelect: (Int?) -> Unit) {
 private fun HomeTabs(activeTab: HomeTab, onTab: (HomeTab) -> Unit) {
     val theme = LocalZStreamTheme.current
     Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -494,7 +550,10 @@ private fun HomeTabs(activeTab: HomeTab, onTab: (HomeTab) -> Unit) {
                 Text(label, color = if (active) theme.colors.type.emphasis else theme.colors.type.dimmed,
                     fontWeight = if (active) FontWeight.Bold else FontWeight.Normal, fontSize = 16.sp)
                 Spacer(Modifier.height(4.dp))
-                Box(Modifier.size(if (active) 6.dp else 0.dp).clip(CircleShape).background(theme.colors.global.accentA))
+                Box(Modifier
+                    .size(if (active) 6.dp else 0.dp)
+                    .clip(CircleShape)
+                    .background(theme.colors.global.accentA))
             }
         }
     }
@@ -524,7 +583,11 @@ private fun LayoutMenuDialog(
 ) {
     val theme = LocalZStreamTheme.current
     Dialog(onDismissRequest = onDismiss) {
-        Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(theme.colors.modal.background).padding(20.dp)) {
+        Box(Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .background(theme.colors.modal.background)
+            .padding(20.dp)) {
             Column {
                 Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
                     Text("Edit Layout", color = theme.colors.type.emphasis, fontWeight = FontWeight.Bold, fontSize = 15.sp)
@@ -558,8 +621,14 @@ private fun LayoutToggleRow(label: String, checked: Boolean, onToggle: (Boolean)
 @Composable
 private fun SandwichMenuDialog(nav: NavController, session: com.zstream.android.data.AccountSession?, accountVm: AccountViewModel, onDismiss: () -> Unit) {
     val theme = LocalZStreamTheme.current
+    val uriHandler = LocalUriHandler.current
+
     Dialog(onDismissRequest = onDismiss) {
-        Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(theme.colors.modal.background).padding(vertical = 8.dp)) {
+        Box(Modifier
+            .width(384.dp)
+            .clip(RoundedCornerShape(20.dp))
+            .background(theme.colors.modal.background)
+            .padding(vertical = 8.dp)) {
             Column {
                 if (session != null) {
                     SandwichItem(Icons.Default.CheckCircle, "Synced: ${session.nickname.ifBlank { session.userId.take(8) }}", Color(0xFF4ADE80), theme = theme) {
@@ -574,12 +643,36 @@ private fun SandwichMenuDialog(nav: NavController, session: com.zstream.android.
                 SandwichItem(Icons.Default.Help, "About and FAQ", theme = theme) { onDismiss() }
                 SandwichItem(Icons.Default.Explore, "Discover", theme = theme) { nav.navigate("search"); onDismiss() }
                 SandwichItem(Icons.Default.Group, "Join a Watch Party", theme = theme) { onDismiss() }
+
                 HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp), color = theme.colors.type.divider.copy(alpha = 0.15f))
-                Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    listOf(Icons.Default.Code, Icons.Default.Chat, Icons.Default.Forum).forEach { icon ->
-                        Box(Modifier.size(40.dp).clip(CircleShape).background(theme.colors.background.secondary).clickable {},
-                            contentAlignment = Alignment.Center) {
-                            Icon(icon, null, tint = theme.colors.type.secondary, modifier = Modifier.size(18.dp))
+
+                val links = listOf(
+                    Icons.Default.Code to Urls.GITHUB_REPO,
+                    Icons.Default.Forum to Urls.DISCORD_LINK
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    links.forEach { (icon, url) ->
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(theme.colors.background.secondary)
+                                .clickable {
+                                    uriHandler.openUri(url)
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = icon,
+                                contentDescription = null,
+                                tint = theme.colors.type.secondary,
+                                modifier = Modifier.size(18.dp)
+                            )
                         }
                     }
                 }
@@ -598,7 +691,10 @@ private fun SandwichItem(
     onClick: () -> Unit,
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 20.dp, vertical = 12.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 20.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
