@@ -19,6 +19,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.LocalActivity
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
@@ -35,7 +37,9 @@ private fun shouldShowProgress(p: ProgressResponse): Boolean {
 }
 
 @Composable
-fun WatchHistoryScreen(nav: NavController, accountVm: AccountViewModel = hiltViewModel()) {
+fun WatchHistoryScreen(nav: NavController) {
+    val activity = LocalActivity.current as ComponentActivity
+    val accountVm: AccountViewModel = hiltViewModel(activity)
     val theme = LocalZStreamTheme.current
     val progressList by accountVm.progress.collectAsState()
 
