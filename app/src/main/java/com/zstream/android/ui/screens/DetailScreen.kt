@@ -1,5 +1,6 @@
 package com.zstream.android.ui.screens
 
+import com.zstream.android.Urls
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -118,7 +119,7 @@ private fun TvDetailContent(state: DetailState.Tv, vm: DetailViewModel, nav: Nav
                     leadingContent = ep.stillPath?.let { path ->
                         {
                             AsyncImage(
-                                model = "https://image.tmdb.org/t/p/w185$path",
+                                model = "${Urls.TMDB_IMAGE}w185$path",
                                 contentDescription = null,
                                 contentScale = ContentScale.Crop,
                                 modifier = Modifier.size(80.dp, 56.dp).clip(RoundedCornerShape(4.dp))

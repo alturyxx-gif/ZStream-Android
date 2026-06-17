@@ -1,6 +1,7 @@
 package com.zstream.android.data.model
 
 import com.google.gson.annotations.SerializedName
+import com.zstream.android.Urls
 
 data class Media(
     val id: Int,
@@ -18,8 +19,8 @@ data class Media(
     val displayTitle get() = title ?: name ?: ""
     val displayDate get() = releaseDate ?: firstAirDate ?: ""
     val type get() = mediaType ?: if (title != null) "movie" else "tv"
-    fun posterUrl(size: String = "w500") = posterPath?.let { "https://image.tmdb.org/t/p/$size$it" }
-    fun backdropUrl(size: String = "w1280") = backdropPath?.let { "https://image.tmdb.org/t/p/$size$it" }
+    fun posterUrl(size: String = "w500") = posterPath?.let { Urls.TMDB_IMAGE + "$size$it" }
+    fun backdropUrl(size: String = "w1280") = backdropPath?.let { Urls.TMDB_IMAGE + "$size$it" }
 }
 
 data class PagedResponse<T>(val results: List<T>, val page: Int, @SerializedName("total_pages") val totalPages: Int)
@@ -36,8 +37,8 @@ data class MovieDetail(
     val genres: List<Genre>?,
     val credits: Credits?,
 ) {
-    fun posterUrl(size: String = "w500") = posterPath?.let { "https://image.tmdb.org/t/p/$size$it" }
-    fun backdropUrl(size: String = "w1280") = backdropPath?.let { "https://image.tmdb.org/t/p/$size$it" }
+    fun posterUrl(size: String = "w500") = posterPath?.let { Urls.TMDB_IMAGE + "$size$it" }
+    fun backdropUrl(size: String = "w1280") = backdropPath?.let { Urls.TMDB_IMAGE + "$size$it" }
 }
 
 data class TvDetail(
@@ -53,8 +54,8 @@ data class TvDetail(
     val genres: List<Genre>?,
     val credits: Credits?,
 ) {
-    fun posterUrl(size: String = "w500") = posterPath?.let { "https://image.tmdb.org/t/p/$size$it" }
-    fun backdropUrl(size: String = "w1280") = backdropPath?.let { "https://image.tmdb.org/t/p/$size$it" }
+    fun posterUrl(size: String = "w500") = posterPath?.let { Urls.TMDB_IMAGE + "$size$it" }
+    fun backdropUrl(size: String = "w1280") = backdropPath?.let { Urls.TMDB_IMAGE + "$size$it" }
 }
 
 data class Season(

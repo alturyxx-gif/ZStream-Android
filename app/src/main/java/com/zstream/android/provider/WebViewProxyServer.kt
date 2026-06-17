@@ -37,8 +37,9 @@ class WebViewProxyServer {
     var playbackHeaders: Map<String, String> = emptyMap()
 
     private val okhttp = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(20, TimeUnit.SECONDS)
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(60, TimeUnit.SECONDS)
+        .writeTimeout(60, TimeUnit.SECONDS)
         .build()
 
     fun start() {
@@ -67,27 +68,43 @@ class WebViewProxyServer {
             playbackHeaders.forEach { (k, v) -> reqBuilder.header(k, v) }
 
             val response = okhttp.newCall(reqBuilder.build()).execute()
-            val bytes = response.body?.bytes()
             val out = socket.getOutputStream()
-
-            if (bytes == null || !response.isSuccessful) {
+            if (!response.isSuccessful) {
                 Log.e(TAG, "upstream ${response.code} for ${targetUrl.takeLast(45)}")
                 out.write("HTTP/1.1 ${response.code} Upstream\r\n\r\n".toByteArray())
                 response.close()
                 return
             }
-            response.close()
 
-            val body = if (isM3u8) rewriteM3u8(String(bytes), targetUrl) else bytes
-            val contentType = if (isM3u8) "application/vnd.apple.mpegurl" else "video/mp2t"
-            Log.d(TAG, "sent ${body.size}b ${targetUrl.takeLast(45)}")
-
-            out.write(("HTTP/1.1 200 OK\r\n" +
-                    "Content-Length: ${body.size}\r\n" +
-                    "Content-Type: $contentType\r\n" +
-                    "Access-Control-Allow-Origin: *\r\n\r\n").toByteArray())
-            out.write(body)
-            out.flush()
+            if (isM3u8) {
+                val bytes = response.body!!.bytes()
+                response.close()
+                val body = rewriteM3u8(String(bytes), targetUrl)
+                Log.d(TAG, "sent ${body.size}b ${targetUrl.takeLast(45)}")
+                out.write(("HTTP/1.1 200 OK\r\nContent-Length: ${body.size}\r\nContent-Type: application/vnd.apple.mpegurl\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n").toByteArray())
+                out.write(body)
+            } else {
+                // Stream segment directly — avoids buffering entire TS chunk in memory
+                val body = response.body!!
+                val contentLength = body.contentLength()
+                val header = buildString {
+                    append("HTTP/1.1 200 OK\r\n")
+                    if (contentLength >= 0) append("Content-Length: $contentLength\r\n")
+                    append("Content-Type: video/mp2t\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n")
+                }
+                out.write(header.toByteArray())
+                val buf = ByteArray(65536)
+                var total = 0
+                body.byteStream().use { stream ->
+                    var n: Int
+                    while (stream.read(buf).also { n = it } != -1) {
+                        out.write(buf, 0, n)
+                        total += n
+                    }
+                }
+                response.close()
+                Log.d(TAG, "sent ${total}b ${targetUrl.takeLast(45)}")
+            }
         } catch (e: Exception) {
             Log.e(TAG, "handle error: ${e.message}")
         } finally {

@@ -122,7 +122,10 @@ class PlayerViewModel @Inject constructor(
         val idx = sources.indexOfFirst { it.id == id }
         if (idx >= 0) sources[idx] = SourceResult(id, status)
         else sources.add(SourceResult(id, status))
-        _state.value = PlayerState.Scraping(sources.toList())
+        // Don't overwrite Ready/Error state with Scraping updates
+        if (_state.value is PlayerState.Scraping) {
+            _state.value = PlayerState.Scraping(sources.toList())
+        }
     }
 
     private fun findStreamUrl(stream: JSONObject): String? {

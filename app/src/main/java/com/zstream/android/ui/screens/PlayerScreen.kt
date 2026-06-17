@@ -13,6 +13,11 @@ import androidx.annotation.OptIn
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.drag
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -25,8 +30,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -139,17 +146,53 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     ExoPlayer.Builder(context).build().apply {
                         setMediaSource(HlsMediaSource.Factory(WebViewDataSource.Factory(vm.getProxyPort()))
                             .createMediaSource(MediaItem.fromUri(s.streamUrl)))
+                        videoScalingMode = androidx.media3.common.C.VIDEO_SCALING_MODE_SCALE_TO_FIT
                         prepare(); playWhenReady = true
                     }
                 }
                 DisposableEffect(Unit) { onDispose { player.release() } }
 
-                AndroidView(factory = { ctx ->
-                    PlayerView(ctx).apply {
-                        this.player = player; useController = false
-                        layoutParams = FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT)
+                // Re-apply RESIZE_MODE_FIT when video size changes (codec resolution updates)
+                val playerViewRef = remember { androidx.compose.runtime.mutableStateOf<PlayerView?>(null) }
+                DisposableEffect(player) {
+                    val listener = object : Player.Listener {
+                        override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
+                            val pv = playerViewRef.value ?: return
+                            pv.resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
+                            // Fix emulator goldfish codec forcing VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING.
+                            // Find the TextureView and reset its transform to identity so it doesn't crop.
+                            fun findTextureView(v: android.view.View): android.graphics.SurfaceTexture? {
+                                if (v is android.view.TextureView) {
+                                    v.setTransform(android.graphics.Matrix())
+                                    return v.surfaceTexture
+                                }
+                                if (v is android.view.ViewGroup) {
+                                    for (i in 0 until v.childCount) findTextureView(v.getChildAt(i))
+                                }
+                                return null
+                            }
+                            pv.post { findTextureView(pv) }
+                        }
                     }
-                }, modifier = Modifier.fillMaxSize())
+                    player.addListener(listener)
+                    onDispose { player.removeListener(listener) }
+                }
+
+                AndroidView(
+                    factory = { ctx ->
+                        PlayerView(ctx).apply {
+                            this.player = player
+                            useController = false
+                            resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
+                            layoutParams = FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT)
+                            playerViewRef.value = this
+                        }
+                    },
+                    update = { view ->
+                        view.resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
+                    },
+                    modifier = Modifier.fillMaxSize()
+                )
 
                 PlayerControls(player, vm.title, onBack = { nav.popBackStack() }, onPip = {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
@@ -260,27 +303,44 @@ private fun PlayerControls(player: ExoPlayer, title: String, onBack: () -> Unit,
                 // ── Bottom bar — scrubber flush against controls row ──────
                 Column(modifier = Modifier.fillMaxWidth().align(Alignment.BottomCenter)) {
                     // Scrubber with horizontal padding, zero vertical spacing
-                    Box(Modifier.fillMaxWidth().padding(horizontal = SCRUBBER_SIDE_PADDING)) {
-                        LinearProgressIndicator(
-                            progress = { if (isDragging) scrubPosition else progress },
-                            modifier = Modifier.fillMaxWidth().height(3.dp).align(Alignment.BottomCenter),
-                            color = RedProgress, trackColor = Color.White.copy(0.25f),
-                        )
-                        Slider(
-                            value = if (isDragging) scrubPosition else progress,
-                            onValueChange = { v -> isDragging = true; scrubPosition = v },
-                            onValueChangeFinished = {
-                                player.seekTo((scrubPosition * durationMs).toLong())
-                                positionMs = (scrubPosition * durationMs).toLong()
-                                isDragging = false
-                            },
-                            modifier = Modifier.fillMaxWidth().offset(y = SCRUBBER_SLIDER_OFFSET),
-                            colors = SliderDefaults.colors(
-                                thumbColor = Color.Transparent,
-                                activeTrackColor = Color.Transparent,
-                                inactiveTrackColor = Color.Transparent,
-                            ),
-                        )
+                    Box(
+                        Modifier.fillMaxWidth()
+                            .padding(horizontal = SCRUBBER_SIDE_PADDING)
+                            .height(28.dp)
+                            .pointerInput(durationMs) {
+                                awaitEachGesture {
+                                    val down = awaitFirstDown(requireUnconsumed = false)
+                                    down.consume() // prevent parent controls-toggle from firing
+                                    val fraction = { x: Float -> (x / size.width).coerceIn(0f, 1f) }
+                                    isDragging = true
+                                    scrubPosition = fraction(down.position.x)
+                                    drag(down.id) { change ->
+                                        scrubPosition = fraction(change.position.x)
+                                        change.consume()
+                                    }
+                                    player.seekTo((scrubPosition * durationMs).toLong())
+                                    positionMs = (scrubPosition * durationMs).toLong()
+                                    isDragging = false
+                                }
+                            }
+                    ) {
+                        // Track background
+                        Box(Modifier.fillMaxWidth().height(3.dp).align(Alignment.Center)
+                            .background(Color.White.copy(0.25f)))
+                        // Filled portion
+                        Box(Modifier.fillMaxWidth(if (isDragging) scrubPosition else progress)
+                            .height(3.dp).align(Alignment.CenterStart)
+                            .background(RedProgress))
+                        // Thumb — only visible while dragging
+                        if (isDragging) {
+                            val thumbFraction = scrubPosition
+                            Box(Modifier.align(Alignment.CenterStart)
+                                .fillMaxWidth(thumbFraction)
+                                .wrapContentWidth(Alignment.End)) {
+                                Box(Modifier.size(12.dp)
+                                    .background(Color.White, androidx.compose.foundation.shape.CircleShape))
+                            }
+                        }
                     }
                     Row(modifier = Modifier.fillMaxWidth().background(Color.Black.copy(0.75f))
                         .padding(vertical = BOTTOM_BAR_PADDING_V),

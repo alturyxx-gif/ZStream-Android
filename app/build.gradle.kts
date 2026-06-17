@@ -94,6 +94,9 @@ dependencies {
     implementation(libs.okhttp.logging)
 
     implementation(libs.kotlinx.coroutines)
+    implementation(libs.credentials)
+    implementation(libs.credentials.play)
+    implementation(libs.bouncycastle)
     implementation(libs.datastore)
     implementation(libs.androidx.webkit)
 

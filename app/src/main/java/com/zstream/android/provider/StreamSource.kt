@@ -1,8 +1,8 @@
 package com.zstream.android.provider
 
-/**
- * Media being requested for playback. Provider-agnostic.
- */
+import com.zstream.android.Urls
+
+
 data class MediaRequest(
     val type: Type,
     val tmdbId: String,
@@ -57,15 +57,15 @@ object VidlinkSource : StreamSource {
     override val id = "vidlink"
 
     override val playbackHeaders = mapOf(
-        "Referer" to "https://vidlink.pro/",
-        "Origin" to "https://vidlink.pro",
+        "Referer" to Urls.VIDLINK,
+        "Origin" to Urls.VIDLINK.trimEnd('/'),
     )
 
     override fun embedUrl(media: MediaRequest): String = when (media.type) {
         MediaRequest.Type.SHOW ->
-            "https://vidlink.pro/tv/${media.tmdbId}/${media.season}/${media.episode}"
+            "${Urls.VIDLINK}tv/${media.tmdbId}/${media.season}/${media.episode}"
         MediaRequest.Type.MOVIE ->
-            "https://vidlink.pro/movie/${media.tmdbId}"
+            "${Urls.VIDLINK}movie/${media.tmdbId}"
     }
 
     override fun isStreamUrl(url: String): Boolean {
