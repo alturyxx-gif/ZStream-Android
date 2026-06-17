@@ -84,12 +84,15 @@ class AccountViewModel @Inject constructor(private val repo: AccountRepository) 
         poster: String?,
     ) {
         val type = if (mediaType == "tv") "show" else "movie"
-        // Reuse real TMDB episode/season IDs from existing progress if available
-        val existing = progress.value.firstOrNull { p ->
-            p.tmdbId == tmdbId &&
-            (episodeNumber == null || p.episode.number == episodeNumber) &&
-            (seasonNumber == null || p.season.number == seasonNumber)
-        }
+        // Find best existing record: same show+episode number, pick highest watched (most authoritative)
+        val existing = progress.value
+            .filter { p ->
+                p.tmdbId == tmdbId &&
+                (episodeNumber == null || p.episode.number == episodeNumber) &&
+                (seasonNumber == null || p.season.number == seasonNumber)
+            }
+            .maxByOrNull { it.watched.toLongOrNull() ?: 0L }
+        // Always reuse the existing episodeId/seasonId to avoid creating duplicate records
         val realSeasonId = existing?.season?.id ?: seasonId
         val realEpisodeId = existing?.episode?.id ?: episodeId
         val input = ProgressInput(
@@ -108,7 +111,13 @@ class AccountViewModel @Inject constructor(private val repo: AccountRepository) 
     private fun fetchSyncData(s: AccountSession) {
         viewModelScope.launch {
             runCatching { bookmarks.value = repo.getBookmarks(s) }
-            runCatching { progress.value  = repo.getProgress(s) }
+            runCatching {
+                val raw = repo.getProgress(s)
+                // Deduplicate: keep highest-watched entry per tmdbId+episode+season
+                progress.value = raw
+                    .sortedByDescending { it.watched.toLongOrNull() ?: 0L }
+                    .distinctBy { "${it.tmdbId}:${it.episode.number}:${it.season.number}" }
+            }
         }
     }
 

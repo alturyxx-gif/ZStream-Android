@@ -47,6 +47,8 @@ fun WatchHistoryScreen(nav: NavController) {
         progressList
             .filter { shouldShowProgress(it) }
             .sortedByDescending { it.updatedAt }
+            // Deduplicate: one card per tmdbId+episodeNumber combo, keep most recent
+            .distinctBy { "${it.tmdbId}:${it.episode.number}:${it.season.number}" }
     }
 
     Column(Modifier.fillMaxSize().background(theme.colors.background.main)) {
