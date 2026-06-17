@@ -19,8 +19,19 @@ data class Media(
     val displayTitle get() = title ?: name ?: ""
     val displayDate get() = releaseDate ?: firstAirDate ?: ""
     val type get() = mediaType ?: if (title != null) "movie" else "tv"
-    fun posterUrl(size: String = "w500") = posterPath?.let { Urls.TMDB_IMAGE + "$size$it" }
-    fun backdropUrl(size: String = "w1280") = backdropPath?.let { Urls.TMDB_IMAGE + "$size$it" }
+    
+    fun posterUrl(size: String = "w500"): String? {
+        val path = posterPath ?: return null
+        val url = if (path.startsWith("http")) path else Urls.TMDB_IMAGE + "$size$path"
+        android.util.Log.d("MediaModel", "posterUrl: $url (path: $path)")
+        return url
+    }
+    
+    fun backdropUrl(size: String = "w1280"): String? {
+        val path = backdropPath ?: return null
+        val url = if (path.startsWith("http")) path else Urls.TMDB_IMAGE + "$size$path"
+        return url
+    }
 }
 
 data class PagedResponse<T>(val results: List<T>, val page: Int, @SerializedName("total_pages") val totalPages: Int)

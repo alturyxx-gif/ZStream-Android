@@ -22,29 +22,100 @@ data class HomeState(
     val movieSections: List<MediaSection> = emptyList(),
     val tvSections: List<MediaSection> = emptyList(),
     val editorSections: List<MediaSection> = emptyList(),
+    val continueWatching: List<MediaSection> = emptyList(),
+    val bookmarks: List<MediaSection> = emptyList(),
     val activeTab: HomeTab = HomeTab.MOVIES,
     val selectedGenreId: Int? = null,
     val searchQuery: String = "",
     val loading: Boolean = true,
     val error: String? = null,
 ) {
-    val currentSections get() = when (activeTab) {
-        HomeTab.MOVIES -> movieSections
-        HomeTab.TV -> tvSections
-        HomeTab.EDITOR -> editorSections
+    val currentSections: List<MediaSection> get() {
+        val base = when (activeTab) {
+            HomeTab.MOVIES -> movieSections
+            HomeTab.TV -> tvSections
+            HomeTab.EDITOR -> editorSections
+        }
+        
+        // Add user content at the top if available
+        val userContent = mutableListOf<MediaSection>()
+        if (continueWatching.isNotEmpty()) userContent.addAll(continueWatching)
+        if (bookmarks.isNotEmpty()) userContent.addAll(bookmarks)
+        
+        return userContent + base
     }
 }
 
 @HiltViewModel
-class HomeViewModel @Inject constructor(private val repo: TmdbRepository) : ViewModel() {
+class HomeViewModel @Inject constructor(
+    private val repo: TmdbRepository,
+    private val progressRepo: com.zstream.android.data.ProgressRepository,
+    private val bookmarkRepo: com.zstream.android.data.BookmarkRepository,
+) : ViewModel() {
     private val _state = MutableStateFlow(HomeState())
     val state = _state.asStateFlow()
 
-    init { load() }
+    init { 
+        load()
+        observeUserContent()
+    }
+
+    private fun observeUserContent() {
+        viewModelScope.launch {
+            progressRepo.observeAllProgress().collect { progress ->
+                val watchingMedia = progress.map { p ->
+                    Media(
+                        id = p.tmdbId.toIntOrNull() ?: 0,
+                        title = if (p.type == "movie") p.title else null,
+                        name = if (p.type == "show") p.title else null,
+                        overview = null,
+                        posterPath = p.posterPath,
+                        backdropPath = null,
+                        releaseDate = p.year?.toString(),
+                        firstAirDate = p.year?.toString(),
+                        voteAverage = null,
+                        mediaType = p.type,
+                        genreIds = null
+                    )
+                }
+                if (watchingMedia.isNotEmpty()) {
+                    _state.update { it.copy(continueWatching = listOf(MediaSection("Continue Watching", watchingMedia))) }
+                } else {
+                    _state.update { it.copy(continueWatching = emptyList()) }
+                }
+            }
+        }
+        
+        viewModelScope.launch {
+            bookmarkRepo.observeAllBookmarks().collect { bookmarks ->
+                val bookmarkMedia = bookmarks.map { b ->
+                    Media(
+                        id = b.tmdbId.toIntOrNull() ?: 0,
+                        title = if (b.type == "movie") b.title else null,
+                        name = if (b.type == "show") b.title else null,
+                        overview = null,
+                        posterPath = b.posterPath,
+                        backdropPath = null,
+                        releaseDate = b.year?.toString(),
+                        firstAirDate = b.year?.toString(),
+                        voteAverage = null,
+                        mediaType = b.type,
+                        genreIds = null
+                    )
+                }
+                if (bookmarkMedia.isNotEmpty()) {
+                    _state.update { it.copy(bookmarks = listOf(MediaSection("My Bookmarks", bookmarkMedia))) }
+                } else {
+                    _state.update { it.copy(bookmarks = emptyList()) }
+                }
+            }
+        }
+    }
 
     fun load() {
         viewModelScope.launch {
             _state.value = HomeState(loading = true)
+            android.util.Log.d("HomeVM", "Loading home sections from TMDB...")
             runCatching {
                 supervisorScope {
                     val trendMovies = async { repo.trendingMovies() }
@@ -56,13 +127,16 @@ class HomeViewModel @Inject constructor(private val repo: TmdbRepository) : View
                     val topTv = async { repo.topRatedTv() }
                     val onAir = async { repo.onAirTv() }
 
+                    val movies = trendMovies.await()
+                    android.util.Log.d("HomeVM", "Loaded ${movies.size} trending movies")
+
                     _state.value = HomeState(
                         loading = false,
                         movieSections = listOf(
                             MediaSection("Most Popular", popularMovies.await()),
                             MediaSection("In Cinemas", nowPlaying.await()),
                             MediaSection("Top Rated", topMovies.await()),
-                            MediaSection("Trending", trendMovies.await()),
+                            MediaSection("Trending", movies),
                         ),
                         tvSections = listOf(
                             MediaSection("Most Popular", popularTv.await()),
@@ -77,6 +151,7 @@ class HomeViewModel @Inject constructor(private val repo: TmdbRepository) : View
                     )
                 }
             }.onFailure {
+                android.util.Log.e("HomeVM", "Failed to load home sections", it)
                 _state.value = HomeState(loading = false, error = it.message ?: "No connection")
             }
         }

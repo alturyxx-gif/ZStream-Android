@@ -27,11 +27,17 @@ class AccountRepository @Inject constructor(
     private val KEY_USER_ID  = stringPreferencesKey("user_id")
     private val KEY_NICKNAME = stringPreferencesKey("nickname")
 
+    // Current session (can be null)
+    var currentSession: AccountSession? = null
+        private set
+
     val session: Flow<AccountSession?> = ctx.accountStore.data.map { prefs ->
         val token    = prefs[KEY_TOKEN]    ?: return@map null
         val userId   = prefs[KEY_USER_ID]  ?: return@map null
         val nickname = prefs[KEY_NICKNAME] ?: ""
-        AccountSession(userId, token, nickname)
+        val account = AccountSession(userId, token, nickname)
+        currentSession = account
+        account
     }
 
     // ── Passphrase auth ───────────────────────────────────────────────────────

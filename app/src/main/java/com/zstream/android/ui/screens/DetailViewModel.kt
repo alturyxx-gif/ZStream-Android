@@ -9,7 +9,10 @@ import com.zstream.android.data.model.Season
 import com.zstream.android.data.model.TvDetail
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -23,6 +26,8 @@ sealed class DetailState {
 @HiltViewModel
 class DetailViewModel @Inject constructor(
     private val repo: TmdbRepository,
+    private val progressRepo: com.zstream.android.data.ProgressRepository,
+    private val bookmarkRepo: com.zstream.android.data.BookmarkRepository,
     savedState: SavedStateHandle,
 ) : ViewModel() {
     private val id = savedState.get<Int>("id") ?: 0
@@ -30,8 +35,43 @@ class DetailViewModel @Inject constructor(
 
     private val _state = MutableStateFlow<DetailState>(DetailState.Loading)
     val state = _state.asStateFlow()
+    
+    // Add flows for bookmark and progress
+    val isBookmarked = bookmarkRepo.observeBookmark(id.toString())
+        .map { it != null }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+        
+    val progress = progressRepo.observeProgress(id.toString())
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     init { load() }
+
+    fun toggleBookmark() {
+        val current = _state.value
+        val title = when (current) {
+            is DetailState.Movie -> current.detail.title
+            is DetailState.Tv -> current.detail.name
+            else -> return
+        }
+        val poster = when (current) {
+            is DetailState.Movie -> current.detail.posterPath
+            is DetailState.Tv -> current.detail.posterPath
+            else -> return
+        }
+        val year = when (current) {
+            is DetailState.Movie -> current.detail.releaseDate?.take(4)?.toIntOrNull()
+            is DetailState.Tv -> current.detail.firstAirDate?.take(4)?.toIntOrNull()
+            else -> return
+        }
+        
+        viewModelScope.launch {
+            if (isBookmarked.value) {
+                bookmarkRepo.removeBookmark(id.toString())
+            } else {
+                bookmarkRepo.addBookmark(id.toString(), title, mediaType, year, poster)
+            }
+        }
+    }
 
     fun load() {
         viewModelScope.launch {
