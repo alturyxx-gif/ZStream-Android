@@ -570,7 +570,7 @@ private fun SandwichMenuDialog(nav: NavController, session: com.zstream.android.
                 }
                 HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp), color = theme.colors.type.divider.copy(alpha = 0.15f))
                 SandwichItem(Icons.Default.Settings, "Settings", theme = theme) { nav.navigate("settings"); onDismiss() }
-                SandwichItem(Icons.Default.History, "Watch History", theme = theme) { onDismiss() }
+                SandwichItem(Icons.Default.History, "Watch History", theme = theme) { nav.navigate("watchHistory"); onDismiss() }
                 SandwichItem(Icons.Default.Help, "About and FAQ", theme = theme) { onDismiss() }
                 SandwichItem(Icons.Default.Explore, "Discover", theme = theme) { nav.navigate("search"); onDismiss() }
                 SandwichItem(Icons.Default.Group, "Join a Watch Party", theme = theme) { onDismiss() }

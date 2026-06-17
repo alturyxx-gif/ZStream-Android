@@ -30,11 +30,14 @@ class PlayerViewModel @Inject constructor(
     savedState: SavedStateHandle,
 ) : ViewModel() {
     private val id = savedState.get<Int>("id") ?: 0
-    private val mediaType = savedState.get<String>("mediaType") ?: "movie"
-    private val season = savedState.get<Int>("season").takeIf { it != -1 }
-    private val episode = savedState.get<Int>("episode").takeIf { it != -1 }
+    val mediaType = savedState.get<String>("mediaType") ?: "movie"
+    val season = savedState.get<Int>("season").takeIf { it != -1 }
+    val episode = savedState.get<Int>("episode").takeIf { it != -1 }
     val title = savedState.get<String>("title") ?: ""
     val year = savedState.get<Int>("year") ?: 0
+    val tmdbId = id.toString()
+    val seasonId = season?.toString()
+    val episodeId = episode?.toString()
 
     private val _state = MutableStateFlow<PlayerState>(PlayerState.Idle)
     val state = _state.asStateFlow()

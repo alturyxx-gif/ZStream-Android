@@ -55,6 +55,7 @@ import androidx.navigation.NavController
 import com.zstream.android.R
 import com.zstream.android.provider.WebViewDataSource
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 private val RedProgress = Color(0xFFE53935)
 
@@ -142,15 +143,108 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                 }
             }
             is PlayerState.Ready -> {
+                val accountVm: AccountViewModel = hiltViewModel()
+                val session by accountVm.session.collectAsState()
+                val progressList by accountVm.progress.collectAsState()
+
+                // Find existing progress for this tmdbId (mirroring p-stream ResumePart)
+                val existingProgress = remember(progressList) {
+                    progressList.firstOrNull { p ->
+                        p.tmdbId == vm.tmdbId &&
+                        (vm.episodeId == null || p.episode.id == vm.episodeId)
+                    }
+                }
+                val resumeWatched = remember(existingProgress) {
+                    existingProgress?.watched?.toLongOrNull() ?: 0L
+                }
+                val resumeDuration = remember(existingProgress) {
+                    existingProgress?.duration?.toLongOrNull() ?: 0L
+                }
+                // shouldShowProgress: watched >= 20s AND not within 120s of end
+                val shouldResume = remember(resumeWatched, resumeDuration) {
+                    resumeWatched >= 20 && (resumeDuration - resumeWatched) >= 120
+                }
+                var resumeHandled by remember { mutableStateOf(false) }
+                var showResumeDialog by remember { mutableStateOf(false) }
+                var pendingResumeMs by remember { mutableLongStateOf(-1L) }
+
                 val player = remember {
                     ExoPlayer.Builder(context).build().apply {
                         setMediaSource(HlsMediaSource.Factory(WebViewDataSource.Factory(vm.getProxyPort()))
                             .createMediaSource(MediaItem.fromUri(s.streamUrl)))
                         videoScalingMode = androidx.media3.common.C.VIDEO_SCALING_MODE_SCALE_TO_FIT
-                        prepare(); playWhenReady = true
+                        prepare()
+                        playWhenReady = true  // always start loading immediately
                     }
                 }
+
+                // Show resume dialog immediately if applicable (player loads in background)
+                LaunchedEffect(shouldResume) {
+                    if (shouldResume && !resumeHandled) showResumeDialog = true
+                }
+
+                // Seek to resume position once player is ready
+                DisposableEffect(player) {
+                    val listener = object : Player.Listener {
+                        override fun onPlaybackStateChanged(state: Int) {
+                            if (state == Player.STATE_READY && pendingResumeMs >= 0) {
+                                player.seekTo(pendingResumeMs)
+                                pendingResumeMs = -1L
+                            }
+                        }
+                    }
+                    player.addListener(listener)
+                    onDispose { player.removeListener(listener) }
+                }
+
                 DisposableEffect(Unit) { onDispose { player.release() } }
+
+                // Progress sync — mirrors p-stream ProgressSaver (3s interval, same guards)
+                DisposableEffect(player, session) {
+                    val s2 = session ?: return@DisposableEffect onDispose {}
+                    val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main)
+                    val job = scope.launch {
+                        while (true) {
+                            kotlinx.coroutines.delay(3000)
+                            // Player must be read on main thread
+                            if (!player.isPlaying) continue
+                            val watchedSec = player.currentPosition / 1000
+                            val durationSec = player.duration.let { if (it > 0) it / 1000 else 0L }
+                            if (watchedSec < 20) continue
+                            if (durationSec > 0 && (durationSec - watchedSec) < 120) continue
+                            // Network call can run on IO via accountVm's viewModelScope
+                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                runCatching {
+                                    accountVm.syncProgress(
+                                        s2, vm.tmdbId, watchedSec, durationSec,
+                                        vm.title, vm.year, vm.mediaType,
+                                        vm.seasonId, vm.episodeId,
+                                        vm.season, vm.episode,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    onDispose {
+                        job.cancel()
+                        val watchedSec = player.currentPosition / 1000
+                        val durationSec = player.duration.let { if (it > 0) it / 1000 else 0L }
+                        if (watchedSec >= 20 && (durationSec <= 0 || (durationSec - watchedSec) >= 120)) {
+                            scope.launch {
+                                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                    runCatching {
+                                        accountVm.syncProgress(
+                                            s2, vm.tmdbId, watchedSec, durationSec,
+                                            vm.title, vm.year, vm.mediaType,
+                                            vm.seasonId, vm.episodeId,
+                                            vm.season, vm.episode,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
 
                 // Re-apply RESIZE_MODE_FIT when video size changes (codec resolution updates)
                 val playerViewRef = remember { androidx.compose.runtime.mutableStateOf<PlayerView?>(null) }
@@ -198,6 +292,35 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
                         activity?.enterPictureInPictureMode(PictureInPictureParams.Builder().setAspectRatio(Rational(16, 9)).build())
                 })
+
+                // Resume dialog — mirrors p-stream ResumePart
+                if (showResumeDialog) {
+                    val pct = if (resumeDuration > 0) ((resumeWatched * 100) / resumeDuration).toInt() else 0
+                    AlertDialog(
+                        onDismissRequest = {},
+                        containerColor = Color(0xFF1A1A2E),
+                        title = { Text("Continue Watching?", color = Color.White) },
+                        text = { Text("You're $pct% through. Resume from where you left off?", color = Color.White.copy(alpha = 0.7f)) },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                // If already ready, seek now; otherwise queue for STATE_READY
+                                if (player.playbackState == Player.STATE_READY) {
+                                    player.seekTo(resumeWatched * 1000)
+                                } else {
+                                    pendingResumeMs = resumeWatched * 1000
+                                }
+                                showResumeDialog = false
+                                resumeHandled = true
+                            }) { Text("Resume", color = Color(0xFF7C3AED)) }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = {
+                                showResumeDialog = false
+                                resumeHandled = true
+                            }) { Text("Restart", color = Color.White.copy(alpha = 0.6f)) }
+                        }
+                    )
+                }
             }
         }
     }

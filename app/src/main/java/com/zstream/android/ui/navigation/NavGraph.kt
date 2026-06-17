@@ -34,5 +34,6 @@ fun NavGraph() {
         ) { PlayerScreen(nav) }
         composable("settings") { SettingsScreen(nav) }
         composable("login") { LoginScreen(nav) }
+        composable("watchHistory") { WatchHistoryScreen(nav) }
     }
 }
