@@ -42,14 +42,17 @@ data class HomeState(
         if (continueWatching.isNotEmpty()) userContent.addAll(continueWatching)
         if (bookmarks.isNotEmpty()) userContent.addAll(bookmarks)
         
-        val allSections = userContent + base
-        
-        // Deduplicate items across sections
+        // Deduplicate items across base sections
         val seenIds = mutableSetOf<Int>()
-        return allSections.map { section ->
+        // Mark user content IDs as seen so they are not repeated in base sections
+        userContent.forEach { section -> section.items.forEach { seenIds.add(it.id) } }
+
+        val uniqueBase = base.map { section ->
             val uniqueItems = section.items.filter { seenIds.add(it.id) }
             section.copy(items = uniqueItems)
         }.filter { it.items.isNotEmpty() }
+        
+        return userContent + uniqueBase
     }
 }
 
