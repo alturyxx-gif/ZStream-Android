@@ -76,20 +76,29 @@ class AccountViewModel @Inject constructor(private val repo: AccountRepository) 
         durationSec: Long,
         title: String,
         year: Int,
-        mediaType: String,  // "movie" or "tv"
+        mediaType: String,
         seasonId: String?,
         episodeId: String?,
         seasonNumber: Int?,
         episodeNumber: Int?,
+        poster: String?,
     ) {
         val type = if (mediaType == "tv") "show" else "movie"
+        // Reuse real TMDB episode/season IDs from existing progress if available
+        val existing = progress.value.firstOrNull { p ->
+            p.tmdbId == tmdbId &&
+            (episodeNumber == null || p.episode.number == episodeNumber) &&
+            (seasonNumber == null || p.season.number == seasonNumber)
+        }
+        val realSeasonId = existing?.season?.id ?: seasonId
+        val realEpisodeId = existing?.episode?.id ?: episodeId
         val input = ProgressInput(
             tmdbId = tmdbId,
             watched = watchedSec,
             duration = durationSec,
-            meta = ProgressMeta(title, year, null, type),
-            seasonId = seasonId,
-            episodeId = episodeId,
+            meta = ProgressMeta(title, year, poster, type),
+            seasonId = realSeasonId,
+            episodeId = realEpisodeId,
             seasonNumber = seasonNumber,
             episodeNumber = episodeNumber,
         )

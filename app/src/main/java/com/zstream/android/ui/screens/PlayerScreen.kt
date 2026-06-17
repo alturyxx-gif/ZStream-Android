@@ -220,6 +220,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                                         vm.title, vm.year, vm.mediaType,
                                         vm.seasonId, vm.episodeId,
                                         vm.season, vm.episode,
+                                        existingProgress?.meta?.poster,
                                     )
                                 }
                             }
@@ -238,6 +239,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                                             vm.title, vm.year, vm.mediaType,
                                             vm.seasonId, vm.episodeId,
                                             vm.season, vm.episode,
+                                            existingProgress?.meta?.poster,
                                         )
                                     }
                                 }

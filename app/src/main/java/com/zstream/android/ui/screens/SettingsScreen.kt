@@ -16,6 +16,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.LocalActivity
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import com.zstream.android.BuildConfig
@@ -24,7 +26,9 @@ import com.zstream.android.theme.LocalZStreamTheme
 import com.zstream.android.theme.ZStreamTheme
 
 @Composable
-fun SettingsScreen(nav: NavController, accountVm: AccountViewModel = hiltViewModel()) {
+fun SettingsScreen(nav: NavController) {
+    val activity = LocalActivity.current as ComponentActivity
+    val accountVm: AccountViewModel = hiltViewModel(activity)
     val theme = LocalZStreamTheme.current
     val session by accountVm.session.collectAsState()
     var showLogoutConfirm by remember { mutableStateOf(false) }
@@ -33,6 +37,7 @@ fun SettingsScreen(nav: NavController, accountVm: AccountViewModel = hiltViewMod
         Modifier
             .fillMaxSize()
             .background(theme.colors.background.main)
+            .statusBarsPadding()
             .verticalScroll(rememberScrollState())
     ) {
         // Top bar

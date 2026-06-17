@@ -8,8 +8,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.navigation.NavController
 
-@Composable fun SettingsScreen(nav: NavController) = Placeholder("Settings — coming soon")
-
 @Composable
 private fun Placeholder(name: String) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(name) }
