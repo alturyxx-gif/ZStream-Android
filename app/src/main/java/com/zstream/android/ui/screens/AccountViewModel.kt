@@ -5,6 +5,8 @@ import androidx.lifecycle.viewModelScope
 import com.zstream.android.data.AccountRepository
 import com.zstream.android.data.AccountSession
 import com.zstream.android.data.remote.BookmarkResponse
+import com.zstream.android.data.remote.ProgressInput
+import com.zstream.android.data.remote.ProgressMeta
 import com.zstream.android.data.remote.ProgressResponse
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -65,6 +67,34 @@ class AccountViewModel @Inject constructor(private val repo: AccountRepository) 
     }
 
     fun clearError() { if (authState.value is AuthState.Error) authState.value = AuthState.Idle }
+
+    /** Called from PlayerScreen every 3s and on exit — mirrors p-stream ProgressSaver */
+    suspend fun syncProgress(
+        s: AccountSession,
+        tmdbId: String,
+        watchedSec: Long,
+        durationSec: Long,
+        title: String,
+        year: Int,
+        mediaType: String,  // "movie" or "tv"
+        seasonId: String?,
+        episodeId: String?,
+        seasonNumber: Int?,
+        episodeNumber: Int?,
+    ) {
+        val type = if (mediaType == "tv") "show" else "movie"
+        val input = ProgressInput(
+            tmdbId = tmdbId,
+            watched = watchedSec,
+            duration = durationSec,
+            meta = ProgressMeta(title, year, null, type),
+            seasonId = seasonId,
+            episodeId = episodeId,
+            seasonNumber = seasonNumber,
+            episodeNumber = episodeNumber,
+        )
+        repo.setProgress(s, input)
+    }
 
     private fun fetchSyncData(s: AccountSession) {
         viewModelScope.launch {
