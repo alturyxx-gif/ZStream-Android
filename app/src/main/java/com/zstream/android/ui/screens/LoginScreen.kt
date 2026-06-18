@@ -95,7 +95,7 @@ fun LoginScreen(nav: NavController, vm: AccountViewModel = hiltViewModel()) {
     }
 }
 
-// ── Login panel ───────────────────────────────────────────────────────────────
+//  Login panel 
 
 @Composable
 private fun BoxScope.LoginPanel(
@@ -171,7 +171,7 @@ private fun BoxScope.LoginPanel(
     }
 }
 
-// ── Show generated passphrase ─────────────────────────────────────────────────
+//  Show generated passphrase 
 
 @Composable
 private fun BoxScope.ShowPassphrasePanel(
@@ -239,7 +239,7 @@ private fun BoxScope.ShowPassphrasePanel(
     }
 }
 
-// ── Confirm + register ────────────────────────────────────────────────────────
+//  Confirm + register 
 
 @Composable
 private fun BoxScope.ConfirmRegisterPanel(
@@ -283,7 +283,7 @@ private fun BoxScope.ConfirmRegisterPanel(
     }
 }
 
-// ── Shared field ──────────────────────────────────────────────────────────────
+//  Shared field 
 
 @Composable
 private fun AuthField(
@@ -320,7 +320,7 @@ private fun AuthField(
     }
 }
 
-// ── Mnemonic generation ───────────────────────────────────────────────────────
+//  Mnemonic generation 
 
 private fun generateMnemonic(): String {
     // 12-word BIP39 mnemonic from secure random — mirrors genMnemonic() in p-stream crypto.ts

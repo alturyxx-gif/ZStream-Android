@@ -46,7 +46,7 @@ object CryptoUtils {
     @OptIn(ExperimentalEncodingApi::class)
     fun ByteArray.toBase64Url(): String = Base64.UrlSafe.encode(this).trimEnd('=')
 
-    // ── AES-GCM encryption (device name) ─────────────────────────────────────
+    //  AES-GCM encryption (device name) 
     // Mirrors p-stream encryptData(data, secret) → "base64(iv).base64(ct).base64(tag)"
 
     fun encryptData(plaintext: String, secret: ByteArray): String {
@@ -64,7 +64,7 @@ object CryptoUtils {
         return "${Base64.Default.encode(iv)}.${Base64.Default.encode(ct)}.${Base64.Default.encode(tag)}"
     }
 
-    // ── Passkey helpers ───────────────────────────────────────────────────────
+    //  Passkey helpers 
 
     @OptIn(ExperimentalEncodingApi::class)
     private fun randomBase64Url(bytes: Int = 32): String {
