@@ -114,10 +114,6 @@ class HomeViewModel @Inject constructor(
                     )
                 }
                 
-                // Deduplicate: If an item is in "Continue Watching", maybe we should still show it in bookmarks?
-                // Actually, the requirement was to fix duplicate show cards.
-                // The grouping in ProgressRepository already fixed the "two episodes = two cards" issue.
-                
                 if (bookmarkMedia.isNotEmpty()) {
                     _state.update { it.copy(bookmarks = listOf(MediaSection("My Bookmarks", bookmarkMedia))) }
                 } else {

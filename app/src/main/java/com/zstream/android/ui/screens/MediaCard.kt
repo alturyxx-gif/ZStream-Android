@@ -13,7 +13,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -61,6 +60,8 @@ fun MediaCard(media: Media, onClick: () -> Unit) {
             }
         }
         Spacer(Modifier.height(6.dp))
+
+        // Title
         Text(
             text = media.displayTitle,
             color = theme.colors.type.emphasis,
@@ -69,8 +70,12 @@ fun MediaCard(media: Media, onClick: () -> Unit) {
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
-        Spacer(Modifier.height(2.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
+
+        // Metadata Row
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.offset(y = (-10).dp)
+        ) {
             val typeLabel = if (media.type == "tv") "Show" else "Movie"
             val year = (media.displayDate).take(4).takeIf { it.length == 4 } ?: ""
             Text(

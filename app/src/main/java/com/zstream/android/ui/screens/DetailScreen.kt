@@ -5,6 +5,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -47,6 +48,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -58,7 +60,10 @@ import coil.compose.AsyncImage
 import com.zstream.android.Urls
 import com.zstream.android.data.model.CastMember
 import com.zstream.android.data.model.Episode
+import com.zstream.android.data.model.MovieDetail
+import com.zstream.android.data.model.TvDetail
 import com.zstream.android.theme.LocalZStreamTheme
+import com.zstream.android.theme.ZStreamTheme
 
 private fun String.encode() = java.net.URLEncoder.encode(this, "UTF-8").replace("+", "%20")
 
@@ -98,35 +103,17 @@ private fun MovieDetailModal(state: DetailState.Movie, nav: NavController, conte
             .background(theme.colors.background.main)
             .verticalScroll(rememberScrollState()),
     ) {
+        // Movie Backdrop Image
         Box(Modifier.fillMaxWidth().height(360.dp)) {
             AsyncImage(model = d.backdropUrl(), contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
             Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(androidx.compose.ui.graphics.Color.Transparent, androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.18f), theme.colors.background.main))))
-            
-            IconButton(
-                onClick = { nav.popBackStack() },
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(24.dp)
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.75f))
-            ) {
-                Icon(Icons.Filled.Close, null, tint = androidx.compose.ui.graphics.Color.White)
-            }
-            
-            Column(Modifier.align(Alignment.BottomStart).padding(horizontal = 32.dp, vertical = 18.dp)) {
-                d.logoUrl()?.let {
-                    Box(Modifier.height(100.dp).fillMaxWidth(0.6f)) {
-                        AsyncImage(model = it, contentDescription = d.title, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
-                    }
-                } ?: run {
-                    Text(d.title.uppercase(), color = theme.colors.type.emphasis, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.ExtraBold, letterSpacing = 4.sp)
-                }
-                Spacer(Modifier.height(8.dp))
-                MetadataRow(listOfNotNull(d.releaseDate?.take(4), d.runtime?.let { "$it min" }, d.voteAverage?.let { "⭐ ${"%.1f".format(it)}" }), theme)
-            }
+
+            XCloseButton(nav)
+
+            MinimalMovieDetails(d, theme)
         }
 
+        // Resume and Share button
         Row(Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 14.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Button(
                 onClick = { nav.navigate("player/movie/${d.id}?title=${d.title.encode()}&year=${d.releaseDate?.take(4)?.toIntOrNull() ?: 0}") },
@@ -142,6 +129,7 @@ private fun MovieDetailModal(state: DetailState.Movie, nav: NavController, conte
             }
         }
 
+        // Movie Details
         Row(Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(40.dp)) {
             Column(Modifier.weight(1f)) {
                 d.overview?.takeIf { it.isNotBlank() }?.let { Text(it, color = theme.colors.type.text, fontSize = 14.sp) }
@@ -151,9 +139,9 @@ private fun MovieDetailModal(state: DetailState.Movie, nav: NavController, conte
                 }
             }
             Column(Modifier.widthIn(max = 240.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                DetailSpec("Runtime", d.runtime?.let { "$it min" } ?: "—", theme)
+                DetailSpec("Runtime", d.runtime?.let { "$it min" } ?: "-", theme)
                 DetailSpec("Language", "EN", theme)
-                DetailSpec("Release Date", d.releaseDate ?: "—", theme)
+                DetailSpec("Release Date", d.releaseDate ?: "-", theme)
                 DetailSpec("Rating", "PG-13", theme)
             }
         }
@@ -166,6 +154,62 @@ private fun MovieDetailModal(state: DetailState.Movie, nav: NavController, conte
         
         SectionHeader("Similar", theme)
         SimilarMoviesGrid(d.similar?.results.orEmpty(), theme, nav)
+    }
+}
+
+// should be the same as MinimalTVDetails but are different functions because of the MovieDetail variable
+@Composable
+private fun BoxScope.MinimalMovieDetails(
+    d: MovieDetail,
+    theme: ZStreamTheme
+) {
+    Column(Modifier
+        .align(Alignment.BottomStart)
+        .padding(horizontal = 32.dp, vertical = 0.dp)) {
+        d.logoUrl()?.let {
+            Box(Modifier
+                .height(100.dp)
+                .fillMaxWidth(0.6f)) {
+                AsyncImage(
+                    model = it,
+                    contentDescription = d.title,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+        } ?: run {
+            Text(
+                d.title.uppercase(),
+                color = theme.colors.type.emphasis,
+                style = MaterialTheme.typography.headlineLarge,
+                fontWeight = FontWeight.ExtraBold,
+                letterSpacing = 4.sp
+            )
+        }
+        MetadataRow(
+            listOfNotNull(
+                d.voteAverage?.let { { TmdbRating(it, theme) } },
+                d.releaseDate?.let { { Text(it.take(4), fontSize = 12.sp, color = Color.White) } }
+            ),
+            theme,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Alignment.CenterVertically
+        )
+    }
+}
+
+@Composable
+private fun BoxScope.XCloseButton(nav: NavController) {
+    IconButton(
+        onClick = { nav.popBackStack() },
+        modifier = Modifier
+            .align(Alignment.TopEnd)
+            .padding(start = 24.dp, end = 24.dp, top = 48.dp)
+            .size(40.dp)
+            .clip(CircleShape)
+            .background(Color.Black.copy(alpha = 0.75f))
+    ) {
+        Icon(Icons.Filled.Close, null, tint = Color.White)
     }
 }
 
@@ -185,30 +229,9 @@ private fun TvDetailModal(state: DetailState.Tv, vm: DetailViewModel, nav: NavCo
         Box(Modifier.fillMaxWidth().height(360.dp)) {
             AsyncImage(model = d.backdropUrl(), contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
             Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(androidx.compose.ui.graphics.Color.Transparent, androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.18f), theme.colors.background.main))))
-            
-            IconButton(
-                onClick = { nav.popBackStack() },
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(24.dp)
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.75f))
-            ) {
-                Icon(Icons.Filled.Close, null, tint = androidx.compose.ui.graphics.Color.White)
-            }
-            
-            Column(Modifier.align(Alignment.BottomStart).padding(horizontal = 32.dp, vertical = 18.dp)) {
-               d.logoUrl()?.let {
-                    Box(Modifier.height(100.dp).fillMaxWidth(0.6f)) {
-                       AsyncImage(model = it, contentDescription = d.name, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
-                    }
-                } ?: run {
-                    Text(d.name.uppercase(), color = theme.colors.type.emphasis, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.ExtraBold, letterSpacing = 4.sp)
-                }
-                Spacer(Modifier.height(8.dp))
-               MetadataRow(listOfNotNull(d.firstAirDate?.take(4), d.voteAverage?.let { "⭐ ${"%.1f".format(it)}" }), theme)
-            }
+
+            XCloseButton(nav)
+            MinimalTVDetails(d, theme)
         }
 
         Row(Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 14.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -270,6 +293,48 @@ private fun TvDetailModal(state: DetailState.Tv, vm: DetailViewModel, nav: NavCo
     }
 }
 
+// should be the same as MinimalMovieDetails but are different functions because of the TvDetail variable
+@Composable
+private fun BoxScope.MinimalTVDetails(
+    d: TvDetail,
+    theme: ZStreamTheme
+) {
+    Column(Modifier
+        .align(Alignment.BottomStart)
+        .padding(horizontal = 32.dp, vertical = 0.dp)) {
+        d.logoUrl()?.let {
+            Box(Modifier
+                .height(100.dp)
+                .fillMaxWidth(0.6f)) {
+                AsyncImage(
+                    model = it,
+                    contentDescription = d.name,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+        } ?: run {
+            Text(
+                d.name.uppercase(),
+                color = theme.colors.type.emphasis,
+                style = MaterialTheme.typography.headlineLarge,
+                fontWeight = FontWeight.ExtraBold,
+                letterSpacing = 4.sp
+            )
+        }
+        MetadataRow(
+            listOfNotNull(
+                d.voteAverage?.let { { TmdbRating(it, theme) } },
+                        d.firstAirDate?.let { { Text(it.take(4), fontSize = 12.sp, color = Color.White) } },
+            ),
+            theme,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Alignment.CenterVertically
+        )
+
+    }
+}
+
 @Composable
 private fun EpisodeRow(ep: Episode, showId: Int, title: String, nav: NavController, theme: com.zstream.android.theme.ZStreamTheme) {
     Row(
@@ -290,7 +355,7 @@ private fun EpisodeRow(ep: Episode, showId: Int, title: String, nav: NavControll
 
 @Composable
 private fun CastRow(cast: List<CastMember>, theme: com.zstream.android.theme.ZStreamTheme, context: android.content.Context) {
-    LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.padding(horizontal = 32.dp, vertical = 8.dp)) {
+    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(horizontal = 32.dp, vertical = 8.dp)) {
         items(cast) { member ->
             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(105.dp).clickable {
                 openCastProfile(context, member.id, member.externalIds?.imdbId)
@@ -302,8 +367,8 @@ private fun CastRow(cast: List<CastMember>, theme: com.zstream.android.theme.ZSt
                     contentScale = ContentScale.Crop,
                 )
                 Spacer(Modifier.height(10.dp))
-                Text(member.name.orEmpty(), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelMedium, color = theme.colors.type.emphasis)
-                Text(member.character.orEmpty(), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelSmall, color = theme.colors.type.secondary)
+                Text(member.name.orEmpty(), maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelMedium, color = theme.colors.type.emphasis)
+                Text(member.character.orEmpty(), maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelSmall, color = theme.colors.type.secondary)
             }
         }
     }
@@ -311,7 +376,7 @@ private fun CastRow(cast: List<CastMember>, theme: com.zstream.android.theme.ZSt
 
 @Composable
 private fun SectionHeader(title: String, theme: com.zstream.android.theme.ZStreamTheme) {
-    Text(title, modifier = Modifier.padding(horizontal = 32.dp, vertical = 18.dp), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = theme.colors.type.emphasis)
+    Text(title, modifier = Modifier.padding(start = 32.dp, end = 32.dp, top = 18.dp, bottom = 0.dp), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = theme.colors.type.emphasis)
 }
 
 @Composable
@@ -330,11 +395,33 @@ private fun GenreChip(label: String, theme: com.zstream.android.theme.ZStreamThe
 }
 
 @Composable
-private fun MetadataRow(parts: List<String>, theme: com.zstream.android.theme.ZStreamTheme) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-        parts.forEachIndexed { index, part ->
-            if (index > 0) Text("•", fontSize = 12.sp, color = androidx.compose.ui.graphics.Color.White)
-            Text(part, fontSize = 12.sp, color = androidx.compose.ui.graphics.Color.White)
+private fun TmdbRating(rating: Double, theme: com.zstream.android.theme.ZStreamTheme) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        androidx.compose.foundation.Image(
+            painter = androidx.compose.ui.res.painterResource(id = com.zstream.android.R.drawable.tmdb_logo),
+            contentDescription = "TMDB Logo",
+            modifier = Modifier.size(24.dp)
+        )
+        Spacer(Modifier.width(4.dp))
+        Text(
+            text = "%.1f".format(rating),
+            color = theme.colors.type.emphasis,
+            fontSize = 12.sp
+        )
+    }
+}
+
+@Composable
+private fun MetadataRow(
+    content: List<@Composable () -> Unit>, 
+    theme: com.zstream.android.theme.ZStreamTheme, 
+    horizontalArrangement: Arrangement.Horizontal, 
+    verticalArrangement: Alignment.Vertical
+) {
+    Row(horizontalArrangement = horizontalArrangement, verticalAlignment = verticalArrangement) {
+        content.forEachIndexed { index, contentItem ->
+            if (index > 0) Text("•", fontSize = 12.sp, color = androidx.compose.ui.graphics.Color.White, modifier = Modifier.padding(horizontal = 4.dp))
+            contentItem()
         }
     }
 }
@@ -390,7 +477,7 @@ private fun SimilarMoviesGrid(similar: List<com.zstream.android.data.model.Media
     
     Column(Modifier.padding(horizontal = 32.dp, vertical = 12.dp)) {
         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(similar.take(6)) { movie ->
+            items(similar.take(10)) { movie ->
                 Column(
                     modifier = Modifier
                         .width(140.dp)
@@ -405,9 +492,11 @@ private fun SimilarMoviesGrid(similar: List<com.zstream.android.data.model.Media
                         }
                     }
                     Spacer(Modifier.height(8.dp))
-                    Text(movie.displayTitle, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelMedium, color = theme.colors.type.emphasis)
+                    Text(movie.displayTitle, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelMedium, color = theme.colors.type.emphasis)
                     val year = (movie.releaseDate ?: movie.firstAirDate)?.take(4) ?: "—"
-                    Text("${movie.type} • $year", style = MaterialTheme.typography.labelSmall, color = theme.colors.type.secondary)
+                    val capitalizedMovie = movie.type.replaceFirstChar { it.uppercase() }
+                    Text("$capitalizedMovie • $year", style = MaterialTheme.typography.labelSmall, color = theme.colors.type.secondary)
+                    Spacer(Modifier.height(16.dp))
                 }
             }
         }
@@ -416,7 +505,7 @@ private fun SimilarMoviesGrid(similar: List<com.zstream.android.data.model.Media
 
 private fun openShareSheet(context: android.content.Context, title: String, id: Int, mediaType: String) {
    val url = "https://www.themoviedb.org/$mediaType/$id"
-   val shareText = "Check out $title on ZStream!\n$url"
+   val shareText = "$title on ZStream!\n\n$url"
    val intent = android.content.Intent().apply {
        action = android.content.Intent.ACTION_SEND
        putExtra(android.content.Intent.EXTRA_TEXT, shareText)

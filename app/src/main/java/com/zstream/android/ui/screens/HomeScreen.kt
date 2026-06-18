@@ -106,9 +106,6 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
                     if (isSearching) {
                         // ... (keep search results as is)
                     } else {
-                        item { HomeTabs(state.activeTab, vm::setTab) }
-                        item { Spacer(Modifier.height(16.dp)) }
-
                         val sections = state.currentSections
                             .filter { section ->
                                 when (section.title) {
@@ -124,7 +121,11 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
                                 section.copy(items = filtered)
                             }
                             .filter { it.items.isNotEmpty() }
+
+                        item { Spacer(Modifier.height(16.dp)) }
+                        item { HomeTabs(state.activeTab, vm::setTab) }
                         items(sections) { section -> MediaCarouselSection(section, nav) }
+
                     }
                 }
             }
@@ -276,7 +277,8 @@ private fun TopNavBar(onLayout: () -> Unit, onMenu: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .statusBarsPadding()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+//            .padding(horizontal = 16.dp, vertical = 6.dp,),
+            .padding(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 32.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
@@ -318,7 +320,7 @@ private fun TopNavBar(onLayout: () -> Unit, onMenu: () -> Unit) {
                     .padding(horizontal = 10.dp, vertical = 7.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(Icons.Default.GridView, null, tint = theme.colors.type.secondary, modifier = Modifier.size(16.dp))
+                Icon(Icons.Default.GridView, null, tint = theme.colors.type.secondary, modifier = Modifier.size(22.dp))
             }
             // Sandwich menu
             Box(
@@ -334,8 +336,8 @@ private fun TopNavBar(onLayout: () -> Unit, onMenu: () -> Unit) {
                     .padding(horizontal = 10.dp, vertical = 7.dp),
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Icon(Icons.Default.Menu, null, tint = theme.colors.type.secondary, modifier = Modifier.size(16.dp))
-                    Icon(Icons.Default.KeyboardArrowDown, null, tint = theme.colors.type.dimmed, modifier = Modifier.size(12.dp))
+                    Icon(Icons.Default.Menu, null, tint = theme.colors.type.secondary, modifier = Modifier.size(22.dp))
+                    Icon(Icons.Default.KeyboardArrowDown, null, tint = theme.colors.type.dimmed, modifier = Modifier.size(22.dp))
                 }
             }
         }
@@ -375,7 +377,7 @@ private fun HeroSection(searchQuery: String, onSearch: (String) -> Unit, nav: Na
                 modifier = Modifier
                     .weight(1f)
                     .height(48.dp)
-                    .clip(RoundedCornerShape(14.dp))
+                    .clip(RoundedCornerShape(48.dp))
                     .background(theme.colors.search.background),
                 contentAlignment = Alignment.CenterStart,
             ) {
@@ -402,11 +404,13 @@ private fun HeroSection(searchQuery: String, onSearch: (String) -> Unit, nav: Na
                     }
                 }
             }
+
             // Discover button — rainbow animated border, dark fill, wand icon
+            val DISCOVER_BUTTON_CORNER_RADIUS = 48.dp;
             Box(
                 modifier = Modifier
                     .size(48.dp)
-                    .clip(RoundedCornerShape(14.dp))
+                    .clip(RoundedCornerShape(DISCOVER_BUTTON_CORNER_RADIUS))
                     .drawBehind {
                         // Smooth right-to-left moving rainbow — shift start X by animated offset
                         val w = size.width * 3f  // wide gradient so colors flow smoothly
@@ -418,11 +422,11 @@ private fun HeroSection(searchQuery: String, onSearch: (String) -> Unit, nav: Na
                         )
                         drawRoundRect(
                             brush = brush,
-                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(14.dp.toPx())
+                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(DISCOVER_BUTTON_CORNER_RADIUS.toPx())
                         )
                     }
                     .padding(2.dp)
-                    .clip(RoundedCornerShape(12.dp))
+                    .clip(RoundedCornerShape(DISCOVER_BUTTON_CORNER_RADIUS))
                     .background(theme.colors.search.background)
                     .clickable { nav.navigate("search") },
                 contentAlignment = Alignment.Center,
@@ -504,8 +508,9 @@ private fun MediaCarouselSection(section: MediaSection, nav: NavController) {
     Column(modifier = Modifier.padding(bottom = 24.dp)) {
         Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
             Text(section.title, color = theme.colors.type.emphasis, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-            Text("View more →", color = theme.colors.type.dimmed, fontSize = 11.sp)
+//            Text("View more →", color = theme.colors.type.dimmed, fontSize = 11.sp) // TODO: add ability to click this
         }
+
         LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             items(section.items) { media ->
                 MediaCard(media) { nav.navigate("detail/${media.type}/${media.id}") }
@@ -534,11 +539,7 @@ private fun LayoutMenuDialog(
                         Icon(Icons.Default.Close, null, tint = theme.colors.type.dimmed, modifier = Modifier.size(16.dp))
                     }
                 }
-                Spacer(Modifier.height(16.dp))
-                HorizontalDivider(color = theme.colors.type.divider.copy(alpha = 0.2f))
-                Spacer(Modifier.height(12.dp))
                 LayoutToggleRow("Continue Watching...", showContinueWatching, onToggleContinue, theme)
-                Spacer(Modifier.height(12.dp))
                 LayoutToggleRow("Bookmarks", showBookmarks, onToggleBookmarks, theme)
             }
         }

@@ -54,7 +54,7 @@ fun WatchHistoryScreen(nav: NavController) {
     Column(Modifier.fillMaxSize().background(theme.colors.background.main)) {
         // Top bar
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+            Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 48.dp, bottom = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = { nav.popBackStack() }) {
