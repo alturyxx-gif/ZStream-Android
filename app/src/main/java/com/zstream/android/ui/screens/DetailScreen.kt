@@ -84,6 +84,9 @@ fun DetailScreen(nav: NavController, vm: DetailViewModel = hiltViewModel()) {
         com.zstream.android.di.RepositoryEntryPoint::class.java
     ).bookmarkRepository()
 
+    val progress by vm.progress.collectAsState()
+    val hasProgress = progress?.let { it.watched >= 20 } ?: false
+
     when (val s = state) {
         is DetailState.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             CircularProgressIndicator()
@@ -96,10 +99,10 @@ fun DetailScreen(nav: NavController, vm: DetailViewModel = hiltViewModel()) {
             }
         }
         is DetailState.Movie -> {
-            MovieDetailModal(s, nav, context, theme, bookmarkRepo)
+            MovieDetailModal(s, nav, context, theme, bookmarkRepo, hasProgress)
         }
         is DetailState.Tv -> {
-            TvDetailModal(s, vm, nav, context, theme, bookmarkRepo)
+            TvDetailModal(s, vm, nav, context, theme, bookmarkRepo, hasProgress)
         }
     }
 }
@@ -111,7 +114,8 @@ fun MovieDetailModal(
     nav: NavController, 
     context: android.content.Context, 
     theme: com.zstream.android.theme.ZStreamTheme,
-    bookmarkRepo: com.zstream.android.data.BookmarkRepository
+    bookmarkRepo: com.zstream.android.data.BookmarkRepository,
+    hasProgress: Boolean
 ) {
 
     val d = state.detail
@@ -143,7 +147,7 @@ fun MovieDetailModal(
             ) {
                 Icon(Icons.Filled.PlayArrow, null, tint = theme.colors.buttons.primaryText)
                 Spacer(Modifier.width(6.dp))
-                Text("Resume", color = theme.colors.buttons.primaryText)
+                Text(if (hasProgress) "Resume" else "Play", color = theme.colors.buttons.primaryText)
             }
             ActionPill(Icons.Filled.Share, "", theme, 50.dp) {
                 openShareSheet(context, d.title, d.id, "movie")
@@ -247,7 +251,8 @@ private fun TvDetailModal(
     nav: NavController,
     context: android.content.Context,
     theme: com.zstream.android.theme.ZStreamTheme,
-    bookmarkRepo: com.zstream.android.data.BookmarkRepository
+    bookmarkRepo: com.zstream.android.data.BookmarkRepository,
+    hasProgress: Boolean
 ) {
     val d = state.detail
     val season = state.selectedSeason
@@ -280,7 +285,7 @@ private fun TvDetailModal(
             ) {
                 Icon(Icons.Filled.PlayArrow, null, tint = theme.colors.buttons.primaryText)
                 Spacer(Modifier.width(6.dp))
-                Text("Resume", color = theme.colors.buttons.primaryText)
+                Text(if (hasProgress) "Resume" else "Play", color = theme.colors.buttons.primaryText)
             }
             ActionPill(Icons.Filled.Share, "", theme, 50.dp) {
                 openShareSheet(context, d.name, d.id, "tv")
