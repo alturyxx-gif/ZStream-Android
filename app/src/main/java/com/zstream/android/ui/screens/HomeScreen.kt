@@ -34,6 +34,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -54,6 +55,32 @@ import kotlin.random.Random
 import org.xmlpull.v1.XmlPullParser
 import org.xmlpull.v1.XmlPullParserFactory
 import java.net.URL
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.concurrent.TimeUnit
+
+private val rssDateFormat = SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss zzz", Locale.US)
+private val displayDateFormat = SimpleDateFormat("MMM d, yyyy, h:mm a", Locale.US)
+
+private fun formatDate(pubDate: String): String {
+    return try {
+        val date = rssDateFormat.parse(pubDate) ?: return pubDate
+        val display = displayDateFormat.format(date)
+        val diff = System.currentTimeMillis() - date.time
+        val relative = when {
+            diff < TimeUnit.MINUTES.toMillis(1) -> "just now"
+            diff < TimeUnit.HOURS.toMillis(1) -> "${TimeUnit.MILLISECONDS.toMinutes(diff)} min ago"
+            diff < TimeUnit.DAYS.toMillis(1) -> "${TimeUnit.MILLISECONDS.toHours(diff)}h ago"
+            diff < TimeUnit.DAYS.toMillis(7) -> "${TimeUnit.MILLISECONDS.toDays(diff)}d ago"
+            diff < TimeUnit.DAYS.toMillis(30) -> "${TimeUnit.MILLISECONDS.toDays(diff) / 7} week${if (TimeUnit.MILLISECONDS.toDays(diff) / 7 > 1) "s" else ""} ago"
+            else -> "${TimeUnit.MILLISECONDS.toDays(diff) / 30} month${if (TimeUnit.MILLISECONDS.toDays(diff) / 30 > 1) "s" else ""} ago"
+        }
+        "$display • $relative"
+    } catch (_: Exception) {
+        pubDate
+    }
+}
 
 private val Context.readNotificationStore by preferencesDataStore("read_notifications")
 private val READ_GUIDS_KEY = stringPreferencesKey("read_guids")
@@ -848,14 +875,17 @@ private fun NotificationsDialog(
     val theme = LocalZStreamTheme.current
     var selectedNotif by remember { mutableStateOf<NotificationItem?>(null) }
 
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
+                .padding(horizontal = 16.dp)
                 .heightIn(max = 500.dp)
                 .clip(RoundedCornerShape(20.dp))
-                .background(theme.colors.modal.background)
-                .padding(20.dp),
+                .background(theme.colors.modal.background),
         ) {
             if (selectedNotif != null) {
                 NotificationDetailView(
@@ -863,24 +893,52 @@ private fun NotificationsDialog(
                     isRead = selectedNotif!!.guid in readGuids,
                     onMarkRead = { onMarkRead(selectedNotif!!.guid) },
                     onBack = { selectedNotif = null },
+                    onDismiss = onDismiss,
                     theme = theme,
                 )
             } else {
-                Column {
-                    Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
-                        Text("Notifications", color = theme.colors.type.emphasis, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            if (notifications.any { it.guid !in readGuids }) {
-                                TextButton(onClick = onMarkAllRead) {
-                                    Text("Mark all read", color = theme.colors.global.accentA, fontSize = 11.sp)
-                                }
-                            }
-                            IconButton(onClick = onDismiss, modifier = Modifier.size(24.dp)) {
-                                Icon(Icons.Default.Close, null, tint = theme.colors.type.dimmed, modifier = Modifier.size(16.dp))
+                Column(modifier = Modifier.padding(20.dp)) {
+                    // Header: title left, actions right, all aligned center
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            "Notifications",
+                            color = theme.colors.type.emphasis,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp,
+                            modifier = Modifier.weight(1f),
+                        )
+                        if (notifications.any { it.guid !in readGuids }) {
+                            Box(
+                                modifier = Modifier
+                                    .clickable(onClick = onMarkAllRead)
+                                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                            ) {
+                                Text(
+                                    "Mark all read",
+                                    color = theme.colors.global.accentA,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
                             }
                         }
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(CircleShape)
+                                .background(Color.Black.copy(alpha = 0.75f))
+                                .clickable(onClick = onDismiss),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                Icons.Default.Close, null,
+                                tint = Color.White, modifier = Modifier.size(16.dp),
+                            )
+                        }
                     }
-                    Spacer(Modifier.height(12.dp))
+                    Spacer(Modifier.height(16.dp))
                     if (notifications.isEmpty()) {
                         Box(Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
                             Text("No notifications", color = theme.colors.type.dimmed, fontSize = 13.sp)
@@ -932,26 +990,24 @@ private fun NotificationCard(
             .clickable(onClick = onClick)
             .padding(12.dp),
     ) {
-        Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                if (!isRead) {
-                    Box(Modifier.size(8.dp).clip(CircleShape).background(categoryColor))
-                }
-                if (notif.category.isNotEmpty()) {
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(categoryColor.copy(alpha = 0.2f))
-                            .padding(horizontal = 6.dp, vertical = 2.dp),
-                    ) {
-                        Text(
-                            notif.category.replaceFirstChar { it.uppercase() },
-                            color = categoryColor, fontSize = 10.sp, fontWeight = FontWeight.SemiBold,
-                        )
-                    }
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            if (!isRead) {
+                Box(Modifier.size(8.dp).clip(CircleShape).background(categoryColor))
+                Spacer(Modifier.width(6.dp))
+            }
+            if (notif.category.isNotEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(categoryColor.copy(alpha = 0.2f))
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                ) {
+                    Text(
+                        notif.category.replaceFirstChar { it.uppercase() },
+                        color = categoryColor, fontSize = 10.sp, fontWeight = FontWeight.SemiBold,
+                    )
                 }
             }
-            Text(notif.pubDate, color = theme.colors.type.dimmed, fontSize = 10.sp)
         }
         Spacer(Modifier.height(6.dp))
         Text(
@@ -967,6 +1023,11 @@ private fun NotificationCard(
                 maxLines = 2, overflow = TextOverflow.Ellipsis,
             )
         }
+        Spacer(Modifier.height(8.dp))
+        Text(
+            formatDate(notif.pubDate),
+            color = theme.colors.type.dimmed, fontSize = 10.sp,
+        )
     }
 }
 
@@ -976,6 +1037,7 @@ private fun NotificationDetailView(
     isRead: Boolean,
     onMarkRead: () -> Unit,
     onBack: () -> Unit,
+    onDismiss: () -> Unit,
     theme: com.zstream.android.theme.ZStreamTheme,
 ) {
     val categoryColors = mapOf(
@@ -986,24 +1048,32 @@ private fun NotificationDetailView(
     )
     val categoryColor = categoryColors[notif.category] ?: theme.colors.type.dimmed
 
-    Column {
-        Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                IconButton(onClick = onBack, modifier = Modifier.size(24.dp)) {
-                    Icon(Icons.Default.ArrowBack, null, tint = theme.colors.type.secondary, modifier = Modifier.size(16.dp))
-                }
-                Text("Notification", color = theme.colors.type.emphasis, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+    Column(modifier = Modifier.padding(20.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .size(32.dp)
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.75f))
+                    .clickable(onClick = onBack),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Default.ArrowBack, null, tint = Color.White, modifier = Modifier.size(16.dp))
             }
-            IconButton(onClick = onMarkRead, modifier = Modifier.size(24.dp)) {
-                Icon(
-                    if (isRead) Icons.Default.MarkEmailRead else Icons.Default.MarkEmailUnread,
-                    null,
-                    tint = if (isRead) theme.colors.type.dimmed else theme.colors.global.accentA,
-                    modifier = Modifier.size(16.dp),
-                )
+            Spacer(Modifier.width(8.dp))
+            Text("Notification", color = theme.colors.type.emphasis, fontWeight = FontWeight.Bold, fontSize = 15.sp, modifier = Modifier.weight(1f))
+            Box(
+                modifier = Modifier
+                    .size(32.dp)
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.75f))
+                    .clickable(onClick = onDismiss),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Default.Close, null, tint = Color.White, modifier = Modifier.size(16.dp))
             }
         }
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(16.dp))
         Column(modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 if (notif.category.isNotEmpty()) {
@@ -1019,7 +1089,6 @@ private fun NotificationDetailView(
                         )
                     }
                 }
-                Text(notif.pubDate, color = theme.colors.type.dimmed, fontSize = 11.sp)
             }
             Text(notif.title, color = theme.colors.type.emphasis, fontSize = 16.sp, fontWeight = FontWeight.Bold)
             Text(
@@ -1033,6 +1102,11 @@ private fun NotificationDetailView(
                     color = theme.colors.global.accentA, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
                 )
             }
+            Spacer(Modifier.height(4.dp))
+            Text(
+                formatDate(notif.pubDate),
+                color = theme.colors.type.dimmed, fontSize = 10.sp,
+            )
         }
     }
 }
