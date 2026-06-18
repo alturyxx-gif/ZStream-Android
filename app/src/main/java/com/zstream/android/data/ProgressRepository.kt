@@ -1,6 +1,7 @@
 package com.zstream.android.data
 
 import android.util.Log
+import com.zstream.android.Urls
 import com.zstream.android.data.local.dao.ProgressDao
 import com.zstream.android.data.local.entity.ProgressEntity
 import com.zstream.android.data.remote.BackendApi
@@ -62,6 +63,19 @@ class ProgressRepository @Inject constructor(
         episodeNumber: Int? = null,
         seasonNumber: Int? = null,
     ) {
+        // Extract relative path if it's a full URL
+        val safePoster = if (posterPath.isNullOrBlank()) null else posterPath
+        val relativePoster = if (safePoster != null && safePoster.startsWith("http")) {
+            if (safePoster.contains("/t/p/")) safePoster.substringAfterLast("/") else safePoster
+        } else {
+            safePoster
+        }
+        val finalPoster = if (relativePoster != null && !relativePoster.startsWith("/") && !relativePoster.startsWith("http")) {
+            "/$relativePoster"
+        } else {
+            relativePoster
+        }
+
         val entity = ProgressEntity(
             tmdbId = tmdbId,
             title = title,
@@ -69,7 +83,7 @@ class ProgressRepository @Inject constructor(
             watched = watched,
             duration = duration,
             year = year,
-            posterPath = posterPath,
+            posterPath = finalPoster,
             episodeId = episodeId,
             seasonId = seasonId,
             episodeNumber = episodeNumber,
@@ -91,8 +105,8 @@ class ProgressRepository @Inject constructor(
                 tmdbId = tmdbId,
                 meta = com.zstream.android.data.remote.ProgressMeta(
                     title = title,
-                    year = year ?: 0,
-                    poster = posterPath,
+                    year = year,
+                    poster = toFullPosterUrl(finalPoster),
                     type = type,
                 ),
                 watched = watched,
@@ -153,8 +167,8 @@ class ProgressRepository @Inject constructor(
                         tmdbId = progress.tmdbId,
                         meta = com.zstream.android.data.remote.ProgressMeta(
                             title = progress.title,
-                            year = progress.year ?: 0,
-                            poster = progress.posterPath,
+                            year = progress.year,
+                            poster = toFullPosterUrl(progress.posterPath),
                             type = progress.type,
                         ),
                         watched = progress.watched,
@@ -179,6 +193,24 @@ class ProgressRepository @Inject constructor(
      */
     suspend fun clearProgress() {
         progressDao.clear()
+    }
+
+    private fun normalizePosterPath(posterPath: String?): String? {
+        if (posterPath.isNullOrBlank()) return null
+        return if (posterPath.startsWith("http")) {
+            if (posterPath.contains("/t/p/")) posterPath.substringAfterLast("/") else posterPath
+        } else {
+            posterPath
+        }.let { path ->
+            if (path != null && !path.startsWith("/") && !path.startsWith("http")) "/$path" else path
+        }
+    }
+
+    private fun toFullPosterUrl(posterPath: String?): String? {
+        if (posterPath.isNullOrBlank()) return null
+        if (posterPath.startsWith("http")) return posterPath
+        val clean = if (posterPath.startsWith("/")) posterPath else "/$posterPath"
+        return Urls.TMDB_IMAGE + "w342$clean"
     }
 
     /**
@@ -212,7 +244,7 @@ class ProgressRepository @Inject constructor(
                     watched = latest.watched.toDoubleOrNull()?.toInt() ?: 0,
                     duration = latest.duration.toDoubleOrNull()?.toInt() ?: 0,
                     year = latest.meta.year,
-                    posterPath = posterEntry?.meta?.poster ?: latest.meta.poster,
+                    posterPath = normalizePosterPath(posterEntry?.meta?.poster ?: latest.meta.poster),
                     episodeId = latest.episode.id,
                     seasonId = latest.season.id,
                     episodeNumber = latest.episode.number,

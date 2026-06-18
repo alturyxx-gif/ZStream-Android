@@ -48,7 +48,7 @@ data class UserWithSession(val user: UserResponse, val session: SessionResponse)
 data class RegisterResponse(val token: String, val session: SessionResponse, val user: UserResponse)
 
 data class MetaSeasonEpisode(val id: String? = null, val number: Int? = null)
-data class ProgressMeta(val title: String, val year: Int, val poster: String?, val type: String)
+data class ProgressMeta(val title: String, val year: Int?, val poster: String?, val type: String)
 data class ProgressResponse(
     val tmdbId: String,
     val season: MetaSeasonEpisode,
@@ -59,7 +59,7 @@ data class ProgressResponse(
     val updatedAt: String,
 )
 
-data class BookmarkMeta(val title: String, val year: Int, val poster: String?, val type: String)
+data class BookmarkMeta(val title: String, val year: Int?, val poster: String?, val type: String)
 data class BookmarkResponse(
     val tmdbId: String,
     val meta: BookmarkMeta,
