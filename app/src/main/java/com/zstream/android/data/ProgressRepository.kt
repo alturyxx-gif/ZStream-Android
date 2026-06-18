@@ -70,10 +70,31 @@ class ProgressRepository @Inject constructor(
         } else {
             safePoster
         }
-        val finalPoster = if (relativePoster != null && !relativePoster.startsWith("/") && !relativePoster.startsWith("http")) {
+
+        // Prevents placeholder images for movie/show posters
+        var finalPoster = if (relativePoster != null && !relativePoster.startsWith("/") && !relativePoster.startsWith("http")) {
             "/$relativePoster"
         } else {
             relativePoster
+        }
+
+        // Prevents placeholder images for movie/show posters
+        if (finalPoster == null) {
+            val id = tmdbId.toIntOrNull()
+            if (id != null) {
+                try {
+                    val path = if (type == "movie") {
+                        tmdbRepo.movieDetail(id).posterPath
+                    } else {
+                        tmdbRepo.tvDetail(id).posterPath
+                    }
+                    if (!path.isNullOrBlank()) {
+                        finalPoster = if (path.startsWith("/")) path else "/$path"
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to fetch poster for $tmdbId", e)
+                }
+            }
         }
 
         val entity = ProgressEntity(
