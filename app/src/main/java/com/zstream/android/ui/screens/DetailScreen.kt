@@ -26,9 +26,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -60,6 +64,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import com.zstream.android.Urls
+import dagger.hilt.android.EntryPointAccessors
 import com.zstream.android.data.model.CastMember
 import com.zstream.android.data.model.Episode
 import com.zstream.android.data.model.MovieDetail
@@ -69,12 +74,15 @@ import com.zstream.android.theme.ZStreamTheme
 
 private fun String.encode() = java.net.URLEncoder.encode(this, "UTF-8").replace("+", "%20")
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun DetailScreen(nav: NavController, vm: DetailViewModel = hiltViewModel()) {
     val state by vm.state.collectAsState()
     val theme = LocalZStreamTheme.current
     val context = androidx.compose.ui.platform.LocalContext.current
+    val bookmarkRepo = EntryPointAccessors.fromApplication(
+        context.applicationContext,
+        com.zstream.android.di.RepositoryEntryPoint::class.java
+    ).bookmarkRepository()
 
     when (val s = state) {
         is DetailState.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -87,14 +95,25 @@ fun DetailScreen(nav: NavController, vm: DetailViewModel = hiltViewModel()) {
                 Button(onClick = vm::load) { Text("Retry") }
             }
         }
-        is DetailState.Movie -> MovieDetailModal(s, nav, context, theme)
-        is DetailState.Tv -> TvDetailModal(s, vm, nav, context, theme)
+        is DetailState.Movie -> {
+            MovieDetailModal(s, nav, context, theme, bookmarkRepo)
+        }
+        is DetailState.Tv -> {
+            TvDetailModal(s, vm, nav, context, theme, bookmarkRepo)
+        }
     }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun MovieDetailModal(state: DetailState.Movie, nav: NavController, context: android.content.Context, theme: com.zstream.android.theme.ZStreamTheme) {
+fun MovieDetailModal(
+    state: DetailState.Movie, 
+    nav: NavController, 
+    context: android.content.Context, 
+    theme: com.zstream.android.theme.ZStreamTheme,
+    bookmarkRepo: com.zstream.android.data.BookmarkRepository
+) {
+
     val d = state.detail
     val genres = d.genres.orEmpty()
     val cast = d.credits?.cast.orEmpty().take(8)
@@ -129,6 +148,11 @@ private fun MovieDetailModal(state: DetailState.Movie, nav: NavController, conte
             ActionPill(Icons.Filled.Share, "", theme, 50.dp) {
                 openShareSheet(context, d.title, d.id, "movie")
             }
+            BookmarkButton(
+                d.id.toString(), d.title, "movie", 
+                d.releaseDate?.take(4)?.toIntOrNull(), d.posterPath, 
+                bookmarkRepo, theme
+            )
         }
 
         // Movie Details
@@ -217,7 +241,14 @@ private fun BoxScope.XCloseButton(nav: NavController) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun TvDetailModal(state: DetailState.Tv, vm: DetailViewModel, nav: NavController, context: android.content.Context, theme: com.zstream.android.theme.ZStreamTheme) {
+private fun TvDetailModal(
+    state: DetailState.Tv,
+    vm: DetailViewModel,
+    nav: NavController,
+    context: android.content.Context,
+    theme: com.zstream.android.theme.ZStreamTheme,
+    bookmarkRepo: com.zstream.android.data.BookmarkRepository
+) {
     val d = state.detail
     val season = state.selectedSeason
     var selectedSeasonNum by remember { mutableIntStateOf(season?.seasonNumber ?: 1) }
@@ -252,10 +283,14 @@ private fun TvDetailModal(state: DetailState.Tv, vm: DetailViewModel, nav: NavCo
                 Text("Resume", color = theme.colors.buttons.primaryText)
             }
             ActionPill(Icons.Filled.Share, "", theme, 50.dp) {
-               openShareSheet(context, d.name, d.id, "tv")
+                openShareSheet(context, d.name, d.id, "tv")
             }
-        }
-
+            BookmarkButton(
+                d.id.toString(), d.name, "tv", 
+                d.firstAirDate?.take(4)?.toIntOrNull(), d.posterPath, 
+                bookmarkRepo, theme
+            )
+            }
         Row(Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(40.dp)) {
             Column(Modifier.weight(1f)) {
                d.overview?.takeIf { it.isNotBlank() }?.let { Text(it, color = theme.colors.type.text, fontSize = 14.sp) }
@@ -429,12 +464,50 @@ private fun MetadataRow(
 }
 
 @Composable
-private fun ActionPill(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, theme: com.zstream.android.theme.ZStreamTheme, cornerRadius: Dp, onClick: () -> Unit) {
+private fun BookmarkButton(
+    tmdbId: String,
+    title: String,
+    type: String,
+    year: Int? = null,
+    posterPath: String? = null,
+    bookmarkRepo: com.zstream.android.data.BookmarkRepository,
+    theme: com.zstream.android.theme.ZStreamTheme
+) {
+    val isBookmarked by bookmarkRepo.observeBookmark(tmdbId).collectAsState(initial = false)
+    val scope = rememberCoroutineScope()
+    
+    ActionPill(
+        icon = if (isBookmarked != null) androidx.compose.material.icons.Icons.Filled.Bookmark else androidx.compose.material.icons.Icons.Filled.BookmarkBorder,
+        label = "",
+        theme = theme,
+        cornerRadius = 50.dp,
+        onClick = {
+            scope.launch {
+                if (isBookmarked != null) {
+                    bookmarkRepo.removeBookmark(tmdbId)
+                } else {
+                    bookmarkRepo.addBookmark(tmdbId, title, type, year, posterPath)
+                }
+            }
+        }
+    )
+}
+
+@Composable
+private fun ActionPill(
+    icon: androidx.compose.ui.graphics.vector.ImageVector, 
+    label: String, 
+    theme: com.zstream.android.theme.ZStreamTheme, 
+    cornerRadius: Dp, 
+    onClick: () -> Unit
+) {
     Surface(shape = RoundedCornerShape(cornerRadius), color = theme.colors.type.text.copy(alpha = 0.05f), modifier = Modifier.clickable(onClick = onClick)) {
-        Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(icon, null, modifier = Modifier.size(18.dp), tint = theme.colors.type.text)
-            Spacer(Modifier.width(6.dp))
-            Text(label, color = theme.colors.type.text, fontSize = 12.sp)
+        Row(Modifier.padding(horizontal = if (label.isEmpty()) 14.dp else 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(icon, null, modifier = Modifier.size(20.dp), tint = theme.colors.type.text)
+            if (label.isNotEmpty()) {
+                Spacer(Modifier.width(6.dp))
+                Text(label, color = theme.colors.type.text, fontSize = 12.sp)
+            }
         }
     }
 }
