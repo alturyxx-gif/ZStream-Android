@@ -59,6 +59,7 @@ data class SettingsEntity(
     val subtitleFontStyle: String = "default",
     val subtitleBorderThickness: Float = 1f,
     val subtitleLineHeight: Float = 1.5f,
+    val subtitleFont: String = "sans-serif",
 
     // Interface
     val homeSectionOrder: List<String> = emptyList(),

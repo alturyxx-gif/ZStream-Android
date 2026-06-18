@@ -38,6 +38,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -146,6 +149,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                 val accountVm: AccountViewModel = hiltViewModel()
                 val session by accountVm.session.collectAsState()
                 val progressList by accountVm.progress.collectAsState()
+                val settings by vm.settings.collectAsState()
 
                 // Find existing progress for this tmdbId (mirroring p-stream ResumePart)
                 val existingProgress = remember(progressList) {
@@ -197,6 +201,8 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     if (initialShouldResume && !resumeHandled) showResumeDialog = true
                 }
 
+                var subtitleCues by remember { mutableStateOf<List<androidx.media3.common.text.Cue>>(emptyList()) }
+
                 // Seek to resume position once player is ready
                 DisposableEffect(player) {
                     val listener = object : Player.Listener {
@@ -205,6 +211,10 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                                 player.seekTo(pendingResumeMs)
                                 pendingResumeMs = -1L
                             }
+                        }
+
+                        override fun onCues(cues: List<androidx.media3.common.text.Cue>) {
+                            subtitleCues = cues
                         }
                     }
                     player.addListener(listener)
@@ -297,14 +307,76 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                             useController = false
                             resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
                             layoutParams = FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT)
+                            if (!settings.enableNativeSubtitles) {
+                                subtitleView?.visibility = android.view.View.GONE
+                            }
                             playerViewRef.value = this
                         }
                     },
                     update = { view ->
                         view.resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
+                        view.subtitleView?.visibility = if (settings.enableNativeSubtitles) android.view.View.VISIBLE else android.view.View.GONE
                     },
                     modifier = Modifier.fillMaxSize()
                 )
+
+                // Custom Subtitle Overlay
+                if (!settings.enableNativeSubtitles && subtitleCues.isNotEmpty()) {
+                    val textColor = Color(android.graphics.Color.parseColor(settings.subtitleColor))
+                    val bgAlpha = settings.subtitleBackgroundOpacity.coerceIn(0f, 1f)
+                    val fontSize = (settings.subtitleSize * 18).sp
+                    val lineHeight = (fontSize.value * settings.subtitleLineHeight).sp
+                    val subtitleShadow = when (settings.subtitleFontStyle) {
+                        "raised" -> Shadow(Color.Black.copy(alpha = 0.8f), offset = androidx.compose.ui.geometry.Offset(0f, -4f), blurRadius = 0f)
+                        "depressed" -> Shadow(Color.Black.copy(alpha = 0.8f), offset = androidx.compose.ui.geometry.Offset(0f, 4f), blurRadius = 0f)
+                        "dropShadow" -> Shadow(Color.Black.copy(alpha = 0.9f), offset = androidx.compose.ui.geometry.Offset(6f, 6f), blurRadius = 12f)
+                        "Border" -> Shadow(Color.Black.copy(alpha = 1f), offset = androidx.compose.ui.geometry.Offset(0f, 0f), blurRadius = settings.subtitleBorderThickness * 2)
+                        else -> Shadow(Color.Black.copy(alpha = 0.5f), offset = androidx.compose.ui.geometry.Offset(0f, 4f), blurRadius = 8f)
+                    }
+                    val fontFamily = when (settings.subtitleFont) {
+                        "serif" -> androidx.compose.ui.text.font.FontFamily.Serif
+                        "monospace" -> androidx.compose.ui.text.font.FontFamily.Monospace
+                        "sans-serif-condensed" -> androidx.compose.ui.text.font.FontFamily(android.graphics.Typeface.create("sans-serif-condensed", android.graphics.Typeface.NORMAL))
+                        else -> androidx.compose.ui.text.font.FontFamily.SansSerif
+                    }
+
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .padding(bottom = (48 + settings.subtitleVerticalPosition * 6f).dp)
+                            .padding(horizontal = 48.dp),
+                        contentAlignment = Alignment.BottomCenter
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            subtitleCues.forEach { cue ->
+                                cue.text?.let { cueText ->
+                                    Box(
+                                        Modifier
+                                            .background(
+                                                Color.Black.copy(alpha = bgAlpha),
+                                                RoundedCornerShape(6.dp)
+                                            )
+                                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                                    ) {
+                                        Text(
+                                            text = cueText.toString(),
+                                            color = textColor,
+                                            fontSize = fontSize,
+                                            fontWeight = if (settings.subtitleBold) FontWeight.Bold else FontWeight.Normal,
+                                            fontFamily = fontFamily,
+                                            lineHeight = lineHeight,
+                                            textAlign = TextAlign.Center,
+                                            style = TextStyle(shadow = subtitleShadow)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
 
                 PlayerControls(player, vm.title, onBack = { nav.popBackStack() }, onPip = {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)

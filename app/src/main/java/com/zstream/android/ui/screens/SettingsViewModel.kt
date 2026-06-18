@@ -26,6 +26,10 @@ class SettingsViewModel @Inject constructor(
     private val _dirty = MutableStateFlow(false)
     val dirty: StateFlow<Boolean> = _dirty
 
+    // Persists the user's last hand-crafted subtitle settings so they can be
+    // restored any time they tap "Custom" after switching to a named preset.
+    private val _customSubtitleSlot = MutableStateFlow<SettingsEntity?>(null)
+
     val settings: StateFlow<SettingsEntity> = settingsPrefs.settings
         .stateIn(viewModelScope, SharingStarted.Eagerly, SettingsEntity())
 
@@ -198,6 +202,10 @@ class SettingsViewModel @Inject constructor(
         update { copy(subtitleLineHeight = height) }
     }
 
+    fun setSubtitleFont(font: String) {
+        update { copy(subtitleFont = font) }
+    }
+
     fun resetSubtitleStyling() {
         update { copy(
             subtitleColor = "#ffffff",
@@ -210,7 +218,56 @@ class SettingsViewModel @Inject constructor(
             subtitleFontStyle = "default",
             subtitleBorderThickness = 1f,
             subtitleLineHeight = 1.5f,
+            subtitleFont = "sans-serif",
         ) }
+    }
+
+    fun applySubtitlePreset(presetName: String) {
+        // Before overwriting with a preset, snapshot current settings into the
+        // custom slot so the user can restore their tweaks via "Custom".
+        _customSubtitleSlot.value = settings.value
+        update {
+            when (presetName) {
+                "netflix" -> copy(
+                    subtitleColor = "#ffffff",
+                    subtitleBackgroundOpacity = 0.0f,
+                    subtitleBackgroundBlurEnabled = false,
+                    subtitleBold = false,
+                    subtitleFontStyle = "dropShadow",
+                    subtitleLineHeight = 1.4f,
+                    subtitleSize = 1.0f,
+                    subtitleFont = "sans-serif-condensed"
+                )
+                "youtube" -> copy(
+                    subtitleColor = "#ffffff",
+                    subtitleBackgroundOpacity = 0.4f,
+                    subtitleBackgroundBlurEnabled = false,
+                    subtitleBold = true,
+                    subtitleFontStyle = "default",
+                    subtitleLineHeight = 1.3f,
+                    subtitleSize = 1.0f,
+                    subtitleFont = "sans-serif"
+                )
+                "anime" -> copy(
+                    subtitleColor = "#e2e535",
+                    subtitleBackgroundOpacity = 0.0f,
+                    subtitleBackgroundBlurEnabled = false,
+                    subtitleBold = true,
+                    subtitleFontStyle = "Border",
+                    subtitleBorderThickness = 3.0f,
+                    subtitleLineHeight = 1.3f,
+                    subtitleSize = 1.0f,
+                    subtitleFont = "monospace"
+                )
+                else -> this
+            }
+        }
+    }
+
+    /** Restores the last hand-crafted subtitle settings saved before a preset was applied. */
+    fun restoreCustomSubtitleSlot() {
+        val slot = _customSubtitleSlot.value ?: return
+        update { slot }
     }
 
     fun saveToRemote() {

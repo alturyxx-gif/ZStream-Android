@@ -80,6 +80,7 @@ class SettingsPreferences @Inject constructor(
     private val KEY_SUBTITLE_FONT_STYLE = stringPreferencesKey("subtitle_font_style")
     private val KEY_SUBTITLE_BORDER_THICKNESS = stringPreferencesKey("subtitle_border_thickness")
     private val KEY_SUBTITLE_LINE_HEIGHT = stringPreferencesKey("subtitle_line_height")
+    private val KEY_SUBTITLE_FONT = stringPreferencesKey("subtitle_font")
 
     // Other
     private val KEY_ENABLE_AUTO_RESUME_ON_PLAYBACK_ERROR = booleanPreferencesKey("enable_auto_resume_on_playback_error")
@@ -134,6 +135,7 @@ class SettingsPreferences @Inject constructor(
             subtitleFontStyle = prefs[KEY_SUBTITLE_FONT_STYLE] ?: "default",
             subtitleBorderThickness = prefs[KEY_SUBTITLE_BORDER_THICKNESS]?.toFloatOrNull() ?: 1f,
             subtitleLineHeight = prefs[KEY_SUBTITLE_LINE_HEIGHT]?.toFloatOrNull() ?: 1.5f,
+            subtitleFont = prefs[KEY_SUBTITLE_FONT] ?: "sans-serif",
         )
     }
 
@@ -194,6 +196,7 @@ class SettingsPreferences @Inject constructor(
             prefs[KEY_SUBTITLE_FONT_STYLE] = entity.subtitleFontStyle
             prefs[KEY_SUBTITLE_BORDER_THICKNESS] = entity.subtitleBorderThickness.toString()
             prefs[KEY_SUBTITLE_LINE_HEIGHT] = entity.subtitleLineHeight.toString()
+            prefs[KEY_SUBTITLE_FONT] = entity.subtitleFont
         }
         
         if (syncToRemote) {
@@ -452,5 +455,9 @@ class SettingsPreferences @Inject constructor(
 
     suspend fun setSubtitleLineHeight(height: Float) {
         context.settingsStore.edit { prefs -> prefs[KEY_SUBTITLE_LINE_HEIGHT] = height.toString() }
+    }
+
+    suspend fun setSubtitleFont(font: String) {
+        context.settingsStore.edit { prefs -> prefs[KEY_SUBTITLE_FONT] = font }
     }
 }
