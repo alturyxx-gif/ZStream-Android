@@ -48,10 +48,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -124,7 +126,7 @@ private fun MovieDetailModal(state: DetailState.Movie, nav: NavController, conte
                 Spacer(Modifier.width(6.dp))
                 Text("Resume", color = theme.colors.buttons.primaryText)
             }
-            ActionPill(Icons.Filled.Share, "Share", theme) {
+            ActionPill(Icons.Filled.Share, "", theme, 50.dp) {
                 openShareSheet(context, d.title, d.id, "movie")
             }
         }
@@ -249,7 +251,7 @@ private fun TvDetailModal(state: DetailState.Tv, vm: DetailViewModel, nav: NavCo
                 Spacer(Modifier.width(6.dp))
                 Text("Resume", color = theme.colors.buttons.primaryText)
             }
-            ActionPill(Icons.Filled.Share, "Share", theme) {
+            ActionPill(Icons.Filled.Share, "", theme, 50.dp) {
                openShareSheet(context, d.name, d.id, "tv")
             }
         }
@@ -427,8 +429,8 @@ private fun MetadataRow(
 }
 
 @Composable
-private fun ActionPill(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, theme: com.zstream.android.theme.ZStreamTheme, onClick: () -> Unit) {
-    Surface(shape = RoundedCornerShape(6.dp), color = theme.colors.type.text.copy(alpha = 0.05f), modifier = Modifier.clickable(onClick = onClick)) {
+private fun ActionPill(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, theme: com.zstream.android.theme.ZStreamTheme, cornerRadius: Dp, onClick: () -> Unit) {
+    Surface(shape = RoundedCornerShape(cornerRadius), color = theme.colors.type.text.copy(alpha = 0.05f), modifier = Modifier.clickable(onClick = onClick)) {
         Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(icon, null, modifier = Modifier.size(18.dp), tint = theme.colors.type.text)
             Spacer(Modifier.width(6.dp))
