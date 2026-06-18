@@ -4,6 +4,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.*
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -21,13 +22,32 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Paint
+import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.drawscope.Fill
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.activity.ComponentActivity
@@ -41,6 +61,7 @@ import com.zstream.android.data.AccountSession
 import com.zstream.android.data.local.entity.SettingsEntity
 import com.zstream.android.theme.LocalZStreamTheme
 import com.zstream.android.theme.ZStreamTheme
+import kotlin.math.roundToInt
 
 @Composable
 fun SettingsScreen(
@@ -81,13 +102,22 @@ fun SettingsScreen(
             TabBar(tabs, currentTab, theme) { vm.setTab(it) }
 
             // Content
-            Box(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-                when (currentTab) {
-                    0 -> AccountSection(session, theme, vm, accountVm, showLogoutConfirm, { showLogoutConfirm = it }, nav)
-                    1 -> PreferencesSection(settings, theme, vm)
-                    2 -> AppearanceSection(settings, theme, vm)
-                    3 -> SubtitlesSection(settings, theme, vm)
-                    4 -> ConnectionsSection(settings, theme, vm)
+            val subtitlesSettingsTabIndex = 3
+            if (currentTab == subtitlesSettingsTabIndex) {
+                Column(Modifier.fillMaxSize()) {
+                    SubtitlePreview(settings, theme, vm)
+                    Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
+                        SubtitlesSettingsContent(settings, theme, vm)
+                    }
+                }
+            } else {
+                Box(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                    when (currentTab) {
+                        0 -> AccountSection(session, theme, vm, accountVm, showLogoutConfirm, { showLogoutConfirm = it }, nav)
+                        1 -> PreferencesSection(settings, theme, vm)
+                        2 -> AppearanceSection(settings, theme, vm)
+                        4 -> ConnectionsSection(settings, theme, vm)
+                    }
                 }
             }
         }
@@ -398,12 +428,280 @@ private fun AppearanceSection(settings: SettingsEntity, theme: ZStreamTheme, vm:
         }
     }
 }
-
-//  Subtitles Section 
+//  Subtitles Section
 
 @Composable
-private fun SubtitlesSection(settings: SettingsEntity, theme: ZStreamTheme, vm: SettingsViewModel) {
+private fun SubtitlePreview(settings: SettingsEntity, theme: ZStreamTheme, vm: SettingsViewModel) {
+    val sampleText = "This is a preview of your subtitles\nThis is a preview of your second line."
+    val textColor = Color(android.graphics.Color.parseColor(settings.subtitleColor))
+    val bgAlpha = settings.subtitleBackgroundOpacity.coerceIn(0f, 1f)
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val currentPosition = rememberUpdatedState(settings.subtitleVerticalPosition)
+
+    val subtitleShadow = when (settings.subtitleFontStyle) {
+        "raised"     -> Shadow(Color.Black.copy(alpha = 0.9f), offset = androidx.compose.ui.geometry.Offset(0f, -3f), blurRadius = 0f)
+        "depressed"  -> Shadow(Color.Black.copy(alpha = 0.9f), offset = androidx.compose.ui.geometry.Offset(0f, 3f),  blurRadius = 0f)
+        "dropShadow" -> Shadow(Color.Black.copy(alpha = 0.9f), offset = androidx.compose.ui.geometry.Offset(4f, 4f),  blurRadius = 8f)
+        else         -> Shadow(Color.Black.copy(alpha = 0.5f), offset = androidx.compose.ui.geometry.Offset(0f, 2f),  blurRadius = 4f)
+    }
+
+    val fontSize   = (settings.subtitleSize * 18).sp
+    val lineHeight = (fontSize.value * settings.subtitleLineHeight).sp
+    val fontFamily = when (settings.subtitleFont) {
+        "serif"              -> androidx.compose.ui.text.font.FontFamily.Serif
+        "monospace"          -> androidx.compose.ui.text.font.FontFamily.Monospace
+        "sans-serif-condensed" -> androidx.compose.ui.text.font.FontFamily(
+            android.graphics.Typeface.create("sans-serif-condensed", android.graphics.Typeface.NORMAL)
+        )
+        else -> androidx.compose.ui.text.font.FontFamily.SansSerif
+    }
+
+    val isBorder = settings.subtitleFontStyle == "Border"
+    val borderThick = settings.subtitleBorderThickness.dp
+
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .height(200.dp)
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color.Black)
+            .pointerInput(Unit) {
+                detectDragGestures { change, dragAmount ->
+                    change.consume()
+                    val deltaDp = with(density) { dragAmount.y.toDp() }
+                    val deltaVal = -deltaDp.value / 4.5f
+                    val newVal = (currentPosition.value + deltaVal).coerceIn(0f, 30f)
+                    vm.setSubtitleVerticalPosition(newVal)
+                }
+            }
+    ) {
+        // Background gradient scene
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.linearGradient(
+                        listOf(
+                            Color(0xFF3B27B2),
+                            Color(0xFF8B5CF6),
+                            Color(0xFFEC4899),
+                            Color(0xFF3B82F6)
+                        )
+                    )
+                )
+        )
+
+        // Backdrop image
+        coil.compose.AsyncImage(
+            model = "https://image.tmdb.org/t/p/w780/d5iil4xe79avh0cg4ytrusugx2c.jpg",
+            contentDescription = null,
+            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+            modifier = Modifier.fillMaxSize()
+        )
+        // Dark scrim
+        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.4f)))
+
+        // Drag tip
+        Text(
+            "Drag text to reposition",
+            color = Color.White.copy(alpha = 0.4f),
+            fontSize = 10.sp,
+            modifier = Modifier.align(Alignment.TopCenter).padding(top = 8.dp)
+        )
+
+        // ── Subtitle preview (native or custom) ──────────────────────────────
+        val previewLabel = if (settings.enableNativeSubtitles)
+            "Native subtitle sample text" else sampleText
+
+        // Blur modifier: works on API 31+ via Modifier.blur; gracefully no-ops below.
+        val blurMod: Modifier = if (settings.subtitleBackgroundBlurEnabled && settings.subtitleBackgroundBlur > 0f)
+            Modifier.blur((settings.subtitleBackgroundBlur * 20f).coerceAtLeast(1f).dp)
+        else Modifier
+
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .align(Alignment.BottomCenter)
+                .padding(bottom = (12 + settings.subtitleVerticalPosition * 4.5f).dp)
+                .padding(horizontal = 24.dp)
+        ) {
+            // Background blur layer (rendered behind text)
+            if (bgAlpha > 0f) {
+                Box(
+                    Modifier
+                        .matchParentSize()
+                        .then(blurMod)
+                        .background(Color.Black.copy(alpha = bgAlpha), RoundedCornerShape(4.dp))
+                )
+            }
+            // Text layer (not blurred)
+            Box(
+                Modifier
+                    .align(Alignment.Center)
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
+            ) {
+                if (isBorder) {
+                    OutlinedSubtitleText(
+                        text = previewLabel,
+                        color = textColor,
+                        outlineColor = Color.Black,
+                        outlineWidth = borderThick.coerceAtLeast(0.5.dp),
+                        fontSize = fontSize,
+                        fontWeight = if (settings.subtitleBold) FontWeight.Bold else FontWeight.Normal,
+                        fontFamily = fontFamily,
+                        lineHeight = lineHeight,
+                        textAlign = TextAlign.Center,
+                    )
+                } else {
+                    Text(
+                        text = previewLabel,
+                        color = textColor,
+                        fontSize = fontSize,
+                        fontWeight = if (settings.subtitleBold) FontWeight.Bold else FontWeight.Normal,
+                        fontFamily = fontFamily,
+                        lineHeight = lineHeight,
+                        textAlign = TextAlign.Center,
+                        style = TextStyle(shadow = subtitleShadow),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun OutlinedSubtitleText(
+    text: String,
+    color: Color,
+    outlineColor: Color,
+    outlineWidth: Dp,
+    fontSize: TextUnit,
+    fontWeight: FontWeight,
+    fontFamily: FontFamily,
+    lineHeight: TextUnit,
+    textAlign: TextAlign,
+) {
+    val textMeasurer = rememberTextMeasurer()
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val outlinePx = with(density) { outlineWidth.toPx() }
+
+    val textStyle = TextStyle(
+        fontSize = fontSize,
+        fontWeight = fontWeight,
+        fontFamily = fontFamily,
+        lineHeight = lineHeight,
+        textAlign = textAlign,
+    )
+
+    val layoutResult = remember(text, textStyle) {
+        textMeasurer.measure(
+            text = AnnotatedString(text),
+            style = textStyle,
+            constraints = Constraints(),
+        )
+    }
+
+    val canvasWidth = with(density) { layoutResult.size.width.toDp() }
+    val canvasHeight = with(density) { layoutResult.size.height.toDp() }
+
+    Canvas(modifier = Modifier.size(width = canvasWidth, height = canvasHeight)) {
+        drawText(
+            textLayoutResult = layoutResult,
+            color = outlineColor,
+            drawStyle = Stroke(width = outlinePx),
+        )
+        drawText(
+            textLayoutResult = layoutResult,
+            color = color,
+            drawStyle = Fill,
+        )
+    }
+}
+
+@Composable
+private fun SubtitlesSettingsContent(settings: SettingsEntity, theme: ZStreamTheme, vm: SettingsViewModel) {
+    val currentPreset = remember(settings) {
+        when {
+            // Netflix: white, no background, drop shadow, not bold, condensed font
+            settings.subtitleColor.equals("#ffffff", true) &&
+            settings.subtitleBackgroundOpacity == 0.0f &&
+            !settings.subtitleBackgroundBlurEnabled &&
+            !settings.subtitleBold &&
+            settings.subtitleFontStyle == "dropShadow" &&
+            settings.subtitleLineHeight == 1.4f &&
+            settings.subtitleSize == 1.0f &&
+            settings.subtitleFont == "sans-serif-condensed" -> "netflix"
+
+            // YouTube: white, 40% background, no blur, bold, default style, sans-serif
+            settings.subtitleColor.equals("#ffffff", true) &&
+            settings.subtitleBackgroundOpacity == 0.4f &&
+            !settings.subtitleBackgroundBlurEnabled &&
+            settings.subtitleBold &&
+            settings.subtitleFontStyle == "default" &&
+            settings.subtitleLineHeight == 1.3f &&
+            settings.subtitleSize == 1.0f &&
+            settings.subtitleFont == "sans-serif" -> "youtube"
+
+            // Anime: yellow, no background, border, bold, monospace
+            settings.subtitleColor.equals("#e2e535", true) &&
+            settings.subtitleBackgroundOpacity == 0.0f &&
+            !settings.subtitleBackgroundBlurEnabled &&
+            settings.subtitleBold &&
+            settings.subtitleFontStyle == "Border" &&
+            settings.subtitleBorderThickness == 3.0f &&
+            settings.subtitleLineHeight == 1.3f &&
+            settings.subtitleSize == 1.0f &&
+            settings.subtitleFont == "monospace" -> "anime"
+
+            else -> "custom"
+        }
+    }
+
     Column(Modifier.padding(bottom = 32.dp)) {
+        Spacer(Modifier.height(8.dp))
+        SectionLabel("Presets", theme)
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            val presets = listOf(
+                "netflix" to "Netflix",
+                "youtube" to "YouTube",
+                "anime" to "Anime",
+                "custom" to "Custom"
+            )
+            presets.forEach { (key, label) ->
+                val isSelected = currentPreset == key
+                val cardBg = if (isSelected) theme.colors.global.accentA else theme.colors.background.secondary
+                val cardBorder = if (isSelected) Color.Transparent else theme.colors.utils.divider.copy(alpha = 0.2f)
+                val textColor = if (isSelected) Color.White else theme.colors.type.text
+
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(cardBg)
+                        .border(1.dp, cardBorder, RoundedCornerShape(8.dp))
+                        .clickable {
+                            if (key == "custom") vm.restoreCustomSubtitleSlot()
+                            else vm.applySubtitlePreset(key)
+                        }
+                        .padding(vertical = 12.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        label,
+                        color = textColor,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+
         Spacer(Modifier.height(8.dp))
         SectionLabel("Behavior", theme)
         SettingsCard(theme) {
@@ -434,15 +732,57 @@ private fun SubtitlesSection(settings: SettingsEntity, theme: ZStreamTheme, vm: 
                     SliderRow("Border Thickness", settings.subtitleBorderThickness, 0f, 10f, { "${it.toInt()}px" }, { vm.setSubtitleBorderThickness(it) }, theme)
                 }
                 HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
+                DropdownRow("Font Family", listOf("sans-serif", "sans-serif-condensed", "serif", "monospace"), settings.subtitleFont, vm::setSubtitleFont, theme)
+                HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                 ToggleRow("Bold", null, settings.subtitleBold, vm::setSubtitleBold, theme = theme)
                 HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
-                ColorRow("Color", settings.subtitleColor, vm::setSubtitleColor, theme)
+                
+                // ── Color picker ─────────────────────────────────────────────
+                var showColorPicker by remember { mutableStateOf(false) }
+                val currentSubColor = Color(android.graphics.Color.parseColor(settings.subtitleColor))
+
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable { showColorPicker = true }
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text("Color", color = theme.colors.type.text, fontSize = 13.sp)
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            settings.subtitleColor.uppercase(),
+                            color = theme.colors.type.secondary,
+                            fontSize = 12.sp
+                        )
+                        Box(
+                            Modifier
+                                .size(24.dp)
+                                .clip(CircleShape)
+                                .background(currentSubColor)
+                                .border(1.dp, theme.colors.utils.divider.copy(alpha = 0.4f), CircleShape)
+                        )
+                    }
+                }
+
+                if (showColorPicker) {
+                    SubtitleColorPickerDialog(
+                        initialColor = currentSubColor,
+                        theme = theme,
+                        onColorSelected = { hex ->
+                            vm.setSubtitleColor(hex)
+                            showColorPicker = false
+                        },
+                        onDismiss = { showColorPicker = false }
+                    )
+                }
             }
 
             Spacer(Modifier.height(8.dp))
             SectionLabel("Layout", theme)
             SettingsCard(theme) {
-                SliderRow("Vertical Position", settings.subtitleVerticalPosition, 0f, 30f, { "${it.toInt()} rem" }, { vm.setSubtitleVerticalPosition(it) }, theme)
+                SliderRow("Vertical Position", settings.subtitleVerticalPosition, 0f, 30f, { "${it.toInt()}" }, { vm.setSubtitleVerticalPosition(it) }, theme)
                 HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                 SliderRow("Line Spacing", settings.subtitleLineHeight * 100, 100f, 250f, { "${it.toInt()}%" }, { vm.setSubtitleLineHeight(it / 100f) }, theme)
             }
@@ -461,6 +801,69 @@ private fun SubtitlesSection(settings: SettingsEntity, theme: ZStreamTheme, vm: 
     }
 }
 
+private val subtitleColorGrid = listOf(
+    "#ffffff", "#f0f0f0", "#d4d4d4", "#b0b0b0",
+    "#80b1fa", "#60a0f0", "#4090e0", "#1e6fc9",
+    "#e2e535", "#d0c820", "#c0b810", "#a8a000",
+    "#10B239", "#209a30", "#308040", "#3a6b40",
+    "#ff6b6b", "#e05050", "#c04040", "#a03030",
+    "#f0a030", "#e09020", "#c08010", "#a07000",
+    "#d070d0", "#c060c0", "#a050a0", "#804080",
+    "#000000", "#333333", "#666666", "#999999",
+)
+
+@Composable
+private fun SubtitleColorPickerDialog(
+    initialColor: Color,
+    theme: ZStreamTheme,
+    onColorSelected: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val initialHex = remember {
+        String.format("#%06X", 0xFFFFFF and initialColor.toArgb())
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = theme.colors.background.secondary,
+        title = { Text("Pick a Color", color = theme.colors.type.emphasis) },
+        text = {
+            Column {
+                Text("Select a color for your subtitles.", color = theme.colors.type.text, fontSize = 13.sp)
+                Spacer(Modifier.height(16.dp))
+                @OptIn(ExperimentalLayoutApi::class)
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    subtitleColorGrid.forEach { hex ->
+                        val color = Color(android.graphics.Color.parseColor(hex))
+                        val isSelected = hex.equals(initialHex, ignoreCase = true)
+                        Box(
+                            Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(color)
+                                .border(
+                                    width = if (isSelected) 2.5.dp else 1.dp,
+                                    color = if (isSelected) Color.White else Color.White.copy(alpha = 0.2f),
+                                    shape = CircleShape
+                                )
+                                .clickable { onColorSelected(hex) }
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel", color = theme.colors.global.accentA)
+            }
+        },
+    )
+}
+
 @Composable
 private fun SliderRow(label: String, value: Float, rangeStart: Float, rangeEnd: Float, display: (Float) -> String, onValueChange: (Float) -> Unit, theme: ZStreamTheme) {
     var sliderValue by remember { mutableFloatStateOf(value) }
@@ -471,10 +874,11 @@ private fun SliderRow(label: String, value: Float, rangeStart: Float, rangeEnd: 
             Text(display(sliderValue), color = theme.colors.type.secondary, fontSize = 12.sp)
         }
         Spacer(Modifier.height(4.dp))
+        // Real‑time slider updates – call vm.setSubtitleVerticalPosition directly on value change
         Slider(
             value = sliderValue,
-            onValueChange = { sliderValue = it },
-            onValueChangeFinished = { onValueChange(sliderValue) },
+            onValueChange = { sliderValue = it; onValueChange(it) },
+            onValueChangeFinished = { /* no‑op */ },
             valueRange = rangeStart..rangeEnd,
             modifier = Modifier.fillMaxWidth().height(24.dp),
             colors = SliderDefaults.colors(

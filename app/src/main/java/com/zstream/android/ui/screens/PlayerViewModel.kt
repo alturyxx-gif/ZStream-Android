@@ -11,6 +11,10 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 import javax.inject.Inject
+import com.zstream.android.data.local.preferences.SettingsPreferences
+import com.zstream.android.data.local.entity.SettingsEntity
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.stateIn
 
 enum class SourceStatus { TRYING, SUCCESS, FAILED }
 data class SourceResult(val id: String, val status: SourceStatus)
@@ -27,8 +31,12 @@ data class SubtitleTrack(val label: String, val url: String, val language: Strin
 @HiltViewModel
 class PlayerViewModel @Inject constructor(
     private val engine: ProviderEngine,
+    private val settingsPrefs: SettingsPreferences,
     savedState: SavedStateHandle,
 ) : ViewModel() {
+    val settings = settingsPrefs.settings
+        .stateIn(viewModelScope, SharingStarted.Eagerly, SettingsEntity())
+
     private val id = savedState.get<Int>("id") ?: 0
     val mediaType = savedState.get<String>("mediaType") ?: "movie"
     val season = savedState.get<Int>("season").takeIf { it != -1 }
