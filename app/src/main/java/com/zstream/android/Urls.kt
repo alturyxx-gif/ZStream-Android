@@ -7,4 +7,5 @@ object Urls {
     const val VIDLINK = "https://vidlink.pro/"
     const val GITHUB_REPO = "https://github.com/alturyxx-gif/ZStream-Android"
     const val DISCORD_LINK = "https://discord.com/invite/wmbWfk4SGy"
+    const val NOTIFICATIONS_RSS = "https://zstream.mov/notifications.xml"
 }

@@ -22,10 +22,13 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -35,9 +38,14 @@ import com.zstream.android.R
 import com.zstream.android.Urls
 import com.zstream.android.data.model.Media
 import com.zstream.android.theme.LocalZStreamTheme
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import kotlin.math.sin
 import kotlin.random.Random
+import org.xmlpull.v1.XmlPullParser
+import org.xmlpull.v1.XmlPullParserFactory
+import java.net.URL
 
 private val tmdbGenres = mapOf(
     28 to "Action", 12 to "Adventure", 16 to "Animation", 35 to "Comedy",
@@ -46,6 +54,66 @@ private val tmdbGenres = mapOf(
     9648 to "Mystery", 10749 to "Romance", 878 to "Sci-Fi",
     53 to "Thriller", 10752 to "War", 37 to "Western",
 )
+
+private data class NotificationItem(
+    val guid: String,
+    val title: String,
+    val description: String,
+    val link: String,
+    val pubDate: String,
+    val category: String,
+)
+
+private fun fetchNotifications(): List<NotificationItem> {
+    val url = URL(Urls.NOTIFICATIONS_RSS)
+    val connection = url.openConnection()
+    connection.setRequestProperty("Accept", "application/rss+xml")
+    val inputStream = connection.getInputStream()
+    val factory = XmlPullParserFactory.newInstance()
+    val parser = factory.newPullParser()
+    parser.setInput(inputStream, "UTF-8")
+
+    val items = mutableListOf<NotificationItem>()
+    var currentItem: MutableMap<String, String>? = null
+    var currentTag: String? = null
+
+    var eventType = parser.eventType
+    while (eventType != XmlPullParser.END_DOCUMENT) {
+        when (eventType) {
+            XmlPullParser.START_TAG -> {
+                currentTag = parser.name
+                if (parser.name == "item") currentItem = mutableMapOf()
+            }
+            XmlPullParser.TEXT -> {
+                currentTag?.let { tag ->
+                    currentItem?.let { item ->
+                        val text = parser.text.trim()
+                        if (text.isNotEmpty()) item[tag] = text
+                    }
+                }
+            }
+            XmlPullParser.END_TAG -> {
+                if (parser.name == "item") {
+                    currentItem?.let {
+                        items.add(NotificationItem(
+                            guid = it["guid"].orEmpty(),
+                            title = it["title"].orEmpty(),
+                            description = it["description"].orEmpty(),
+                            link = it["link"].orEmpty(),
+                            pubDate = it["pubDate"].orEmpty(),
+                            category = it["category"].orEmpty(),
+                        ))
+                    }
+                    currentItem = null
+                }
+                currentTag = null
+            }
+        }
+        eventType = parser.next()
+    }
+    inputStream.close()
+    return items
+}
 
 // Rainbow gradient colors matching p-stream's discover button
 private val rainbowColors = listOf(
@@ -64,6 +132,8 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
     var showSandwichMenu by remember { mutableStateOf(false) }
     var showContinueWatching by remember { mutableStateOf(true) }
     var showBookmarks by remember { mutableStateOf(true) }
+    var showNotifications by remember { mutableStateOf(false) }
+    var showTipJar by remember { mutableStateOf(false) }
 
     Box(modifier = Modifier
         .fillMaxSize()
@@ -97,8 +167,16 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
                 val bookmarksList = state.bookmarks.flatMap { it.items }
                 val progressList = state.continueWatching.flatMap { it.items }
 
+                val uriHandler = LocalUriHandler.current
+
                 LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {
-                    item { TopNavBar(onLayout = { showLayoutMenu = true }, onMenu = { showSandwichMenu = true }) }
+                    item { TopNavBar(
+                        onLayout = { showLayoutMenu = true },
+                        onMenu = { showSandwichMenu = true },
+                        onDiscord = { uriHandler.openUri(Urls.DISCORD_LINK) },
+                        onNotifications = { showNotifications = true },
+                        onTipJar = { showTipJar = true },
+                    ) }
                     item { HeroSection(state.searchQuery, vm::onSearchChange, nav) }
                     item { GenrePills(state.selectedGenreId, vm::setGenre) }
                     item { Spacer(Modifier.height(16.dp)) }
@@ -140,6 +218,12 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
         }
         if (showSandwichMenu) {
             SandwichMenuDialog(nav = nav, session = session, accountVm = accountVm, onDismiss = { showSandwichMenu = false })
+        }
+        if (showNotifications) {
+            NotificationsDialog(onDismiss = { showNotifications = false })
+        }
+        if (showTipJar) {
+            TipJarDialog(onDismiss = { showTipJar = false })
         }
     }
 }
@@ -270,39 +354,76 @@ private fun ParticleOverlay() {
 }
 
 @Composable
-private fun TopNavBar(onLayout: () -> Unit, onMenu: () -> Unit) {
+private fun TopNavBar(onLayout: () -> Unit, onMenu: () -> Unit, onDiscord: () -> Unit, onNotifications: () -> Unit, onTipJar: () -> Unit) {
     val theme = LocalZStreamTheme.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .statusBarsPadding()
-//            .padding(horizontal = 16.dp, vertical = 6.dp,),
             .padding(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 32.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        // Logo pill: icon + "Z-Stream" text
-        Row(
-            modifier = Modifier
-                .clip(RoundedCornerShape(50))
-                .background(theme.colors.background.secondary.copy(alpha = 0.8f))
-                .padding(horizontal = 12.dp, vertical = 7.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            coil.compose.AsyncImage(
-                model = R.mipmap.ic_launcher,
-                contentDescription = null,
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            // Logo pill: icon + "Z-Stream" text
+            Row(
                 modifier = Modifier
-                    .size(22.dp)
-                    .clip(CircleShape),
-            )
-            Text(
-                "Z-Stream",
-                color = theme.colors.type.emphasis,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.SemiBold,
-            )
+                    .clip(RoundedCornerShape(50))
+                    .background(theme.colors.background.secondary.copy(alpha = 0.8f))
+                    .padding(horizontal = 12.dp, vertical = 7.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                coil.compose.AsyncImage(
+                    model = R.mipmap.ic_launcher,
+                    contentDescription = null,
+                    modifier = Modifier
+                        .size(22.dp)
+                        .clip(CircleShape),
+                )
+                Text(
+                    "Z-Stream",
+                    color = theme.colors.type.emphasis,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+            // Discord button
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(50))
+                    .background(theme.colors.background.secondary.copy(alpha = 0.8f))
+                    .border(1.dp, theme.colors.type.divider.copy(alpha = 0.3f), RoundedCornerShape(50))
+                    .clickable(onClick = onDiscord)
+                    .padding(horizontal = 10.dp, vertical = 7.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Default.Forum, null, tint = theme.colors.type.secondary, modifier = Modifier.size(22.dp))
+            }
+            // Notifications bell button
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(50))
+                    .background(theme.colors.background.secondary.copy(alpha = 0.8f))
+                    .border(1.dp, theme.colors.type.divider.copy(alpha = 0.3f), RoundedCornerShape(50))
+                    .clickable(onClick = onNotifications)
+                    .padding(horizontal = 10.dp, vertical = 7.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Default.Notifications, null, tint = theme.colors.type.secondary, modifier = Modifier.size(22.dp))
+            }
+            // Tip Jar button
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(50))
+                    .background(theme.colors.background.secondary.copy(alpha = 0.8f))
+                    .border(1.dp, theme.colors.type.divider.copy(alpha = 0.3f), RoundedCornerShape(50))
+                    .clickable(onClick = onTipJar)
+                    .padding(horizontal = 10.dp, vertical = 7.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Default.AttachMoney, null, tint = theme.colors.type.secondary, modifier = Modifier.size(22.dp))
+            }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             // Layout button — dark pill matching sandwich (just grid icon, no text)
@@ -587,7 +708,6 @@ private fun SandwichMenuDialog(nav: NavController, session: com.zstream.android.
 
                 val links = listOf(
                     Icons.Default.Code to Urls.GITHUB_REPO,
-                    Icons.Default.Forum to Urls.DISCORD_LINK
                 )
                 Row(
                     modifier = Modifier
@@ -640,5 +760,193 @@ private fun SandwichItem(
         Icon(icon, null, tint = tint ?: theme.colors.type.secondary, modifier = Modifier.size(18.dp))
         Text(label, color = tint ?: theme.colors.type.text, fontSize = 14.sp,
             fontWeight = if (tint != null) FontWeight.SemiBold else FontWeight.Normal)
+    }
+}
+
+@Composable
+private fun NotificationsDialog(onDismiss: () -> Unit) {
+    val theme = LocalZStreamTheme.current
+    var notifications by remember { mutableStateOf<List<NotificationItem>>(emptyList()) }
+    var loading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(Unit) {
+        try {
+            val result = withContext(Dispatchers.IO) { fetchNotifications() }
+            notifications = result
+        } catch (e: Exception) {
+            error = e.message ?: "Failed to load notifications"
+        } finally {
+            loading = false
+        }
+    }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 500.dp)
+                .clip(RoundedCornerShape(20.dp))
+                .background(theme.colors.modal.background)
+                .padding(20.dp)
+        ) {
+            Column {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "Notifications",
+                        color = theme.colors.type.emphasis,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp,
+                    )
+                    IconButton(onClick = onDismiss, modifier = Modifier.size(24.dp)) {
+                        Icon(Icons.Default.Close, null, tint = theme.colors.type.dimmed, modifier = Modifier.size(16.dp))
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+                when {
+                    loading -> Box(Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = theme.colors.global.accentA)
+                    }
+                    error != null -> Box(Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
+                        Text(error!!, color = theme.colors.type.danger, textAlign = TextAlign.Center, fontSize = 13.sp)
+                    }
+                    notifications.isEmpty() -> Box(Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
+                        Text("No notifications", color = theme.colors.type.dimmed, fontSize = 13.sp)
+                    }
+                    else -> Column(
+                        modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        notifications.forEach { notif -> NotificationCard(notif, theme) }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun NotificationCard(notif: NotificationItem, theme: com.zstream.android.theme.ZStreamTheme) {
+    val categoryColors = mapOf(
+        "announcement" to Color(0xFF3B82F6),
+        "feature" to Color(0xFF22C55E),
+        "update" to Color(0xFFEAB308),
+        "bugfix" to Color(0xFFEF4444),
+    )
+    val categoryColor = categoryColors[notif.category] ?: theme.colors.type.dimmed
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(theme.colors.background.secondary.copy(alpha = 0.5f))
+            .padding(12.dp),
+    ) {
+        Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
+            if (notif.category.isNotEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(categoryColor.copy(alpha = 0.2f))
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                ) {
+                    Text(
+                        notif.category.replaceFirstChar { it.uppercase() },
+                        color = categoryColor, fontSize = 10.sp, fontWeight = FontWeight.SemiBold,
+                    )
+                }
+            }
+            Text(notif.pubDate, color = theme.colors.type.dimmed, fontSize = 10.sp)
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(notif.title, color = theme.colors.type.emphasis, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+        if (notif.description.isNotEmpty()) {
+            Spacer(Modifier.height(4.dp))
+            Text(
+                notif.description, color = theme.colors.type.text, fontSize = 12.sp,
+                maxLines = 4, overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+@Composable
+private fun TipJarDialog(onDismiss: () -> Unit) {
+    val theme = LocalZStreamTheme.current
+    val clipboard = LocalClipboardManager.current
+
+    data class CryptoAddress(val symbol: String, val name: String, val address: String, val color: Color)
+
+    val addresses = listOf(
+        CryptoAddress("BTC", "Bitcoin", "bc1qd2g7kj920tlsyeaq473lfq7udn2e0tkdx7ng4n", Color(0xFFF59E0B)),
+        CryptoAddress("ETH", "Ethereum", "0xC0F1F8fFe5e05Dda1D8E539d95D81820aB6B643F", Color(0xFF6366F1)),
+        CryptoAddress("USDT", "Tether USD", "0xC0F1F8fFe5e05Dda1D8E539d95D81820aB6B643F", Color(0xFF10B981)),
+        CryptoAddress("LTC", "Litecoin", "LSxUmH6CFyVRn76kox6ysYixx1bt9aMkrb", Color(0xFF06B6D4)),
+    )
+
+    Dialog(onDismissRequest = onDismiss) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 500.dp)
+                .clip(RoundedCornerShape(20.dp))
+                .background(theme.colors.modal.background)
+                .padding(20.dp),
+        ) {
+            Column {
+                Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
+                    Text("Tip Jar", color = theme.colors.type.emphasis, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    IconButton(onClick = onDismiss, modifier = Modifier.size(24.dp)) {
+                        Icon(Icons.Default.Close, null, tint = theme.colors.type.dimmed, modifier = Modifier.size(16.dp))
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    "zstream is free and 99.9% ad-free. If you'd like to support hosting + the server bill, we would love your support on any amount to one of the addresses below. Tap an address to copy it.",
+                    color = theme.colors.type.text, fontSize = 12.sp, lineHeight = 18.sp,
+                )
+                Spacer(Modifier.height(16.dp))
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    addresses.forEach { crypto ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(theme.colors.background.secondary.copy(alpha = 0.5f))
+                                .clickable { clipboard.setText(AnnotatedString(crypto.address)) }
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            Box(
+                                modifier = Modifier.size(36.dp).clip(CircleShape).background(crypto.color.copy(alpha = 0.2f)),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(crypto.symbol, color = crypto.color, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            }
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(crypto.name, color = theme.colors.type.emphasis, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    crypto.address.take(20) + "...",
+                                    color = theme.colors.type.dimmed, fontSize = 10.sp,
+                                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            Text("Copy", color = theme.colors.global.accentA, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                }
+                Spacer(Modifier.height(16.dp))
+                Text(
+                    "Thank you 💛 every tip helps keep the lights on.",
+                    color = theme.colors.type.dimmed, fontSize = 12.sp,
+                    textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        }
     }
 }
