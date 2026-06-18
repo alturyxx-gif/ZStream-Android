@@ -168,6 +168,20 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                 var showResumeDialog by remember { mutableStateOf(false) }
                 var pendingResumeMs by remember { mutableLongStateOf(-1L) }
 
+                // One-time snapshot of initial progress — prevents dialog appearing mid-playback
+                // when the first sync creates a progress entry during a new watch
+                var initialResumeCheckDone by remember { mutableStateOf(false) }
+                var initialShouldResume by remember { mutableStateOf(false) }
+                if (!initialResumeCheckDone && progressList.isNotEmpty()) {
+                    initialResumeCheckDone = true
+                    val found = progressList.firstOrNull { p ->
+                        p.tmdbId == vm.tmdbId && (vm.episodeId == null || p.episodeId == vm.episodeId)
+                    }
+                    val w = found?.watched?.toLong() ?: 0L
+                    val d = found?.duration?.toLong() ?: 0L
+                    initialShouldResume = w >= 20 && (d <= 0 || (d - w) >= 120)
+                }
+
                 val player = remember {
                     ExoPlayer.Builder(context).build().apply {
                         setMediaSource(HlsMediaSource.Factory(WebViewDataSource.Factory(vm.getProxyPort()))
@@ -178,9 +192,9 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     }
                 }
 
-                // Show resume dialog immediately if applicable (player loads in background)
-                LaunchedEffect(shouldResume) {
-                    if (shouldResume && !resumeHandled) showResumeDialog = true
+                // Show resume dialog based on initial snapshot only
+                LaunchedEffect(initialShouldResume) {
+                    if (initialShouldResume && !resumeHandled) showResumeDialog = true
                 }
 
                 // Seek to resume position once player is ready
