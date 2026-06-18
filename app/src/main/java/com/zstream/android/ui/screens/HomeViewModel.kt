@@ -30,29 +30,24 @@ data class HomeState(
     val loading: Boolean = true,
     val error: String? = null,
 ) {
-    val currentSections: List<MediaSection> get() {
+    val userSections: List<MediaSection> get() {
+        val userContent = mutableListOf<MediaSection>()
+        if (continueWatching.isNotEmpty()) userContent.addAll(continueWatching)
+        if (bookmarks.isNotEmpty()) userContent.addAll(bookmarks)
+        return userContent
+    }
+
+    val baseSections: List<MediaSection> get() {
         val base = when (activeTab) {
             HomeTab.MOVIES -> movieSections
             HomeTab.TV -> tvSections
             HomeTab.EDITOR -> editorSections
         }
-        
-        // Add user content at the top if available
-        val userContent = mutableListOf<MediaSection>()
-        if (continueWatching.isNotEmpty()) userContent.addAll(continueWatching)
-        if (bookmarks.isNotEmpty()) userContent.addAll(bookmarks)
-        
-        // Deduplicate items across base sections
-        val seenIds = mutableSetOf<Int>()
-        // Mark user content IDs as seen so they are not repeated in base sections
-        userContent.forEach { section -> section.items.forEach { seenIds.add(it.id) } }
-
-        val uniqueBase = base.map { section ->
+        val seenIds = userSections.flatMap { it.items }.map { it.id }.toMutableSet()
+        return base.map { section ->
             val uniqueItems = section.items.filter { seenIds.add(it.id) }
             section.copy(items = uniqueItems)
         }.filter { it.items.isNotEmpty() }
-        
-        return userContent + uniqueBase
     }
 }
 

@@ -106,26 +106,25 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
                     if (isSearching) {
                         // ... (keep search results as is)
                     } else {
-                        val sections = state.currentSections
-                            .filter { section ->
-                                when (section.title) {
-                                    "Continue Watching" -> showContinueWatching
-                                    "My Bookmarks" -> showBookmarks
-                                    else -> true
-                                }
+                        // User sections first
+                        items(state.userSections.filter { section ->
+                            when (section.title) {
+                                "Continue Watching" -> showContinueWatching
+                                "My Bookmarks" -> showBookmarks
+                                else -> true
                             }
-                            .map { section ->
-                                val filtered = if (state.selectedGenreId != null)
-                                    section.items.filter { it.genreIds?.contains(state.selectedGenreId) == true }
-                                else section.items
-                                section.copy(items = filtered)
-                            }
-                            .filter { it.items.isNotEmpty() }
+                        }) { section -> MediaCarouselSection(section, nav) }
 
                         item { Spacer(Modifier.height(16.dp)) }
                         item { HomeTabs(state.activeTab, vm::setTab) }
-                        items(sections) { section -> MediaCarouselSection(section, nav) }
 
+                        // Base sections second
+                        items(state.baseSections.map { section ->
+                            val filtered = if (state.selectedGenreId != null)
+                                section.items.filter { it.genreIds?.contains(state.selectedGenreId) == true }
+                            else section.items
+                            section.copy(items = filtered)
+                        }.filter { it.items.isNotEmpty() }) { section -> MediaCarouselSection(section, nav) }
                     }
                 }
             }
