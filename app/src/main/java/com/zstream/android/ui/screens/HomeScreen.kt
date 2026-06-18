@@ -3,6 +3,7 @@ package com.zstream.android.ui.screens
 import android.content.Context
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -23,6 +24,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
@@ -32,6 +35,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -45,6 +49,7 @@ import com.zstream.android.Urls
 import com.zstream.android.data.model.Media
 import com.zstream.android.theme.LocalZStreamTheme
 import kotlinx.coroutines.Dispatchers
+import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -103,6 +108,23 @@ private suspend fun Context.markAllNotificationsRead(guids: List<String>) {
         prefs[READ_GUIDS_KEY] = guids.joinToString(",")
     }
 }
+
+private val SECTION_ORDER_KEY = stringPreferencesKey("section_order")
+private val Context.layoutDataStore by preferencesDataStore("layout_prefs")
+
+private fun Context.sectionOrderFlow(): Flow<List<String>> =
+    layoutDataStore.data.map { prefs ->
+        prefs[SECTION_ORDER_KEY]?.split(",")?.filter { it.isNotBlank() }
+            ?: defaultSectionOrder
+    }
+
+private suspend fun Context.saveSectionOrder(order: List<String>) {
+    layoutDataStore.edit { prefs ->
+        prefs[SECTION_ORDER_KEY] = order.joinToString(",")
+    }
+}
+
+private val defaultSectionOrder = listOf("continue_watching", "bookmarks")
 
 private val tmdbGenres = mapOf(
     28 to "Action", 12 to "Adventure", 16 to "Animation", 35 to "Comedy",
@@ -193,11 +215,15 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
     var showTipJar by remember { mutableStateOf(false) }
     var notifications by remember { mutableStateOf<List<NotificationItem>>(emptyList()) }
     var readGuids by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var sectionOrder by remember { mutableStateOf(defaultSectionOrder) }
     val context = LocalContext.current
 
     LaunchedEffect(Unit) {
         launch {
             context.readNotificationGuidsFlow().collect { readGuids = it }
+        }
+        launch {
+            context.sectionOrderFlow().collect { sectionOrder = it }
         }
         try {
             notifications = withContext(Dispatchers.IO) { fetchNotifications() }
@@ -258,13 +284,23 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
                         // ... (keep search results as is)
                     } else {
                         // User sections first
-                        items(state.userSections.filter { section ->
-                            when (section.title) {
-                                "Continue Watching" -> showContinueWatching
-                                "My Bookmarks" -> showBookmarks
-                                else -> true
+                        items(state.userSections
+                            .sortedBy { section ->
+                                val id = when (section.title) {
+                                    "Continue Watching" -> "continue_watching"
+                                    "My Bookmarks" -> "bookmarks"
+                                    else -> ""
+                                }
+                                sectionOrder.indexOf(id).let { if (it < 0) Int.MAX_VALUE else it }
                             }
-                        }) { section -> MediaCarouselSection(section, nav) }
+                            .filter { section ->
+                                when (section.title) {
+                                    "Continue Watching" -> showContinueWatching
+                                    "My Bookmarks" -> showBookmarks
+                                    else -> true
+                                }
+                            }
+                        ) { section -> MediaCarouselSection(section, nav) }
 
                         item { Spacer(Modifier.height(16.dp)) }
                         item { HomeTabs(state.activeTab, vm::setTab) }
@@ -283,9 +319,19 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
 
         if (showLayoutMenu) {
             LayoutMenuDialog(
-                showContinueWatching, showBookmarks,
-                onToggleContinue = { showContinueWatching = it },
-                onToggleBookmarks = { showBookmarks = it },
+                sectionOrder = sectionOrder,
+                showContinueWatching = showContinueWatching,
+                showBookmarks = showBookmarks,
+                onToggle = { id, visible ->
+                    when (id) {
+                        "continue_watching" -> showContinueWatching = visible
+                        "bookmarks" -> showBookmarks = visible
+                    }
+                },
+                onReorder = { newOrder ->
+                    sectionOrder = newOrder
+                    scope.launch { context.saveSectionOrder(newOrder) }
+                },
                 onDismiss = { showLayoutMenu = false },
             )
         }
@@ -742,17 +788,50 @@ private fun MediaCarouselSection(section: MediaSection, nav: NavController) {
 
 @Composable
 private fun LayoutMenuDialog(
-    showContinueWatching: Boolean, showBookmarks: Boolean,
-    onToggleContinue: (Boolean) -> Unit, onToggleBookmarks: (Boolean) -> Unit,
+    sectionOrder: List<String>,
+    showContinueWatching: Boolean,
+    showBookmarks: Boolean,
+    onToggle: (String, Boolean) -> Unit,
+    onReorder: (List<String>) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val theme = LocalZStreamTheme.current
+
+    data class LayoutItem(val id: String, val label: String, val visible: Boolean)
+
+    val sections = remember {
+        mutableStateListOf<LayoutItem>().apply {
+            sectionOrder.forEach { id ->
+                add(
+                    LayoutItem(
+                        id = id,
+                        label = when (id) {
+                            "continue_watching" -> "Continue Watching..."
+                            "bookmarks" -> "Bookmarks"
+                            else -> id
+                        },
+                        visible = when (id) {
+                            "continue_watching" -> showContinueWatching
+                            "bookmarks" -> showBookmarks
+                            else -> true
+                        },
+                    )
+                )
+            }
+        }
+    }
+
+    var draggedIndex by remember { mutableStateOf<Int?>(null) }
+    var draggedOffset by remember { mutableStateOf(0f) }
+    val itemHeights = remember { mutableMapOf<Int, Int>() }
+
     Dialog(onDismissRequest = onDismiss) {
         Box(Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(20.dp))
             .background(theme.colors.modal.background)
-            .padding(20.dp)) {
+            .padding(20.dp)
+        ) {
             Column {
                 Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
                     Text("Edit Layout", color = theme.colors.type.emphasis, fontWeight = FontWeight.Bold, fontSize = 15.sp)
@@ -760,22 +839,88 @@ private fun LayoutMenuDialog(
                         Icon(Icons.Default.Close, null, tint = theme.colors.type.dimmed, modifier = Modifier.size(16.dp))
                     }
                 }
-                LayoutToggleRow("Continue Watching...", showContinueWatching, onToggleContinue, theme)
-                LayoutToggleRow("Bookmarks", showBookmarks, onToggleBookmarks, theme)
+
+                sections.forEachIndexed { index, section ->
+                    val isDragging = draggedIndex == index
+
+                    Box(
+                        modifier = Modifier
+                            .onGloballyPositioned { itemHeights[index] = it.size.height }
+                            .offset { IntOffset(0, if (isDragging) draggedOffset.roundToInt() else 0) }
+                    ) {
+                        Row(
+                            Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                            Arrangement.spacedBy(8.dp),
+                            Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                Icons.Default.DragHandle, "Drag to reorder",
+                                tint = theme.colors.type.dimmed,
+                                modifier = Modifier
+                                    .size(24.dp)
+                                    .pointerInput(Unit) {
+                                        detectDragGesturesAfterLongPress(
+                                            onDragStart = {
+                                                draggedIndex = index
+                                                draggedOffset = 0f
+                                            },
+                                            onDrag = { change, dragAmount ->
+                                                change.consume()
+                                                val idx = draggedIndex
+                                                if (idx != null) {
+                                                    draggedOffset += dragAmount.y
+                                                    val h = (itemHeights[idx] ?: 0).toFloat()
+
+                                                    if (draggedOffset > h / 2 && idx < sections.size - 1) {
+                                                        val temp = sections[idx]
+                                                        sections[idx] = sections[idx + 1]
+                                                        sections[idx + 1] = temp
+                                                        draggedIndex = idx + 1
+                                                        draggedOffset -= h
+                                                    } else if (draggedOffset < -(h / 2) && idx > 0) {
+                                                        val temp = sections[idx]
+                                                        sections[idx] = sections[idx - 1]
+                                                        sections[idx - 1] = temp
+                                                        draggedIndex = idx - 1
+                                                        draggedOffset += h
+                                                    }
+                                                }
+                                            },
+                                            onDragEnd = {
+                                                onReorder(sections.map { it.id })
+                                                draggedIndex = null
+                                                draggedOffset = 0f
+                                            },
+                                            onDragCancel = {
+                                                draggedIndex = null
+                                                draggedOffset = 0f
+                                            },
+                                        )
+                                    },
+                            )
+                            Text(
+                                section.label,
+                                color = theme.colors.type.text, fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f),
+                            )
+                            Switch(
+                                checked = section.visible,
+                                onCheckedChange = {
+                                    sections[index] = section.copy(visible = it)
+                                    onToggle(section.id, it)
+                                },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = Color.White,
+                                    checkedTrackColor = theme.colors.global.accentA,
+                                    uncheckedThumbColor = theme.colors.type.dimmed,
+                                    uncheckedTrackColor = theme.colors.background.secondary,
+                                ),
+                            )
+                        }
+                    }
+                }
             }
         }
-    }
-}
-
-@Composable
-private fun LayoutToggleRow(label: String, checked: Boolean, onToggle: (Boolean) -> Unit, theme: com.zstream.android.theme.ZStreamTheme) {
-    Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
-        Text(label, color = theme.colors.type.text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-        Switch(checked = checked, onCheckedChange = onToggle,
-            colors = SwitchDefaults.colors(
-                checkedThumbColor = Color.White, checkedTrackColor = theme.colors.global.accentA,
-                uncheckedThumbColor = theme.colors.type.dimmed, uncheckedTrackColor = theme.colors.background.secondary,
-            ))
     }
 }
 
