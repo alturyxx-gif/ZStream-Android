@@ -40,7 +40,7 @@ class DetailViewModel @Inject constructor(
     val isBookmarked = bookmarkRepo.observeBookmark(id.toString())
         .map { it != null }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
-        
+
     val progress = progressRepo.observeProgress(id.toString())
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
