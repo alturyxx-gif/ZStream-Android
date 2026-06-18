@@ -137,7 +137,7 @@ fun MovieDetailModal(
         // Resume and Share button
         Row(Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 14.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Button(
-                onClick = { nav.navigate("player/movie/${d.id}?title=${d.title.encode()}&year=${d.releaseDate?.take(4)?.toIntOrNull() ?: 0}") },
+                onClick = { nav.navigate("player/movie/${d.id}?title=${d.title.encode()}&year=${d.releaseDate?.take(4)?.toIntOrNull() ?: 0}&poster=${d.posterPath?.encode() ?: ""}") },
                 colors = ButtonDefaults.buttonColors(containerColor = theme.colors.buttons.primary),
                 shape = RoundedCornerShape(6.dp)
             ) {
@@ -272,7 +272,7 @@ private fun TvDetailModal(
                 onClick = {
                     val firstEp = season?.episodes?.firstOrNull()
                     if (firstEp != null) {
-                        nav.navigate("player/tv/${d.id}?season=${firstEp.seasonNumber}&episode=${firstEp.episodeNumber}&title=${d.name.encode()}&year=${d.firstAirDate?.take(4)?.toIntOrNull() ?: 0}")
+                        nav.navigate("player/tv/${d.id}?season=${firstEp.seasonNumber}&episode=${firstEp.episodeNumber}&title=${d.name.encode()}&year=${d.firstAirDate?.take(4)?.toIntOrNull() ?: 0}&poster=${d.posterPath?.encode() ?: ""}")
                     }
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = theme.colors.buttons.primary),
@@ -316,7 +316,7 @@ private fun TvDetailModal(
         Spacer(Modifier.height(16.dp))
         season?.episodes?.let { episodes ->
             SectionHeader("Episodes", theme)
-            episodes.forEach { ep -> EpisodeRow(ep, d.id, d.name, nav, theme) }
+            episodes.forEach { ep -> EpisodeRow(ep, d.id, d.name, d.posterPath, nav, theme) }
         }
         
         SectionHeader("Cast", theme)
@@ -373,11 +373,11 @@ private fun BoxScope.MinimalTVDetails(
 }
 
 @Composable
-private fun EpisodeRow(ep: Episode, showId: Int, title: String, nav: NavController, theme: com.zstream.android.theme.ZStreamTheme) {
+private fun EpisodeRow(ep: Episode, showId: Int, title: String, posterPath: String?, nav: NavController, theme: com.zstream.android.theme.ZStreamTheme) {
     Row(
         Modifier
             .fillMaxWidth()
-            .clickable { nav.navigate("player/tv/$showId?season=${ep.seasonNumber}&episode=${ep.episodeNumber}&title=${title.encode()}&year=${ep.airDate?.take(4)?.toIntOrNull() ?: 0}") }
+            .clickable { nav.navigate("player/tv/$showId?season=${ep.seasonNumber}&episode=${ep.episodeNumber}&title=${title.encode()}&year=${ep.airDate?.take(4)?.toIntOrNull() ?: 0}&poster=${posterPath?.encode() ?: ""}") }
             .padding(horizontal = 32.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

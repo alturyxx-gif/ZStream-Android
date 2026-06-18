@@ -22,7 +22,7 @@ fun NavGraph() {
             )
         ) { DetailScreen(nav) }
         composable(
-            "player/{mediaType}/{id}?season={season}&episode={episode}&title={title}&year={year}",
+            "player/{mediaType}/{id}?season={season}&episode={episode}&title={title}&year={year}&poster={poster}",
             arguments = listOf(
                 navArgument("mediaType") { type = NavType.StringType },
                 navArgument("id") { type = NavType.IntType },
@@ -30,6 +30,7 @@ fun NavGraph() {
                 navArgument("episode") { type = NavType.IntType; defaultValue = -1 },
                 navArgument("title") { type = NavType.StringType; defaultValue = "" },
                 navArgument("year") { type = NavType.IntType; defaultValue = 0 },
+                navArgument("poster") { type = NavType.StringType; defaultValue = "" },
             )
         ) { PlayerScreen(nav) }
         composable("settings") { SettingsScreen(nav) }

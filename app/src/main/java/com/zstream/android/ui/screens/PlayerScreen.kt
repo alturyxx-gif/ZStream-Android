@@ -215,12 +215,13 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                             // Network call can run on IO via accountVm's viewModelScope
                             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                                 runCatching {
+                                    val poster = existingProgress?.posterPath ?: vm.poster
                                     accountVm.syncProgress(
                                         s2, vm.tmdbId, watchedSec, durationSec,
                                         vm.title, vm.year, vm.mediaType,
                                         vm.seasonId, vm.episodeId,
                                         vm.season, vm.episode,
-                                        existingProgress?.posterPath,
+                                        poster,
                                     )
                                 }
                             }
@@ -234,12 +235,13 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                             scope.launch {
                                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                                     runCatching {
+                                        val poster = existingProgress?.posterPath ?: vm.poster
                                         accountVm.syncProgress(
                                             s2, vm.tmdbId, watchedSec, durationSec,
                                             vm.title, vm.year, vm.mediaType,
                                             vm.seasonId, vm.episodeId,
                                             vm.season, vm.episode,
-                                            existingProgress?.posterPath,
+                                            poster,
                                         )
                                     }
                                 }
