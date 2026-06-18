@@ -69,6 +69,18 @@ class SettingsPreferences @Inject constructor(
     private val KEY_HOME_SECTION_ORDER = stringPreferencesKey("home_section_order")
     private val KEY_FORCE_COMPACT_EPISODE_VIEW = booleanPreferencesKey("force_compact_episode_view")
 
+    // Subtitle Styling
+    private val KEY_SUBTITLE_COLOR = stringPreferencesKey("subtitle_color")
+    private val KEY_SUBTITLE_SIZE = stringPreferencesKey("subtitle_size")
+    private val KEY_SUBTITLE_BACKGROUND_OPACITY = stringPreferencesKey("subtitle_background_opacity")
+    private val KEY_SUBTITLE_BACKGROUND_BLUR = stringPreferencesKey("subtitle_background_blur")
+    private val KEY_SUBTITLE_BACKGROUND_BLUR_ENABLED = booleanPreferencesKey("subtitle_background_blur_enabled")
+    private val KEY_SUBTITLE_BOLD = booleanPreferencesKey("subtitle_bold")
+    private val KEY_SUBTITLE_VERTICAL_POSITION = stringPreferencesKey("subtitle_vertical_position")
+    private val KEY_SUBTITLE_FONT_STYLE = stringPreferencesKey("subtitle_font_style")
+    private val KEY_SUBTITLE_BORDER_THICKNESS = stringPreferencesKey("subtitle_border_thickness")
+    private val KEY_SUBTITLE_LINE_HEIGHT = stringPreferencesKey("subtitle_line_height")
+
     // Other
     private val KEY_ENABLE_AUTO_RESUME_ON_PLAYBACK_ERROR = booleanPreferencesKey("enable_auto_resume_on_playback_error")
 
@@ -112,6 +124,16 @@ class SettingsPreferences @Inject constructor(
             homeSectionOrder = prefs[KEY_HOME_SECTION_ORDER]?.split(",")?.filter { it.isNotBlank() } ?: emptyList(),
             forceCompactEpisodeView = prefs[KEY_FORCE_COMPACT_EPISODE_VIEW] ?: false,
             enableAutoResumeOnPlaybackError = prefs[KEY_ENABLE_AUTO_RESUME_ON_PLAYBACK_ERROR] ?: true,
+            subtitleColor = prefs[KEY_SUBTITLE_COLOR] ?: "#ffffff",
+            subtitleSize = prefs[KEY_SUBTITLE_SIZE]?.toFloatOrNull() ?: 1f,
+            subtitleBackgroundOpacity = prefs[KEY_SUBTITLE_BACKGROUND_OPACITY]?.toFloatOrNull() ?: 0.5f,
+            subtitleBackgroundBlur = prefs[KEY_SUBTITLE_BACKGROUND_BLUR]?.toFloatOrNull() ?: 0.5f,
+            subtitleBackgroundBlurEnabled = prefs[KEY_SUBTITLE_BACKGROUND_BLUR_ENABLED] ?: true,
+            subtitleBold = prefs[KEY_SUBTITLE_BOLD] ?: false,
+            subtitleVerticalPosition = prefs[KEY_SUBTITLE_VERTICAL_POSITION]?.toFloatOrNull() ?: 1f,
+            subtitleFontStyle = prefs[KEY_SUBTITLE_FONT_STYLE] ?: "default",
+            subtitleBorderThickness = prefs[KEY_SUBTITLE_BORDER_THICKNESS]?.toFloatOrNull() ?: 1f,
+            subtitleLineHeight = prefs[KEY_SUBTITLE_LINE_HEIGHT]?.toFloatOrNull() ?: 1.5f,
         )
     }
 
@@ -162,6 +184,16 @@ class SettingsPreferences @Inject constructor(
             prefs[KEY_HOME_SECTION_ORDER] = entity.homeSectionOrder.joinToString(",")
             prefs[KEY_FORCE_COMPACT_EPISODE_VIEW] = entity.forceCompactEpisodeView
             prefs[KEY_ENABLE_AUTO_RESUME_ON_PLAYBACK_ERROR] = entity.enableAutoResumeOnPlaybackError
+            prefs[KEY_SUBTITLE_COLOR] = entity.subtitleColor
+            prefs[KEY_SUBTITLE_SIZE] = entity.subtitleSize.toString()
+            prefs[KEY_SUBTITLE_BACKGROUND_OPACITY] = entity.subtitleBackgroundOpacity.toString()
+            prefs[KEY_SUBTITLE_BACKGROUND_BLUR] = entity.subtitleBackgroundBlur.toString()
+            prefs[KEY_SUBTITLE_BACKGROUND_BLUR_ENABLED] = entity.subtitleBackgroundBlurEnabled
+            prefs[KEY_SUBTITLE_BOLD] = entity.subtitleBold
+            prefs[KEY_SUBTITLE_VERTICAL_POSITION] = entity.subtitleVerticalPosition.toString()
+            prefs[KEY_SUBTITLE_FONT_STYLE] = entity.subtitleFontStyle
+            prefs[KEY_SUBTITLE_BORDER_THICKNESS] = entity.subtitleBorderThickness.toString()
+            prefs[KEY_SUBTITLE_LINE_HEIGHT] = entity.subtitleLineHeight.toString()
         }
         
         if (syncToRemote) {
@@ -378,5 +410,47 @@ class SettingsPreferences @Inject constructor(
         context.settingsStore.edit { prefs ->
             prefs.clear()
         }
+    }
+
+    // Subtitle styling individual setters
+
+    suspend fun setSubtitleColor(color: String) {
+        context.settingsStore.edit { prefs -> prefs[KEY_SUBTITLE_COLOR] = color }
+    }
+
+    suspend fun setSubtitleSize(size: Float) {
+        context.settingsStore.edit { prefs -> prefs[KEY_SUBTITLE_SIZE] = size.toString() }
+    }
+
+    suspend fun setSubtitleBackgroundOpacity(opacity: Float) {
+        context.settingsStore.edit { prefs -> prefs[KEY_SUBTITLE_BACKGROUND_OPACITY] = opacity.toString() }
+    }
+
+    suspend fun setSubtitleBackgroundBlur(blur: Float) {
+        context.settingsStore.edit { prefs -> prefs[KEY_SUBTITLE_BACKGROUND_BLUR] = blur.toString() }
+    }
+
+    suspend fun setSubtitleBackgroundBlurEnabled(enabled: Boolean) {
+        context.settingsStore.edit { prefs -> prefs[KEY_SUBTITLE_BACKGROUND_BLUR_ENABLED] = enabled }
+    }
+
+    suspend fun setSubtitleBold(bold: Boolean) {
+        context.settingsStore.edit { prefs -> prefs[KEY_SUBTITLE_BOLD] = bold }
+    }
+
+    suspend fun setSubtitleVerticalPosition(pos: Float) {
+        context.settingsStore.edit { prefs -> prefs[KEY_SUBTITLE_VERTICAL_POSITION] = pos.toString() }
+    }
+
+    suspend fun setSubtitleFontStyle(style: String) {
+        context.settingsStore.edit { prefs -> prefs[KEY_SUBTITLE_FONT_STYLE] = style }
+    }
+
+    suspend fun setSubtitleBorderThickness(thickness: Float) {
+        context.settingsStore.edit { prefs -> prefs[KEY_SUBTITLE_BORDER_THICKNESS] = thickness.toString() }
+    }
+
+    suspend fun setSubtitleLineHeight(height: Float) {
+        context.settingsStore.edit { prefs -> prefs[KEY_SUBTITLE_LINE_HEIGHT] = height.toString() }
     }
 }

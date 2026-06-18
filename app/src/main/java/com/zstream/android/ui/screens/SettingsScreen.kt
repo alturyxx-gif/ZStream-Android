@@ -6,11 +6,16 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Brush
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -20,6 +25,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
@@ -399,13 +405,158 @@ private fun AppearanceSection(settings: SettingsEntity, theme: ZStreamTheme, vm:
 private fun SubtitlesSection(settings: SettingsEntity, theme: ZStreamTheme, vm: SettingsViewModel) {
     Column(Modifier.padding(bottom = 32.dp)) {
         Spacer(Modifier.height(8.dp))
-        SectionLabel("Subtitles", theme)
+        SectionLabel("Behavior", theme)
         SettingsCard(theme) {
             ToggleRow("Native Subtitles", "Use system subtitle renderer", settings.enableNativeSubtitles, vm::setEnableNativeSubtitles, theme = theme)
-            HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
-            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp), Arrangement.SpaceBetween, Alignment.CenterVertically) {
-                Text("Default Language", color = theme.colors.type.text, fontSize = 14.sp)
-                Text(settings.defaultSubtitleLanguage ?: "None", color = theme.colors.type.secondary, fontSize = 13.sp)
+        }
+
+        if (!settings.enableNativeSubtitles) {
+            Spacer(Modifier.height(8.dp))
+            SectionLabel("Background", theme)
+            SettingsCard(theme) {
+                SliderRow("Background Opacity", settings.subtitleBackgroundOpacity * 100, 0f, 100f, { "${it.toInt()}%" }, { vm.setSubtitleBackgroundOpacity(it / 100f) }, theme)
+                HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
+                ToggleRow("Background Blur", "Apply blur effect behind subtitles", settings.subtitleBackgroundBlurEnabled, vm::setSubtitleBackgroundBlurEnabled, theme = theme)
+                if (settings.subtitleBackgroundBlurEnabled) {
+                    HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
+                    SliderRow("Blur Amount", settings.subtitleBackgroundBlur * 100, 0f, 100f, { "${it.toInt()}%" }, { vm.setSubtitleBackgroundBlur(it / 100f) }, theme)
+                }
+            }
+
+            Spacer(Modifier.height(8.dp))
+            SectionLabel("Text", theme)
+            SettingsCard(theme) {
+                SliderRow("Text Size", settings.subtitleSize * 100, 1f, 200f, { "${it.toInt()}%" }, { vm.setSubtitleSize(it / 100f) }, theme)
+                HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
+                DropdownRow("Style", listOf("default", "raised", "depressed", "Border", "dropShadow"), settings.subtitleFontStyle, vm::setSubtitleFontStyle, theme)
+                if (settings.subtitleFontStyle == "Border") {
+                    HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
+                    SliderRow("Border Thickness", settings.subtitleBorderThickness, 0f, 10f, { "${it.toInt()}px" }, { vm.setSubtitleBorderThickness(it) }, theme)
+                }
+                HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
+                ToggleRow("Bold", null, settings.subtitleBold, vm::setSubtitleBold, theme = theme)
+                HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
+                ColorRow("Color", settings.subtitleColor, vm::setSubtitleColor, theme)
+            }
+
+            Spacer(Modifier.height(8.dp))
+            SectionLabel("Layout", theme)
+            SettingsCard(theme) {
+                SliderRow("Vertical Position", settings.subtitleVerticalPosition, 0f, 30f, { "${it.toInt()} rem" }, { vm.setSubtitleVerticalPosition(it) }, theme)
+                HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
+                SliderRow("Line Spacing", settings.subtitleLineHeight * 100, 100f, 250f, { "${it.toInt()}%" }, { vm.setSubtitleLineHeight(it / 100f) }, theme)
+            }
+
+            Spacer(Modifier.height(12.dp))
+            TextButton(
+                onClick = { vm.resetSubtitleStyling() },
+                modifier = Modifier.padding(horizontal = 16.dp),
+                colors = ButtonDefaults.textButtonColors(contentColor = theme.colors.type.secondary)
+            ) {
+                Icon(Icons.Default.Refresh, null, modifier = Modifier.size(14.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("Reset", fontSize = 12.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun SliderRow(label: String, value: Float, rangeStart: Float, rangeEnd: Float, display: (Float) -> String, onValueChange: (Float) -> Unit, theme: ZStreamTheme) {
+    var sliderValue by remember { mutableFloatStateOf(value) }
+    LaunchedEffect(value) { sliderValue = value }
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+        Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
+            Text(label, color = theme.colors.type.text, fontSize = 13.sp)
+            Text(display(sliderValue), color = theme.colors.type.secondary, fontSize = 12.sp)
+        }
+        Spacer(Modifier.height(4.dp))
+        Slider(
+            value = sliderValue,
+            onValueChange = { sliderValue = it },
+            onValueChangeFinished = { onValueChange(sliderValue) },
+            valueRange = rangeStart..rangeEnd,
+            modifier = Modifier.fillMaxWidth().height(24.dp),
+            colors = SliderDefaults.colors(
+                thumbColor = Color.White,
+                activeTrackColor = theme.colors.global.accentA,
+                inactiveTrackColor = theme.colors.utils.divider,
+            ),
+        )
+    }
+}
+
+@Composable
+private fun DropdownRow(title: String, options: List<String>, selected: String, onSelect: (String) -> Unit, theme: ZStreamTheme) {
+    var expanded by remember { mutableStateOf(false) }
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp).clickable { expanded = true },
+        Arrangement.SpaceBetween,
+        Alignment.CenterVertically
+    ) {
+        Text(title, color = theme.colors.type.text, fontSize = 13.sp)
+        Box {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(selected.replaceFirstChar { it.uppercase() }, color = theme.colors.type.secondary, fontSize = 12.sp)
+                Icon(Icons.Default.ArrowDropDown, null, tint = theme.colors.type.dimmed, modifier = Modifier.size(16.dp))
+            }
+            DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false },
+                modifier = Modifier.background(theme.colors.background.secondary)
+            ) {
+                options.forEach { opt ->
+                    DropdownMenuItem(
+                        text = { Text(opt.replaceFirstChar { it.uppercase() }, color = if (opt == selected) theme.colors.global.accentA else theme.colors.type.text, fontSize = 13.sp) },
+                        onClick = { onSelect(opt); expanded = false },
+                    )
+                }
+            }
+        }
+    }
+}
+
+private val subtitleColorPresets = listOf("#ffffff", "#80b1fa", "#e2e535", "#10B239")
+
+@Composable
+private fun ColorRow(title: String, value: String, onChange: (String) -> Unit, theme: ZStreamTheme) {
+    var showCustom by remember { mutableStateOf(false) }
+    var hexInput by remember { mutableStateOf("") }
+
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+        Arrangement.SpaceBetween,
+        Alignment.CenterVertically
+    ) {
+        Text(title, color = theme.colors.type.text, fontSize = 13.sp)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            subtitleColorPresets.forEach { color ->
+                Box(
+                    Modifier.size(22.dp).clip(CircleShape)
+                        .background(Color(android.graphics.Color.parseColor(color)))
+                        .border(if (value.equals(color, true)) 2.dp else 0.dp, Color.White, CircleShape)
+                        .clickable { onChange(color) }
+                )
+            }
+            if (showCustom) {
+                BasicTextField(
+                    value = hexInput,
+                    onValueChange = { hexInput = it.take(6).filter { c -> c.isDigit() || (c in 'a'..'f') || (c in 'A'..'F') } },
+                    modifier = Modifier.width(60.dp).clip(RoundedCornerShape(4.dp)).background(theme.colors.background.secondary).padding(horizontal = 6.dp, vertical = 4.dp),
+                    textStyle = TextStyle(color = theme.colors.type.text, fontSize = 11.sp),
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
+                )
+                if (hexInput.length == 6) {
+                    onChange("#$hexInput")
+                    showCustom = false
+                }
+                Spacer(Modifier.width(4.dp))
+                Box(Modifier.size(22.dp).clip(CircleShape).background(if (hexInput.length == 6) Color(android.graphics.Color.parseColor("#$hexInput")) else Color.Transparent).border(1.dp, theme.colors.utils.divider, CircleShape))
+            } else {
+                IconButton(onClick = { showCustom = true; hexInput = "" }, modifier = Modifier.size(28.dp)) {
+                    Icon(Icons.Default.Brush, null, tint = theme.colors.type.dimmed, modifier = Modifier.size(16.dp))
+                }
             }
         }
     }

@@ -158,6 +158,61 @@ class SettingsViewModel @Inject constructor(
         update { copy(defaultSubtitleLanguage = lang) }
     }
 
+    fun setSubtitleColor(color: String) {
+        update { copy(subtitleColor = color) }
+    }
+
+    fun setSubtitleSize(size: Float) {
+        update { copy(subtitleSize = size) }
+    }
+
+    fun setSubtitleBackgroundOpacity(opacity: Float) {
+        update { copy(subtitleBackgroundOpacity = opacity) }
+    }
+
+    fun setSubtitleBackgroundBlur(blur: Float) {
+        update { copy(subtitleBackgroundBlur = blur) }
+    }
+
+    fun setSubtitleBackgroundBlurEnabled(enabled: Boolean) {
+        update { copy(subtitleBackgroundBlurEnabled = enabled) }
+    }
+
+    fun setSubtitleBold(bold: Boolean) {
+        update { copy(subtitleBold = bold) }
+    }
+
+    fun setSubtitleVerticalPosition(pos: Float) {
+        update { copy(subtitleVerticalPosition = pos) }
+    }
+
+    fun setSubtitleFontStyle(style: String) {
+        update { copy(subtitleFontStyle = style) }
+    }
+
+    fun setSubtitleBorderThickness(thickness: Float) {
+        update { copy(subtitleBorderThickness = thickness) }
+    }
+
+    fun setSubtitleLineHeight(height: Float) {
+        update { copy(subtitleLineHeight = height) }
+    }
+
+    fun resetSubtitleStyling() {
+        update { copy(
+            subtitleColor = "#ffffff",
+            subtitleSize = 1f,
+            subtitleBackgroundOpacity = 0.5f,
+            subtitleBackgroundBlur = 0.5f,
+            subtitleBackgroundBlurEnabled = true,
+            subtitleBold = false,
+            subtitleVerticalPosition = 1f,
+            subtitleFontStyle = "default",
+            subtitleBorderThickness = 1f,
+            subtitleLineHeight = 1.5f,
+        ) }
+    }
+
     fun saveToRemote() {
         viewModelScope.launch {
             val session = accountRepo.currentSession ?: return@launch
