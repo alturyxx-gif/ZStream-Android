@@ -35,6 +35,7 @@ class PlayerViewModel @Inject constructor(
     val episode = savedState.get<Int>("episode").takeIf { it != -1 }
     val title = savedState.get<String>("title") ?: ""
     val year = savedState.get<Int>("year") ?: 0
+    val poster = savedState.get<String>("poster")?.takeIf { it.isNotBlank() }
     val tmdbId = id.toString()
     val seasonId = season?.toString()
     val episodeId = episode?.toString()
