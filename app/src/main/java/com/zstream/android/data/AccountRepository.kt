@@ -40,7 +40,7 @@ class AccountRepository @Inject constructor(
         account
     }
 
-    // ── Passphrase auth ───────────────────────────────────────────────────────
+    //  Passphrase auth 
 
     suspend fun login(passphrase: String, deviceName: String = "Android"): AccountSession {
         val keys = CryptoUtils.keysFromPassphrase(passphrase)
@@ -52,7 +52,7 @@ class AccountRepository @Inject constructor(
         return challengeRegister(keys.publicKey.toBase64Url(), keys.privateKey, keys.seed, deviceName)
     }
 
-    // ── Passkey auth ──────────────────────────────────────────────────────────
+    //  Passkey auth 
 
     suspend fun loginWithPasskey(deviceName: String = "Android"): AccountSession {
         val credId = CryptoUtils.authenticatePasskey(ctx)
@@ -68,7 +68,7 @@ class AccountRepository @Inject constructor(
 
     suspend fun logout() = ctx.accountStore.edit { it.clear() }
 
-    // ── Sync helpers ──────────────────────────────────────────────────────────
+    //  Sync helpers 
 
     suspend fun getProgress(session: AccountSession)  = api.getProgress(session.userId, session.bearer())
     suspend fun setProgress(session: AccountSession, input: ProgressInput) =
@@ -79,7 +79,7 @@ class AccountRepository @Inject constructor(
     suspend fun removeBookmark(session: AccountSession, tmdbId: String) =
         api.removeBookmark(session.userId, tmdbId, session.bearer())
 
-    // ── Private ───────────────────────────────────────────────────────────────
+    //  Private 
 
     private suspend fun challengeLogin(pubB64: String, privKey: ByteArray, seed: ByteArray, device: String): AccountSession {
         Log.d(TAG, "login/start pubKey=$pubB64")

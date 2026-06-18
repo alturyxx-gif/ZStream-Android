@@ -6,7 +6,7 @@ import retrofit2.http.*
 
 val BACKEND_URL get() = Urls.BACKEND
 
-// ── Request bodies ────────────────────────────────────────────────────────────
+//  Request bodies 
 
 data class LoginStartBody(val publicKey: String)
 data class ChallengeResponse(val challenge: String)
@@ -29,7 +29,7 @@ data class RegisterCompleteBody(
 )
 data class ProfileBody(val colorA: String = "purple", val colorB: String = "indigo", val icon: String = "userdefault")
 
-// ── Response types ────────────────────────────────────────────────────────────
+//  Response types 
 
 data class SessionResponse(
     val id: String,
@@ -124,7 +124,7 @@ data class SettingsResponse(
     val homeSectionOrder: List<String>? = null
 )
 
-// ── Retrofit service ──────────────────────────────────────────────────────────
+//  Retrofit service 
 
 interface BackendApi {
     @POST("auth/login/start")

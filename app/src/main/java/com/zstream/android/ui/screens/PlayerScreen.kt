@@ -59,7 +59,7 @@ import kotlinx.coroutines.launch
 
 private val RedProgress = Color(0xFFE53935)
 
-// ── Layout constants ──────────────────────────────────────────────────────────
+//  Layout constants 
 private val SCRUBBER_SIDE_PADDING = 36.dp      // horizontal padding on progress bar
 private val SCRUBBER_SLIDER_OFFSET = (-6).dp   // how far invisible slider overlaps above bottom bar
 private val CENTER_ICON_SPACING = 40.dp        // gap between center play/skip buttons
@@ -427,7 +427,7 @@ private fun PlayerControls(player: ExoPlayer, title: String, onBack: () -> Unit,
                     }
                 }
 
-                // ── Bottom bar — scrubber flush against controls row ──────
+                //  Bottom bar — scrubber flush against controls row 
                 Column(modifier = Modifier.fillMaxWidth().align(Alignment.BottomCenter)) {
                     // Scrubber with horizontal padding, zero vertical spacing
                     Box(
