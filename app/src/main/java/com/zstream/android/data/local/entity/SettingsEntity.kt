@@ -48,6 +48,18 @@ data class SettingsEntity(
     val tidbKey: String? = null,
     val proxyTmdb: Boolean = false,
 
+    // Subtitle Styling
+    val subtitleColor: String = "#ffffff",
+    val subtitleSize: Float = 1f,
+    val subtitleBackgroundOpacity: Float = 0.5f,
+    val subtitleBackgroundBlur: Float = 0.5f,
+    val subtitleBackgroundBlurEnabled: Boolean = true,
+    val subtitleBold: Boolean = false,
+    val subtitleVerticalPosition: Float = 1f,
+    val subtitleFontStyle: String = "default",
+    val subtitleBorderThickness: Float = 1f,
+    val subtitleLineHeight: Float = 1.5f,
+
     // Interface
     val homeSectionOrder: List<String> = emptyList(),
     val forceCompactEpisodeView: Boolean = false,
