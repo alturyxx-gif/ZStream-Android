@@ -7,6 +7,7 @@ import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -17,7 +18,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.activity.ComponentActivity
@@ -419,20 +423,114 @@ private fun ConnectionsSection(settings: SettingsEntity, theme: ZStreamTheme, vm
         }
 
         Spacer(Modifier.height(16.dp))
+        SectionLabel("Febbox / Aurora API", theme)
+        SettingsCard(theme) {
+            var showInstructions by remember { mutableStateOf(settings.febboxKey != null) }
+
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Top,
+            ) {
+                Column(Modifier.weight(1f).padding(end = 12.dp)) {
+                    Text("Aurora API (4K)", color = theme.colors.type.text, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "Bring your own FREE Febbox account to unlock Aurora API — the best sources with 4K quality, Dolby Atmos, and the fastest load times.",
+                        color = theme.colors.type.dimmed, fontSize = 11.sp, lineHeight = 16.sp,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "Your token is never stored on our servers — it is sent directly from your browser to Febbox.",
+                        color = theme.colors.type.dimmed, fontSize = 10.sp, lineHeight = 14.sp,
+                    )
+                }
+                Switch(
+                    checked = showInstructions,
+                    onCheckedChange = { showInstructions = it },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Color.White,
+                        checkedTrackColor = theme.colors.global.accentA,
+                        uncheckedThumbColor = theme.colors.type.dimmed,
+                        uncheckedTrackColor = theme.colors.background.secondary,
+                    ),
+                )
+            }
+
+            if (showInstructions) {
+                HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
+
+                Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                    Text(
+                        "To get your Febbox token:",
+                        color = theme.colors.type.text, fontSize = 12.sp, lineHeight = 18.sp,
+                    )
+                    val steps = listOf(
+                        "Go to febbox.com and log in with Google (use a fresh account!)",
+                        "Open DevTools or inspect the page",
+                        "Go to Application tab → Cookies",
+                        "Copy the 'ui' cookie's value.",
+                        "Close the tab, but do NOT logout!",
+                    )
+                    steps.forEachIndexed { i, step ->
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            "${i + 1}. $step",
+                            color = theme.colors.type.text, fontSize = 11.sp, lineHeight = 16.sp,
+                        )
+                    }
+                }
+
+                HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
+
+                Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                    Text("Token", color = theme.colors.type.text, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(8.dp))
+                    var tokenVisible by remember { mutableStateOf(false) }
+                    val febboxValue = settings.febboxKey ?: ""
+                    val textStyle = TextStyle(
+                        color = theme.colors.type.text, fontSize = 12.sp,
+                    )
+                    BasicTextField(
+                        value = febboxValue,
+                        onValueChange = { vm.setFebboxKey(it.ifEmpty { null }) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(theme.colors.background.secondary)
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        textStyle = textStyle,
+                        visualTransformation = if (tokenVisible) VisualTransformation.None
+                            else PasswordVisualTransformation(),
+                        singleLine = true,
+                        decorationBox = { innerTextField ->
+                            Box {
+                                if (febboxValue.isEmpty()) {
+                                    Text(
+                                        "eyJ0eXAiOiJKV1QiLCJhbGciOi...",
+                                        color = theme.colors.type.dimmed,
+                                        fontSize = 12.sp,
+                                    )
+                                }
+                                innerTextField()
+                            }
+                        },
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    TextButton(onClick = { tokenVisible = !tokenVisible }) {
+                        Text(
+                            if (tokenVisible) "Hide" else "Show",
+                            color = theme.colors.global.accentA,
+                            fontSize = 11.sp,
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
         SectionLabel("External Services", theme)
         SettingsCard(theme) {
-            SettingsRow("Debrid Service", settings.debridService.replaceFirstChar { it.uppercase() }, theme)
-            if (settings.debridToken != null) {
-                HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
-                SettingsRow("Debrid Token", "••••••••", theme)
-            }
-            HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
-            if (settings.febboxKey != null) {
-                SettingsRow("Febbox Key", "••••••••", theme)
-            } else {
-                SettingsRow("Febbox", "Not configured", theme)
-            }
-            HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
             if (settings.tidbKey != null) {
                 SettingsRow("TheIntroDB Key", "••••••••", theme)
             } else {
