@@ -1,6 +1,7 @@
 package com.zstream.android.data
 
 import android.util.Log
+import com.zstream.android.Urls
 import com.zstream.android.data.local.dao.BookmarkDao
 import com.zstream.android.data.local.entity.BookmarkEntity
 import com.zstream.android.data.remote.BackendApi
@@ -53,6 +54,24 @@ class BookmarkRepository @Inject constructor(
         return bookmarkDao.exists(tmdbId)
     }
 
+    private fun toRelativePoster(posterPath: String?): String? {
+        if (posterPath.isNullOrBlank()) return null
+        return if (posterPath.startsWith("http")) {
+            if (posterPath.contains("/t/p/")) posterPath.substringAfterLast("/") else posterPath
+        } else {
+            posterPath
+        }.let { path ->
+            if (path != null && !path.startsWith("/") && !path.startsWith("http")) "/$path" else path
+        }
+    }
+
+    private fun toFullPosterUrl(posterPath: String?): String? {
+        if (posterPath.isNullOrBlank()) return null
+        if (posterPath.startsWith("http")) return posterPath
+        val clean = if (posterPath.startsWith("/")) posterPath else "/$posterPath"
+        return Urls.TMDB_IMAGE + "w342$clean"
+    }
+
     /**
      * Add bookmark locally and sync with backend
      */
@@ -64,12 +83,14 @@ class BookmarkRepository @Inject constructor(
         posterPath: String? = null,
         groups: List<String>? = null,
     ) {
+        val relativePoster = toRelativePoster(posterPath)
+
         val entity = BookmarkEntity(
             tmdbId = tmdbId,
             title = title,
             type = type,
             year = year,
-            posterPath = posterPath,
+            posterPath = relativePoster,
             groups = groups,
             updatedAt = System.currentTimeMillis(),
         )
@@ -88,8 +109,8 @@ class BookmarkRepository @Inject constructor(
                 tmdbId = tmdbId,
                 meta = com.zstream.android.data.remote.BookmarkMeta(
                     title = title,
-                    year = year ?: 0,
-                    poster = posterPath,
+                    year = year,
+                    poster = toFullPosterUrl(relativePoster),
                     type = if (type == "tv") "show" else type,
                 ),
                 group = groups,
@@ -146,7 +167,7 @@ class BookmarkRepository @Inject constructor(
             title = showTitle ?: "Unknown",
             type = "show",
             year = showYear,
-            posterPath = showPoster,
+            posterPath = toRelativePoster(showPoster),
             favoriteEpisodes = favoriteEpisodes,
             updatedAt = System.currentTimeMillis(),
         )
@@ -160,8 +181,8 @@ class BookmarkRepository @Inject constructor(
                 tmdbId = showTmdbId,
                 meta = com.zstream.android.data.remote.BookmarkMeta(
                     title = entity.title,
-                    year = entity.year ?: 0,
-                    poster = entity.posterPath,
+                    year = entity.year,
+                    poster = toFullPosterUrl(entity.posterPath),
                     type = if (entity.type == "tv") "show" else entity.type,
                 ),
                 group = entity.groups,
@@ -199,8 +220,8 @@ class BookmarkRepository @Inject constructor(
                         tmdbId = bookmark.tmdbId,
                         meta = com.zstream.android.data.remote.BookmarkMeta(
                             title = bookmark.title,
-                            year = bookmark.year ?: 0,
-                            poster = bookmark.posterPath,
+                            year = bookmark.year,
+                            poster = toFullPosterUrl(bookmark.posterPath),
                             type = if (bookmark.type == "tv") "show" else bookmark.type,
                         ),
                         group = bookmark.groups,
@@ -235,24 +256,24 @@ class BookmarkRepository @Inject constructor(
 
             Log.d(TAG, "Fetching remote bookmarks for user ${session.userId}")
             val remoteBookmarks = api.getBookmarks(session.userId, "Bearer ${session.token}")
-            
+
             val entities = remoteBookmarks.map { v ->
                 BookmarkEntity(
                     tmdbId = v.tmdbId,
                     title = v.meta.title,
                     type = v.meta.type,
                     year = v.meta.year,
-                    posterPath = v.meta.poster,
+                    posterPath = toRelativePoster(v.meta.poster),
                     groups = v.group,
                     favoriteEpisodes = v.favoriteEpisodes,
-                    updatedAt = try { 
+                    updatedAt = try {
                         java.time.OffsetDateTime.parse(v.updatedAt).toInstant().toEpochMilli()
                     } catch (e: Exception) {
                         System.currentTimeMillis()
                     }
                 )
             }
-            
+
             if (entities.isNotEmpty()) {
                 // Before inserting, check if we have existing entities with posters to avoid overwriting with null
                 val updatedEntities = entities.map { entity ->
@@ -283,10 +304,10 @@ class BookmarkRepository @Inject constructor(
                             Log.w(TAG, "Failed to fetch missing TMDB metadata for ${current.tmdbId}")
                         }
                     }
-                    
+
                     current
                 }
-                
+
                 bookmarkDao.insertAll(updatedEntities)
                 Log.d(TAG, "Successfully synced ${updatedEntities.size} bookmarks from remote")
             }

@@ -50,9 +50,20 @@ data class MovieDetail(
     val similar: SimilarMoviesResponse? = null,
     @SerializedName("imdb_id") val imdbId: String? = null,
 ) {
-    fun posterUrl(size: String = "w500") = posterPath?.let { Urls.TMDB_IMAGE + "$size$it" }
-    fun backdropUrl(size: String = "w1280") = backdropPath?.let { Urls.TMDB_IMAGE + "$size$it" }
-    fun logoUrl(size: String = "w500"): String? = images?.logos?.firstOrNull()?.file_path?.let { Urls.TMDB_IMAGE + "$size$it" }
+    fun posterUrl(size: String = "w500"): String? {
+        val path = posterPath ?: return null
+        return if (path.startsWith("http")) path else Urls.TMDB_IMAGE + "$size$path"
+    }
+    
+    fun backdropUrl(size: String = "w1280"): String? {
+        val path = backdropPath ?: return null
+        return if (path.startsWith("http")) path else Urls.TMDB_IMAGE + "$size$path"
+    }
+    
+    fun logoUrl(size: String = "w500"): String? {
+        val path = images?.logos?.firstOrNull()?.file_path ?: return null
+        return if (path.startsWith("http")) path else Urls.TMDB_IMAGE + "$size$path"
+    }
 }
 
 data class TvDetail(
@@ -72,9 +83,20 @@ data class TvDetail(
     val similar: SimilarShowsResponse? = null,
     @SerializedName("imdb_id") val imdbId: String? = null,
 ) {
-    fun posterUrl(size: String = "w500") = posterPath?.let { Urls.TMDB_IMAGE + "$size$it" }
-    fun backdropUrl(size: String = "w1280") = backdropPath?.let { Urls.TMDB_IMAGE + "$size$it" }
-    fun logoUrl(size: String = "w500"): String? = images?.logos?.firstOrNull()?.file_path?.let { Urls.TMDB_IMAGE + "$size$it" }
+    fun posterUrl(size: String = "w500"): String? {
+        val path = posterPath ?: return null
+        return if (path.startsWith("http")) path else Urls.TMDB_IMAGE + "$size$path"
+    }
+    
+    fun backdropUrl(size: String = "w1280"): String? {
+        val path = backdropPath ?: return null
+        return if (path.startsWith("http")) path else Urls.TMDB_IMAGE + "$size$path"
+    }
+    
+    fun logoUrl(size: String = "w500"): String? {
+        val path = images?.logos?.firstOrNull()?.file_path ?: return null
+        return if (path.startsWith("http")) path else Urls.TMDB_IMAGE + "$size$path"
+    }
 }
 
 data class Season(
