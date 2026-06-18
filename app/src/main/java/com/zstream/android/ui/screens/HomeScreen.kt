@@ -1,5 +1,6 @@
 package com.zstream.android.ui.screens
 
+import android.content.Context
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
@@ -23,6 +24,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
@@ -32,6 +34,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.preferencesDataStore
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import com.zstream.android.R
@@ -40,12 +45,37 @@ import com.zstream.android.data.model.Media
 import com.zstream.android.theme.LocalZStreamTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.sin
 import kotlin.random.Random
 import org.xmlpull.v1.XmlPullParser
 import org.xmlpull.v1.XmlPullParserFactory
 import java.net.URL
+
+private val Context.readNotificationStore by preferencesDataStore("read_notifications")
+private val READ_GUIDS_KEY = stringPreferencesKey("read_guids")
+
+private fun Context.readNotificationGuidsFlow(): Flow<Set<String>> {
+    return readNotificationStore.data.map { prefs ->
+        prefs[READ_GUIDS_KEY]?.split(",")?.filter { it.isNotEmpty() }?.toSet() ?: emptySet()
+    }
+}
+
+private suspend fun Context.markNotificationRead(guid: String) {
+    readNotificationStore.edit { prefs ->
+        val existing = prefs[READ_GUIDS_KEY]?.split(",")?.filter { it.isNotEmpty() }?.toSet() ?: emptySet()
+        prefs[READ_GUIDS_KEY] = (existing + guid).joinToString(",")
+    }
+}
+
+private suspend fun Context.markAllNotificationsRead(guids: List<String>) {
+    readNotificationStore.edit { prefs ->
+        prefs[READ_GUIDS_KEY] = guids.joinToString(",")
+    }
+}
 
 private val tmdbGenres = mapOf(
     28 to "Action", 12 to "Adventure", 16 to "Animation", 35 to "Comedy",
@@ -134,6 +164,21 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
     var showBookmarks by remember { mutableStateOf(true) }
     var showNotifications by remember { mutableStateOf(false) }
     var showTipJar by remember { mutableStateOf(false) }
+    var notifications by remember { mutableStateOf<List<NotificationItem>>(emptyList()) }
+    var readGuids by remember { mutableStateOf<Set<String>>(emptySet()) }
+    val context = LocalContext.current
+
+    LaunchedEffect(Unit) {
+        launch {
+            context.readNotificationGuidsFlow().collect { readGuids = it }
+        }
+        try {
+            notifications = withContext(Dispatchers.IO) { fetchNotifications() }
+        } catch (_: Exception) { }
+    }
+
+    val unreadCount = notifications.count { it.guid !in readGuids }
+    val scope = rememberCoroutineScope()
 
     Box(modifier = Modifier
         .fillMaxSize()
@@ -176,6 +221,7 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
                         onDiscord = { uriHandler.openUri(Urls.DISCORD_LINK) },
                         onNotifications = { showNotifications = true },
                         onTipJar = { showTipJar = true },
+                        unreadCount = unreadCount,
                     ) }
                     item { HeroSection(state.searchQuery, vm::onSearchChange, nav) }
                     item { GenrePills(state.selectedGenreId, vm::setGenre) }
@@ -220,7 +266,17 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
             SandwichMenuDialog(nav = nav, session = session, accountVm = accountVm, onDismiss = { showSandwichMenu = false })
         }
         if (showNotifications) {
-            NotificationsDialog(onDismiss = { showNotifications = false })
+            NotificationsDialog(
+                notifications = notifications,
+                readGuids = readGuids,
+                onMarkRead = { guid ->
+                    scope.launch { context.markNotificationRead(guid) }
+                },
+                onMarkAllRead = {
+                    scope.launch { context.markAllNotificationsRead(notifications.map { it.guid }) }
+                },
+                onDismiss = { showNotifications = false },
+            )
         }
         if (showTipJar) {
             TipJarDialog(onDismiss = { showTipJar = false })
@@ -354,7 +410,7 @@ private fun ParticleOverlay() {
 }
 
 @Composable
-private fun TopNavBar(onLayout: () -> Unit, onMenu: () -> Unit, onDiscord: () -> Unit, onNotifications: () -> Unit, onTipJar: () -> Unit) {
+private fun TopNavBar(onLayout: () -> Unit, onMenu: () -> Unit, onDiscord: () -> Unit, onNotifications: () -> Unit, onTipJar: () -> Unit, unreadCount: Int = 0) {
     val theme = LocalZStreamTheme.current
     Row(
         modifier = Modifier
@@ -408,9 +464,27 @@ private fun TopNavBar(onLayout: () -> Unit, onMenu: () -> Unit, onDiscord: () ->
                     .border(1.dp, theme.colors.type.divider.copy(alpha = 0.3f), RoundedCornerShape(50))
                     .clickable(onClick = onNotifications)
                     .padding(horizontal = 10.dp, vertical = 7.dp),
-                contentAlignment = Alignment.Center,
             ) {
-                Icon(Icons.Default.Notifications, null, tint = theme.colors.type.secondary, modifier = Modifier.size(22.dp))
+                Icon(Icons.Default.Notifications, null, tint = theme.colors.type.secondary, modifier = Modifier.size(22.dp).align(Alignment.Center))
+                if (unreadCount > 0) {
+
+                    // Red badge for notif
+                    Box(
+                        modifier = Modifier
+                            .size(14.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFFEF4444))
+                            .align(Alignment.TopEnd)
+                            .offset(x = 0.dp, y = (-5).dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        // The notif number
+                        Text(
+                            if (unreadCount > 99) "99+" else unreadCount.toString(),
+                            color = Color.White, fontSize = 7.sp, fontWeight = FontWeight.Bold,
+                        )
+                    }
+                }
             }
             // Tip Jar button
             Box(
@@ -764,22 +838,15 @@ private fun SandwichItem(
 }
 
 @Composable
-private fun NotificationsDialog(onDismiss: () -> Unit) {
+private fun NotificationsDialog(
+    notifications: List<NotificationItem>,
+    readGuids: Set<String>,
+    onMarkRead: (String) -> Unit,
+    onMarkAllRead: () -> Unit,
+    onDismiss: () -> Unit,
+) {
     val theme = LocalZStreamTheme.current
-    var notifications by remember { mutableStateOf<List<NotificationItem>>(emptyList()) }
-    var loading by remember { mutableStateOf(true) }
-    var error by remember { mutableStateOf<String?>(null) }
-
-    LaunchedEffect(Unit) {
-        try {
-            val result = withContext(Dispatchers.IO) { fetchNotifications() }
-            notifications = result
-        } catch (e: Exception) {
-            error = e.message ?: "Failed to load notifications"
-        } finally {
-            loading = false
-        }
-    }
+    var selectedNotif by remember { mutableStateOf<NotificationItem?>(null) }
 
     Dialog(onDismissRequest = onDismiss) {
         Box(
@@ -788,40 +855,53 @@ private fun NotificationsDialog(onDismiss: () -> Unit) {
                 .heightIn(max = 500.dp)
                 .clip(RoundedCornerShape(20.dp))
                 .background(theme.colors.modal.background)
-                .padding(20.dp)
+                .padding(20.dp),
         ) {
-            Column {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        "Notifications",
-                        color = theme.colors.type.emphasis,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp,
-                    )
-                    IconButton(onClick = onDismiss, modifier = Modifier.size(24.dp)) {
-                        Icon(Icons.Default.Close, null, tint = theme.colors.type.dimmed, modifier = Modifier.size(16.dp))
+            if (selectedNotif != null) {
+                NotificationDetailView(
+                    notif = selectedNotif!!,
+                    isRead = selectedNotif!!.guid in readGuids,
+                    onMarkRead = { onMarkRead(selectedNotif!!.guid) },
+                    onBack = { selectedNotif = null },
+                    theme = theme,
+                )
+            } else {
+                Column {
+                    Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
+                        Text("Notifications", color = theme.colors.type.emphasis, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            if (notifications.any { it.guid !in readGuids }) {
+                                TextButton(onClick = onMarkAllRead) {
+                                    Text("Mark all read", color = theme.colors.global.accentA, fontSize = 11.sp)
+                                }
+                            }
+                            IconButton(onClick = onDismiss, modifier = Modifier.size(24.dp)) {
+                                Icon(Icons.Default.Close, null, tint = theme.colors.type.dimmed, modifier = Modifier.size(16.dp))
+                            }
+                        }
                     }
-                }
-                Spacer(Modifier.height(12.dp))
-                when {
-                    loading -> Box(Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(color = theme.colors.global.accentA)
-                    }
-                    error != null -> Box(Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
-                        Text(error!!, color = theme.colors.type.danger, textAlign = TextAlign.Center, fontSize = 13.sp)
-                    }
-                    notifications.isEmpty() -> Box(Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
-                        Text("No notifications", color = theme.colors.type.dimmed, fontSize = 13.sp)
-                    }
-                    else -> Column(
-                        modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        notifications.forEach { notif -> NotificationCard(notif, theme) }
+                    Spacer(Modifier.height(12.dp))
+                    if (notifications.isEmpty()) {
+                        Box(Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
+                            Text("No notifications", color = theme.colors.type.dimmed, fontSize = 13.sp)
+                        }
+                    } else {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            notifications.forEach { notif ->
+                                NotificationCard(
+                                    notif = notif,
+                                    isRead = notif.guid in readGuids,
+                                    onClick = {
+                                        if (notif.guid !in readGuids) onMarkRead(notif.guid)
+                                        selectedNotif = notif
+                                    },
+                                    theme = theme,
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -830,7 +910,12 @@ private fun NotificationsDialog(onDismiss: () -> Unit) {
 }
 
 @Composable
-private fun NotificationCard(notif: NotificationItem, theme: com.zstream.android.theme.ZStreamTheme) {
+private fun NotificationCard(
+    notif: NotificationItem,
+    isRead: Boolean,
+    onClick: () -> Unit,
+    theme: com.zstream.android.theme.ZStreamTheme,
+) {
     val categoryColors = mapOf(
         "announcement" to Color(0xFF3B82F6),
         "feature" to Color(0xFF22C55E),
@@ -843,33 +928,111 @@ private fun NotificationCard(notif: NotificationItem, theme: com.zstream.android
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
-            .background(theme.colors.background.secondary.copy(alpha = 0.5f))
+            .background(theme.colors.background.secondary.copy(alpha = 0.4f))
+            .clickable(onClick = onClick)
             .padding(12.dp),
     ) {
         Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
-            if (notif.category.isNotEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(categoryColor.copy(alpha = 0.2f))
-                        .padding(horizontal = 6.dp, vertical = 2.dp),
-                ) {
-                    Text(
-                        notif.category.replaceFirstChar { it.uppercase() },
-                        color = categoryColor, fontSize = 10.sp, fontWeight = FontWeight.SemiBold,
-                    )
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (!isRead) {
+                    Box(Modifier.size(8.dp).clip(CircleShape).background(categoryColor))
+                }
+                if (notif.category.isNotEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(categoryColor.copy(alpha = 0.2f))
+                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                    ) {
+                        Text(
+                            notif.category.replaceFirstChar { it.uppercase() },
+                            color = categoryColor, fontSize = 10.sp, fontWeight = FontWeight.SemiBold,
+                        )
+                    }
                 }
             }
             Text(notif.pubDate, color = theme.colors.type.dimmed, fontSize = 10.sp)
         }
         Spacer(Modifier.height(6.dp))
-        Text(notif.title, color = theme.colors.type.emphasis, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+        Text(
+            notif.title,
+            color = if (isRead) theme.colors.type.dimmed else theme.colors.type.emphasis,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Bold,
+        )
         if (notif.description.isNotEmpty()) {
             Spacer(Modifier.height(4.dp))
             Text(
                 notif.description, color = theme.colors.type.text, fontSize = 12.sp,
-                maxLines = 4, overflow = TextOverflow.Ellipsis,
+                maxLines = 2, overflow = TextOverflow.Ellipsis,
             )
+        }
+    }
+}
+
+@Composable
+private fun NotificationDetailView(
+    notif: NotificationItem,
+    isRead: Boolean,
+    onMarkRead: () -> Unit,
+    onBack: () -> Unit,
+    theme: com.zstream.android.theme.ZStreamTheme,
+) {
+    val categoryColors = mapOf(
+        "announcement" to Color(0xFF3B82F6),
+        "feature" to Color(0xFF22C55E),
+        "update" to Color(0xFFEAB308),
+        "bugfix" to Color(0xFFEF4444),
+    )
+    val categoryColor = categoryColors[notif.category] ?: theme.colors.type.dimmed
+
+    Column {
+        Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                IconButton(onClick = onBack, modifier = Modifier.size(24.dp)) {
+                    Icon(Icons.Default.ArrowBack, null, tint = theme.colors.type.secondary, modifier = Modifier.size(16.dp))
+                }
+                Text("Notification", color = theme.colors.type.emphasis, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+            }
+            IconButton(onClick = onMarkRead, modifier = Modifier.size(24.dp)) {
+                Icon(
+                    if (isRead) Icons.Default.MarkEmailRead else Icons.Default.MarkEmailUnread,
+                    null,
+                    tint = if (isRead) theme.colors.type.dimmed else theme.colors.global.accentA,
+                    modifier = Modifier.size(16.dp),
+                )
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        Column(modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (notif.category.isNotEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(categoryColor.copy(alpha = 0.2f))
+                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                    ) {
+                        Text(
+                            notif.category.replaceFirstChar { it.uppercase() },
+                            color = categoryColor, fontSize = 11.sp, fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                }
+                Text(notif.pubDate, color = theme.colors.type.dimmed, fontSize = 11.sp)
+            }
+            Text(notif.title, color = theme.colors.type.emphasis, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            Text(
+                notif.description,
+                color = theme.colors.type.text, fontSize = 13.sp, lineHeight = 20.sp,
+            )
+            if (notif.link.isNotBlank()) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "Open link →",
+                    color = theme.colors.global.accentA, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                )
+            }
         }
     }
 }
