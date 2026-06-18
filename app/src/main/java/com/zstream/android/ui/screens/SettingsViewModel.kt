@@ -142,6 +142,10 @@ class SettingsViewModel @Inject constructor(
         update { copy(proxyTmdb = v) }
     }
 
+    fun setFebboxKey(key: String?) {
+        update { copy(febboxKey = key) }
+    }
+
     fun setHomeSectionOrder(order: List<String>) {
         update { copy(homeSectionOrder = order) }
     }
