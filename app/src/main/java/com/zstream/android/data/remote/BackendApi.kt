@@ -121,7 +121,7 @@ data class SettingsResponse(
     val embedOrder: List<String>? = null,
     val enableEmbedOrder: Boolean? = null,
     val proxyTmdb: Boolean? = null,
-    val homeSectionOrder: List<String>? = null
+    val homeSectionOrder: List<String>? = null,
 )
 
 //  Retrofit service 
@@ -147,6 +147,10 @@ interface BackendApi {
 
     @PUT("users/{id}/settings")
     suspend fun updateSettings(@Path("id") userId: String, @Header("Authorization") auth: String, @Body body: SettingsResponse): SettingsResponse
+
+    @PUT("users/{id}/settings")
+    @JvmSuppressWildcards
+    suspend fun updateSettingsRaw(@Path("id") userId: String, @Header("Authorization") auth: String, @Body body: okhttp3.RequestBody): retrofit2.Response<okhttp3.ResponseBody>
 
     @GET("users/{id}/progress")
     suspend fun getProgress(@Path("id") userId: String, @Header("Authorization") auth: String): List<ProgressResponse>

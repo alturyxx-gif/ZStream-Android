@@ -1,5 +1,11 @@
 package com.zstream.android.data.local.entity
 
+import android.util.Log
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONArray
+import org.json.JSONObject
+
 /**
  * Data class representing all user application settings
  * Based on reference: /p-stream/src/backend/accounts/settings.ts
@@ -70,7 +76,61 @@ data class SettingsEntity(
     
     // Theme
     val customTheme: CustomThemeSettings? = null
-)
+) {
+    /**
+     * Build a JSON request body containing only the fields that the backend's
+     * settings endpoint knows about.  Fields not present in the JSON are
+     * skipped by the backend (hasOwnProperty check), so we omit `null` values
+     * instead of sending `"field": null` (which would overwrite the remote value).
+     *
+     * Backend schema: backend/server/routes/users/[id]/settings.ts
+     */
+    fun toSyncableJsonString(): String {
+        val json = JSONObject()
+        json.put("applicationTheme", applicationTheme)
+        json.put("applicationLanguage", applicationLanguage)
+        defaultSubtitleLanguage?.let { json.put("defaultSubtitleLanguage", it) }
+        json.put("enableThumbnails", enableThumbnails)
+        json.put("enableAutoplay", enableAutoplay)
+        json.put("enableSkipCredits", enableSkipCredits)
+        json.put("enableAutoSkipSegments", enableAutoSkipSegments)
+        json.put("enableNativeSubtitles", enableNativeSubtitles)
+        json.put("enableDoubleClickToSeek", enableDoubleClickToSeek)
+        json.put("enableNumberKeySeeking", enableNumberKeySeeking)
+        json.put("enableHoldToBoost", enableHoldToBoost)
+        json.put("enableDiscover", enableDiscover)
+        json.put("enableFeatured", enableFeatured)
+        json.put("enableDetailsModal", enableDetailsModal)
+        lastSuccessfulSource?.let { json.put("lastSuccessfulSource", it) }
+        json.put("enableLastSuccessfulSource", enableLastSuccessfulSource)
+        json.put("manualSourceSelection", manualSourceSelection)
+        json.put("sourceOrder", JSONArray(sourceOrder))
+        json.put("enableSourceOrder", enableSourceOrder)
+        json.put("embedOrder", JSONArray(embedOrder))
+        json.put("enableEmbedOrder", enableEmbedOrder)
+        json.put("enableImageLogos", enableImageLogos)
+        json.put("enableCarouselView", enableCarouselView)
+        json.put("enableMinimalCards", enableMinimalCards)
+        json.put("forceCompactEpisodeView", forceCompactEpisodeView)
+        json.put("enableLowPerformanceMode", enableLowPerformanceMode)
+        json.put("enablePauseOverlay", enablePauseOverlay)
+        json.put("proxyTmdb", proxyTmdb)
+        json.put("homeSectionOrder", JSONArray(homeSectionOrder))
+        json.put("enableAutoResumeOnPlaybackError", enableAutoResumeOnPlaybackError)
+        febboxKey?.let { json.put("febboxKey", it) }
+        debridToken?.let { json.put("debridToken", it) }
+        json.put("debridService", debridService)
+        tidbKey?.let { json.put("tidbKey", it) }
+        json.put("proxyUrls", JSONArray(proxyUrls))
+        return json.toString()
+    }
+
+    fun toSyncableJsonBody(): okhttp3.RequestBody {
+        val jsonStr = toSyncableJsonString()
+        Log.d("SettingsEntity", "toSyncableJsonBody: $jsonStr")
+        return jsonStr.toRequestBody("application/json".toMediaType())
+    }
+}
 
 data class CustomThemeSettings(
     val primary: String? = null,
