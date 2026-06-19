@@ -28,6 +28,7 @@ data class HomeState(
     val bookmarks: List<MediaSection> = emptyList(),
     val progressMap: Map<String, ProgressEntity> = emptyMap(),
     val enableDiscover: Boolean = true,
+    val enableLowPerformanceMode: Boolean = false,
     val activeTab: HomeTab = HomeTab.MOVIES,
     val selectedGenreId: Int? = null,
     val searchQuery: String = "",
@@ -74,7 +75,10 @@ class HomeViewModel @Inject constructor(
     private fun observeSettings() {
         viewModelScope.launch {
             settingsPrefs.settings.collect { s ->
-                _state.update { it.copy(enableDiscover = s.enableDiscover) }
+                _state.update { it.copy(
+                    enableDiscover = s.enableDiscover,
+                    enableLowPerformanceMode = s.enableLowPerformanceMode,
+                ) }
             }
         }
     }

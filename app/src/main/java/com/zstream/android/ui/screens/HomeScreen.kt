@@ -237,8 +237,10 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
     Box(modifier = Modifier
         .fillMaxSize()
         .background(theme.colors.background.main)) {
-        CosmicBackground()
-        ParticleOverlay()
+        if (!state.enableLowPerformanceMode) {
+            CosmicBackground()
+            ParticleOverlay()
+        }
 
         when {
             state.loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
