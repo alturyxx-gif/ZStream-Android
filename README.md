@@ -26,12 +26,10 @@ cd ZStream-Android
 
 NOTE: The app comes with a TMDB API key hardcoded. If that key doesnt work for you or if you want to use your own, follow these steps.
 
-1. Go to [TMDB Settings → API](https://www.themoviedb.org/settings/api)
+1. Go to [TMDB Settings -> API](https://www.themoviedb.org/settings/api)
 2. Create an account or sign in
 3. Request an API key
 4. Copy the **API Read Access Token** (a long JWT starting with `eyJ...`)
-
-**This is the only API key needed to build the app.** All streaming sources are fetched through the embedded vidlink provider by TMDB ID — no additional accounts required.
 
 ### 3. Set the TMDB API Key
 
@@ -43,7 +41,7 @@ If you want to use your own key, create `local.properties`:
 tmdb.api_key=your-v3-api-key-here
 ```
 
-You can also override the key at runtime from Settings → **TMDB API Key**.
+You can also override the key at runtime from Settings -> **TMDB API Key**.
 
 ### 4. Build & Run
 
@@ -55,7 +53,7 @@ You can also override the key at runtime from Settings → **TMDB API Key**.
 ./gradlew installDebug
 ```
 
-Open in Android Studio → select a device/emulator → press Run.
+Open in Android Studio -> select a device/emulator -> press Run.
 
 ## Optional In-App Services
 
