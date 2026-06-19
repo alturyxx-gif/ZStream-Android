@@ -1,16 +1,24 @@
 package com.zstream.android.ui.screens
 
 import android.content.Context
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -20,18 +28,26 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -44,6 +60,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
+import coil.compose.AsyncImage
 import com.zstream.android.R
 import com.zstream.android.Urls
 import com.zstream.android.data.local.entity.ProgressEntity
@@ -62,7 +79,6 @@ import org.xmlpull.v1.XmlPullParser
 import org.xmlpull.v1.XmlPullParserFactory
 import java.net.URL
 import java.text.SimpleDateFormat
-import java.util.Date
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 
@@ -214,10 +230,24 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
     var showBookmarks by remember { mutableStateOf(true) }
     var showNotifications by remember { mutableStateOf(false) }
     var showTipJar by remember { mutableStateOf(false) }
+    var isSearchFocused by remember { mutableStateOf(false) }
     var notifications by remember { mutableStateOf<List<NotificationItem>>(emptyList()) }
     var readGuids by remember { mutableStateOf<Set<String>>(emptySet()) }
     var sectionOrder by remember { mutableStateOf(defaultSectionOrder) }
     val context = LocalContext.current
+    val focusManager = LocalFocusManager.current
+    val density = LocalDensity.current
+    val isKeyboardVisible = WindowInsets.ime.getBottom(density) > 0
+
+    LaunchedEffect(isKeyboardVisible) {
+        if (!isKeyboardVisible && isSearchFocused && state.searchQuery.isEmpty()) {
+            focusManager.clearFocus()
+        }
+    }
+
+    BackHandler(enabled = isSearchFocused) {
+        focusManager.clearFocus()
+    }
 
     LaunchedEffect(Unit) {
         launch {
@@ -236,8 +266,9 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
 
     Box(modifier = Modifier
         .fillMaxSize()
-        .background(theme.colors.background.main)) {
-        if (!state.enableLowPerformanceMode) {
+        .background(theme.colors.background.main)
+        .safeDrawingPadding()) {
+        if (!state.enableLowPerformanceMode && !state.enableFeatured) {
             CosmicBackground()
             ParticleOverlay()
         }
@@ -257,31 +288,55 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
             }
             else -> {
                 val isSearching = state.searchQuery.isNotBlank()
-                // Filtered search results by genre
                 val displayedSearchResults = if (isSearching) {
                     if (state.selectedGenreId != null)
                         searchResults.filter { it.genreIds?.contains(state.selectedGenreId) == true }
                     else searchResults
                 } else emptyList()
 
-                // Observe persistent local data via VM state (Room)
                 val bookmarksList = state.bookmarks.flatMap { it.items }
                 val progressList = state.continueWatching.flatMap { it.items }
 
                 val uriHandler = LocalUriHandler.current
+                val density = LocalDensity.current
+                val topInsetPx = WindowInsets.safeDrawing.getTop(density) + WindowInsets.statusBars.getTop(density)
+                val topInsetDp = with(density) { topInsetPx.toDp() }
 
-                LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {
-                    item { TopNavBar(
-                        onLayout = { showLayoutMenu = true },
-                        onMenu = { showSandwichMenu = true },
-                        onDiscord = { uriHandler.openUri(Urls.DISCORD_LINK) },
-                        onNotifications = { showNotifications = true },
-                        onTipJar = { showTipJar = true },
-                        unreadCount = unreadCount,
-                    ) }
-                    item { HeroSection(state.searchQuery, vm::onSearchChange, nav) }
-                    item { GenrePills(state.selectedGenreId, vm::setGenre) }
-                    item { Spacer(Modifier.height(16.dp)) }
+                Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.statusBars)) {
+                    Box {
+                        if (state.enableFeatured && state.featuredMedia.isNotEmpty()) {
+                            FeaturedCarousel(
+                                media = state.featuredMedia,
+                                nav = nav,
+                                searchQuery = state.searchQuery,
+                                onSearch = vm::onSearchChange,
+                                isSearching = isSearchFocused || state.searchQuery.isNotEmpty(),
+                                onSearchFocusedChange = { isSearchFocused = it },
+                                onClearFocus = { focusManager.clearFocus() },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                        TopNavBar(
+                            onLayout = { showLayoutMenu = true },
+                            onMenu = { showSandwichMenu = true },
+                            onDiscord = { uriHandler.openUri(Urls.DISCORD_LINK) },
+                            onNotifications = { showNotifications = true },
+                            onTipJar = { showTipJar = true },
+                            unreadCount = unreadCount,
+                        )
+                    }
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                            .animateContentSize(),
+                        contentPadding = PaddingValues(bottom = 32.dp)
+                    ) {
+                        if (!state.enableFeatured || state.featuredMedia.isEmpty()) {
+                            item { HeroSection(state.searchQuery, vm::onSearchChange, nav) }
+                            item { GenrePills(state.selectedGenreId, vm::setGenre) }
+                            item { Spacer(Modifier.height(16.dp)) }
+                        }
 
                     if (isSearching) {
                         // ... (keep search results as is)
@@ -321,6 +376,7 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
                     }
                 }
             }
+        }
         }
 
         if (showLayoutMenu) {
@@ -494,7 +550,6 @@ private fun TopNavBar(onLayout: () -> Unit, onMenu: () -> Unit, onDiscord: () ->
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .statusBarsPadding()
             .padding(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 32.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -509,7 +564,7 @@ private fun TopNavBar(onLayout: () -> Unit, onMenu: () -> Unit, onDiscord: () ->
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                coil.compose.AsyncImage(
+                AsyncImage(
                     model = R.mipmap.ic_launcher,
                     contentDescription = null,
                     modifier = Modifier
@@ -1358,6 +1413,284 @@ private fun TipJarDialog(onDismiss: () -> Unit) {
                     "Thank you 💛 every tip helps keep the lights on.",
                     color = theme.colors.type.dimmed, fontSize = 12.sp,
                     textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun FeaturedCarousel(
+    media: List<Media>,
+    nav: NavController,
+    searchQuery: String = "",
+    onSearch: (String) -> Unit = {},
+    isSearching: Boolean = false,
+    onSearchFocusedChange: (Boolean) -> Unit = {},
+    onClearFocus: () -> Unit = {},
+    modifier: Modifier = Modifier
+) {
+    val theme = LocalZStreamTheme.current
+    val pagerState = rememberPagerState(pageCount = { media.size })
+    var autoScrollEnabled by remember { mutableStateOf(true) }
+
+    val isDragged by pagerState.interactionSource.collectIsDraggedAsState()
+    LaunchedEffect(isDragged) {
+        if (isDragged) autoScrollEnabled = false
+    }
+
+    LaunchedEffect(autoScrollEnabled, media) {
+        if (autoScrollEnabled && media.isNotEmpty()) {
+            while (true) {
+                delay(6000)
+                if (media.isNotEmpty()) {
+                    val next = (pagerState.currentPage + 1) % media.size
+                    pagerState.animateScrollToPage(next)
+                }
+            }
+        }
+    }
+
+    val height by animateDpAsState(
+        targetValue = if (isSearching) 110.dp else 450.dp,
+        label = "carouselHeight"
+    )
+    val contentAlpha by animateFloatAsState(
+        targetValue = if (isSearching) 0f else 1f,
+        label = "contentAlpha"
+    )
+
+    Box(modifier = modifier.height(height)) {
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier.fillMaxSize().graphicsLayer { alpha = contentAlpha },
+            key = { media[it].id }
+        ) { page ->
+            val current = media[page]
+            val backdropUrl = current.backdropUrl()
+            val title = current.displayTitle
+            val year = current.displayDate.take(4)
+            val type = current.type
+
+            Box(Modifier.fillMaxSize()) {
+                // Background image
+                Box(Modifier.fillMaxSize()) {
+                    if (backdropUrl != null) {
+                        AsyncImage(
+                            model = backdropUrl,
+                            contentDescription = null,
+                            modifier = Modifier.align(Alignment.TopCenter).fillMaxSize().scale(1.0f),
+                            contentScale = ContentScale.Crop
+                        )
+                    } else {
+                        Box(Modifier.fillMaxSize().background(theme.colors.background.secondary))
+                    }
+                }
+
+                // Per-item gradients for smooth transitions
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(50.dp) // Top gradient ends earlier
+                        .align(Alignment.TopCenter)
+                        .graphicsLayer { alpha = contentAlpha }
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(theme.colors.background.main, Color.Transparent),
+                            )
+                        )
+                )
+
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(250.dp)
+                        .align(Alignment.BottomCenter)
+                        .graphicsLayer { alpha = contentAlpha }
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(Color.Transparent, theme.colors.background.main),
+                            )
+                        )
+                )
+
+                // Content overlay
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .padding(start = 16.dp, end = 16.dp, bottom = 50.dp),
+                    contentAlignment = Alignment.BottomStart,
+                ) {
+                    Column(Modifier.fillMaxWidth()) {
+                        // Title
+                        Text(
+                            title,
+                            color = Color.White,
+                            fontSize = 32.sp,
+                            fontWeight = FontWeight.Black,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.graphicsLayer { alpha = contentAlpha }
+                        )
+
+                        // Metadata row
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.graphicsLayer { alpha = contentAlpha }
+                        ) {
+                            // TMDB Rating
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text("★", color = Color(0xFFF5C518), fontSize = 12.sp)
+                                Text(
+                                    String.format(Locale.US, "%.1f", current.voteAverage ?: 0.0),
+                                    color = Color.White,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Medium,
+                                )
+                            }
+
+                            if (year.isNotEmpty()) {
+                                Text("•", color = Color.White.copy(alpha = 0.4f))
+                                Text(year, color = Color.White.copy(alpha = 0.8f), fontSize = 13.sp)
+                            }
+
+                            val typeLabel = if (type == "tv") "TV Show" else "Movie"
+                            Text("•", color = Color.White.copy(alpha = 0.4f))
+                            Text(typeLabel, color = Color.White.copy(alpha = 0.8f), fontSize = 13.sp)
+                        }
+
+                        // Overview
+                        current.overview?.takeIf { it.isNotBlank() }?.let { overview ->
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                overview,
+                                color = Color.White.copy(alpha = 0.8f),
+                                fontSize = 14.sp,
+                                maxLines = 3,
+                                lineHeight = 20.sp,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.graphicsLayer { alpha = contentAlpha }
+                            )
+                        }
+
+                        Spacer(Modifier.height(20.dp))
+
+                        // Buttons Row
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            modifier = Modifier.graphicsLayer { alpha = contentAlpha }
+                        ) {
+                            // Play Now button
+                            Button(
+                                onClick = {
+                                    val encodedTitle = java.net.URLEncoder.encode(title, "UTF-8")
+                                    val poster = java.net.URLEncoder.encode(current.posterPath ?: "", "UTF-8")
+                                    nav.navigate("player/$type/${current.id}?title=$encodedTitle&year=${year.toIntOrNull() ?: 0}&poster=$poster")
+                                },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = theme.colors.buttons.primary,
+                                    contentColor = theme.colors.buttons.primaryText,
+                                ),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.height(48.dp).weight(1f),
+                                contentPadding = PaddingValues(horizontal = 16.dp)
+                            ) {
+                                Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(20.dp), tint = theme.colors.buttons.primaryText)
+                                Spacer(Modifier.width(8.dp))
+                                Text("Play Now", fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                            }
+
+                            // More Info button
+                            Button(
+                                onClick = { nav.navigate("detail/$type/${current.id}") },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = theme.colors.buttons.secondary,
+                                    contentColor = theme.colors.buttons.secondaryText,
+                                ),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.height(48.dp).weight(1f),
+                                contentPadding = PaddingValues(horizontal = 16.dp)
+                            ) {
+                                Icon(Icons.Default.Info, contentDescription = null, modifier = Modifier.size(20.dp), tint = theme.colors.buttons.secondaryText)
+                                Spacer(Modifier.width(8.dp))
+                                Text("More Info", fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Search bar overlay at top
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .align(Alignment.TopCenter)
+                .padding(start = 16.dp, end = 16.dp, top = 60.dp)
+        ) {
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(44.dp)
+                        .clip(RoundedCornerShape(44.dp))
+                        .background(Color.Black.copy(alpha = 0.6f)),
+                    contentAlignment = Alignment.CenterStart,
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Icon(Icons.Default.Search, null, tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.size(18.dp))
+                        Box(modifier = Modifier.weight(1f)) {
+                            if (searchQuery.isEmpty()) {
+                                Text("Search...", color = Color.White.copy(alpha = 0.4f), fontSize = 13.sp)
+                            }
+                            BasicTextField(
+                                value = searchQuery,
+                                onValueChange = onSearch,
+                                singleLine = true,
+                                textStyle = TextStyle(color = Color.White, fontSize = 13.sp),
+                                cursorBrush = SolidColor(Color.White),
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                                keyboardActions = KeyboardActions(onSearch = { onClearFocus() }),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .onFocusChanged { onSearchFocusedChange(it.isFocused) },
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Navigation dots
+        Row(
+            Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 16.dp)
+                .graphicsLayer { alpha = contentAlpha },
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            media.forEachIndexed { i, _ ->
+                val active = i == pagerState.currentPage
+                val dotWidth by animateDpAsState(if (active) 18.dp else 8.dp, label = "dotWidth")
+                val dotAlpha by animateFloatAsState(if (active) 1f else 0.4f, label = "dotAlpha")
+                
+                Box(
+                    Modifier
+                        .size(width = dotWidth, height = 8.dp)
+                        .clip(CircleShape)
+                        .background(Color.White.copy(alpha = dotAlpha))
                 )
             }
         }
