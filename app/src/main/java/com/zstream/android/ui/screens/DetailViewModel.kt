@@ -44,6 +44,9 @@ class DetailViewModel @Inject constructor(
     val progress = progressRepo.observeProgress(id.toString())
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
+    val allProgress = progressRepo.observeAllProgressForTmdb(id.toString())
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     init { load() }
 
     fun toggleBookmark() {
