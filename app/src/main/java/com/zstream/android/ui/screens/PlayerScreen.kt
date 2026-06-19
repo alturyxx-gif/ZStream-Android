@@ -325,6 +325,13 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     modifier = Modifier.fillMaxSize()
                 )
 
+                var controlsVisible by remember { mutableStateOf(true) }
+
+                // Automatically hide controls after 3s of playing
+                LaunchedEffect(controlsVisible, player.isPlaying) {
+                    if (controlsVisible && player.isPlaying) { delay(3000); controlsVisible = false }
+                }
+
                 // Custom Subtitle Overlay — using downloaded + parsed cues with timing
                 val vmCues by vm.subtitleCues.collectAsState()
                 val visibleCues = remember(vmCues, currentPositionMs) {
@@ -336,6 +343,8 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                 val selectedLang by vm.selectedSubtitleLang.collectAsState()
 
                 if (!settings.enableNativeSubtitles && selectedLang != null && visibleCues.isNotEmpty()) {
+                    // Move subtitles up when controls overlay is shown
+                    val controlsBottom = if (controlsVisible) 80.dp else 0.dp
                     Log.d("PlayerScreen", "rendering ${visibleCues.size} cues at ${currentPositionMs}ms, " +
                         "color=${settings.subtitleColor} size=${settings.subtitleSize} " +
                         "fontStyle=${settings.subtitleFontStyle} bgOpacity=${settings.subtitleBackgroundOpacity} " +
@@ -361,7 +370,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     Box(
                         Modifier
                             .fillMaxSize()
-                            .padding(bottom = (48 + settings.subtitleVerticalPosition * 6f).dp)
+                            .padding(bottom = (48 + settings.subtitleVerticalPosition * 6f).dp + controlsBottom)
                             .padding(horizontal = 48.dp),
                         contentAlignment = Alignment.BottomCenter
                     ) {
@@ -396,6 +405,8 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
 
                 PlayerControls(
                     player, vm.title,
+                    controlsVisible = controlsVisible,
+                    onControlsVisibilityChanged = { controlsVisible = it },
                     subtitlesEnabled = selectedLang != null,
                     onToggleSubtitles = {
                         if (selectedLang != null) {
@@ -452,6 +463,8 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
 private fun PlayerControls(
     player: ExoPlayer,
     title: String,
+    controlsVisible: Boolean,
+    onControlsVisibilityChanged: (Boolean) -> Unit,
     subtitlesEnabled: Boolean = false,
     onToggleSubtitles: () -> Unit = {},
     onBack: () -> Unit,
@@ -461,7 +474,6 @@ private fun PlayerControls(
     var positionMs by remember { mutableLongStateOf(0L) }
     var durationMs by remember { mutableLongStateOf(0L) }
     var isMuted by remember { mutableStateOf(player.volume == 0f) }
-    var controlsVisible by remember { mutableStateOf(true) }
     var isDragging by remember { mutableStateOf(false) }
     var scrubPosition by remember { mutableFloatStateOf(0f) }
 
@@ -480,15 +492,11 @@ private fun PlayerControls(
         }
     }
 
-    LaunchedEffect(controlsVisible, isPlaying) {
-        if (controlsVisible && isPlaying) { delay(3000); controlsVisible = false }
-    }
-
     val progress = if (durationMs > 0) positionMs.toFloat() / durationMs else 0f
 
     Box(modifier = Modifier.fillMaxSize()
         .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) {
-            controlsVisible = !controlsVisible
+            onControlsVisibilityChanged(!controlsVisible)
         }
     ) {
         AnimatedVisibility(visible = controlsVisible, enter = fadeIn(), exit = fadeOut()) {
