@@ -70,9 +70,18 @@ class HomeViewModel @Inject constructor(
     private fun observeUserContent() {
         viewModelScope.launch {
             progressRepo.observeAllProgress().collect { progress ->
+                // Group by tmdbId, keep only the latest episode per show
+                val latestPerShow = progress.groupBy { it.tmdbId }
+                    .mapValues { (_, entries) ->
+                        val nonCompleted = entries.filter { it.duration <= 0 || it.watched < it.duration * 0.95f }
+                        val candidates = if (nonCompleted.isNotEmpty()) nonCompleted else entries
+                        candidates.maxByOrNull {
+                            (it.seasonNumber ?: 0) * 100000 + (it.episodeNumber ?: 0)
+                        } ?: candidates.first()
+                    }
                 val mediaMap = mutableMapOf<String, ProgressEntity>()
-                val watchingMedia = progress.map { p ->
-                    mediaMap[p.tmdbId] = p
+                val watchingMedia = latestPerShow.map { (tmdbId, p) ->
+                    mediaMap[tmdbId] = p
                     Media(
                         id = p.tmdbId.toIntOrNull() ?: 0,
                         title = if (p.type == "movie") p.title else null,

@@ -102,7 +102,7 @@ fun DetailScreen(nav: NavController, vm: DetailViewModel = hiltViewModel()) {
             MovieDetailModal(s, nav, context, theme, bookmarkRepo, hasProgress)
         }
         is DetailState.Tv -> {
-            TvDetailModal(s, vm, nav, context, theme, bookmarkRepo, hasProgress)
+            TvDetailModal(s, vm, nav, context, theme, bookmarkRepo, hasProgress, progress)
         }
     }
 }
@@ -252,7 +252,8 @@ private fun TvDetailModal(
     context: android.content.Context,
     theme: com.zstream.android.theme.ZStreamTheme,
     bookmarkRepo: com.zstream.android.data.BookmarkRepository,
-    hasProgress: Boolean
+    hasProgress: Boolean,
+    progress: com.zstream.android.data.local.entity.ProgressEntity?,
 ) {
     val d = state.detail
     val season = state.selectedSeason
@@ -275,9 +276,15 @@ private fun TvDetailModal(
         Row(Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 14.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Button(
                 onClick = {
-                    val firstEp = season?.episodes?.firstOrNull()
-                    if (firstEp != null) {
-                        nav.navigate("player/tv/${d.id}?season=${firstEp.seasonNumber}&episode=${firstEp.episodeNumber}&title=${d.name.encode()}&year=${d.firstAirDate?.take(4)?.toIntOrNull() ?: 0}&poster=${d.posterPath?.encode() ?: ""}")
+                    if (hasProgress && progress != null) {
+                        val sNum = progress.seasonNumber ?: season?.seasonNumber ?: 1
+                        val eNum = progress.episodeNumber ?: 1
+                        nav.navigate("player/tv/${d.id}?season=$sNum&episode=$eNum&title=${d.name.encode()}&year=${d.firstAirDate?.take(4)?.toIntOrNull() ?: 0}&poster=${d.posterPath?.encode() ?: ""}")
+                    } else {
+                        val firstEp = season?.episodes?.firstOrNull()
+                        if (firstEp != null) {
+                            nav.navigate("player/tv/${d.id}?season=${firstEp.seasonNumber}&episode=${firstEp.episodeNumber}&title=${d.name.encode()}&year=${d.firstAirDate?.take(4)?.toIntOrNull() ?: 0}&poster=${d.posterPath?.encode() ?: ""}")
+                        }
                     }
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = theme.colors.buttons.primary),
@@ -285,7 +292,12 @@ private fun TvDetailModal(
             ) {
                 Icon(Icons.Filled.PlayArrow, null, tint = theme.colors.buttons.primaryText)
                 Spacer(Modifier.width(6.dp))
-                Text(if (hasProgress) "Resume" else "Play", color = theme.colors.buttons.primaryText)
+                val label = if (hasProgress && progress != null) {
+                    val sNum = progress.seasonNumber
+                    val eNum = progress.episodeNumber
+                    if (sNum != null && eNum != null) "Resume S${sNum}:E${eNum}" else "Resume"
+                } else "Play"
+                Text(label, color = theme.colors.buttons.primaryText)
             }
             ActionPill(Icons.Filled.Share, "", theme, 50.dp) {
                 openShareSheet(context, d.name, d.id, "tv")

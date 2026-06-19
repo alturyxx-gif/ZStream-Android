@@ -165,26 +165,23 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                 val resumeDuration = remember(existingProgress) {
                     existingProgress?.duration?.toLong() ?: 0L
                 }
-                // shouldShowProgress: watched >= 20s AND not within 120s of end
-                val shouldResume = remember(resumeWatched, resumeDuration) {
-                    resumeWatched >= 20 && (resumeDuration - resumeWatched) >= 120
-                }
                 var resumeHandled by remember { mutableStateOf(false) }
                 var showResumeDialog by remember { mutableStateOf(false) }
                 var pendingResumeMs by remember { mutableLongStateOf(-1L) }
 
                 // One-time snapshot of initial progress — prevents dialog appearing mid-playback
-                // when the first sync creates a progress entry during a new watch
-                var initialResumeCheckDone by remember { mutableStateOf(false) }
-                var initialShouldResume by remember { mutableStateOf(false) }
-                if (!initialResumeCheckDone && progressList.isNotEmpty()) {
-                    initialResumeCheckDone = true
+                // when the first sync creates a progress entry during a new watch.
+                // Small delay ensures Room data is loaded before the 3s sync triggers.
+                LaunchedEffect(Unit) {
+                    delay(100)
                     val found = progressList.firstOrNull { p ->
                         p.tmdbId == vm.tmdbId && (vm.episodeId == null || p.episodeId == vm.episodeId)
                     }
                     val w = found?.watched?.toLong() ?: 0L
                     val d = found?.duration?.toLong() ?: 0L
-                    initialShouldResume = w >= 20 && (d <= 0 || (d - w) >= 120)
+                    if (w >= 20 && (d <= 0 || (d - w) >= 120)) {
+                        showResumeDialog = true
+                    }
                 }
 
                 val player = remember {
@@ -205,11 +202,6 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                         currentPositionMs = player.currentPosition.coerceAtLeast(0)
                         kotlinx.coroutines.delay(250)
                     }
-                }
-
-                // Show resume dialog based on initial snapshot only
-                LaunchedEffect(initialShouldResume) {
-                    if (initialShouldResume && !resumeHandled) showResumeDialog = true
                 }
 
                 // Seek to resume position once player is ready

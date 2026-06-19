@@ -7,6 +7,7 @@ import com.zstream.android.data.local.entity.ProgressEntity
 import com.zstream.android.data.remote.BackendApi
 import com.zstream.android.data.remote.ProgressInput
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -21,9 +22,22 @@ class ProgressRepository @Inject constructor(
 ) {
     /**
      * Get progress from local cache first, then sync with backend if available
+     * Returns the latest episode's progress for shows, or the single entry for movies.
+     * "Latest" = highest (seasonNumber, episodeNumber), preferring non-completed entries.
      */
     fun observeProgress(tmdbId: String): Flow<ProgressEntity?> {
-        return progressDao.observeByTmdbId(tmdbId)
+        return progressDao.observeAllByTmdbId(tmdbId).map { entries ->
+            if (entries.isEmpty()) null
+            else findLatestEpisode(entries)
+        }
+    }
+
+    private fun findLatestEpisode(entries: List<ProgressEntity>): ProgressEntity {
+        val nonCompleted = entries.filter { it.duration <= 0 || it.watched < it.duration * 0.95f }
+        val candidates = if (nonCompleted.isNotEmpty()) nonCompleted else entries
+        return candidates.maxByOrNull {
+            (it.seasonNumber ?: 0) * 100000 + (it.episodeNumber ?: 0)
+        } ?: candidates.first()
     }
 
     /**
@@ -98,6 +112,7 @@ class ProgressRepository @Inject constructor(
         }
 
         val entity = ProgressEntity(
+            id = ProgressEntity.computeId(tmdbId, seasonNumber, episodeNumber),
             tmdbId = tmdbId,
             title = title,
             type = type,
@@ -170,7 +185,9 @@ class ProgressRepository @Inject constructor(
     }
 
     /**
-     * Sync all local progress with backend (for periodic sync)
+     * Sync all local progress with backend (for periodic sync).
+     * Groups by tmdbId and pushes only the latest episode per show
+     * (backend stores one entry per show).
      */
     suspend fun syncAllProgress() {
         try {
@@ -180,28 +197,30 @@ class ProgressRepository @Inject constructor(
             }
 
             val localProgress = getAllProgressForSync()
-            Log.d(TAG, "Syncing ${localProgress.size} progress entries with backend")
+            val grouped = localProgress.groupBy { it.tmdbId }
+            Log.d(TAG, "Syncing ${grouped.size} shows/movies with backend")
 
-            for (progress in localProgress) {
+            for ((tmdbId, entries) in grouped) {
                 try {
+                    val latest = findLatestEpisode(entries)
                     val input = ProgressInput(
-                        tmdbId = progress.tmdbId,
+                        tmdbId = latest.tmdbId,
                         meta = com.zstream.android.data.remote.ProgressMeta(
-                            title = progress.title,
-                            year = progress.year,
-                            poster = toFullPosterUrl(progress.posterPath),
-                            type = progress.type,
+                            title = latest.title,
+                            year = latest.year,
+                            poster = toFullPosterUrl(latest.posterPath),
+                            type = latest.type,
                         ),
-                        watched = progress.watched,
-                        duration = progress.duration,
-                        episodeId = progress.episodeId,
-                        seasonId = progress.seasonId,
-                        episodeNumber = progress.episodeNumber,
-                        seasonNumber = progress.seasonNumber,
+                        watched = latest.watched,
+                        duration = latest.duration,
+                        episodeId = latest.episodeId,
+                        seasonId = latest.seasonId,
+                        episodeNumber = latest.episodeNumber,
+                        seasonNumber = latest.seasonNumber,
                     )
-                    api.setProgress(session.userId, progress.tmdbId, "Bearer ${session.token}", input)
+                    api.setProgress(session.userId, tmdbId, "Bearer ${session.token}", input)
                 } catch (e: Exception) {
-                    Log.e(TAG, "Failed to sync progress for ${progress.tmdbId}", e)
+                    Log.e(TAG, "Failed to sync progress for $tmdbId", e)
                 }
             }
         } catch (e: Exception) {
@@ -236,6 +255,7 @@ class ProgressRepository @Inject constructor(
 
     /**
      * Fetch all progress from remote and update local cache
+     * Each episode gets its own local entry (per-episode progress tracking).
      */
     suspend fun syncFromRemote() {
         try {
@@ -246,74 +266,63 @@ class ProgressRepository @Inject constructor(
 
             Log.d(TAG, "Fetching remote progress for user ${session.userId}")
             val remoteProgress = api.getProgress(session.userId, "Bearer ${session.token}")
-            
-            // Group by tmdbId to deduplicate show cards
-            val grouped = remoteProgress.groupBy { it.tmdbId }
-            
-            val entities = grouped.map { (tmdbId, episodes) ->
-                // Sort by updatedAt to find the most recent watch
-                val sorted = episodes.sortedByDescending { it.updatedAt }
-                val latest = sorted.first()
-                
-                // Find any entry in the group that has a poster (metadata is flaky)
-                val posterEntry = sorted.find { it.meta.poster != null }
-                
-                ProgressEntity(
-                    tmdbId = tmdbId,
-                    title = latest.meta.title,
-                    type = latest.meta.type,
-                    watched = latest.watched.toDoubleOrNull()?.toInt() ?: 0,
-                    duration = latest.duration.toDoubleOrNull()?.toInt() ?: 0,
-                    year = latest.meta.year,
-                    posterPath = normalizePosterPath(posterEntry?.meta?.poster ?: latest.meta.poster),
-                    episodeId = latest.episode.id,
-                    seasonId = latest.season.id,
-                    episodeNumber = latest.episode.number,
-                    seasonNumber = latest.season.number,
-                    updatedAt = try { 
-                        java.time.OffsetDateTime.parse(latest.updatedAt).toInstant().toEpochMilli()
-                    } catch (e: Exception) {
+
+            val entities = remoteProgress.map { rp ->
+                val id = ProgressEntity.computeId(rp.tmdbId, rp.season.number, rp.episode.number)
+
+                val baseEntity = ProgressEntity(
+                    id = id,
+                    tmdbId = rp.tmdbId,
+                    title = rp.meta.title,
+                    type = rp.meta.type,
+                    watched = rp.watched.toDoubleOrNull()?.toInt() ?: 0,
+                    duration = rp.duration.toDoubleOrNull()?.toInt() ?: 0,
+                    year = rp.meta.year,
+                    posterPath = normalizePosterPath(rp.meta.poster),
+                    episodeId = rp.episode.id,
+                    seasonId = rp.season.id,
+                    episodeNumber = rp.episode.number,
+                    seasonNumber = rp.season.number,
+                    updatedAt = try {
+                        java.time.OffsetDateTime.parse(rp.updatedAt).toInstant().toEpochMilli()
+                    } catch (_: Exception) {
                         System.currentTimeMillis()
                     }
                 )
-            }
-            
-            if (entities.isNotEmpty()) {
-                // Before inserting, check if we have existing entities with posters to avoid overwriting with null
-                val updatedEntities = entities.map { entity ->
-                    var current = entity
-                    
-                    // 1. Try to recover poster from local DB
-                    if (current.posterPath == null) {
-                        val existing = progressDao.getByTmdbId(current.tmdbId)
-                        if (existing?.posterPath != null) {
-                            current = current.copy(posterPath = existing.posterPath)
-                        }
-                    }
-                    
-                    // 2. If still null, try to fetch from TMDB
-                    if (current.posterPath == null) {
-                        try {
-                            val id = current.tmdbId.toIntOrNull()
-                            if (id != null) {
-                                if (current.type == "movie") {
-                                    val detail = tmdbRepo.movieDetail(id)
-                                    current = current.copy(posterPath = detail.posterPath, title = detail.title)
-                                } else {
-                                    val detail = tmdbRepo.tvDetail(id)
-                                    current = current.copy(posterPath = detail.posterPath, title = detail.name)
-                                }
-                            }
-                        } catch (e: Exception) {
-                            Log.w(TAG, "Failed to fetch missing TMDB metadata for ${current.tmdbId}")
-                        }
-                    }
-                    
-                    current
+
+                var current = baseEntity
+
+                // 1. Try to recover poster from existing local entries for this tmdbId
+                val existing = progressDao.getAllByTmdbId(current.tmdbId)
+                val posterEntry = existing.firstOrNull { it.posterPath != null }
+                if (posterEntry != null) {
+                    current = current.copy(posterPath = posterEntry.posterPath)
                 }
-                
-                progressDao.insertAll(updatedEntities)
-                Log.d(TAG, "Successfully synced ${updatedEntities.size} progress entries from remote")
+
+                // 2. If still null, try to fetch from TMDB
+                if (current.posterPath == null) {
+                    try {
+                        val id = current.tmdbId.toIntOrNull()
+                        if (id != null) {
+                            if (current.type == "movie") {
+                                val detail = tmdbRepo.movieDetail(id)
+                                current = current.copy(posterPath = detail.posterPath, title = detail.title)
+                            } else {
+                                val detail = tmdbRepo.tvDetail(id)
+                                current = current.copy(posterPath = detail.posterPath, title = detail.name)
+                            }
+                        }
+                    } catch (_: Exception) {
+                        Log.w(TAG, "Failed to fetch missing TMDB metadata for ${current.tmdbId}")
+                    }
+                }
+
+                current
+            }
+
+            if (entities.isNotEmpty()) {
+                progressDao.insertAll(entities)
+                Log.d(TAG, "Successfully synced ${entities.size} progress entries from remote")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to sync progress from remote", e)
