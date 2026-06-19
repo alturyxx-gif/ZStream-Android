@@ -1,8 +1,11 @@
 package com.zstream.android.ui.screens
 
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -16,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -49,6 +53,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -421,17 +426,18 @@ private fun EpisodeRow(
                 nav.navigate("player/tv/$showId?season=${ep.seasonNumber}&episode=${ep.episodeNumber}&title=${title.encode()}&year=${ep.airDate?.take(4)?.toIntOrNull() ?: 0}&poster=${posterPath?.encode() ?: ""}")
             }
     ) {
-        Row(Modifier.fillMaxWidth()) {
+        Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
             Box(
                 Modifier
                     .width(120.dp)
                     .fillMaxHeight()
+                    .animateContentSize(animationSpec = tween(300))
             ) {
                 AsyncImage(
-                    model = ep.stillPath?.let { "${Urls.TMDB_IMAGE}w185$it" },
+                    model = ep.stillPath?.let { "${Urls.TMDB_IMAGE}w780$it" },
                     contentDescription = null,
                     modifier = Modifier
-                        .size(width = 130.dp, height = 100.dp)
+                        .matchParentSize()
                         .clip(RoundedCornerShape(topStart = 12.dp, bottomStart = 12.dp)),
                     contentScale = ContentScale.Crop
                 )
@@ -454,7 +460,7 @@ private fun EpisodeRow(
                 }
             }
 
-            Column(Modifier.weight(1f).padding(12.dp)) {
+            Column(Modifier.weight(1f).padding(12.dp).animateContentSize()) {
                 // Episode title
                 Text(
                     ep.name.orEmpty(),
@@ -464,16 +470,26 @@ private fun EpisodeRow(
                     fontWeight = FontWeight.Medium
                 )
 
-                // Episode description
-                ep.overview?.takeIf { it.isNotBlank() }?.let {
+                // Episode description — tap to expand/collapse
+                ep.overview?.takeIf { it.isNotBlank() }?.let { desc ->
                     Spacer(Modifier.height(4.dp))
-                    Text(
-                        it,
-                        maxLines = 3,
-                        overflow = TextOverflow.Ellipsis,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = theme.colors.type.text
-                    )
+                    var expanded by remember { mutableStateOf(false) }
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) { expanded = !expanded }
+                    ) {
+                        Text(
+                            desc,
+                            maxLines = if (expanded) Int.MAX_VALUE else 3,
+                            overflow = TextOverflow.Ellipsis,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = theme.colors.type.text
+                        )
+                    }
                     Spacer(Modifier.height(4.dp))
                 }
             }
