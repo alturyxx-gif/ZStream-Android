@@ -336,7 +336,10 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                 val selectedLang by vm.selectedSubtitleLang.collectAsState()
 
                 if (!settings.enableNativeSubtitles && selectedLang != null && visibleCues.isNotEmpty()) {
-                    Log.d("PlayerScreen", "rendering ${visibleCues.size} cues at ${currentPositionMs}ms")
+                    Log.d("PlayerScreen", "rendering ${visibleCues.size} cues at ${currentPositionMs}ms, " +
+                        "color=${settings.subtitleColor} size=${settings.subtitleSize} " +
+                        "fontStyle=${settings.subtitleFontStyle} bgOpacity=${settings.subtitleBackgroundOpacity} " +
+                        "bold=${settings.subtitleBold}")
                     val textColor = Color(android.graphics.Color.parseColor(settings.subtitleColor))
                     val bgAlpha = settings.subtitleBackgroundOpacity.coerceIn(0f, 1f)
                     val fontSize = (settings.subtitleSize * 18).sp
