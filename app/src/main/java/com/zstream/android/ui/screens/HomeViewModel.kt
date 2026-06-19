@@ -28,7 +28,9 @@ data class HomeState(
     val bookmarks: List<MediaSection> = emptyList(),
     val progressMap: Map<String, ProgressEntity> = emptyMap(),
     val enableDiscover: Boolean = true,
+    val enableFeatured: Boolean = false,
     val enableLowPerformanceMode: Boolean = false,
+    val featuredMedia: List<Media> = emptyList(),
     val activeTab: HomeTab = HomeTab.MOVIES,
     val selectedGenreId: Int? = null,
     val searchQuery: String = "",
@@ -77,6 +79,7 @@ class HomeViewModel @Inject constructor(
             settingsPrefs.settings.collect { s ->
                 _state.update { it.copy(
                     enableDiscover = s.enableDiscover,
+                    enableFeatured = s.enableFeatured,
                     enableLowPerformanceMode = s.enableLowPerformanceMode,
                 ) }
             }
@@ -166,6 +169,7 @@ class HomeViewModel @Inject constructor(
 
                     _state.update { it.copy(
                         loading = false,
+                        featuredMedia = movies.take(10),
                         movieSections = listOf(
                             MediaSection("Most Popular", popularMovies.await()),
                             MediaSection("In Cinemas", nowPlaying.await()),
