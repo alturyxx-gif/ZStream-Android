@@ -3,6 +3,7 @@ package com.zstream.android.ui.screens
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.zstream.android.data.TmdbRepository
+import com.zstream.android.data.local.entity.ProgressEntity
 import com.zstream.android.data.model.Media
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.async
@@ -24,6 +25,7 @@ data class HomeState(
     val editorSections: List<MediaSection> = emptyList(),
     val continueWatching: List<MediaSection> = emptyList(),
     val bookmarks: List<MediaSection> = emptyList(),
+    val progressMap: Map<String, ProgressEntity> = emptyMap(),
     val activeTab: HomeTab = HomeTab.MOVIES,
     val selectedGenreId: Int? = null,
     val searchQuery: String = "",
@@ -68,7 +70,9 @@ class HomeViewModel @Inject constructor(
     private fun observeUserContent() {
         viewModelScope.launch {
             progressRepo.observeAllProgress().collect { progress ->
+                val mediaMap = mutableMapOf<String, ProgressEntity>()
                 val watchingMedia = progress.map { p ->
+                    mediaMap[p.tmdbId] = p
                     Media(
                         id = p.tmdbId.toIntOrNull() ?: 0,
                         title = if (p.type == "movie") p.title else null,
@@ -83,11 +87,10 @@ class HomeViewModel @Inject constructor(
                         genreIds = null
                     )
                 }
-                if (watchingMedia.isNotEmpty()) {
-                    _state.update { it.copy(continueWatching = listOf(MediaSection("Continue Watching", watchingMedia))) }
-                } else {
-                    _state.update { it.copy(continueWatching = emptyList()) }
-                }
+                _state.update { it.copy(
+                    progressMap = mediaMap,
+                    continueWatching = if (watchingMedia.isNotEmpty()) listOf(MediaSection("Continue Watching", watchingMedia)) else emptyList(),
+                ) }
             }
         }
         
