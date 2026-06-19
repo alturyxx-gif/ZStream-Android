@@ -435,16 +435,36 @@ private fun EpisodeRow(
                         .clip(RoundedCornerShape(topStart = 12.dp, bottomStart = 12.dp)),
                     contentScale = ContentScale.Crop
                 )
+
+                // Episode number badge
+                Box(
+                    Modifier
+                        .align(Alignment.TopStart)
+                        .padding(6.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(Color(0xFF2D2D3D))
+                        .padding(horizontal = 6.dp, vertical = 1.dp)
+                ) {
+                    Text(
+                        "E${ep.episodeNumber}",
+                        color = Color(0xFFC4C4D4),
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
 
             Column(Modifier.weight(1f).padding(12.dp)) {
+                // Episode title
                 Text(
-                    "E${ep.episodeNumber}. ${ep.name.orEmpty()}",
+                    ep.name.orEmpty(),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     color = theme.colors.type.emphasis,
                     fontWeight = FontWeight.Medium
                 )
+
+                // Episode description
                 ep.overview?.takeIf { it.isNotBlank() }?.let {
                     Spacer(Modifier.height(4.dp))
                     Text(
