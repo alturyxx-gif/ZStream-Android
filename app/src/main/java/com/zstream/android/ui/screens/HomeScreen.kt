@@ -304,15 +304,18 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
                         ) { section -> MediaCarouselSection(section, nav, progressMap = state.progressMap) }
 
                         item { Spacer(Modifier.height(16.dp)) }
-                        item { HomeTabs(state.activeTab, vm::setTab) }
 
-                        // Base sections second
-                        items(state.baseSections.map { section ->
-                            val filtered = if (state.selectedGenreId != null)
-                                section.items.filter { it.genreIds?.contains(state.selectedGenreId) == true }
-                            else section.items
-                            section.copy(items = filtered)
-                        }.filter { it.items.isNotEmpty() }) { section -> MediaCarouselSection(section, nav, progressMap = state.progressMap) }
+                        if (state.enableDiscover) {
+                            item { HomeTabs(state.activeTab, vm::setTab) }
+
+                            // Base sections second
+                            items(state.baseSections.map { section ->
+                                val filtered = if (state.selectedGenreId != null)
+                                    section.items.filter { it.genreIds?.contains(state.selectedGenreId) == true }
+                                else section.items
+                                section.copy(items = filtered)
+                            }.filter { it.items.isNotEmpty() }) { section -> MediaCarouselSection(section, nav, progressMap = state.progressMap) }
+                        }
                     }
                 }
             }
