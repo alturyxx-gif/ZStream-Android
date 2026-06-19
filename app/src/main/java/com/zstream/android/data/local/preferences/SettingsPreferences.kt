@@ -275,7 +275,7 @@ class SettingsPreferences @Inject constructor(
                 subtitleLineHeight = currentLineHeight,
                 subtitleFont = currentFont,
             ), syncToRemote = false)
-            Log.d("SettingsPreferences", "Successfully synced settings from remote (subtitle styling preserved)")
+            Log.d("SettingsPreferences", "Successfully synced settings from remote")
         } catch (e: Exception) {
             Log.e("SettingsPreferences", "Failed to sync settings from remote", e)
         }

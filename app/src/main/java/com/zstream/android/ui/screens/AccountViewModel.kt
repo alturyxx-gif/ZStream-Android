@@ -1,13 +1,13 @@
 package com.zstream.android.ui.screens
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.zstream.android.data.*
+import com.zstream.android.data.local.preferences.SettingsPreferences
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -24,6 +24,7 @@ class AccountViewModel @Inject constructor(
     private val syncManager: DataSyncManager,
     private val progressRepo: ProgressRepository,
     private val bookmarkRepo: BookmarkRepository,
+    private val settingsPrefs: SettingsPreferences,
 ) : ViewModel() {
 
     val authState = MutableStateFlow<AuthState>(AuthState.Idle)
@@ -38,10 +39,44 @@ class AccountViewModel @Inject constructor(
     val progress = progressRepo.observeAllProgress()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    private var settingsSyncJob: Job? = null
+    private var lastSyncedSettingsJson: String? = null
+
     init {
         // Auto-fetch sync data whenever session is available
         viewModelScope.launch {
-            session.collect { s -> if (s != null) syncManager.syncAllFromRemote() }
+            session.first { it != null }
+            syncManager.syncAllFromRemote()
+            // Snapshot current syncable fields so the watcher won't push them back
+            lastSyncedSettingsJson = settingsPrefs.settings.first().toSyncableJsonString()
+            // Start watching local settings changes to push to remote
+            launchSettingsSync()
+        }
+    }
+
+    /**
+     * Watch local settings changes and push to backend after a 2-second debounce.
+     * Only reacts when backend-syncable fields change (not subtitle styling, which is local-only).
+     * Mirrors p-stream's SettingsSyncer pattern.
+     */
+    private fun launchSettingsSync() {
+        settingsSyncJob?.cancel()
+        settingsSyncJob = viewModelScope.launch {
+            settingsPrefs.settings
+                .map { it.toSyncableJsonString() to it }
+                .distinctUntilChanged { old, new -> old.first == new.first }
+                .debounce(2000)
+                .collect { (syncableJson, settings) ->
+                    // Skip push if the change was from syncAllFromRemote (not user-initiated)
+                    if (syncableJson == lastSyncedSettingsJson) return@collect
+                    Log.d("AccountVM", "Settings changed locally, syncing to remote")
+                    runCatching {
+                        syncManager.syncSettingsToRemote()
+                        lastSyncedSettingsJson = settings.toSyncableJsonString()
+                    }.onFailure { e ->
+                        Log.e("AccountVM", "Failed to sync settings to remote", e)
+                    }
+                }
         }
     }
 

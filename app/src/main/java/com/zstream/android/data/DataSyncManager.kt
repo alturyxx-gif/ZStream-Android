@@ -3,6 +3,7 @@ package com.zstream.android.data
 import android.util.Log
 import com.zstream.android.data.local.preferences.SettingsPreferences
 import com.zstream.android.data.remote.BackendApi
+import kotlinx.coroutines.flow.first
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -46,5 +47,20 @@ class DataSyncManager @Inject constructor(
         progressRepo.clearProgress()
         bookmarkRepo.clearBookmarks()
         settingsPrefs.clear()
+    }
+
+    /**
+     * Push current local settings to the remote backend.
+     * Only includes fields the backend knows about — subtitle styling is
+     * local-only and is NOT sent.
+     */
+    suspend fun syncSettingsToRemote() {
+        val session = accountRepo.currentSession ?: return
+        val settings = settingsPrefs.settings.first()
+        val body = settings.toSyncableJsonBody()
+        Log.d(TAG, "Pushing settings to remote")
+        val response = api.updateSettingsRaw(session.userId, "Bearer ${session.token}", body)
+        val responseBody = response.body()?.string()
+        Log.d(TAG, "Settings push response: ${response.code()} body=$responseBody")
     }
 }
