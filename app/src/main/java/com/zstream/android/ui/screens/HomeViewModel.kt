@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.zstream.android.data.TmdbRepository
 import com.zstream.android.data.local.entity.ProgressEntity
+import com.zstream.android.data.local.preferences.SettingsPreferences
 import com.zstream.android.data.model.Media
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.async
@@ -26,6 +27,7 @@ data class HomeState(
     val continueWatching: List<MediaSection> = emptyList(),
     val bookmarks: List<MediaSection> = emptyList(),
     val progressMap: Map<String, ProgressEntity> = emptyMap(),
+    val enableDiscover: Boolean = true,
     val activeTab: HomeTab = HomeTab.MOVIES,
     val selectedGenreId: Int? = null,
     val searchQuery: String = "",
@@ -58,6 +60,7 @@ class HomeViewModel @Inject constructor(
     private val repo: TmdbRepository,
     private val progressRepo: com.zstream.android.data.ProgressRepository,
     private val bookmarkRepo: com.zstream.android.data.BookmarkRepository,
+    private val settingsPrefs: SettingsPreferences,
 ) : ViewModel() {
     private val _state = MutableStateFlow(HomeState())
     val state = _state.asStateFlow()
@@ -65,6 +68,15 @@ class HomeViewModel @Inject constructor(
     init { 
         load()
         observeUserContent()
+        observeSettings()
+    }
+
+    private fun observeSettings() {
+        viewModelScope.launch {
+            settingsPrefs.settings.collect { s ->
+                _state.update { it.copy(enableDiscover = s.enableDiscover) }
+            }
+        }
     }
 
     private fun observeUserContent() {
