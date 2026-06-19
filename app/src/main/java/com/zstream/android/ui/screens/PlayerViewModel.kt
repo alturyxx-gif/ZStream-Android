@@ -6,15 +6,20 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.zstream.android.provider.ProviderEngine
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import org.json.JSONObject
+import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import com.zstream.android.data.local.preferences.SettingsPreferences
 import com.zstream.android.data.local.entity.SettingsEntity
-import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.stateIn
 
 enum class SourceStatus { TRYING, SUCCESS, FAILED }
 data class SourceResult(val id: String, val status: SourceStatus)
@@ -27,6 +32,8 @@ sealed class PlayerState {
 }
 
 data class SubtitleTrack(val label: String, val url: String, val language: String)
+
+data class SubtitleCue(val startMs: Long, val endMs: Long, val text: String)
 
 @HiltViewModel
 class PlayerViewModel @Inject constructor(
@@ -51,7 +58,18 @@ class PlayerViewModel @Inject constructor(
     private val _state = MutableStateFlow<PlayerState>(PlayerState.Idle)
     val state = _state.asStateFlow()
 
+    private val _subtitleCues = MutableStateFlow<List<SubtitleCue>>(emptyList())
+    val subtitleCues = _subtitleCues.asStateFlow()
+
+    private val _selectedSubtitleLang = MutableStateFlow<String?>(null)
+    val selectedSubtitleLang = _selectedSubtitleLang.asStateFlow()
+
     private val sources = mutableListOf<SourceResult>()
+
+    private val httpClient = OkHttpClient.Builder()
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(15, TimeUnit.SECONDS)
+        .build()
 
     init { load() }
 
@@ -97,13 +115,168 @@ class PlayerViewModel @Inject constructor(
                 }
 
                 val headers = parseStreamHeaders(streamUrl)
-                Log.d("PlayerVM", "parsed headers: $headers")
-                _state.value = PlayerState.Ready(streamUrl, headers, parseSubtitles(stream), sources.toList())
+                val subtitleTracks = parseSubtitles(stream)
+                Log.d("PlayerVM", "parsed headers: $headers, subtitles: ${subtitleTracks.size}")
+                _state.value = PlayerState.Ready(streamUrl, headers, subtitleTracks, sources.toList())
+
+                // Auto-select first subtitle track and download it
+                if (subtitleTracks.isNotEmpty()) {
+                    downloadAndParseSubtitles(subtitleTracks)
+                }
             }.onFailure {
                 Log.e("PlayerVM", "error: ${it.message}", it)
                 _state.value = PlayerState.Error(it.message ?: "Unknown error", sources.toList())
             }
         }
+    }
+
+    fun selectSubtitle(language: String) {
+        _selectedSubtitleLang.value = language
+        val state = _state.value
+        if (state is PlayerState.Ready) {
+            val track = state.subtitles.find { it.language == language || it.label == language }
+            if (track != null) {
+                downloadAndParseSubtitles(listOf(track))
+            }
+        }
+    }
+
+    fun disableSubtitles() {
+        _selectedSubtitleLang.value = null
+        _subtitleCues.value = emptyList()
+    }
+
+    private fun downloadAndParseSubtitles(tracks: List<SubtitleTrack>) {
+        viewModelScope.launch {
+            val settingsVal = settings.value
+            val preferredLang = settingsVal.defaultSubtitleLanguage
+            val track = if (!preferredLang.isNullOrBlank()) {
+                tracks.find { it.language == preferredLang || it.label == preferredLang }
+            } else null
+            val selected = track ?: tracks.firstOrNull()
+            if (selected == null) {
+                Log.d("PlayerVM", "downloadSubtitles: no tracks available")
+                return@launch
+            }
+
+            _selectedSubtitleLang.value = selected.language
+            Log.d("PlayerVM", "downloadSubtitles: selected lang=${selected.language} url=${selected.url}")
+
+            val cues = withContext(Dispatchers.IO) {
+                try {
+                    val raw = downloadSubtitleText(selected.url)
+                    Log.d("PlayerVM", "downloadSubtitles: downloaded ${raw.length} chars")
+                    val parsed = parseSubtitleText(raw)
+                    Log.d("PlayerVM", "downloadSubtitles: parsed ${parsed.size} cues")
+                    parsed.take(5).forEach { c ->
+                        Log.d("PlayerVM", "  cue: ${c.startMs}->${c.endMs} '${c.text.take(50)}'")
+                    }
+                    parsed
+                } catch (e: Exception) {
+                    Log.e("PlayerVM", "download/parse subtitle failed: ${e.message}", e)
+                    emptyList()
+                }
+            }
+            _subtitleCues.value = cues
+            Log.d("PlayerVM", "loaded ${cues.size} subtitle cues for ${selected.language}")
+        }
+    }
+
+    private suspend fun downloadSubtitleText(url: String): String = withContext(Dispatchers.IO) {
+        val request = Request.Builder()
+            .url(url)
+            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36")
+            .build()
+        val response = httpClient.newCall(request).execute()
+        response.body?.string() ?: throw Exception("Empty subtitle response")
+    }
+
+    /** Parse SRT or VTT subtitle text into timed cues */
+    internal fun parseSubtitleText(text: String): List<SubtitleCue> {
+        val trimmed = text.trim()
+        val isVtt = trimmed.startsWith("WEBVTT")
+        return if (isVtt) parseVtt(trimmed) else parseSrt(trimmed)
+    }
+
+    private fun parseSrt(text: String): List<SubtitleCue> {
+        val blocks = text.split(Regex("\n\\s*\n"))
+        val cues = mutableListOf<SubtitleCue>()
+        val timeRegex = Regex(
+            """(\d{1,2}):(\d{2}):(\d{2})[,.](\d{1,3})\s*-->\s*(\d{1,2}):(\d{2}):(\d{2})[,.](\d{1,3})"""
+        )
+        for (block in blocks) {
+            val lines = block.trim().lines()
+            if (lines.size < 2) continue
+            val timeMatch = timeRegex.find(lines[1] ?: continue) ?: continue
+            val startMs = timeToMs(
+                timeMatch.groupValues[1].toInt(),
+                timeMatch.groupValues[2].toInt(),
+                timeMatch.groupValues[3].toInt(),
+                timeMatch.groupValues[4].toInt()
+            )
+            val endMs = timeToMs(
+                timeMatch.groupValues[5].toInt(),
+                timeMatch.groupValues[6].toInt(),
+                timeMatch.groupValues[7].toInt(),
+                timeMatch.groupValues[8].toInt()
+            )
+            val text = lines.drop(2).joinToString("\n").trim()
+            if (text.isNotEmpty()) {
+                cues.add(SubtitleCue(startMs, endMs, text))
+            }
+        }
+        return cues
+    }
+
+    private fun parseVtt(text: String): List<SubtitleCue> {
+        val body = text.substringAfter("WEBVTT")
+            .substringAfter("\n")
+            .trim()
+        val blocks = body.split(Regex("\n\\s*\n"))
+        val cues = mutableListOf<SubtitleCue>()
+        val timeRegex = Regex(
+            """(\d{1,2}):(\d{2}):(\d{2})[.](\d{1,3})\s*-->\s*(\d{1,2}):(\d{2}):(\d{2})[.](\d{1,3})"""
+        )
+        val timeRegexMin = Regex(
+            """(\d{1,2}):(\d{2})[.](\d{1,3})\s*-->\s*(\d{1,2}):(\d{2})[.](\d{1,3})"""
+        )
+        for (block in blocks) {
+            val lines = block.trim().lines()
+            if (lines.size < 2) continue
+            val timeLine = lines.first { it.contains("-->") }
+            val timeMatch = timeRegex.find(timeLine) ?: timeRegexMin.find(timeLine) ?: continue
+            val startMs = if (timeMatch.groupValues.size >= 9) {
+                timeToMs(
+                    timeMatch.groupValues[1].toInt(),
+                    timeMatch.groupValues[2].toInt(),
+                    timeMatch.groupValues[3].toInt(),
+                    timeMatch.groupValues[4].toInt()
+                )
+            } else {
+                timeToMs(0, timeMatch.groupValues[1].toInt(), timeMatch.groupValues[2].toInt(), timeMatch.groupValues[3].toInt())
+            }
+            val endMs = if (timeMatch.groupValues.size >= 17) {
+                timeToMs(
+                    timeMatch.groupValues[9].toInt(),
+                    timeMatch.groupValues[10].toInt(),
+                    timeMatch.groupValues[11].toInt(),
+                    timeMatch.groupValues[12].toInt()
+                )
+            } else {
+                timeToMs(0, timeMatch.groupValues[4].toInt(), timeMatch.groupValues[5].toInt(), timeMatch.groupValues[6].toInt())
+            }
+            // Skip cue settings (lines starting with "align:" etc) and WebVTT metadata
+            val textLines = lines.dropWhile { it.contains("-->") || it.contains(":") || it.startsWith("NOTE") }
+            val text = textLines.joinToString("\n").trim()
+            if (text.isNotEmpty()) {
+                cues.add(SubtitleCue(startMs, endMs, text))
+            }
+        }
+        return cues
+    }
+
+    private fun timeToMs(h: Int, m: Int, s: Int, ms: Int): Long {
+        return h.toLong() * 3600000 + m.toLong() * 60000 + s.toLong() * 1000 + ms.toLong()
     }
 
     private fun handleEvent(evt: JSONObject) {

@@ -10,6 +10,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeout
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.coroutines.resume
 
 private const val TAG = "StreamExtractor"
@@ -30,11 +31,21 @@ private const val TAG = "StreamExtractor"
 class StreamExtractor(private val activity: Activity) {
 
     /**
+     * Set during [extract] when the WebView makes a request to the vidlink API
+     * (pattern: vidlink.pro/api/b/…). Contains the full API URL with the encrypted
+     * TMDB ID, ready to be fetched by [ProviderEngine] to obtain caption data.
+     */
+    @Volatile
+    var vidlinkApiUrl: String? = null
+        private set
+
+    /**
      * @return the discovered stream URL, or null if none was found within [timeoutMs].
      */
     suspend fun extract(source: StreamSource, media: MediaRequest, timeoutMs: Long = 60_000L): String? {
         val embedUrl = source.embedUrl(media)
         Log.d(TAG, "[${source.id}] loading embed: $embedUrl")
+        vidlinkApiUrl = null
 
         return withTimeout(timeoutMs) {
             suspendCancellableCoroutine { cont ->
@@ -50,6 +61,11 @@ class StreamExtractor(private val activity: Activity) {
 
                 activity.runOnUiThread {
                     webView = createWebView { url ->
+                        Log.d(TAG, "[${source.id}] request: $url")
+                        if (url.contains("vidlink.pro/api/b/")) {
+                            vidlinkApiUrl = url
+                            Log.d(TAG, "[${source.id}] captured vidlink API URL: $url")
+                        }
                         if (!source.isStreamUrl(url)) return@createWebView false
                         Log.d(TAG, "[${source.id}] stream found: $url")
                         finish(url)
