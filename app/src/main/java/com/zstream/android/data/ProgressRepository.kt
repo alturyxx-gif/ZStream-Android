@@ -48,6 +48,13 @@ class ProgressRepository @Inject constructor(
     }
 
     /**
+     * Get all progress entries for a specific tmdbId (all episodes of a show).
+     */
+    fun observeAllProgressForTmdb(tmdbId: String): Flow<List<ProgressEntity>> {
+        return progressDao.observeAllByTmdbId(tmdbId)
+    }
+
+    /**
      * Get progress for movies only
      */
     fun observeMovieProgress(): Flow<List<ProgressEntity>> {

@@ -12,9 +12,11 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -85,6 +87,7 @@ fun DetailScreen(nav: NavController, vm: DetailViewModel = hiltViewModel()) {
     ).bookmarkRepository()
 
     val progress by vm.progress.collectAsState()
+    val allProgress by vm.allProgress.collectAsState()
     val hasProgress = progress?.let { it.watched >= 20 } ?: false
 
     when (val s = state) {
@@ -102,7 +105,7 @@ fun DetailScreen(nav: NavController, vm: DetailViewModel = hiltViewModel()) {
             MovieDetailModal(s, nav, context, theme, bookmarkRepo, hasProgress)
         }
         is DetailState.Tv -> {
-            TvDetailModal(s, vm, nav, context, theme, bookmarkRepo, hasProgress, progress)
+            TvDetailModal(s, vm, nav, context, theme, bookmarkRepo, hasProgress, progress, allProgress)
         }
     }
 }
@@ -254,6 +257,7 @@ private fun TvDetailModal(
     bookmarkRepo: com.zstream.android.data.BookmarkRepository,
     hasProgress: Boolean,
     progress: com.zstream.android.data.local.entity.ProgressEntity?,
+    allProgress: List<com.zstream.android.data.local.entity.ProgressEntity>,
 ) {
     val d = state.detail
     val season = state.selectedSeason
@@ -333,7 +337,11 @@ private fun TvDetailModal(
         Spacer(Modifier.height(16.dp))
         season?.episodes?.let { episodes ->
             SectionHeader("Episodes", theme)
-            episodes.forEach { ep -> EpisodeRow(ep, d.id, d.name, d.posterPath, nav, theme) }
+            val progressMap = allProgress.filter { it.seasonNumber == selectedSeasonNum }
+                .associateBy { it.episodeNumber }
+            episodes.forEach { ep ->
+                EpisodeRow(ep, d.id, d.name, d.posterPath, nav, theme, progressMap[ep.episodeNumber])
+            }
         }
         
         SectionHeader("Cast", theme)
@@ -390,19 +398,83 @@ private fun BoxScope.MinimalTVDetails(
 }
 
 @Composable
-private fun EpisodeRow(ep: Episode, showId: Int, title: String, posterPath: String?, nav: NavController, theme: com.zstream.android.theme.ZStreamTheme) {
-    Row(
+private fun EpisodeRow(
+    ep: Episode,
+    showId: Int,
+    title: String,
+    posterPath: String?,
+    nav: NavController,
+    theme: com.zstream.android.theme.ZStreamTheme,
+    episodeProgress: com.zstream.android.data.local.entity.ProgressEntity?,
+) {
+    val pct = if (episodeProgress != null && episodeProgress.duration > 0) {
+        ((episodeProgress.watched.toFloat() / episodeProgress.duration) * 100f).coerceIn(0f, 100f)
+    } else 0f
+
+    Box(
         Modifier
             .fillMaxWidth()
-            .clickable { nav.navigate("player/tv/$showId?season=${ep.seasonNumber}&episode=${ep.episodeNumber}&title=${title.encode()}&year=${ep.airDate?.take(4)?.toIntOrNull() ?: 0}&poster=${posterPath?.encode() ?: ""}") }
-            .padding(horizontal = 32.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .padding(horizontal = 32.dp, vertical = 4.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(theme.colors.modal.background)
+            .clickable {
+                nav.navigate("player/tv/$showId?season=${ep.seasonNumber}&episode=${ep.episodeNumber}&title=${title.encode()}&year=${ep.airDate?.take(4)?.toIntOrNull() ?: 0}&poster=${posterPath?.encode() ?: ""}")
+            }
     ) {
-        AsyncImage(model = ep.stillPath?.let { "${Urls.TMDB_IMAGE}w185$it" }, contentDescription = null, modifier = Modifier.size(80.dp, 56.dp).clip(RoundedCornerShape(4.dp)), contentScale = ContentScale.Crop)
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) {
-            Text("${ep.episodeNumber}. ${ep.name.orEmpty()}", maxLines = 1, overflow = TextOverflow.Ellipsis, color = theme.colors.type.emphasis)
-            ep.overview?.takeIf { it.isNotBlank() }?.let { Text(it, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = theme.colors.type.text) }
+        Row(Modifier.fillMaxWidth()) {
+            Box(
+                Modifier
+                    .width(120.dp)
+                    .fillMaxHeight()
+            ) {
+                AsyncImage(
+                    model = ep.stillPath?.let { "${Urls.TMDB_IMAGE}w185$it" },
+                    contentDescription = null,
+                    modifier = Modifier
+                        .size(width = 130.dp, height = 100.dp)
+                        .clip(RoundedCornerShape(topStart = 12.dp, bottomStart = 12.dp)),
+                    contentScale = ContentScale.Crop
+                )
+            }
+
+            Column(Modifier.weight(1f).padding(12.dp)) {
+                Text(
+                    "E${ep.episodeNumber}. ${ep.name.orEmpty()}",
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    color = theme.colors.type.emphasis,
+                    fontWeight = FontWeight.Medium
+                )
+                ep.overview?.takeIf { it.isNotBlank() }?.let {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        it,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = theme.colors.type.text
+                    )
+                    Spacer(Modifier.height(4.dp))
+                }
+            }
+        }
+
+        if (pct > 0f) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(4.dp)
+                    .align(Alignment.BottomCenter)
+                    .background(Color(0xFF8D8D8D).copy(alpha = 0.25f))
+            ) {
+                Box(
+                    Modifier
+                        .fillMaxWidth(fraction = pct / 100f)
+                        .height(4.dp)
+                        .align(Alignment.CenterStart)
+                        .background(Color(0xFF5A62EB))
+                )
+            }
         }
     }
 }
