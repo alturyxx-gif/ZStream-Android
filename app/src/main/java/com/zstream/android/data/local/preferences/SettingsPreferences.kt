@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.zstream.android.data.local.entity.SettingsEntity
+import com.zstream.android.di.TmdbTokenCache
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -65,6 +66,7 @@ class SettingsPreferences @Inject constructor(
     private val KEY_DEBRID_SERVICE = stringPreferencesKey("debrid_service")
     private val KEY_TIDB_KEY = stringPreferencesKey("tidb_key")
     private val KEY_PROXY_TMDB = booleanPreferencesKey("proxy_tmdb")
+    private val KEY_TMDB_API_KEY = stringPreferencesKey("tmdb_api_key")
 
     // Interface
     private val KEY_HOME_SECTION_ORDER = stringPreferencesKey("home_section_order")
@@ -123,6 +125,7 @@ class SettingsPreferences @Inject constructor(
             debridService = prefs[KEY_DEBRID_SERVICE] ?: "realdebrid",
             tidbKey = prefs[KEY_TIDB_KEY],
             proxyTmdb = prefs[KEY_PROXY_TMDB] ?: false,
+            tmdbApiKey = prefs[KEY_TMDB_API_KEY],
             homeSectionOrder = prefs[KEY_HOME_SECTION_ORDER]?.split(",")?.filter { it.isNotBlank() } ?: emptyList(),
             forceCompactEpisodeView = prefs[KEY_FORCE_COMPACT_EPISODE_VIEW] ?: false,
             enableAutoResumeOnPlaybackError = prefs[KEY_ENABLE_AUTO_RESUME_ON_PLAYBACK_ERROR] ?: true,
@@ -137,7 +140,9 @@ class SettingsPreferences @Inject constructor(
             subtitleBorderThickness = prefs[KEY_SUBTITLE_BORDER_THICKNESS]?.toFloatOrNull() ?: 1f,
             subtitleLineHeight = prefs[KEY_SUBTITLE_LINE_HEIGHT]?.toFloatOrNull() ?: 1.5f,
             subtitleFont = prefs[KEY_SUBTITLE_FONT] ?: "sans-serif",
-        )
+        ).also { entity ->
+            TmdbTokenCache.token = entity.tmdbApiKey
+        }
     }
 
     // Individual setter functions for each setting
@@ -184,6 +189,13 @@ class SettingsPreferences @Inject constructor(
             prefs[KEY_DEBRID_SERVICE] = entity.debridService
             if (entity.tidbKey != null) prefs[KEY_TIDB_KEY] = entity.tidbKey else prefs.remove(KEY_TIDB_KEY)
             prefs[KEY_PROXY_TMDB] = entity.proxyTmdb
+            if (entity.tmdbApiKey != null) {
+                prefs[KEY_TMDB_API_KEY] = entity.tmdbApiKey
+                TmdbTokenCache.token = entity.tmdbApiKey
+            } else {
+                prefs.remove(KEY_TMDB_API_KEY)
+                TmdbTokenCache.token = null
+            }
             prefs[KEY_HOME_SECTION_ORDER] = entity.homeSectionOrder.joinToString(",")
             prefs[KEY_FORCE_COMPACT_EPISODE_VIEW] = entity.forceCompactEpisodeView
             prefs[KEY_ENABLE_AUTO_RESUME_ON_PLAYBACK_ERROR] = entity.enableAutoResumeOnPlaybackError
@@ -226,6 +238,7 @@ class SettingsPreferences @Inject constructor(
             val currentBorderThickness = current[KEY_SUBTITLE_BORDER_THICKNESS]?.toFloatOrNull() ?: 1f
             val currentLineHeight = current[KEY_SUBTITLE_LINE_HEIGHT]?.toFloatOrNull() ?: 1.5f
             val currentFont = current[KEY_SUBTITLE_FONT] ?: "sans-serif"
+            val currentTmdbApiKey = current[KEY_TMDB_API_KEY]
 
             updateSettings(SettingsEntity(
                 applicationTheme = remote.applicationTheme ?: "dark",
@@ -260,6 +273,7 @@ class SettingsPreferences @Inject constructor(
                 debridService = remote.debridService ?: "realdebrid",
                 tidbKey = remote.tidbKey,
                 proxyTmdb = remote.proxyTmdb ?: false,
+                tmdbApiKey = currentTmdbApiKey,
                 homeSectionOrder = remote.homeSectionOrder ?: emptyList(),
                 forceCompactEpisodeView = remote.forceCompactEpisodeView ?: false,
                 enableAutoResumeOnPlaybackError = remote.enableAutoResumeOnPlaybackError ?: true,
@@ -486,5 +500,17 @@ class SettingsPreferences @Inject constructor(
 
     suspend fun setSubtitleFont(font: String) {
         context.settingsStore.edit { prefs -> prefs[KEY_SUBTITLE_FONT] = font }
+    }
+
+    suspend fun setTmdbApiKey(key: String?) {
+        context.settingsStore.edit { prefs ->
+            if (key != null) {
+                prefs[KEY_TMDB_API_KEY] = key
+                TmdbTokenCache.token = key
+            } else {
+                prefs.remove(KEY_TMDB_API_KEY)
+                TmdbTokenCache.token = null
+            }
+        }
     }
 }

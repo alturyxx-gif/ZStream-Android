@@ -53,6 +53,7 @@ data class SettingsEntity(
     val debridService: String = "realdebrid",
     val tidbKey: String? = null,
     val proxyTmdb: Boolean = false,
+    val tmdbApiKey: String? = null,
 
     // Subtitle Styling
     val subtitleColor: String = "#ffffff",
