@@ -19,10 +19,12 @@ android {
         versionName = "1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        val props = Properties().also { p ->
-            rootProject.file("local.properties").inputStream().use { p.load(it) }
+        val props = Properties()
+        val localProps = rootProject.file("local.properties")
+        if (localProps.exists()) {
+            localProps.inputStream().use { props.load(it) }
         }
-        buildConfigField("String", "TMDB_TOKEN", "\"${props["tmdb.read_token"]}\"")
+        buildConfigField("String", "TMDB_API_KEY", "\"${props.getProperty("tmdb.api_key", "84259f99204eeb7d45c7e3d8e36c6123")}\"")
     }
 
     signingConfigs {
