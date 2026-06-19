@@ -4,6 +4,7 @@ import android.app.Activity
 import android.app.PictureInPictureParams
 import android.content.pm.ActivityInfo
 import android.os.Build
+import android.util.Log
 import android.util.Rational
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.WindowManager
@@ -196,12 +197,20 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     }
                 }
 
+                var currentPositionMs by remember { mutableLongStateOf(0L) }
+
+                // Collect player position for subtitle timing
+                LaunchedEffect(player) {
+                    while (true) {
+                        currentPositionMs = player.currentPosition.coerceAtLeast(0)
+                        kotlinx.coroutines.delay(250)
+                    }
+                }
+
                 // Show resume dialog based on initial snapshot only
                 LaunchedEffect(initialShouldResume) {
                     if (initialShouldResume && !resumeHandled) showResumeDialog = true
                 }
-
-                var subtitleCues by remember { mutableStateOf<List<androidx.media3.common.text.Cue>>(emptyList()) }
 
                 // Seek to resume position once player is ready
                 DisposableEffect(player) {
@@ -211,10 +220,6 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                                 player.seekTo(pendingResumeMs)
                                 pendingResumeMs = -1L
                             }
-                        }
-
-                        override fun onCues(cues: List<androidx.media3.common.text.Cue>) {
-                            subtitleCues = cues
                         }
                     }
                     player.addListener(listener)
@@ -320,8 +325,18 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     modifier = Modifier.fillMaxSize()
                 )
 
-                // Custom Subtitle Overlay
-                if (!settings.enableNativeSubtitles && subtitleCues.isNotEmpty()) {
+                // Custom Subtitle Overlay — using downloaded + parsed cues with timing
+                val vmCues by vm.subtitleCues.collectAsState()
+                val visibleCues = remember(vmCues, currentPositionMs) {
+                    if (vmCues.isEmpty()) emptyList()
+                    else vmCues.filter { cue ->
+                        currentPositionMs in cue.startMs..<cue.endMs
+                    }
+                }
+                val selectedLang by vm.selectedSubtitleLang.collectAsState()
+
+                if (!settings.enableNativeSubtitles && selectedLang != null && visibleCues.isNotEmpty()) {
+                    Log.d("PlayerScreen", "rendering ${visibleCues.size} cues at ${currentPositionMs}ms")
                     val textColor = Color(android.graphics.Color.parseColor(settings.subtitleColor))
                     val bgAlpha = settings.subtitleBackgroundOpacity.coerceIn(0f, 1f)
                     val fontSize = (settings.subtitleSize * 18).sp
@@ -351,34 +366,48 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            subtitleCues.forEach { cue ->
-                                cue.text?.let { cueText ->
-                                    Box(
-                                        Modifier
-                                            .background(
-                                                Color.Black.copy(alpha = bgAlpha),
-                                                RoundedCornerShape(6.dp)
-                                            )
-                                            .padding(horizontal = 16.dp, vertical = 8.dp)
-                                    ) {
-                                        Text(
-                                            text = cueText.toString(),
-                                            color = textColor,
-                                            fontSize = fontSize,
-                                            fontWeight = if (settings.subtitleBold) FontWeight.Bold else FontWeight.Normal,
-                                            fontFamily = fontFamily,
-                                            lineHeight = lineHeight,
-                                            textAlign = TextAlign.Center,
-                                            style = TextStyle(shadow = subtitleShadow)
+                            visibleCues.forEach { cue ->
+                                Box(
+                                    Modifier
+                                        .background(
+                                            Color.Black.copy(alpha = bgAlpha),
+                                            RoundedCornerShape(6.dp)
                                         )
-                                    }
+                                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                                ) {
+                                    Text(
+                                        text = cue.text,
+                                        color = textColor,
+                                        fontSize = fontSize,
+                                        fontWeight = if (settings.subtitleBold) FontWeight.Bold else FontWeight.Normal,
+                                        fontFamily = fontFamily,
+                                        lineHeight = lineHeight,
+                                        textAlign = TextAlign.Center,
+                                        style = TextStyle(shadow = subtitleShadow)
+                                    )
                                 }
                             }
                         }
                     }
                 }
 
-                PlayerControls(player, vm.title, onBack = { nav.popBackStack() }, onPip = {
+                PlayerControls(
+                    player, vm.title,
+                    subtitlesEnabled = selectedLang != null,
+                    onToggleSubtitles = {
+                        if (selectedLang != null) {
+                            Log.d("PlayerScreen", "toggling subtitles OFF")
+                            vm.disableSubtitles()
+                        } else {
+                            Log.d("PlayerScreen", "toggling subtitles ON")
+                            val state = vm.state.value
+                            if (state is PlayerState.Ready && state.subtitles.isNotEmpty()) {
+                                vm.selectSubtitle(state.subtitles.first().language)
+                            }
+                        }
+                    },
+                    onBack = { nav.popBackStack() },
+                    onPip = {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
                         activity?.enterPictureInPictureMode(PictureInPictureParams.Builder().setAspectRatio(Rational(16, 9)).build())
                 })
@@ -417,7 +446,14 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
 }
 
 @Composable
-private fun PlayerControls(player: ExoPlayer, title: String, onBack: () -> Unit, onPip: () -> Unit) {
+private fun PlayerControls(
+    player: ExoPlayer,
+    title: String,
+    subtitlesEnabled: Boolean = false,
+    onToggleSubtitles: () -> Unit = {},
+    onBack: () -> Unit,
+    onPip: () -> Unit,
+) {
     var isPlaying by remember { mutableStateOf(player.isPlaying) }
     var positionMs by remember { mutableLongStateOf(0L) }
     var durationMs by remember { mutableLongStateOf(0L) }
@@ -574,8 +610,11 @@ private fun PlayerControls(player: ExoPlayer, title: String, onBack: () -> Unit,
                         Spacer(Modifier.width(4.dp))
                         Text("${formatTime(positionMs)} / ${formatTime(durationMs)}", color = Color.White, fontSize = 12.sp)
                         Spacer(Modifier.weight(1f))
-                        DrawableControlIcon(R.drawable.ic_player_captions) {}
-                        DrawableControlIcon(R.drawable.ic_player_expand) {}
+                        DrawableControlIcon(R.drawable.ic_player_captions) {
+                            onToggleSubtitles()
+                        }
+                        DrawableControlIcon(R.drawable.ic_player_expand) {
+                            onPip()}
                         Spacer(Modifier.width(BOTTOM_RIGHT_END_PADDING))
                     }
                 }
