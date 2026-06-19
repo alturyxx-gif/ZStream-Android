@@ -510,7 +510,7 @@ private fun SubtitlePreview(settings: SettingsEntity, theme: ZStreamTheme, vm: S
             modifier = Modifier.align(Alignment.TopCenter).padding(top = 8.dp)
         )
 
-        // ── Subtitle preview (native or custom) ──────────────────────────────
+        //  Subtitle preview (native or custom)
         val previewLabel = if (settings.enableNativeSubtitles)
             "Native subtitle sample text" else sampleText
 
@@ -737,7 +737,7 @@ private fun SubtitlesSettingsContent(settings: SettingsEntity, theme: ZStreamThe
                 ToggleRow("Bold", null, settings.subtitleBold, vm::setSubtitleBold, theme = theme)
                 HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                 
-                // ── Color picker ─────────────────────────────────────────────
+                //  Color picker
                 var showColorPicker by remember { mutableStateOf(false) }
                 val currentSubColor = Color(android.graphics.Color.parseColor(settings.subtitleColor))
 

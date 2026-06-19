@@ -9,6 +9,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.zstream.android.data.local.entity.SettingsEntity
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -207,10 +208,25 @@ class SettingsPreferences @Inject constructor(
 
     /**
      * Fetch settings from remote and update local DataStore
+     * Preserves local-only fields (subtitle styling) that are not synced from backend.
      */
     suspend fun syncFromRemote(userId: String, auth: String, api: com.zstream.android.data.remote.BackendApi) {
         try {
             val remote = api.getSettings(userId, auth)
+            // Read current local settings first to preserve local-only fields
+            val current = context.settingsStore.data.first()
+            val currentColor = current[KEY_SUBTITLE_COLOR] ?: "#ffffff"
+            val currentSize = current[KEY_SUBTITLE_SIZE]?.toFloatOrNull() ?: 1f
+            val currentBgOpacity = current[KEY_SUBTITLE_BACKGROUND_OPACITY]?.toFloatOrNull() ?: 0.5f
+            val currentBgBlur = current[KEY_SUBTITLE_BACKGROUND_BLUR]?.toFloatOrNull() ?: 0.5f
+            val currentBgBlurEnabled = current[KEY_SUBTITLE_BACKGROUND_BLUR_ENABLED] ?: true
+            val currentBold = current[KEY_SUBTITLE_BOLD] ?: false
+            val currentVPos = current[KEY_SUBTITLE_VERTICAL_POSITION]?.toFloatOrNull() ?: 1f
+            val currentFontStyle = current[KEY_SUBTITLE_FONT_STYLE] ?: "default"
+            val currentBorderThickness = current[KEY_SUBTITLE_BORDER_THICKNESS]?.toFloatOrNull() ?: 1f
+            val currentLineHeight = current[KEY_SUBTITLE_LINE_HEIGHT]?.toFloatOrNull() ?: 1.5f
+            val currentFont = current[KEY_SUBTITLE_FONT] ?: "sans-serif"
+
             updateSettings(SettingsEntity(
                 applicationTheme = remote.applicationTheme ?: "dark",
                 applicationLanguage = remote.applicationLanguage ?: "en",
@@ -247,8 +263,19 @@ class SettingsPreferences @Inject constructor(
                 homeSectionOrder = remote.homeSectionOrder ?: emptyList(),
                 forceCompactEpisodeView = remote.forceCompactEpisodeView ?: false,
                 enableAutoResumeOnPlaybackError = remote.enableAutoResumeOnPlaybackError ?: true,
+                subtitleColor = currentColor,
+                subtitleSize = currentSize,
+                subtitleBackgroundOpacity = currentBgOpacity,
+                subtitleBackgroundBlur = currentBgBlur,
+                subtitleBackgroundBlurEnabled = currentBgBlurEnabled,
+                subtitleBold = currentBold,
+                subtitleVerticalPosition = currentVPos,
+                subtitleFontStyle = currentFontStyle,
+                subtitleBorderThickness = currentBorderThickness,
+                subtitleLineHeight = currentLineHeight,
+                subtitleFont = currentFont,
             ), syncToRemote = false)
-            Log.d("SettingsPreferences", "Successfully synced settings from remote")
+            Log.d("SettingsPreferences", "Successfully synced settings from remote (subtitle styling preserved)")
         } catch (e: Exception) {
             Log.e("SettingsPreferences", "Failed to sync settings from remote", e)
         }

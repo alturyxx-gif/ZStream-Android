@@ -146,9 +146,9 @@ class ProviderEngine @Inject constructor() {
                 val c = captions.optJSONObject(i) ?: continue
                 val url = c.optString("url").takeIf { it.isNotBlank() } ?: continue
                 val lang = c.optString("language", "Unknown")
-                val langIso = c.optString("langIso", "")
+                val langIso = c.optString("langIso").takeIf { it.isNotBlank() } ?: lang
                 val type = c.optString("type", "vtt")
-                Log.d(TAG, "fetchCaptions: caption #$i lang=$lang url=$url")
+                Log.d(TAG, "fetchCaptions: caption #$i lang=$lang langIso=$langIso url=$url")
                 mapped.put(JSONObject().apply {
                     put("url", url)
                     put("language", lang)

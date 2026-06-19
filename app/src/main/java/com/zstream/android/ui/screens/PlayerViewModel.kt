@@ -342,7 +342,9 @@ class PlayerViewModel @Inject constructor(
         return (0 until arr.length()).mapNotNull { i ->
             val obj = arr.optJSONObject(i) ?: return@mapNotNull null
             val url = obj.optString("url").takeIf { it.isNotEmpty() } ?: return@mapNotNull null
-            SubtitleTrack(obj.optString("language", "Unknown"), url, obj.optString("langIso", ""))
+            val label = obj.optString("language", "Unknown")
+            val language = obj.optString("langIso").takeIf { it.isNotBlank() } ?: label
+            SubtitleTrack(label, url, language)
         }
     }
 }
