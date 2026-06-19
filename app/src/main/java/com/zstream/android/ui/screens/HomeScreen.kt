@@ -46,6 +46,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import com.zstream.android.R
 import com.zstream.android.Urls
+import com.zstream.android.data.local.entity.ProgressEntity
 import com.zstream.android.data.model.Media
 import com.zstream.android.theme.LocalZStreamTheme
 import kotlinx.coroutines.Dispatchers
@@ -300,7 +301,7 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
                                     else -> true
                                 }
                             }
-                        ) { section -> MediaCarouselSection(section, nav) }
+                        ) { section -> MediaCarouselSection(section, nav, progressMap = state.progressMap) }
 
                         item { Spacer(Modifier.height(16.dp)) }
                         item { HomeTabs(state.activeTab, vm::setTab) }
@@ -311,7 +312,7 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
                                 section.items.filter { it.genreIds?.contains(state.selectedGenreId) == true }
                             else section.items
                             section.copy(items = filtered)
-                        }.filter { it.items.isNotEmpty() }) { section -> MediaCarouselSection(section, nav) }
+                        }.filter { it.items.isNotEmpty() }) { section -> MediaCarouselSection(section, nav, progressMap = state.progressMap) }
                     }
                 }
             }
@@ -372,7 +373,7 @@ private fun SearchResultsGrid(results: List<Media>, nav: NavController) {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 row.forEach { media ->
                     Box(modifier = Modifier.weight(1f)) {
-                        MediaCard(media) { nav.navigate("detail/${media.type}/${media.id}") }
+                        MediaCard(media = media, onClick = { nav.navigate("detail/${media.type}/${media.id}") })
                     }
                 }
                 // Fill empty slots in last row
@@ -770,7 +771,11 @@ private fun HomeTabs(activeTab: HomeTab, onTab: (HomeTab) -> Unit) {
 }
 
 @Composable
-private fun MediaCarouselSection(section: MediaSection, nav: NavController) {
+private fun MediaCarouselSection(
+    section: MediaSection,
+    nav: NavController,
+    progressMap: Map<String, ProgressEntity> = emptyMap(),
+) {
     val theme = LocalZStreamTheme.current
     Column(modifier = Modifier.padding(bottom = 24.dp)) {
         Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
@@ -780,10 +785,31 @@ private fun MediaCarouselSection(section: MediaSection, nav: NavController) {
 
         LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             items(section.items) { media ->
-                MediaCard(media) { nav.navigate("detail/${media.type}/${media.id}") }
+                val progress = progressMap[media.id.toString()]
+                val progressInfo = progress?.let { getProgressInfo(it) }
+                MediaCard(
+                    media = media,
+                    onClick = { nav.navigate("detail/${media.type}/${media.id}") },
+                    percentage = progressInfo?.first,
+                    seriesLabel = progressInfo?.second,
+                )
             }
         }
     }
+}
+
+/**
+ * Compute progress bar percentage and optional SE label from a ProgressEntity.
+ * Returns null if progress should not be shown (not started, completed >95%, no duration).
+ */
+private fun getProgressInfo(p: ProgressEntity): Pair<Float, String?>? {
+    if (p.watched <= 0 || p.duration <= 0) return null
+    val percentage = ((p.watched.toFloat() / p.duration) * 100f).coerceIn(0f, 100f)
+    if (percentage >= 95f) return null
+    val seriesLabel = if (p.type == "show" && p.seasonNumber != null && p.episodeNumber != null) {
+        "S${p.seasonNumber} - E${p.episodeNumber}"
+    } else null
+    return percentage to seriesLabel
 }
 
 @Composable
