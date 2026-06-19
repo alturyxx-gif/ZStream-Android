@@ -30,6 +30,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
@@ -978,7 +979,48 @@ private fun ConnectionsSection(settings: SettingsEntity, theme: ZStreamTheme, vm
         }
 
         Spacer(Modifier.height(16.dp))
-        SectionLabel("Febbox / Aurora API", theme)
+        SectionLabel("TMDB API Key", theme)
+        SettingsCard(theme) {
+            var showTmdbInput by remember { mutableStateOf(settings.tmdbApiKey != null) }
+
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Top,
+            ) {
+                Column(Modifier.weight(1f).padding(end = 12.dp)) {
+                    Text("TMDB Token", color = theme.colors.type.text, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    if (showTmdbInput) {
+                        Spacer(Modifier.height(6.dp))
+                        var input by remember(settings.tmdbApiKey) { mutableStateOf(settings.tmdbApiKey ?: "") }
+                        BasicTextField(
+                            value = input,
+                            onValueChange = { input = it; vm.setTmdbApiKey(it.ifBlank { null }) },
+                            singleLine = true,
+                            cursorBrush = SolidColor(Color.White),
+                            textStyle = TextStyle(
+                                color = theme.colors.type.text, fontSize = 13.sp,
+                            ),
+                            modifier = Modifier.fillMaxWidth().background(
+                                theme.colors.background.secondary, RoundedCornerShape(8.dp)
+                            ).padding(10.dp),
+                        )
+                    }
+                }
+                if (!showTmdbInput) {
+                    TextButton(onClick = { showTmdbInput = true }) {
+                        Text("Set", color = theme.colors.global.accentA, fontSize = 13.sp)
+                    }
+                } else if (settings.tmdbApiKey != null) {
+                    TextButton(onClick = { vm.setTmdbApiKey(null); showTmdbInput = false }) {
+                        Text("Remove", color = theme.colors.buttons.danger, fontSize = 13.sp)
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
+        SectionLabel("Febbox / Aurora API (unimplemented)", theme)
         SettingsCard(theme) {
             var showInstructions by remember { mutableStateOf(settings.febboxKey != null) }
 

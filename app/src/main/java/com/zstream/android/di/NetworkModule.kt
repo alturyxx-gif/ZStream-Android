@@ -31,8 +31,10 @@ object NetworkModule {
     fun tmdbRetrofit(client: OkHttpClient): Retrofit = Retrofit.Builder()
         .baseUrl(Urls.TMDB_BASE)
         .client(client.newBuilder().addInterceptor { chain ->
-            chain.proceed(chain.request().newBuilder()
-                .header("Authorization", "Bearer ${BuildConfig.TMDB_TOKEN}").build())
+            val key = TmdbTokenCache.token ?: BuildConfig.TMDB_API_KEY
+            val original = chain.request()
+            val url = original.url.newBuilder().addQueryParameter("api_key", key).build()
+            chain.proceed(original.newBuilder().url(url).build())
         }.build())
         .addConverterFactory(GsonConverterFactory.create())
         .build()

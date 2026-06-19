@@ -146,6 +146,10 @@ class SettingsViewModel @Inject constructor(
         update { copy(proxyTmdb = v) }
     }
 
+    fun setTmdbApiKey(key: String?) {
+        update { copy(tmdbApiKey = key) }
+    }
+
     fun setFebboxKey(key: String?) {
         update { copy(febboxKey = key) }
     }
