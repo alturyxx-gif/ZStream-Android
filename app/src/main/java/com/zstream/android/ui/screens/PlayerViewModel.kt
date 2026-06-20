@@ -5,6 +5,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.zstream.android.provider.ProviderEngine
+import com.zstream.android.data.BookmarkRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -27,7 +28,14 @@ data class SourceResult(val id: String, val status: SourceStatus)
 sealed class PlayerState {
     object Idle : PlayerState()
     data class Scraping(val sources: List<SourceResult>) : PlayerState()
-    data class Ready(val streamUrl: String, val headers: Map<String, String>, val subtitles: List<SubtitleTrack>, val sources: List<SourceResult>) : PlayerState()
+    data class Ready(
+        val streamUrl: String,
+        val headers: Map<String, String>,
+        val subtitles: List<SubtitleTrack>,
+        val sources: List<SourceResult>,
+        val sourceId: String? = null,
+        val embedId: String? = null,
+    ) : PlayerState()
     data class Error(val message: String, val sources: List<SourceResult>) : PlayerState()
 }
 
@@ -39,6 +47,7 @@ data class SubtitleCue(val startMs: Long, val endMs: Long, val text: String)
 class PlayerViewModel @Inject constructor(
     private val engine: ProviderEngine,
     private val settingsPrefs: SettingsPreferences,
+    private val bookmarkRepo: BookmarkRepository,
     savedState: SavedStateHandle,
 ) : ViewModel() {
     val settings = settingsPrefs.settings
@@ -63,6 +72,9 @@ class PlayerViewModel @Inject constructor(
 
     private val _selectedSubtitleLang = MutableStateFlow<String?>(null)
     val selectedSubtitleLang = _selectedSubtitleLang.asStateFlow()
+
+    val isBookmarked = bookmarkRepo.observeBookmark(tmdbId)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     private val sources = mutableListOf<SourceResult>()
 
@@ -116,8 +128,10 @@ class PlayerViewModel @Inject constructor(
 
                 val headers = parseStreamHeaders(streamUrl)
                 val subtitleTracks = parseSubtitles(stream)
+                val sourceId = data?.optString("sourceId")?.takeIf { it.isNotBlank() }
+                val embedId = data?.optString("embedId")?.takeIf { it.isNotBlank() }
                 Log.d("PlayerVM", "parsed headers: $headers, subtitles: ${subtitleTracks.size}")
-                _state.value = PlayerState.Ready(streamUrl, headers, subtitleTracks, sources.toList())
+                _state.value = PlayerState.Ready(streamUrl, headers, subtitleTracks, sources.toList(), sourceId, embedId)
 
                 // Mirror web behavior: subtitle on/off is a local persisted preference.
                 if (settings.value.subtitlesEnabled && subtitleTracks.isNotEmpty()) {
@@ -159,6 +173,22 @@ class PlayerViewModel @Inject constructor(
             val state = _state.value
             if (state is PlayerState.Ready && state.subtitles.isNotEmpty()) {
                 downloadAndParseSubtitles(state.subtitles)
+            }
+        }
+    }
+
+    fun toggleBookmark() {
+        viewModelScope.launch {
+            if (isBookmarked.value != null) {
+                bookmarkRepo.removeBookmark(tmdbId)
+            } else {
+                bookmarkRepo.addBookmark(
+                    tmdbId = tmdbId,
+                    title = title,
+                    type = mediaType,
+                    year = year.takeIf { it > 0 },
+                    posterPath = poster,
+                )
             }
         }
     }
