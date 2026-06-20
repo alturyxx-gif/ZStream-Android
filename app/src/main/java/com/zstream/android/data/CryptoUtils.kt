@@ -76,7 +76,7 @@ object CryptoUtils {
     suspend fun createPasskey(ctx: Context, userName: String): String {
         val requestJson = JSONObject().apply {
             put("challenge", randomBase64Url())
-            put("rp", JSONObject().put("name", "Z-Stream").put("id", "court.fontaine.lol"))
+            put("rp", JSONObject().put("name", "Z-Stream").put("id", com.zstream.android.Urls.PASSKEY_RP_ID))
             put("user", JSONObject()
                 .put("id", randomBase64Url(8))
                 .put("name", userName)
@@ -106,7 +106,7 @@ object CryptoUtils {
             put("challenge", randomBase64Url())
             put("timeout", 60000)
             put("userVerification", "preferred")
-            put("rpId", "court.fontaine.lol")
+            put("rpId", com.zstream.android.Urls.PASSKEY_RP_ID)
         }.toString()
 
         val result = CredentialManager.create(ctx)

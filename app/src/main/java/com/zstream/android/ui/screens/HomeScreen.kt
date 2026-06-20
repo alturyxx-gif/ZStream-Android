@@ -212,7 +212,7 @@ private fun rememberRandomPlaceholder(): String {
 }
 
 @Composable
-fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel(), userPrefs: UserPreferences = hiltViewModel()) {
+fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
     val state by vm.state.collectAsState()
     val searchResults by vm.searchResults.collectAsState()
     val theme = LocalZStreamTheme.current
