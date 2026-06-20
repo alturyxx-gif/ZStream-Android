@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -310,29 +311,6 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
                 val topInsetDp = with(density) { topInsetPx.toDp() }
 
                 Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.statusBars)) {
-                    Box {
-                        if (state.enableFeatured && state.featuredMedia.isNotEmpty()) {
-                            FeaturedCarousel(
-                                media = state.featuredMedia,
-                                nav = nav,
-                                progressMap = state.progressMap,
-                                searchQuery = state.searchQuery,
-                                onSearch = vm::onSearchChange,
-                                isSearching = isSearchFocused || state.searchQuery.isNotEmpty(),
-                                onSearchFocusedChange = { isSearchFocused = it },
-                                onClearFocus = { focusManager.clearFocus() },
-                                modifier = Modifier.fillMaxWidth(),
-                            )
-                        }
-                        TopNavBar(
-                            onLayout = { showLayoutMenu = true },
-                            onMenu = { showSandwichMenu = true },
-                            onDiscord = { uriHandler.openUri(Urls.DISCORD_LINK) },
-                            onNotifications = { showNotifications = true },
-                            onTipJar = { showTipJar = true },
-                            unreadCount = unreadCount,
-                        )
-                    }
                     LazyColumn(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -340,6 +318,31 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
                             .animateContentSize(),
                         contentPadding = PaddingValues(bottom = 32.dp)
                     ) {
+                        item {
+                            Box {
+                                if (state.enableFeatured && state.featuredMedia.isNotEmpty()) {
+                                    FeaturedCarousel(
+                                        media = state.featuredMedia,
+                                        nav = nav,
+                                        progressMap = state.progressMap,
+                                        searchQuery = state.searchQuery,
+                                        onSearch = vm::onSearchChange,
+                                        isSearching = isSearchFocused || state.searchQuery.isNotEmpty(),
+                                        onSearchFocusedChange = { isSearchFocused = it },
+                                        onClearFocus = { focusManager.clearFocus() },
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
+                                }
+                                TopNavBar(
+                                    onLayout = { showLayoutMenu = true },
+                                    onMenu = { showSandwichMenu = true },
+                                    onDiscord = { uriHandler.openUri(Urls.DISCORD_LINK) },
+                                    onNotifications = { showNotifications = true },
+                                    onTipJar = { showTipJar = true },
+                                    unreadCount = unreadCount,
+                                )
+                            }
+                        }
                         if (!state.enableFeatured || state.featuredMedia.isEmpty()) {
                             item { HeroSection(state.searchQuery, vm::onSearchChange, nav) }
                             item { GenrePills(state.selectedGenreId, vm::setGenre) }
@@ -1451,6 +1454,7 @@ private fun FeaturedCarousel(
     val theme = LocalZStreamTheme.current
     val pagerState = rememberPagerState(pageCount = { media.size })
     var autoScrollEnabled by remember { mutableStateOf(true) }
+    val scope = rememberCoroutineScope()
 
     val isDragged by pagerState.interactionSource.collectIsDraggedAsState()
     LaunchedEffect(isDragged) {
@@ -1773,9 +1777,9 @@ private fun FeaturedCarousel(
         Row(
             Modifier
                 .align(Alignment.BottomCenter)
-                .padding(bottom = 16.dp)
+                .padding(bottom = 12.dp) // Slightly less bottom padding to account for hit target padding
                 .graphicsLayer { alpha = contentAlpha },
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically
         ) {
             media.forEachIndexed { i, _ ->
@@ -1784,11 +1788,26 @@ private fun FeaturedCarousel(
                 val dotAlpha by animateFloatAsState(if (active) 1f else 0.4f, label = "dotAlpha")
                 
                 Box(
-                    Modifier
-                        .size(width = dotWidth, height = 8.dp)
-                        .clip(CircleShape)
-                        .background(Color.White.copy(alpha = dotAlpha))
-                )
+                    modifier = Modifier
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) {
+                            autoScrollEnabled = false
+                            scope.launch {
+                                pagerState.animateScrollToPage(i)
+                            }
+                        }
+                        .padding(horizontal = 6.dp, vertical = 12.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(
+                        Modifier
+                            .size(width = dotWidth, height = 8.dp)
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = dotAlpha))
+                    )
+                }
             }
         }
     }
