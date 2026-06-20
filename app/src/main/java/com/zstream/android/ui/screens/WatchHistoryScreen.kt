@@ -9,6 +9,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -25,7 +27,7 @@ import androidx.activity.compose.LocalActivity
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
-import com.zstream.android.data.remote.ProgressResponse
+import com.zstream.android.Urls
 import com.zstream.android.theme.LocalZStreamTheme
 
 /** Mirrors p-stream shouldShowProgress: watched>=20s AND not within 120s of end */
@@ -35,6 +37,13 @@ private fun shouldShowProgress(p: com.zstream.android.data.local.entity.Progress
     if (watched < 20) return false
     if (duration > 0 && (duration - watched) < 120) return false
     return true
+}
+
+private fun posterUrl(posterPath: String?): String? {
+    if (posterPath.isNullOrBlank()) return null
+    if (posterPath.startsWith("http")) return posterPath
+    val clean = if (posterPath.startsWith("/")) posterPath else "/$posterPath"
+    return Urls.TMDB_IMAGE + "w342$clean"
 }
 
 @Composable
@@ -71,7 +80,10 @@ fun WatchHistoryScreen(nav: NavController) {
             }
         } else {
             LazyColumn(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)) {
-                items(items, key = { it.tmdbId + (it.episodeId ?: "") }) { p ->
+                items(
+                    items = items,
+                    key = { "${it.type}:${it.tmdbId}:${it.seasonNumber ?: "movie"}:${it.episodeNumber ?: "movie"}" },
+                ) { p ->
                     WatchHistoryItem(p, theme) {
                         val mediaType = if (p.type == "show") "tv" else "movie"
                         val base = "player/$mediaType/${p.tmdbId}?title=${p.title}&year=${p.year}"
@@ -96,6 +108,7 @@ private fun WatchHistoryItem(
     val watched = p.watched.toLong()
     val duration = p.duration.toLong()
     val pct = if (duration > 0) (watched.toFloat() / duration).coerceIn(0f, 1f) else 0f
+    val poster = posterUrl(p.posterPath)
 
     Row(
         Modifier
@@ -108,12 +121,29 @@ private fun WatchHistoryItem(
         verticalAlignment = Alignment.CenterVertically
     ) {
         // Poster
-        AsyncImage(
-            model = p.posterPath,
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.size(width = 60.dp, height = 88.dp).clip(RoundedCornerShape(6.dp))
-        )
+        Box(
+            modifier = Modifier
+                .size(width = 60.dp, height = 88.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .background(theme.colors.background.secondary),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (poster != null) {
+                AsyncImage(
+                    model = poster,
+                    contentDescription = p.title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                Icon(
+                    imageVector = if (p.type == "show") Icons.Filled.Tv else Icons.Filled.Movie,
+                    contentDescription = null,
+                    tint = theme.colors.type.dimmed.copy(alpha = 0.5f),
+                    modifier = Modifier.size(30.dp),
+                )
+            }
+        }
         Spacer(Modifier.width(12.dp))
 
         Column(Modifier.weight(1f)) {
