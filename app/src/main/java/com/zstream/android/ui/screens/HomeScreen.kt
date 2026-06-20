@@ -223,6 +223,21 @@ private val rainbowColors = listOf(
     Color(0xFFfbbf24), Color(0xFFa855f7), Color(0xFFec4899),
 )
 
+private val searchPlaceholders = listOf(
+    "What do you want to watch?",
+    "What are you in the mood for?",
+    "What do you want to stream?",
+    "What's on your watchlist today?",
+    "How was your day?",
+    "My bad the app never works...",
+    ">ᴗ<"
+)
+
+@Composable
+private fun rememberRandomPlaceholder(): String {
+    return remember { searchPlaceholders.random() }
+}
+
 @Composable
 fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
     val state by vm.state.collectAsState()
@@ -246,6 +261,7 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
     val listState = rememberLazyListState()
     val isKeyboardVisible = WindowInsets.ime.getBottom(density) > 0
     val focusRequester = remember { FocusRequester() }
+    val placeholder = rememberRandomPlaceholder()
 
     var wasKeyboardVisible by remember { mutableStateOf(false) }
     LaunchedEffect(isKeyboardVisible) {
@@ -351,7 +367,7 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
                         }
                         
                         if (!state.enableFeatured || state.featuredMedia.isEmpty()) {
-                            item { HeroSection(state.searchQuery, vm::onSearchChange, nav) }
+                            item { HeroSection(state.searchQuery, vm::onSearchChange, nav, placeholder) }
                             item { GenrePills(state.selectedGenreId, vm::setGenre) }
                             item { Spacer(Modifier.height(16.dp)) }
                         }
@@ -411,15 +427,18 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
                             onTipJar = { showTipJar = true },
                             unreadCount = unreadCount,
                         )
-                        SearchOverlay(
-                            searchQuery = state.searchQuery,
-                            onSearch = vm::onSearchChange,
-                            isSearching = isSearching,
-                            onSearchFocusedChange = { isSearchFocused = it },
-                            onClearFocus = { focusManager.clearFocus() },
-                            focusRequester = focusRequester,
-                            modifier = Modifier.padding(horizontal = 16.dp)
-                        )
+                        if (state.enableFeatured && state.featuredMedia.isNotEmpty()) {
+                            SearchOverlay(
+                                searchQuery = state.searchQuery,
+                                onSearch = vm::onSearchChange,
+                                isSearching = isSearching,
+                                onSearchFocusedChange = { isSearchFocused = it },
+                                onClearFocus = { focusManager.clearFocus() },
+                                focusRequester = focusRequester,
+                                placeholder = placeholder,
+                                modifier = Modifier.padding(horizontal = 16.dp)
+                            )
+                        }
                     }
                 }
         }
@@ -719,7 +738,7 @@ private fun TopNavBar(onLayout: () -> Unit, onMenu: () -> Unit, onDiscord: () ->
 }
 
 @Composable
-private fun HeroSection(searchQuery: String, onSearch: (String) -> Unit, nav: NavController) {
+private fun HeroSection(searchQuery: String, onSearch: (String) -> Unit, nav: NavController, placeholder: String) {
     val theme = LocalZStreamTheme.current
     // Animated gradient offset for discover button border
     val infiniteTransition = rememberInfiniteTransition(label = "rainbow")
@@ -766,7 +785,7 @@ private fun HeroSection(searchQuery: String, onSearch: (String) -> Unit, nav: Na
                     Icon(Icons.Default.Search, null, tint = theme.colors.search.icon, modifier = Modifier.size(18.dp))
                     Box(modifier = Modifier.weight(1f)) {
                         if (searchQuery.isEmpty()) {
-                            Text("What do you want to watch?", color = theme.colors.search.placeholder, fontSize = 13.sp)
+                            Text(placeholder, color = theme.colors.search.placeholder, fontSize = 13.sp)
                         }
                         BasicTextField(
                             value = searchQuery,
@@ -1817,6 +1836,7 @@ private fun SearchOverlay(
     onSearchFocusedChange: (Boolean) -> Unit,
     onClearFocus: () -> Unit,
     focusRequester: FocusRequester,
+    placeholder: String,
     modifier: Modifier = Modifier
 ) {
     Row(
@@ -1847,7 +1867,7 @@ private fun SearchOverlay(
                 if (isSearching) {
                     Box(modifier = Modifier.weight(1f)) {
                         if (searchQuery.isEmpty()) {
-                            Text("Search...", color = Color.White.copy(alpha = 0.4f), fontSize = 13.sp)
+                            Text(placeholder, color = Color.White.copy(alpha = 0.4f), fontSize = 13.sp)
                         }
                         BasicTextField(
                             value = searchQuery,
