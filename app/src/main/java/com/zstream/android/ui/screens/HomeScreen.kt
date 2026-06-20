@@ -33,6 +33,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -1482,6 +1483,8 @@ private fun FeaturedCarousel(
                             modifier = Modifier.align(Alignment.TopCenter).fillMaxSize().scale(1.0f),
                             contentScale = ContentScale.Crop
                         )
+                        // Global scrim for baseline contrast
+                        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.15f)))
                     } else {
                         Box(Modifier.fillMaxSize().background(theme.colors.background.secondary))
                     }
@@ -1509,7 +1512,11 @@ private fun FeaturedCarousel(
                         .graphicsLayer { alpha = contentAlpha }
                         .background(
                             Brush.verticalGradient(
-                                listOf(Color.Transparent, theme.colors.background.main),
+                                listOf(
+                                    Color.Transparent,
+                                    theme.colors.background.main.copy(alpha = 0.5f),
+                                    theme.colors.background.main
+                                ),
                             )
                         )
                 )
@@ -1527,10 +1534,17 @@ private fun FeaturedCarousel(
                             title,
                             color = Color.White,
                             fontSize = 32.sp,
-                            fontWeight = FontWeight.Black,
+                            fontWeight = FontWeight.Bold,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.graphicsLayer { alpha = contentAlpha }
+                            modifier = Modifier.graphicsLayer { alpha = contentAlpha },
+                            style = LocalTextStyle.current.copy(
+                                shadow = Shadow(
+                                    color = Color.Black.copy(alpha = 0.6f),
+                                    offset = Offset(0f, 4f),
+                                    blurRadius = 8f
+                                )
+                            )
                         )
 
                         // Metadata row
@@ -1546,18 +1560,47 @@ private fun FeaturedCarousel(
                                     String.format(Locale.US, "%.1f", current.voteAverage ?: 0.0),
                                     color = Color.White,
                                     fontSize = 13.sp,
-                                    fontWeight = FontWeight.Medium,
+                                    fontWeight = FontWeight.Bold,
+                                    style = LocalTextStyle.current.copy(
+                                        shadow = Shadow(
+                                            color = Color.Black.copy(alpha = 0.5f),
+                                            offset = Offset(0f, 2f),
+                                            blurRadius = 4f
+                                        )
+                                    )
                                 )
                             }
 
                             if (year.isNotEmpty()) {
                                 Text("•", color = Color.White.copy(alpha = 0.4f))
-                                Text(year, color = Color.White.copy(alpha = 0.8f), fontSize = 13.sp)
+                                Text(
+                                    year,
+                                    color = Color.White.copy(alpha = 0.8f),
+                                    fontSize = 13.sp,
+                                    style = LocalTextStyle.current.copy(
+                                        shadow = Shadow(
+                                            color = Color.Black.copy(alpha = 0.5f),
+                                            offset = Offset(0f, 2f),
+                                            blurRadius = 4f
+                                        )
+                                    )
+                                )
                             }
 
                             val typeLabel = if (type == "tv") "TV Show" else "Movie"
                             Text("•", color = Color.White.copy(alpha = 0.4f))
-                            Text(typeLabel, color = Color.White.copy(alpha = 0.8f), fontSize = 13.sp)
+                            Text(
+                                typeLabel,
+                                color = Color.White.copy(alpha = 0.8f),
+                                fontSize = 13.sp,
+                                style = LocalTextStyle.current.copy(
+                                    shadow = Shadow(
+                                        color = Color.Black.copy(alpha = 0.5f),
+                                        offset = Offset(0f, 2f),
+                                        blurRadius = 4f
+                                    )
+                                )
+                            )
                         }
 
                         // Overview
@@ -1570,7 +1613,14 @@ private fun FeaturedCarousel(
                                 maxLines = 3,
                                 lineHeight = 20.sp,
                                 overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.graphicsLayer { alpha = contentAlpha }
+                                modifier = Modifier.graphicsLayer { alpha = contentAlpha },
+                                style = LocalTextStyle.current.copy(
+                                    shadow = Shadow(
+                                        color = Color.Black.copy(alpha = 0.5f),
+                                        offset = Offset(0f, 2f),
+                                        blurRadius = 4f
+                                    )
+                                )
                             )
                         }
 
