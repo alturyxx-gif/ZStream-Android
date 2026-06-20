@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.zstream.android.data.TmdbRepository
 import com.zstream.android.data.local.entity.ProgressEntity
 import com.zstream.android.data.local.preferences.SettingsPreferences
+import com.zstream.android.data.local.preferences.UserPreferences
 import com.zstream.android.data.model.Media
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.async
@@ -65,6 +66,7 @@ class HomeViewModel @Inject constructor(
     private val progressRepo: com.zstream.android.data.ProgressRepository,
     private val bookmarkRepo: com.zstream.android.data.BookmarkRepository,
     private val settingsPrefs: SettingsPreferences,
+    val userPrefs: UserPreferences,
 ) : ViewModel() {
     private val _state = MutableStateFlow(HomeState())
     val state = _state.asStateFlow()

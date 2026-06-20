@@ -2,6 +2,7 @@ package com.zstream.android.data
 
 import android.util.Log
 import com.zstream.android.data.local.preferences.SettingsPreferences
+import com.zstream.android.data.local.preferences.UserPreferences
 import com.zstream.android.data.remote.BackendApi
 import kotlinx.coroutines.flow.first
 import javax.inject.Inject
@@ -15,6 +16,7 @@ class DataSyncManager @Inject constructor(
     private val progressRepo: ProgressRepository,
     private val bookmarkRepo: BookmarkRepository,
     private val settingsPrefs: SettingsPreferences,
+    private val userPrefs: UserPreferences,
     private val api: BackendApi,
 ) {
     /**
@@ -40,13 +42,13 @@ class DataSyncManager @Inject constructor(
     }
 
     /**
-     * Clear all local data (on logout)
+     * Clear local user-specific data (on logout)
+     * Note: App settings are preserved locally.
      */
     suspend fun clearAllLocalData() {
-        Log.d(TAG, "Clearing all local cached data")
+        Log.d(TAG, "Clearing local user-specific data (progress, bookmarks)")
         progressRepo.clearProgress()
         bookmarkRepo.clearBookmarks()
-        settingsPrefs.clear()
     }
 
     /**

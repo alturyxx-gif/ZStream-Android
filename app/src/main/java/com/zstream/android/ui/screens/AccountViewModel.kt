@@ -98,6 +98,14 @@ class AccountViewModel @Inject constructor(
 
     fun logout() {
         viewModelScope.launch {
+            // First sync current settings to cloud so they aren't lost
+            try {
+                syncManager.syncSettingsToRemote()
+            } catch (e: Exception) {
+                Log.e("AccountVM", "Failed to sync settings before logout", e)
+            }
+
+            // Clear user-specific data (history, bookmarks) but keep app settings
             syncManager.clearAllLocalData()
             repo.logout()
             authState.value = AuthState.Idle

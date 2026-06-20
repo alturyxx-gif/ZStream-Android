@@ -79,6 +79,7 @@ import coil.compose.AsyncImage
 import com.zstream.android.R
 import com.zstream.android.Urls
 import com.zstream.android.data.local.entity.ProgressEntity
+import com.zstream.android.data.local.preferences.UserPreferences
 import com.zstream.android.data.model.Media
 import com.zstream.android.theme.LocalZStreamTheme
 import kotlinx.coroutines.Dispatchers
@@ -116,43 +117,6 @@ private fun formatDate(pubDate: String): String {
         "$display • $relative"
     } catch (_: Exception) {
         pubDate
-    }
-}
-
-private val Context.readNotificationStore by preferencesDataStore("read_notifications")
-private val READ_GUIDS_KEY = stringPreferencesKey("read_guids")
-
-private fun Context.readNotificationGuidsFlow(): Flow<Set<String>> {
-    return readNotificationStore.data.map { prefs ->
-        prefs[READ_GUIDS_KEY]?.split(",")?.filter { it.isNotEmpty() }?.toSet() ?: emptySet()
-    }
-}
-
-private suspend fun Context.markNotificationRead(guid: String) {
-    readNotificationStore.edit { prefs ->
-        val existing = prefs[READ_GUIDS_KEY]?.split(",")?.filter { it.isNotEmpty() }?.toSet() ?: emptySet()
-        prefs[READ_GUIDS_KEY] = (existing + guid).joinToString(",")
-    }
-}
-
-private suspend fun Context.markAllNotificationsRead(guids: List<String>) {
-    readNotificationStore.edit { prefs ->
-        prefs[READ_GUIDS_KEY] = guids.joinToString(",")
-    }
-}
-
-private val SECTION_ORDER_KEY = stringPreferencesKey("section_order")
-private val Context.layoutDataStore by preferencesDataStore("layout_prefs")
-
-private fun Context.sectionOrderFlow(): Flow<List<String>> =
-    layoutDataStore.data.map { prefs ->
-        prefs[SECTION_ORDER_KEY]?.split(",")?.filter { it.isNotBlank() }
-            ?: defaultSectionOrder
-    }
-
-private suspend fun Context.saveSectionOrder(order: List<String>) {
-    layoutDataStore.edit { prefs ->
-        prefs[SECTION_ORDER_KEY] = order.joinToString(",")
     }
 }
 
@@ -248,7 +212,7 @@ private fun rememberRandomPlaceholder(): String {
 }
 
 @Composable
-fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
+fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel(), userPrefs: UserPreferences = hiltViewModel()) {
     val state by vm.state.collectAsState()
     val searchResults by vm.searchResults.collectAsState()
     val theme = LocalZStreamTheme.current
@@ -291,10 +255,10 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
 
     LaunchedEffect(Unit) {
         launch {
-            context.readNotificationGuidsFlow().collect { readGuids = it }
+            vm.userPrefs.readNotificationGuids.collect { readGuids = it }
         }
         launch {
-            context.sectionOrderFlow().collect { sectionOrder = it }
+            vm.userPrefs.sectionOrderFlow(defaultSectionOrder).collect { sectionOrder = it }
         }
         try {
             notifications = withContext(Dispatchers.IO) { fetchNotifications() }
@@ -496,7 +460,7 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
                 },
                 onReorder = { newOrder ->
                     sectionOrder = newOrder
-                    scope.launch { context.saveSectionOrder(newOrder) }
+                    scope.launch { vm.userPrefs.saveSectionOrder(newOrder) }
                 },
                 onDismiss = { showLayoutMenu = false },
             )
@@ -519,10 +483,10 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
                 notifications = notifications,
                 readGuids = readGuids,
                 onMarkRead = { guid ->
-                    scope.launch { context.markNotificationRead(guid) }
+                    scope.launch { vm.userPrefs.markNotificationRead(guid) }
                 },
                 onMarkAllRead = {
-                    scope.launch { context.markAllNotificationsRead(notifications.map { it.guid }) }
+                    scope.launch { vm.userPrefs.markAllNotificationsRead(notifications.map { it.guid }) }
                 },
                 onDismiss = { showNotifications = false },
             )
