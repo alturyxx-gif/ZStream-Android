@@ -46,9 +46,10 @@ class DataSyncManager @Inject constructor(
      * Note: App settings are preserved locally.
      */
     suspend fun clearAllLocalData() {
-        Log.d(TAG, "Clearing local user-specific data (progress, bookmarks)")
+        Log.d(TAG, "Clearing local user-specific data (progress, bookmarks, and user prefs)")
         progressRepo.clearProgress()
         bookmarkRepo.clearBookmarks()
+        userPrefs.clear()
     }
 
     /**
