@@ -2,16 +2,20 @@ package com.zstream.android.ui.screens
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.zstream.android.data.BookmarkRepository
+import com.zstream.android.data.ProgressRepository
 import com.zstream.android.data.AccountRepository
 import com.zstream.android.data.AccountSession
 import com.zstream.android.data.local.entity.SettingsEntity
 import com.zstream.android.data.local.preferences.SettingsPreferences
 import com.zstream.android.data.remote.BackendApi
+import com.google.gson.Gson
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -20,6 +24,8 @@ import javax.inject.Inject
 class SettingsViewModel @Inject constructor(
     private val settingsPrefs: SettingsPreferences,
     private val accountRepo: AccountRepository,
+    private val progressRepo: ProgressRepository,
+    private val bookmarkRepo: BookmarkRepository,
     private val api: BackendApi,
 ) : ViewModel() {
 
@@ -291,6 +297,24 @@ class SettingsViewModel @Inject constructor(
             settingsPrefs.updateSettings(savedEntity, syncToRemote = false)
             _dirty.value = false
         }
+    }
+
+    suspend fun exportDataJson(): String {
+        val settings = settings.value
+        val progress = progressRepo.observeAllProgress().first()
+        val bookmarks = bookmarkRepo.observeAllBookmarks().first()
+        
+        // Construct the export map. Gson will automatically omit null fields 
+        // like tmdbApiKey or febboxKey if they haven't been set by the user.
+        val exportMap = mapOf(
+            "settings" to settings,
+            "progress" to progress,
+            "bookmarks" to bookmarks,
+            "exportDate" to System.currentTimeMillis(),
+            "version" to 1
+        )
+        
+        return Gson().toJson(exportMap)
     }
 
     private fun SettingsEntity.toResponse() = com.zstream.android.data.remote.SettingsResponse(
