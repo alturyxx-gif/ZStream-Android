@@ -3,10 +3,12 @@ package com.zstream.android.ui.screens
 import android.app.Activity
 import android.app.PictureInPictureParams
 import android.content.pm.ActivityInfo
+import android.content.res.Resources
 import android.os.Build
 import android.util.Log
 import android.util.Rational
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
+import android.util.TypedValue
 import android.view.WindowManager
 import android.widget.FrameLayout
 import androidx.annotation.DrawableRes
@@ -89,6 +91,8 @@ private val BOTTOM_BAR_BUTTON_SIZE = 36.dp     // tap area for bottom bar icons
 private val BOTTOM_RIGHT_END_PADDING = 36.dp    // padding after last right icon
 
 private val BOTTOM_BAR_PADDING_V = 8.dp        // vertical padding in bottom controls row
+private const val NATIVE_SUBTITLE_BASE_OFFSET_DP = 20f
+private const val NATIVE_SUBTITLE_OVERLAY_MULTIPLIER = 5f
 
 @OptIn(UnstableApi::class)
 @Composable
@@ -330,6 +334,13 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     onDispose { player.removeListener(listener) }
                 }
 
+                var controlsVisible by remember { mutableStateOf(true) }
+
+                // Automatically hide controls after 3s of playing
+                LaunchedEffect(controlsVisible, player.isPlaying) {
+                    if (controlsVisible && player.isPlaying) { delay(3000); controlsVisible = false }
+                }
+
                 AndroidView(
                     factory = { ctx ->
                         PlayerView(ctx).apply {
@@ -337,25 +348,16 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                             useController = false
                             resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
                             layoutParams = FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT)
-                            if (!settings.enableNativeSubtitles) {
-                                subtitleView?.visibility = android.view.View.GONE
-                            }
+                            applyNativeSubtitleStyle(subtitleView, settings, controlsVisible)
                             playerViewRef.value = this
                         }
                     },
                     update = { view ->
                         view.resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
-                        view.subtitleView?.visibility = if (settings.enableNativeSubtitles) android.view.View.VISIBLE else android.view.View.GONE
+                        applyNativeSubtitleStyle(view.subtitleView, settings, controlsVisible)
                     },
                     modifier = Modifier.fillMaxSize()
                 )
-
-                var controlsVisible by remember { mutableStateOf(true) }
-
-                // Automatically hide controls after 3s of playing
-                LaunchedEffect(controlsVisible, player.isPlaying) {
-                    if (controlsVisible && player.isPlaying) { delay(3000); controlsVisible = false }
-                }
 
                 // Custom Subtitle Overlay — using downloaded + parsed cues with timing
                 val vmCues by vm.subtitleCues.collectAsState()
@@ -502,6 +504,27 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
             }
         }
     }
+}
+
+private fun applyNativeSubtitleStyle(
+    subtitleView: androidx.media3.ui.SubtitleView?,
+    settings: com.zstream.android.data.local.entity.SettingsEntity,
+    controlsVisible: Boolean,
+) {
+    if (subtitleView == null) return
+
+    subtitleView.visibility = if (settings.enableNativeSubtitles) android.view.View.VISIBLE else android.view.View.GONE
+    subtitleView.setApplyEmbeddedStyles(false)
+    subtitleView.setApplyEmbeddedFontSizes(false)
+    subtitleView.setUserDefaultStyle()
+    subtitleView.setUserDefaultTextSize()
+    subtitleView.setBottomPaddingFraction(androidx.media3.ui.SubtitleView.DEFAULT_BOTTOM_PADDING_FRACTION)
+    val baseOffsetPx = TypedValue.applyDimension(
+        TypedValue.COMPLEX_UNIT_DIP,
+        NATIVE_SUBTITLE_BASE_OFFSET_DP,
+        Resources.getSystem().displayMetrics,
+    )
+    subtitleView.translationY = if (controlsVisible) -baseOffsetPx * NATIVE_SUBTITLE_OVERLAY_MULTIPLIER else -baseOffsetPx
 }
 
 @Composable
