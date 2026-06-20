@@ -78,6 +78,13 @@ data class SettingsEntity(
     // Theme
     val customTheme: CustomThemeSettings? = null
 ) {
+    private fun homeSectionOrderForSync(): List<String> = homeSectionOrder.map { section ->
+        when (section) {
+            "continue_watching" -> "watching"
+            else -> section
+        }
+    }
+
     /**
      * Build a JSON request body containing only the fields that the backend's
      * settings endpoint knows about.  Fields not present in the JSON are
@@ -116,7 +123,7 @@ data class SettingsEntity(
         json.put("enableLowPerformanceMode", enableLowPerformanceMode)
         json.put("enablePauseOverlay", enablePauseOverlay)
         json.put("proxyTmdb", proxyTmdb)
-        json.put("homeSectionOrder", JSONArray(homeSectionOrder))
+        json.put("homeSectionOrder", JSONArray(homeSectionOrderForSync()))
         json.put("enableAutoResumeOnPlaybackError", enableAutoResumeOnPlaybackError)
         febboxKey?.let { json.put("febboxKey", it) }
         debridToken?.let { json.put("debridToken", it) }
