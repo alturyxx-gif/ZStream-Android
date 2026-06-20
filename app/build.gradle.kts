@@ -101,6 +101,7 @@ dependencies {
     implementation(libs.bouncycastle)
     implementation(libs.datastore)
     implementation(libs.androidx.webkit)
+    implementation(libs.haze)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

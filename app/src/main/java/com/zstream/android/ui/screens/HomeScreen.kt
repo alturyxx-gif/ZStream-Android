@@ -29,6 +29,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import dev.chrisbanes.haze.HazeStyle
+import dev.chrisbanes.haze.HazeTint
+import dev.chrisbanes.haze.hazeEffect
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.HazeProgressive
+import dev.chrisbanes.haze.rememberHazeState
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.onFocusChanged
@@ -258,10 +264,12 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
     var sectionOrder by remember { mutableStateOf(defaultSectionOrder) }
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
+    val uriHandler = LocalUriHandler.current
     val density = LocalDensity.current
     val listState = rememberLazyListState()
     val isKeyboardVisible = WindowInsets.ime.getBottom(density) > 0
     val focusRequester = remember { FocusRequester() }
+    val hazeState = rememberHazeState()
     val placeholder = rememberRandomPlaceholder()
 
     var wasKeyboardVisible by remember { mutableStateOf(false) }
@@ -294,17 +302,12 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
     val unreadCount = notifications.count { it.guid !in readGuids }
     val scope = rememberCoroutineScope()
 
-    val blurRadius by animateDpAsState(
-        targetValue = if (isSearchFocused || state.searchQuery.isNotBlank()) 12.dp else 0.dp,
-        label = "blurRadius"
-    )
-
     Box(modifier = Modifier
         .fillMaxSize()
         .background(theme.colors.background.main)
         .navigationBarsPadding()) {
         if (!state.enableLowPerformanceMode && !state.enableFeatured) {
-            Box(Modifier.blur(blurRadius)) {
+            Box(Modifier.hazeSource(hazeState)) {
                 CosmicBackground()
                 ParticleOverlay()
             }
@@ -338,33 +341,30 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
                 val bookmarksList = state.bookmarks.flatMap { it.items }
                 val progressList = state.continueWatching.flatMap { it.items }
 
-                val uriHandler = LocalUriHandler.current
                 val density = LocalDensity.current
 
                 val scrollOffset by remember { derivedStateOf { 
                     if (listState.firstVisibleItemIndex == 0) listState.firstVisibleItemScrollOffset else 2000 
                 } }
                 
-                val headerTranslation by animateFloatAsState(
-                    targetValue = if (shouldHeaderBeSticky) 0f else -scrollOffset.toFloat(),
-                    label = "headerTranslation"
-                )
+                val headerTranslation = if (shouldHeaderBeSticky) 0f else -scrollOffset.toFloat()
                 
-                val headerBackground by animateColorAsState(
-                    targetValue = if (shouldHeaderBeSticky) theme.colors.background.main.copy(alpha = 0.85f) else Color.Transparent,
-                    label = "headerBackground"
-                )
-
-                val headerBlur by animateDpAsState(
-                    targetValue = if (shouldHeaderBeSticky) 20.dp else 0.dp,
-                    label = "headerBlur"
-                )
+                val stickyHeaderHazeStyle = remember(theme.colors.background.main) {
+                    HazeStyle(
+                        backgroundColor = theme.colors.background.main,
+                        tint = HazeTint(theme.colors.background.main.copy(alpha = 0.55f)),
+                        blurRadius = 24.dp,
+                        noiseFactor = 0.08f,
+                        fallbackTint = HazeTint(theme.colors.background.main.copy(alpha = 0.86f)),
+                    )
+                }
 
                 Box(Modifier.fillMaxSize()) {
                     LazyColumn(
                         state = listState,
                         modifier = Modifier
                             .fillMaxWidth()
+                            .hazeSource(hazeState)
                             .animateContentSize(),
                         contentPadding = PaddingValues(bottom = 32.dp)
                     ) {
@@ -433,38 +433,26 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
                             .fillMaxWidth()
                             .graphicsLayer { translationY = headerTranslation }
                     ) {
-                        // Blurred background layer
+                        // Blurred background layer (frosted glass)
                         if (shouldHeaderBeSticky) {
                             Box(
                                 modifier = Modifier
                                     .matchParentSize()
-                                    .blur(headerBlur)
-                                    .background(
-                                        Brush.verticalGradient(
-                                            listOf(
-                                                theme.colors.background.main.copy(alpha = 0.95f),
-                                                theme.colors.background.main.copy(alpha = 0.8f)
-                                            )
+                                    .hazeEffect(hazeState, stickyHeaderHazeStyle) {
+                                        progressive = HazeProgressive.verticalGradient(
+                                            startIntensity = 1f,
+                                            endIntensity = 0f,
+                                            preferPerformance = true,
                                         )
-                                    )
+                                    }
                             )
                         }
 
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .drawBehind {
-                                    if (shouldHeaderBeSticky) {
-                                        drawLine(
-                                            color = Color.White.copy(alpha = 0.1f),
-                                            start = Offset(0f, size.height),
-                                            end = Offset(size.width, size.height),
-                                            strokeWidth = 1.dp.toPx()
-                                        )
-                                    }
-                                }
                                 .statusBarsPadding()
-                                .padding(bottom = 8.dp)
+                                .padding(bottom = 28.dp)
                         ) {
                             TopNavBar(
                                 onLayout = { showLayoutMenu = true },
@@ -472,6 +460,7 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
                                 onDiscord = { uriHandler.openUri(Urls.DISCORD_LINK) },
                                 onNotifications = { showNotifications = true },
                                 onTipJar = { showTipJar = true },
+                                collapseActionsIntoMenu = state.enableFeatured,
                                 unreadCount = unreadCount,
                             )
                             if (state.enableFeatured && state.featuredMedia.isNotEmpty()) {
@@ -511,7 +500,17 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
             )
         }
         if (showSandwichMenu) {
-            SandwichMenuDialog(nav = nav, session = session, accountVm = accountVm, onDismiss = { showSandwichMenu = false })
+            SandwichMenuDialog(
+                nav = nav,
+                session = session,
+                accountVm = accountVm,
+                showHeaderActions = state.enableFeatured,
+                unreadCount = unreadCount,
+                onDiscord = { uriHandler.openUri(Urls.DISCORD_LINK) },
+                onNotifications = { showNotifications = true },
+                onTipJar = { showTipJar = true },
+                onDismiss = { showSandwichMenu = false },
+            )
         }
         if (showNotifications) {
             NotificationsDialog(
@@ -658,7 +657,15 @@ private fun ParticleOverlay() {
 }
 
 @Composable
-private fun TopNavBar(onLayout: () -> Unit, onMenu: () -> Unit, onDiscord: () -> Unit, onNotifications: () -> Unit, onTipJar: () -> Unit, unreadCount: Int = 0) {
+private fun TopNavBar(
+    onLayout: () -> Unit,
+    onMenu: () -> Unit,
+    onDiscord: () -> Unit,
+    onNotifications: () -> Unit,
+    onTipJar: () -> Unit,
+    collapseActionsIntoMenu: Boolean,
+    unreadCount: Int = 0,
+) {
     val theme = LocalZStreamTheme.current
     Row(
         modifier = Modifier
@@ -691,78 +698,15 @@ private fun TopNavBar(onLayout: () -> Unit, onMenu: () -> Unit, onDiscord: () ->
                     fontWeight = FontWeight.SemiBold,
                 )
             }
-            // Discord button
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(50))
-                    .background(theme.colors.background.secondary.copy(alpha = 0.8f))
-                    .border(1.dp, theme.colors.type.divider.copy(alpha = 0.3f), RoundedCornerShape(50))
-                    .clickable(onClick = onDiscord)
-                    .padding(horizontal = 10.dp, vertical = 7.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(Icons.Default.Forum, null, tint = theme.colors.type.secondary, modifier = Modifier.size(22.dp))
-            }
-            // Notifications bell button
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(50))
-                    .background(theme.colors.background.secondary.copy(alpha = 0.8f))
-                    .border(1.dp, theme.colors.type.divider.copy(alpha = 0.3f), RoundedCornerShape(50))
-                    .clickable(onClick = onNotifications)
-                    .padding(horizontal = 10.dp, vertical = 7.dp),
-            ) {
-                Icon(Icons.Default.Notifications, null, tint = theme.colors.type.secondary, modifier = Modifier.size(22.dp).align(Alignment.Center))
-                if (unreadCount > 0) {
-
-                    // Red badge for notif
-                    Box(
-                        modifier = Modifier
-                            .size(14.dp)
-                            .clip(CircleShape)
-                            .background(Color(0xFFEF4444))
-                            .align(Alignment.TopEnd)
-                            .offset(x = 0.dp, y = (-5).dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        // The notif number
-                        Text(
-                            if (unreadCount > 99) "99+" else unreadCount.toString(),
-                            color = Color.White, fontSize = 7.sp, fontWeight = FontWeight.Bold,
-                        )
-                    }
-                }
-            }
-            // Tip Jar button
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(50))
-                    .background(theme.colors.background.secondary.copy(alpha = 0.8f))
-                    .border(1.dp, theme.colors.type.divider.copy(alpha = 0.3f), RoundedCornerShape(50))
-                    .clickable(onClick = onTipJar)
-                    .padding(horizontal = 10.dp, vertical = 7.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(Icons.Default.AttachMoney, null, tint = theme.colors.type.secondary, modifier = Modifier.size(22.dp))
+            if (!collapseActionsIntoMenu) {
+                HeaderIconButton(icon = Icons.Default.Forum, onClick = onDiscord)
+                HeaderIconButton(icon = Icons.Default.Notifications, onClick = onNotifications, badgeCount = unreadCount)
+                HeaderIconButton(icon = Icons.Default.AttachMoney, onClick = onTipJar)
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             // Layout button — dark pill matching sandwich (just grid icon, no text)
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(50))
-                    .background(theme.colors.background.secondary.copy(alpha = 0.8f))
-                    .border(
-                        1.dp,
-                        theme.colors.type.divider.copy(alpha = 0.3f),
-                        RoundedCornerShape(50)
-                    )
-                    .clickable(onClick = onLayout)
-                    .padding(horizontal = 10.dp, vertical = 7.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(Icons.Default.GridView, null, tint = theme.colors.type.secondary, modifier = Modifier.size(22.dp))
-            }
+            HeaderIconButton(icon = Icons.Default.GridView, onClick = onLayout)
             // Sandwich menu
             Box(
                 modifier = Modifier
@@ -780,6 +724,44 @@ private fun TopNavBar(onLayout: () -> Unit, onMenu: () -> Unit, onDiscord: () ->
                     Icon(Icons.Default.Menu, null, tint = theme.colors.type.secondary, modifier = Modifier.size(22.dp))
                     Icon(Icons.Default.KeyboardArrowDown, null, tint = theme.colors.type.dimmed, modifier = Modifier.size(22.dp))
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HeaderIconButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    onClick: () -> Unit,
+    badgeCount: Int = 0,
+) {
+    val theme = LocalZStreamTheme.current
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .background(theme.colors.background.secondary.copy(alpha = 0.8f))
+            .border(1.dp, theme.colors.type.divider.copy(alpha = 0.3f), RoundedCornerShape(50))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 7.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, null, tint = theme.colors.type.secondary, modifier = Modifier.size(22.dp))
+        if (badgeCount > 0) {
+            Box(
+                modifier = Modifier
+                    .size(14.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFFEF4444))
+                    .align(Alignment.TopEnd)
+                    .offset(x = 0.dp, y = (-5).dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    if (badgeCount > 99) "99+" else badgeCount.toString(),
+                    color = Color.White,
+                    fontSize = 7.sp,
+                    fontWeight = FontWeight.Bold,
+                )
             }
         }
     }
@@ -1125,7 +1107,17 @@ private fun LayoutMenuDialog(
 }
 
 @Composable
-private fun SandwichMenuDialog(nav: NavController, session: com.zstream.android.data.AccountSession?, accountVm: AccountViewModel, onDismiss: () -> Unit) {
+private fun SandwichMenuDialog(
+    nav: NavController,
+    session: com.zstream.android.data.AccountSession?,
+    accountVm: AccountViewModel,
+    showHeaderActions: Boolean,
+    unreadCount: Int,
+    onDiscord: () -> Unit,
+    onNotifications: () -> Unit,
+    onTipJar: () -> Unit,
+    onDismiss: () -> Unit,
+) {
     val theme = LocalZStreamTheme.current
     val uriHandler = LocalUriHandler.current
 
@@ -1155,7 +1147,14 @@ private fun SandwichMenuDialog(nav: NavController, session: com.zstream.android.
                 HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp), color = theme.colors.type.divider.copy(alpha = 0.15f))
                 SandwichItem(Icons.Default.Settings, "Settings", theme = theme) { nav.navigate("settings"); onDismiss() }
                 SandwichItem(Icons.Default.History, "Watch History", theme = theme) { nav.navigate("watchHistory"); onDismiss() }
-                SandwichItem(Icons.Default.Help, "About and FAQ", theme = theme) { onDismiss() }
+                if (showHeaderActions) {
+                    SandwichItem(Icons.Default.Forum, "Discord", theme = theme) { onDiscord(); onDismiss() }
+                    SandwichItem(Icons.Default.Notifications, if (unreadCount > 0) "Notifications ($unreadCount)" else "Notifications", theme = theme) {
+                        onNotifications()
+                        onDismiss()
+                    }
+                    SandwichItem(Icons.Default.AttachMoney, "Tip Jar", theme = theme) { onTipJar(); onDismiss() }
+                }
                 SandwichItem(Icons.Default.Explore, "Discover", theme = theme) { nav.navigate("search"); onDismiss() }
                 SandwichItem(Icons.Default.Group, "Join a Watch Party", theme = theme) { onDismiss() }
 
@@ -1891,6 +1890,7 @@ private fun SearchOverlay(
     placeholder: String,
     modifier: Modifier = Modifier
 ) {
+    val theme = LocalZStreamTheme.current
     Row(
         modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
@@ -1902,8 +1902,8 @@ private fun SearchOverlay(
                 .then(if (isSearching) Modifier.weight(1f) else Modifier.size(44.dp))
                 .height(44.dp)
                 .clip(RoundedCornerShape(44.dp))
-                .background(Color.Black.copy(alpha = 0.6f))
-                .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(44.dp))
+                .background(theme.colors.background.secondary.copy(alpha = 0.8f))
+                .border(1.dp, theme.colors.type.divider.copy(alpha = 0.3f), RoundedCornerShape(44.dp))
                 .clickable(!isSearching) { onSearchFocusedChange(true) },
             contentAlignment = Alignment.CenterStart,
         ) {
@@ -1914,19 +1914,19 @@ private fun SearchOverlay(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Icon(Icons.Default.Search, null, tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.size(18.dp))
+                Icon(Icons.Default.Search, null, tint = theme.colors.type.secondary, modifier = Modifier.size(18.dp))
                 
                 if (isSearching) {
                     Box(modifier = Modifier.weight(1f)) {
                         if (searchQuery.isEmpty()) {
-                            Text(placeholder, color = Color.White.copy(alpha = 0.4f), fontSize = 13.sp)
+                            Text(placeholder, color = theme.colors.search.placeholder, fontSize = 13.sp)
                         }
                         BasicTextField(
                             value = searchQuery,
                             onValueChange = onSearch,
                             singleLine = true,
-                            textStyle = TextStyle(color = Color.White, fontSize = 13.sp),
-                            cursorBrush = SolidColor(Color.White),
+                            textStyle = TextStyle(color = theme.colors.search.text, fontSize = 13.sp),
+                            cursorBrush = SolidColor(theme.colors.global.accentA),
                             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                             keyboardActions = KeyboardActions(onSearch = { onClearFocus() }),
                             modifier = Modifier
