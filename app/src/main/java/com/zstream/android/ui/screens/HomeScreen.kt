@@ -45,6 +45,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -1555,7 +1556,11 @@ private fun FeaturedCarousel(
                         ) {
                             // TMDB Rating
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Text("★", color = Color(0xFFF5C518), fontSize = 12.sp)
+                                Image(
+                                    painter = painterResource(id = R.drawable.tmdb_logo),
+                                    contentDescription = "TMDB Logo",
+                                    modifier = Modifier.size(22.dp)
+                                )
                                 Text(
                                     String.format(Locale.US, "%.1f", current.voteAverage ?: 0.0),
                                     color = Color.White,
