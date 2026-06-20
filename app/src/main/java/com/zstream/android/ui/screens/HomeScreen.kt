@@ -44,6 +44,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -57,6 +58,7 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -699,7 +701,7 @@ private fun TopNavBar(
                 )
             }
             if (!collapseActionsIntoMenu) {
-                HeaderIconButton(icon = Icons.Default.Forum, onClick = onDiscord)
+                HeaderIconButton(icon = ImageVector.vectorResource(R.drawable.ic_discord), onClick = onDiscord)
                 HeaderIconButton(icon = Icons.Default.Notifications, onClick = onNotifications, badgeCount = unreadCount)
                 HeaderIconButton(icon = Icons.Default.AttachMoney, onClick = onTipJar)
             }
@@ -1148,7 +1150,7 @@ private fun SandwichMenuDialog(
                 SandwichItem(Icons.Default.Settings, "Settings", theme = theme) { nav.navigate("settings"); onDismiss() }
                 SandwichItem(Icons.Default.History, "Watch History", theme = theme) { nav.navigate("watchHistory"); onDismiss() }
                 if (showHeaderActions) {
-                    SandwichItem(Icons.Default.Forum, "Discord", theme = theme) { onDiscord(); onDismiss() }
+                    SandwichItem(ImageVector.vectorResource(R.drawable.ic_discord), "Discord", theme = theme) { onDiscord(); onDismiss() }
                     SandwichItem(Icons.Default.Notifications, if (unreadCount > 0) "Notifications ($unreadCount)" else "Notifications", theme = theme) {
                         onNotifications()
                         onDismiss()
