@@ -364,7 +364,7 @@ private fun AccountSection(
             onDismissRequest = { onLogoutConfirmChange(false) },
             containerColor = theme.colors.modal.background,
             title = { Text("Log out?", color = theme.colors.type.emphasis) },
-            text = { Text("You will be signed out of your account. Would you like to export your data first?", color = theme.colors.type.text) },
+            text = { Text("You will be signed out of your account. Local user data (watch history and bookmarks) will be deleted, but your app settings will be preserved. Would you like to export your data first?", color = theme.colors.type.text) },
             confirmButton = {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     TextButton(onClick = {
@@ -377,13 +377,13 @@ private fun AccountSection(
                         accountVm.logout()
                         onLogoutConfirmChange(false)
                     }) {
-                        Text("Yes", color = theme.colors.buttons.danger)
+                        Text("Yes, Log out", color = theme.colors.buttons.danger)
                     }
                 }
             },
             dismissButton = {
                 TextButton(onClick = { onLogoutConfirmChange(false) }) {
-                    Text("No", color = theme.colors.type.secondary)
+                    Text("Cancel", color = theme.colors.type.secondary)
                 }
             }
         )

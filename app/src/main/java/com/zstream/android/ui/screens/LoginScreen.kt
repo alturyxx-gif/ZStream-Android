@@ -75,7 +75,10 @@ fun LoginScreen(nav: NavController, vm: AccountViewModel = hiltViewModel()) {
 
         when (screen) {
             "login" -> LoginPanel(
-                vm = vm, txt = txt, bg = bg, authState = authState,
+                vm = vm,
+                txt = txt,
+                bg = bg,
+                authState = authState,
                 onRegister = {
                     generatedMnemonic = generateMnemonic()
                     screen = "register_show"
@@ -164,6 +167,19 @@ private fun BoxScope.LoginPanel(
             Icon(Icons.Default.Lock, null, Modifier.size(18.dp))
             Spacer(Modifier.width(8.dp))
             Text("Sign in with Passkey")
+        }
+
+        OutlinedButton(
+            onClick = { vm.registerWithPasskey(deviceName.ifBlank { "Android" }) },
+            enabled = authState !is AuthState.Loading && deviceName.isNotBlank(),
+            modifier = Modifier.fillMaxWidth().height(48.dp),
+            shape = RoundedCornerShape(12.dp),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = txt.text),
+            border = androidx.compose.foundation.BorderStroke(1.dp, txt.dimmed.copy(0.4f)),
+        ) {
+            Icon(Icons.Default.Lock, null, Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("Create account with Passkey")
         }
 
         TextButton(onClick = onRegister) {
@@ -282,6 +298,19 @@ private fun BoxScope.ConfirmRegisterPanel(
             if (authState is AuthState.Loading)
                 CircularProgressIndicator(Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
             else Text("Create Account", fontWeight = FontWeight.SemiBold)
+        }
+
+        OutlinedButton(
+            onClick = { vm.registerWithPasskey(deviceName.ifBlank { "Android" }) },
+            enabled = authState !is AuthState.Loading && deviceName.isNotBlank(),
+            modifier = Modifier.fillMaxWidth().height(48.dp),
+            shape = RoundedCornerShape(12.dp),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = txt.text),
+            border = androidx.compose.foundation.BorderStroke(1.dp, txt.dimmed.copy(0.4f)),
+        ) {
+            Icon(Icons.Default.Lock, null, Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("Create with Passkey")
         }
     }
 }
