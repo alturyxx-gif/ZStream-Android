@@ -27,6 +27,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.scale
@@ -293,13 +294,20 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
     val unreadCount = notifications.count { it.guid !in readGuids }
     val scope = rememberCoroutineScope()
 
+    val blurRadius by animateDpAsState(
+        targetValue = if (isSearchFocused || state.searchQuery.isNotBlank()) 12.dp else 0.dp,
+        label = "blurRadius"
+    )
+
     Box(modifier = Modifier
         .fillMaxSize()
         .background(theme.colors.background.main)
         .navigationBarsPadding()) {
         if (!state.enableLowPerformanceMode && !state.enableFeatured) {
-            CosmicBackground()
-            ParticleOverlay()
+            Box(Modifier.blur(blurRadius)) {
+                CosmicBackground()
+                ParticleOverlay()
+            }
         }
 
         when {
@@ -345,6 +353,11 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
                 val headerBackground by animateColorAsState(
                     targetValue = if (shouldHeaderBeSticky) theme.colors.background.main.copy(alpha = 0.85f) else Color.Transparent,
                     label = "headerBackground"
+                )
+
+                val headerBlur by animateDpAsState(
+                    targetValue = if (shouldHeaderBeSticky) 20.dp else 0.dp,
+                    label = "headerBlur"
                 )
 
                 Box(Modifier.fillMaxSize()) {
@@ -415,43 +428,64 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
                     }
 
                     // Sticky Header Overlay
-                    Column(
+                    Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .graphicsLayer { translationY = headerTranslation }
-                            .background(headerBackground)
-                            .drawBehind {
-                                if (shouldHeaderBeSticky) {
-                                    drawLine(
-                                        color = Color.White.copy(alpha = 0.1f),
-                                        start = Offset(0f, size.height),
-                                        end = Offset(size.width, size.height),
-                                        strokeWidth = 1.dp.toPx()
-                                    )
-                                }
-                            }
-                            .statusBarsPadding()
-                            .padding(bottom = 8.dp)
                     ) {
-                        TopNavBar(
-                            onLayout = { showLayoutMenu = true },
-                            onMenu = { showSandwichMenu = true },
-                            onDiscord = { uriHandler.openUri(Urls.DISCORD_LINK) },
-                            onNotifications = { showNotifications = true },
-                            onTipJar = { showTipJar = true },
-                            unreadCount = unreadCount,
-                        )
-                        if (state.enableFeatured && state.featuredMedia.isNotEmpty()) {
-                            SearchOverlay(
-                                searchQuery = state.searchQuery,
-                                onSearch = vm::onSearchChange,
-                                isSearching = isSearching,
-                                onSearchFocusedChange = { isSearchFocused = it },
-                                onClearFocus = { focusManager.clearFocus() },
-                                focusRequester = focusRequester,
-                                placeholder = placeholder,
-                                modifier = Modifier.padding(horizontal = 16.dp)
+                        // Blurred background layer
+                        if (shouldHeaderBeSticky) {
+                            Box(
+                                modifier = Modifier
+                                    .matchParentSize()
+                                    .blur(headerBlur)
+                                    .background(
+                                        Brush.verticalGradient(
+                                            listOf(
+                                                theme.colors.background.main.copy(alpha = 0.95f),
+                                                theme.colors.background.main.copy(alpha = 0.8f)
+                                            )
+                                        )
+                                    )
                             )
+                        }
+
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .drawBehind {
+                                    if (shouldHeaderBeSticky) {
+                                        drawLine(
+                                            color = Color.White.copy(alpha = 0.1f),
+                                            start = Offset(0f, size.height),
+                                            end = Offset(size.width, size.height),
+                                            strokeWidth = 1.dp.toPx()
+                                        )
+                                    }
+                                }
+                                .statusBarsPadding()
+                                .padding(bottom = 8.dp)
+                        ) {
+                            TopNavBar(
+                                onLayout = { showLayoutMenu = true },
+                                onMenu = { showSandwichMenu = true },
+                                onDiscord = { uriHandler.openUri(Urls.DISCORD_LINK) },
+                                onNotifications = { showNotifications = true },
+                                onTipJar = { showTipJar = true },
+                                unreadCount = unreadCount,
+                            )
+                            if (state.enableFeatured && state.featuredMedia.isNotEmpty()) {
+                                SearchOverlay(
+                                    searchQuery = state.searchQuery,
+                                    onSearch = vm::onSearchChange,
+                                    isSearching = isSearching,
+                                    onSearchFocusedChange = { isSearchFocused = it },
+                                    onClearFocus = { focusManager.clearFocus() },
+                                    focusRequester = focusRequester,
+                                    placeholder = placeholder,
+                                    modifier = Modifier.padding(horizontal = 16.dp)
+                                )
+                            }
                         }
                     }
                 }
@@ -1558,6 +1592,10 @@ private fun FeaturedCarousel(
         targetValue = if (isSearching) (-200).dp else 0.dp,
         label = "carouselOffset"
     )
+    val blurRadius by animateDpAsState(
+        targetValue = if (isSearching) 16.dp else 0.dp,
+        label = "carouselBlur"
+    )
 
     Box(modifier = modifier.height(height)) {
         HorizontalPager(
@@ -1565,7 +1603,7 @@ private fun FeaturedCarousel(
             modifier = Modifier.fillMaxSize().graphicsLayer { 
                 alpha = contentAlpha 
                 translationY = carouselOffset.toPx()
-            },
+            }.blur(blurRadius),
             key = { media[it].id }
         ) { page ->
             val current = media[page]
