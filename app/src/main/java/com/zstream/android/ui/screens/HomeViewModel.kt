@@ -8,6 +8,7 @@ import com.zstream.android.data.local.preferences.SettingsPreferences
 import com.zstream.android.data.model.Media
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -165,11 +166,33 @@ class HomeViewModel @Inject constructor(
                     val onAir = async { repo.onAirTv() }
 
                     val movies = trendMovies.await()
-                    android.util.Log.d("HomeVM", "Loaded ${movies.size} trending movies")
+                    val tvShows = trendTv.await()
+                    android.util.Log.d("HomeVM", "Loaded ${movies.size} trending movies and ${tvShows.size} trending TV shows")
+
+                    // Combine trending movies and TV shows for the carousel
+                    val combinedFeatured = (movies.take(10) + tvShows.take(10))
+                        .shuffled()
+                        .take(10)
+
+                    val featuredWithLogos = combinedFeatured.map { media ->
+                        async {
+                            try {
+                                if (media.type == "movie") {
+                                    val detail = repo.movieDetail(media.id)
+                                    media.copy(logoPath = detail.images?.logos?.firstOrNull()?.file_path)
+                                } else {
+                                    val detail = repo.tvDetail(media.id)
+                                    media.copy(logoPath = detail.images?.logos?.firstOrNull()?.file_path)
+                                }
+                            } catch (e: Exception) {
+                                media
+                            }
+                        }
+                    }.awaitAll()
 
                     _state.update { it.copy(
                         loading = false,
-                        featuredMedia = movies.take(10),
+                        featuredMedia = featuredWithLogos,
                         movieSections = listOf(
                             MediaSection("Most Popular", popularMovies.await()),
                             MediaSection("In Cinemas", nowPlaying.await()),

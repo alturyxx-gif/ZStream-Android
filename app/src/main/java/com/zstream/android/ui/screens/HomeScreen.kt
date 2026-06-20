@@ -283,7 +283,12 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
                     Text(state.error!!, color = theme.colors.type.danger, textAlign = TextAlign.Center)
                     Spacer(Modifier.height(12.dp))
-                    Button(onClick = vm::load, colors = ButtonDefaults.buttonColors(containerColor = theme.colors.global.accentA)) {
+                    Button(
+                        onClick = vm::load,
+                        colors = ButtonDefaults.buttonColors(containerColor = theme.colors.global.accentA),
+                        border = BorderStroke(1.dp, theme.colors.type.divider.copy(alpha = 0.3f)),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
                         Text("Retry")
                     }
                 }
@@ -310,6 +315,7 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
                             FeaturedCarousel(
                                 media = state.featuredMedia,
                                 nav = nav,
+                                progressMap = state.progressMap,
                                 searchQuery = state.searchQuery,
                                 onSearch = vm::onSearchChange,
                                 isSearching = isSearchFocused || state.searchQuery.isNotEmpty(),
@@ -708,7 +714,8 @@ private fun HeroSection(searchQuery: String, onSearch: (String) -> Unit, nav: Na
                     .weight(1f)
                     .height(48.dp)
                     .clip(RoundedCornerShape(48.dp))
-                    .background(theme.colors.search.background),
+                    .background(theme.colors.search.background)
+                    .border(1.dp, theme.colors.type.divider.copy(alpha = 0.3f), RoundedCornerShape(48.dp)),
                 contentAlignment = Alignment.CenterStart,
             ) {
                 Row(
@@ -791,7 +798,7 @@ private fun GenrePills(selectedGenreId: Int?, onSelect: (Int?) -> Unit) {
                     )
                     .border(
                         1.dp,
-                        if (selected) Color.Transparent else theme.colors.type.divider.copy(alpha = 0.25f),
+                        if (selected) Color.Transparent else theme.colors.type.divider.copy(alpha = 0.3f),
                         RoundedCornerShape(50)
                     )
                     .clickable { onSelect(if (selected) null else id) }
@@ -1055,6 +1062,7 @@ private fun SandwichMenuDialog(nav: NavController, session: com.zstream.android.
                                 .size(40.dp)
                                 .clip(CircleShape)
                                 .background(theme.colors.background.secondary)
+                                .border(1.dp, theme.colors.type.divider.copy(alpha = 0.3f), CircleShape)
                                 .clickable {
                                     uriHandler.openUri(url)
                                 },
@@ -1086,8 +1094,10 @@ private fun SandwichItem(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .padding(horizontal = 8.dp, vertical = 2.dp)
+            .clip(RoundedCornerShape(8.dp))
             .clickable(onClick = onClick)
-            .padding(horizontal = 20.dp, vertical = 12.dp),
+            .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -1162,6 +1172,7 @@ private fun NotificationsDialog(
                                 .size(32.dp)
                                 .clip(CircleShape)
                                 .background(Color.Black.copy(alpha = 0.75f))
+                                .border(1.dp, Color.White.copy(alpha = 0.15f), CircleShape)
                                 .clickable(onClick = onDismiss),
                             contentAlignment = Alignment.Center,
                         ) {
@@ -1220,6 +1231,7 @@ private fun NotificationCard(
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
             .background(theme.colors.background.secondary.copy(alpha = 0.4f))
+            .border(1.dp, theme.colors.type.divider.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
             .clickable(onClick = onClick)
             .padding(12.dp),
     ) {
@@ -1288,6 +1300,7 @@ private fun NotificationDetailView(
                     .size(32.dp)
                     .clip(CircleShape)
                     .background(Color.Black.copy(alpha = 0.75f))
+                    .border(1.dp, Color.White.copy(alpha = 0.15f), CircleShape)
                     .clickable(onClick = onBack),
                 contentAlignment = Alignment.Center,
             ) {
@@ -1300,6 +1313,7 @@ private fun NotificationDetailView(
                     .size(32.dp)
                     .clip(CircleShape)
                     .background(Color.Black.copy(alpha = 0.75f))
+                    .border(1.dp, Color.White.copy(alpha = 0.15f), CircleShape)
                     .clickable(onClick = onDismiss),
                 contentAlignment = Alignment.Center,
             ) {
@@ -1387,6 +1401,7 @@ private fun TipJarDialog(onDismiss: () -> Unit) {
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(12.dp))
                                 .background(theme.colors.background.secondary.copy(alpha = 0.5f))
+                                .border(1.dp, theme.colors.type.divider.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
                                 .clickable { clipboard.setText(AnnotatedString(crypto.address)) }
                                 .padding(12.dp),
                             verticalAlignment = Alignment.CenterVertically,
@@ -1425,6 +1440,7 @@ private fun TipJarDialog(onDismiss: () -> Unit) {
 private fun FeaturedCarousel(
     media: List<Media>,
     nav: NavController,
+    progressMap: Map<String, ProgressEntity> = emptyMap(),
     searchQuery: String = "",
     onSearch: (String) -> Unit = {},
     isSearching: Boolean = false,
@@ -1531,7 +1547,23 @@ private fun FeaturedCarousel(
                 ) {
                     Column(Modifier.fillMaxWidth()) {
                         // Title
-                        Text(
+                        current.logoUrl()?.let { logo ->
+                            Box(
+                                Modifier
+                                    .height(80.dp)
+                                    .fillMaxWidth(0.7f)
+                                    .padding(bottom = 8.dp)
+                                    .graphicsLayer { alpha = contentAlpha }
+                            ) {
+                                AsyncImage(
+                                    model = logo,
+                                    contentDescription = title,
+                                    contentScale = ContentScale.Fit,
+                                    alignment = Alignment.BottomStart,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
+                        } ?: Text(
                             title,
                             color = Color.White,
                             fontSize = 32.sp,
@@ -1564,7 +1596,7 @@ private fun FeaturedCarousel(
                                 Text(
                                     String.format(Locale.US, "%.1f", current.voteAverage ?: 0.0),
                                     color = Color.White,
-                                    fontSize = 13.sp,
+                                    fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
                                     style = LocalTextStyle.current.copy(
                                         shadow = Shadow(
@@ -1581,7 +1613,7 @@ private fun FeaturedCarousel(
                                 Text(
                                     year,
                                     color = Color.White.copy(alpha = 0.8f),
-                                    fontSize = 13.sp,
+                                    fontSize = 11.sp,
                                     style = LocalTextStyle.current.copy(
                                         shadow = Shadow(
                                             color = Color.Black.copy(alpha = 0.5f),
@@ -1597,7 +1629,7 @@ private fun FeaturedCarousel(
                             Text(
                                 typeLabel,
                                 color = Color.White.copy(alpha = 0.8f),
-                                fontSize = 13.sp,
+                                fontSize = 11.sp,
                                 style = LocalTextStyle.current.copy(
                                     shadow = Shadow(
                                         color = Color.Black.copy(alpha = 0.5f),
@@ -1639,14 +1671,22 @@ private fun FeaturedCarousel(
                             // Play Now button
                             Button(
                                 onClick = {
+                                    val progress = progressMap[current.id.toString()]
+                                    val sParam = if (type == "tv") {
+                                        val sNum = progress?.seasonNumber ?: 1
+                                        val eNum = progress?.episodeNumber ?: 1
+                                        "&season=$sNum&episode=$eNum"
+                                    } else ""
+
                                     val encodedTitle = java.net.URLEncoder.encode(title, "UTF-8")
                                     val poster = java.net.URLEncoder.encode(current.posterPath ?: "", "UTF-8")
-                                    nav.navigate("player/$type/${current.id}?title=$encodedTitle&year=${year.toIntOrNull() ?: 0}&poster=$poster")
+                                    nav.navigate("player/$type/${current.id}?title=$encodedTitle&year=${year.toIntOrNull() ?: 0}&poster=$poster$sParam")
                                 },
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = theme.colors.buttons.primary,
                                     contentColor = theme.colors.buttons.primaryText,
                                 ),
+                                border = BorderStroke(1.dp, theme.colors.type.divider.copy(alpha = 0.3f)),
                                 shape = RoundedCornerShape(12.dp),
                                 modifier = Modifier.height(48.dp).weight(1f),
                                 contentPadding = PaddingValues(horizontal = 16.dp)
@@ -1663,6 +1703,7 @@ private fun FeaturedCarousel(
                                     containerColor = theme.colors.buttons.secondary,
                                     contentColor = theme.colors.buttons.secondaryText,
                                 ),
+                                border = BorderStroke(1.dp, theme.colors.type.divider.copy(alpha = 0.3f)),
                                 shape = RoundedCornerShape(12.dp),
                                 modifier = Modifier.height(48.dp).weight(1f),
                                 contentPadding = PaddingValues(horizontal = 16.dp)
@@ -1694,7 +1735,8 @@ private fun FeaturedCarousel(
                         .weight(1f)
                         .height(44.dp)
                         .clip(RoundedCornerShape(44.dp))
-                        .background(Color.Black.copy(alpha = 0.6f)),
+                        .background(Color.Black.copy(alpha = 0.6f))
+                        .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(44.dp)),
                     contentAlignment = Alignment.CenterStart,
                 ) {
                     Row(

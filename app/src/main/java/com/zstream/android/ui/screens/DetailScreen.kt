@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -151,7 +152,9 @@ fun MovieDetailModal(
             Button(
                 onClick = { nav.navigate("player/movie/${d.id}?title=${d.title.encode()}&year=${d.releaseDate?.take(4)?.toIntOrNull() ?: 0}&poster=${d.posterPath?.encode() ?: ""}") },
                 colors = ButtonDefaults.buttonColors(containerColor = theme.colors.buttons.primary),
-                shape = RoundedCornerShape(6.dp)
+                border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.type.divider.copy(alpha = 0.3f)),
+                shape = RoundedCornerShape(6.dp),
+                modifier = Modifier.widthIn(min = 120.dp)
             ) {
                 Icon(Icons.Filled.PlayArrow, null, tint = theme.colors.buttons.primaryText)
                 Spacer(Modifier.width(6.dp))
@@ -246,6 +249,7 @@ private fun BoxScope.XCloseButton(nav: NavController) {
             .size(40.dp)
             .clip(CircleShape)
             .background(Color.Black.copy(alpha = 0.75f))
+            .border(1.dp, Color.White.copy(alpha = 0.15f), CircleShape)
     ) {
         Icon(Icons.Filled.Close, null, tint = Color.White)
     }
@@ -297,7 +301,9 @@ private fun TvDetailModal(
                     }
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = theme.colors.buttons.primary),
-                shape = RoundedCornerShape(6.dp)
+                border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.type.divider.copy(alpha = 0.3f)),
+                shape = RoundedCornerShape(6.dp),
+                modifier = Modifier.widthIn(min = 120.dp)
             ) {
                 Icon(Icons.Filled.PlayArrow, null, tint = theme.colors.buttons.primaryText)
                 Spacer(Modifier.width(6.dp))
@@ -551,7 +557,11 @@ private fun DetailSpec(label: String, value: String, theme: com.zstream.android.
 
 @Composable
 private fun GenreChip(label: String, theme: com.zstream.android.theme.ZStreamTheme) {
-    Surface(color = theme.colors.type.text.copy(alpha = 0.08f), shape = RoundedCornerShape(4.dp)) {
+    Surface(
+        color = theme.colors.type.text.copy(alpha = 0.08f),
+        shape = RoundedCornerShape(4.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.type.divider.copy(alpha = 0.15f))
+    ) {
         Text(label, modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp), style = MaterialTheme.typography.labelMedium, color = theme.colors.type.text)
     }
 }
@@ -626,7 +636,12 @@ private fun ActionPill(
     cornerRadius: Dp, 
     onClick: () -> Unit
 ) {
-    Surface(shape = RoundedCornerShape(cornerRadius), color = theme.colors.type.text.copy(alpha = 0.05f), modifier = Modifier.clickable(onClick = onClick)) {
+    Surface(
+        shape = RoundedCornerShape(cornerRadius), 
+        color = theme.colors.type.text.copy(alpha = 0.05f), 
+        border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.type.divider.copy(alpha = 0.3f)),
+        modifier = Modifier.clickable(onClick = onClick)
+    ) {
         Row(Modifier.padding(horizontal = if (label.isEmpty()) 14.dp else 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(icon, null, modifier = Modifier.size(20.dp), tint = theme.colors.type.text)
             if (label.isNotEmpty()) {

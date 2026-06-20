@@ -1,6 +1,7 @@
 package com.zstream.android.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -101,6 +102,7 @@ private fun WatchHistoryItem(
             .fillMaxWidth()
             .clip(RoundedCornerShape(10.dp))
             .background(theme.colors.settings.card.background)
+            .border(1.dp, theme.colors.type.divider.copy(alpha = 0.3f), RoundedCornerShape(10.dp))
             .clickable(onClick = onClick)
             .padding(10.dp),
         verticalAlignment = Alignment.CenterVertically

@@ -15,6 +15,7 @@ data class Media(
     @SerializedName("vote_average") val voteAverage: Double?,
     @SerializedName("media_type") val mediaType: String?,
     @SerializedName("genre_ids") val genreIds: List<Int>?,
+    val logoPath: String? = null,
 ) {
     val displayTitle get() = title ?: name ?: ""
     val displayDate get() = releaseDate ?: firstAirDate ?: ""
@@ -29,6 +30,11 @@ data class Media(
         val path = backdropPath ?: return null
         val url = if (path.startsWith("http")) path else Urls.TMDB_IMAGE + "$size$path"
         return url
+    }
+
+    fun logoUrl(size: String = "w500"): String? {
+        val path = logoPath ?: return null
+        return if (path.startsWith("http")) path else Urls.TMDB_IMAGE + "$size$path"
     }
 }
 

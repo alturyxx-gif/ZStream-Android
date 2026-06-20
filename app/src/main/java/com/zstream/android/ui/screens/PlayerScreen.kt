@@ -140,7 +140,13 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                 Column(Modifier.align(Alignment.Center).padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(s.message, color = Color.White, fontSize = 14.sp)
                     Spacer(Modifier.height(16.dp))
-                    Button(onClick = vm::load) { Text("Retry") }
+                    Button(
+                        onClick = vm::load,
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.2f)),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text("Retry")
+                    }
                 }
                 IconButton(onClick = { nav.popBackStack() }, modifier = Modifier.align(Alignment.TopStart).padding(4.dp)) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = Color.White)
@@ -427,22 +433,30 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                         title = { Text("Continue Watching?", color = Color.White) },
                         text = { Text("You're $pct% through. Resume from where you left off?", color = Color.White.copy(alpha = 0.7f)) },
                         confirmButton = {
-                            TextButton(onClick = {
-                                // If already ready, seek now; otherwise queue for STATE_READY
-                                if (player.playbackState == Player.STATE_READY) {
-                                    player.seekTo(resumeWatched * 1000)
-                                } else {
-                                    pendingResumeMs = resumeWatched * 1000
-                                }
-                                showResumeDialog = false
-                                resumeHandled = true
-                            }) { Text("Resume", color = Color(0xFF7C3AED)) }
+                            TextButton(
+                                onClick = {
+                                    // If already ready, seek now; otherwise queue for STATE_READY
+                                    if (player.playbackState == Player.STATE_READY) {
+                                        player.seekTo(resumeWatched * 1000)
+                                    } else {
+                                        pendingResumeMs = resumeWatched * 1000
+                                    }
+                                    showResumeDialog = false
+                                    resumeHandled = true
+                                },
+                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF7C3AED).copy(alpha = 0.3f)),
+                                shape = RoundedCornerShape(8.dp)
+                            ) { Text("Resume", color = Color(0xFF7C3AED)) }
                         },
                         dismissButton = {
-                            TextButton(onClick = {
-                                showResumeDialog = false
-                                resumeHandled = true
-                            }) { Text("Restart", color = Color.White.copy(alpha = 0.6f)) }
+                            TextButton(
+                                onClick = {
+                                    showResumeDialog = false
+                                    resumeHandled = true
+                                },
+                                border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.15f)),
+                                shape = RoundedCornerShape(8.dp)
+                            ) { Text("Restart", color = Color.White.copy(alpha = 0.6f)) }
                         }
                     )
                 }
