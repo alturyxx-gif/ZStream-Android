@@ -31,7 +31,7 @@ sealed class PlayerState {
     data class Error(val message: String, val sources: List<SourceResult>) : PlayerState()
 }
 
-data class SubtitleTrack(val label: String, val url: String, val language: String)
+data class SubtitleTrack(val label: String, val url: String, val language: String, val type: String = "vtt")
 
 data class SubtitleCue(val startMs: Long, val endMs: Long, val text: String)
 
@@ -119,8 +119,8 @@ class PlayerViewModel @Inject constructor(
                 Log.d("PlayerVM", "parsed headers: $headers, subtitles: ${subtitleTracks.size}")
                 _state.value = PlayerState.Ready(streamUrl, headers, subtitleTracks, sources.toList())
 
-                // Auto-select first subtitle track and download it
-                if (subtitleTracks.isNotEmpty()) {
+                // Mirror web behavior: subtitle on/off is a local persisted preference.
+                if (settings.value.subtitlesEnabled && subtitleTracks.isNotEmpty()) {
                     downloadAndParseSubtitles(subtitleTracks)
                 }
             }.onFailure {
@@ -131,19 +131,36 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun selectSubtitle(language: String) {
-        _selectedSubtitleLang.value = language
-        val state = _state.value
-        if (state is PlayerState.Ready) {
-            val track = state.subtitles.find { it.language == language || it.label == language }
-            if (track != null) {
-                downloadAndParseSubtitles(listOf(track))
+        viewModelScope.launch {
+            settingsPrefs.setSubtitlesEnabled(true)
+            settingsPrefs.setDefaultSubtitleLanguage(language)
+            _selectedSubtitleLang.value = language
+            val state = _state.value
+            if (state is PlayerState.Ready) {
+                val track = state.subtitles.find { it.language == language || it.label == language }
+                if (track != null) {
+                    downloadAndParseSubtitles(listOf(track))
+                }
             }
         }
     }
 
     fun disableSubtitles() {
-        _selectedSubtitleLang.value = null
-        _subtitleCues.value = emptyList()
+        viewModelScope.launch {
+            settingsPrefs.setSubtitlesEnabled(false)
+            _selectedSubtitleLang.value = null
+            _subtitleCues.value = emptyList()
+        }
+    }
+
+    fun enableSubtitles() {
+        viewModelScope.launch {
+            settingsPrefs.setSubtitlesEnabled(true)
+            val state = _state.value
+            if (state is PlayerState.Ready && state.subtitles.isNotEmpty()) {
+                downloadAndParseSubtitles(state.subtitles)
+            }
+        }
     }
 
     private fun downloadAndParseSubtitles(tracks: List<SubtitleTrack>) {
@@ -344,7 +361,8 @@ class PlayerViewModel @Inject constructor(
             val url = obj.optString("url").takeIf { it.isNotEmpty() } ?: return@mapNotNull null
             val label = obj.optString("language", "Unknown")
             val language = obj.optString("langIso").takeIf { it.isNotBlank() } ?: label
-            SubtitleTrack(label, url, language)
+            val type = obj.optString("type", "vtt")
+            SubtitleTrack(label, url, language, type)
         }
     }
 }

@@ -28,6 +28,7 @@ data class SettingsEntity(
     val enableSkipCredits: Boolean = false,
     val enableAutoSkipSegments: Boolean = false,
     val enableNativeSubtitles: Boolean = true,
+    val subtitlesEnabled: Boolean = false,
     val enableDoubleClickToSeek: Boolean = true,
     val enableNumberKeySeeking: Boolean = false,
     val enableHoldToBoost: Boolean = false,

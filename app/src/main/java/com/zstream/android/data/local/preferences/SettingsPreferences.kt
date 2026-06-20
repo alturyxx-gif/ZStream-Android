@@ -41,6 +41,7 @@ class SettingsPreferences @Inject constructor(
     private val KEY_ENABLE_SKIP_CREDITS = booleanPreferencesKey("enable_skip_credits")
     private val KEY_ENABLE_AUTO_SKIP_SEGMENTS = booleanPreferencesKey("enable_auto_skip_segments")
     private val KEY_ENABLE_NATIVE_SUBTITLES = booleanPreferencesKey("enable_native_subtitles")
+    private val KEY_SUBTITLES_ENABLED = booleanPreferencesKey("subtitles_enabled")
     private val KEY_ENABLE_DOUBLE_CLICK_TO_SEEK = booleanPreferencesKey("enable_double_click_to_seek")
     private val KEY_ENABLE_NUMBER_KEY_SEEKING = booleanPreferencesKey("enable_number_key_seeking")
     private val KEY_ENABLE_HOLD_TO_BOOST = booleanPreferencesKey("enable_hold_to_boost")
@@ -106,6 +107,7 @@ class SettingsPreferences @Inject constructor(
             enableSkipCredits = prefs[KEY_ENABLE_SKIP_CREDITS] ?: false,
             enableAutoSkipSegments = prefs[KEY_ENABLE_AUTO_SKIP_SEGMENTS] ?: false,
             enableNativeSubtitles = prefs[KEY_ENABLE_NATIVE_SUBTITLES] ?: true,
+            subtitlesEnabled = prefs[KEY_SUBTITLES_ENABLED] ?: false,
             enableDoubleClickToSeek = prefs[KEY_ENABLE_DOUBLE_CLICK_TO_SEEK] ?: true,
             enableNumberKeySeeking = prefs[KEY_ENABLE_NUMBER_KEY_SEEKING] ?: false,
             enableHoldToBoost = prefs[KEY_ENABLE_HOLD_TO_BOOST] ?: false,
@@ -166,6 +168,7 @@ class SettingsPreferences @Inject constructor(
             prefs[KEY_ENABLE_SKIP_CREDITS] = entity.enableSkipCredits
             prefs[KEY_ENABLE_AUTO_SKIP_SEGMENTS] = entity.enableAutoSkipSegments
             prefs[KEY_ENABLE_NATIVE_SUBTITLES] = entity.enableNativeSubtitles
+            prefs[KEY_SUBTITLES_ENABLED] = entity.subtitlesEnabled
             prefs[KEY_ENABLE_DOUBLE_CLICK_TO_SEEK] = entity.enableDoubleClickToSeek
             prefs[KEY_ENABLE_NUMBER_KEY_SEEKING] = entity.enableNumberKeySeeking
             prefs[KEY_ENABLE_HOLD_TO_BOOST] = entity.enableHoldToBoost
@@ -239,6 +242,7 @@ class SettingsPreferences @Inject constructor(
             val currentLineHeight = current[KEY_SUBTITLE_LINE_HEIGHT]?.toFloatOrNull() ?: 1.5f
             val currentFont = current[KEY_SUBTITLE_FONT] ?: "sans-serif"
             val currentTmdbApiKey = current[KEY_TMDB_API_KEY]
+            val currentSubtitlesEnabled = current[KEY_SUBTITLES_ENABLED] ?: false
 
             val mappedHomeSectionOrder = remote.homeSectionOrder?.map { section ->
                 when (section) {
@@ -261,6 +265,7 @@ class SettingsPreferences @Inject constructor(
                 enableSkipCredits = remote.enableSkipCredits ?: false,
                 enableAutoSkipSegments = remote.enableAutoSkipSegments ?: false,
                 enableNativeSubtitles = remote.enableNativeSubtitles ?: true,
+                subtitlesEnabled = currentSubtitlesEnabled,
                 enableDoubleClickToSeek = remote.enableDoubleClickToSeek ?: true,
                 enableNumberKeySeeking = remote.enableNumberKeySeeking ?: false,
                 enableHoldToBoost = remote.enableHoldToBoost ?: false,
@@ -381,6 +386,12 @@ class SettingsPreferences @Inject constructor(
     suspend fun setEnableNativeSubtitles(enabled: Boolean) {
         context.settingsStore.edit { prefs ->
             prefs[KEY_ENABLE_NATIVE_SUBTITLES] = enabled
+        }
+    }
+
+    suspend fun setSubtitlesEnabled(enabled: Boolean) {
+        context.settingsStore.edit { prefs ->
+            prefs[KEY_SUBTITLES_ENABLED] = enabled
         }
     }
 
