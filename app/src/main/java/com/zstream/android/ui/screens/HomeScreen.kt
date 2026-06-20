@@ -40,9 +40,12 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.LocalWindowInfo
@@ -240,15 +243,22 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
     val density = LocalDensity.current
+    val listState = rememberLazyListState()
     val isKeyboardVisible = WindowInsets.ime.getBottom(density) > 0
+    val focusRequester = remember { FocusRequester() }
 
+    var wasKeyboardVisible by remember { mutableStateOf(false) }
     LaunchedEffect(isKeyboardVisible) {
-        if (!isKeyboardVisible && isSearchFocused && state.searchQuery.isEmpty()) {
+        if (wasKeyboardVisible && !isKeyboardVisible && isSearchFocused && state.searchQuery.isEmpty()) {
+            isSearchFocused = false
             focusManager.clearFocus()
         }
+        wasKeyboardVisible = isKeyboardVisible
     }
 
     BackHandler(enabled = isSearchFocused) {
+        isSearchFocused = false
+        vm.onSearchChange("")
         focusManager.clearFocus()
     }
 
@@ -295,98 +305,123 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
                 }
             }
             else -> {
-                val isSearching = state.searchQuery.isNotBlank()
-                val displayedSearchResults = if (isSearching) {
-                    if (state.selectedGenreId != null)
-                        searchResults.filter { it.genreIds?.contains(state.selectedGenreId) == true }
-                    else searchResults
-                } else emptyList()
+                val isSearching = isSearchFocused || state.searchQuery.isNotBlank()
+                val displayedSearchResults = if (state.searchQuery.isNotBlank()) searchResults else emptyList()
 
                 val bookmarksList = state.bookmarks.flatMap { it.items }
                 val progressList = state.continueWatching.flatMap { it.items }
 
                 val uriHandler = LocalUriHandler.current
                 val density = LocalDensity.current
-                val topInsetPx = WindowInsets.safeDrawing.getTop(density) + WindowInsets.statusBars.getTop(density)
-                val topInsetDp = with(density) { topInsetPx.toDp() }
 
-                Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.statusBars)) {
+                val scrollOffset by remember { derivedStateOf { 
+                    if (listState.firstVisibleItemIndex == 0) listState.firstVisibleItemScrollOffset else 2000 
+                } }
+                
+                val headerTranslation by animateFloatAsState(
+                    targetValue = if (isSearching) 0f else -scrollOffset.toFloat(),
+                    label = "headerTranslation"
+                )
+                
+                val headerBackground by animateColorAsState(
+                    targetValue = if (isSearching) theme.colors.background.main else Color.Transparent,
+                    label = "headerBackground"
+                )
+
+                Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.statusBars)) {
                     LazyColumn(
+                        state = listState,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .weight(1f)
                             .animateContentSize(),
                         contentPadding = PaddingValues(bottom = 32.dp)
                     ) {
                         item {
-                            Box {
-                                if (state.enableFeatured && state.featuredMedia.isNotEmpty()) {
-                                    FeaturedCarousel(
-                                        media = state.featuredMedia,
-                                        nav = nav,
-                                        progressMap = state.progressMap,
-                                        searchQuery = state.searchQuery,
-                                        onSearch = vm::onSearchChange,
-                                        isSearching = isSearchFocused || state.searchQuery.isNotEmpty(),
-                                        onSearchFocusedChange = { isSearchFocused = it },
-                                        onClearFocus = { focusManager.clearFocus() },
-                                        modifier = Modifier.fillMaxWidth(),
-                                    )
-                                }
-                                TopNavBar(
-                                    onLayout = { showLayoutMenu = true },
-                                    onMenu = { showSandwichMenu = true },
-                                    onDiscord = { uriHandler.openUri(Urls.DISCORD_LINK) },
-                                    onNotifications = { showNotifications = true },
-                                    onTipJar = { showTipJar = true },
-                                    unreadCount = unreadCount,
+                            if (state.enableFeatured && state.featuredMedia.isNotEmpty()) {
+                                FeaturedCarousel(
+                                    media = state.featuredMedia,
+                                    nav = nav,
+                                    progressMap = state.progressMap,
+                                    isSearching = isSearching,
+                                    modifier = Modifier.fillMaxWidth(),
                                 )
+                            } else {
+                                Spacer(Modifier.height(115.dp)) // Placeholder height for header
                             }
                         }
+                        
                         if (!state.enableFeatured || state.featuredMedia.isEmpty()) {
                             item { HeroSection(state.searchQuery, vm::onSearchChange, nav) }
                             item { GenrePills(state.selectedGenreId, vm::setGenre) }
                             item { Spacer(Modifier.height(16.dp)) }
                         }
 
-                    if (isSearching) {
-                        // ... (keep search results as is)
-                    } else {
-                        // User sections first
-                        items(state.userSections
-                            .sortedBy { section ->
-                                val id = when (section.title) {
-                                    "Continue Watching" -> "continue_watching"
-                                    "My Bookmarks" -> "bookmarks"
-                                    else -> ""
+                        if (state.searchQuery.isNotBlank()) {
+                            item { Spacer(Modifier.height(16.dp)) }
+                            item { SearchResultsGrid(displayedSearchResults, nav) }
+                        } else {
+                            // User sections first
+                            items(state.userSections
+                                .sortedBy { section ->
+                                    val id = when (section.title) {
+                                        "Continue Watching" -> "continue_watching"
+                                        "My Bookmarks" -> "bookmarks"
+                                        else -> ""
+                                    }
+                                    sectionOrder.indexOf(id).let { if (it < 0) Int.MAX_VALUE else it }
                                 }
-                                sectionOrder.indexOf(id).let { if (it < 0) Int.MAX_VALUE else it }
-                            }
-                            .filter { section ->
-                                when (section.title) {
-                                    "Continue Watching" -> showContinueWatching
-                                    "My Bookmarks" -> showBookmarks
-                                    else -> true
+                                .filter { section ->
+                                    when (section.title) {
+                                        "Continue Watching" -> showContinueWatching
+                                        "My Bookmarks" -> showBookmarks
+                                        else -> true
+                                    }
                                 }
+                            ) { section -> MediaCarouselSection(section, nav, progressMap = state.progressMap) }
+
+                            item { Spacer(Modifier.height(16.dp)) }
+
+                            if (state.enableDiscover) {
+                                item { HomeTabs(state.activeTab, vm::setTab) }
+
+                                // Base sections second
+                                items(state.baseSections.map { section ->
+                                    val filtered = if (state.selectedGenreId != null)
+                                        section.items.filter { it.genreIds?.contains(state.selectedGenreId) == true }
+                                    else section.items
+                                    section.copy(items = filtered)
+                                }.filter { it.items.isNotEmpty() }) { section -> MediaCarouselSection(section, nav, progressMap = state.progressMap) }
                             }
-                        ) { section -> MediaCarouselSection(section, nav, progressMap = state.progressMap) }
-
-                        item { Spacer(Modifier.height(16.dp)) }
-
-                        if (state.enableDiscover) {
-                            item { HomeTabs(state.activeTab, vm::setTab) }
-
-                            // Base sections second
-                            items(state.baseSections.map { section ->
-                                val filtered = if (state.selectedGenreId != null)
-                                    section.items.filter { it.genreIds?.contains(state.selectedGenreId) == true }
-                                else section.items
-                                section.copy(items = filtered)
-                            }.filter { it.items.isNotEmpty() }) { section -> MediaCarouselSection(section, nav, progressMap = state.progressMap) }
                         }
                     }
+
+                    // Sticky Header Overlay
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .graphicsLayer { translationY = headerTranslation }
+                            .background(headerBackground)
+                            .padding(bottom = 8.dp)
+                    ) {
+                        TopNavBar(
+                            onLayout = { showLayoutMenu = true },
+                            onMenu = { showSandwichMenu = true },
+                            onDiscord = { uriHandler.openUri(Urls.DISCORD_LINK) },
+                            onNotifications = { showNotifications = true },
+                            onTipJar = { showTipJar = true },
+                            unreadCount = unreadCount,
+                        )
+                        SearchOverlay(
+                            searchQuery = state.searchQuery,
+                            onSearch = vm::onSearchChange,
+                            isSearching = isSearching,
+                            onSearchFocusedChange = { isSearchFocused = it },
+                            onClearFocus = { focusManager.clearFocus() },
+                            focusRequester = focusRequester,
+                            modifier = Modifier.padding(horizontal = 16.dp)
+                        )
+                    }
                 }
-            }
         }
         }
 
@@ -561,7 +596,7 @@ private fun TopNavBar(onLayout: () -> Unit, onMenu: () -> Unit, onDiscord: () ->
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 32.dp),
+            .padding(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
@@ -1453,11 +1488,7 @@ private fun FeaturedCarousel(
     media: List<Media>,
     nav: NavController,
     progressMap: Map<String, ProgressEntity> = emptyMap(),
-    searchQuery: String = "",
-    onSearch: (String) -> Unit = {},
     isSearching: Boolean = false,
-    onSearchFocusedChange: (Boolean) -> Unit = {},
-    onClearFocus: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val theme = LocalZStreamTheme.current
@@ -1470,8 +1501,8 @@ private fun FeaturedCarousel(
         if (isDragged) autoScrollEnabled = false
     }
 
-    LaunchedEffect(autoScrollEnabled, media) {
-        if (autoScrollEnabled && media.isNotEmpty()) {
+    LaunchedEffect(autoScrollEnabled, media, isSearching) {
+        if (autoScrollEnabled && media.isNotEmpty() && !isSearching) {
             while (true) {
                 delay(6000)
                 if (media.isNotEmpty()) {
@@ -1483,18 +1514,25 @@ private fun FeaturedCarousel(
     }
 
     val height by animateDpAsState(
-        targetValue = if (isSearching) 110.dp else 450.dp,
+        targetValue = if (isSearching) 115.dp else 450.dp,
         label = "carouselHeight"
     )
     val contentAlpha by animateFloatAsState(
         targetValue = if (isSearching) 0f else 1f,
         label = "contentAlpha"
     )
+    val carouselOffset by animateDpAsState(
+        targetValue = if (isSearching) (-200).dp else 0.dp,
+        label = "carouselOffset"
+    )
 
     Box(modifier = modifier.height(height)) {
         HorizontalPager(
             state = pagerState,
-            modifier = Modifier.fillMaxSize().graphicsLayer { alpha = contentAlpha },
+            modifier = Modifier.fillMaxSize().graphicsLayer { 
+                alpha = contentAlpha 
+                translationY = carouselOffset.toPx()
+            },
             key = { media[it].id }
         ) { page ->
             val current = media[page]
@@ -1731,57 +1769,6 @@ private fun FeaturedCarousel(
             }
         }
 
-        // Search bar overlay at top
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .align(Alignment.TopCenter)
-                .padding(start = 16.dp, end = 16.dp, top = 60.dp)
-        ) {
-            Row(
-                Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(44.dp)
-                        .clip(RoundedCornerShape(44.dp))
-                        .background(Color.Black.copy(alpha = 0.6f))
-                        .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(44.dp)),
-                    contentAlignment = Alignment.CenterStart,
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(horizontal = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        Icon(Icons.Default.Search, null, tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.size(18.dp))
-                        Box(modifier = Modifier.weight(1f)) {
-                            if (searchQuery.isEmpty()) {
-                                Text("Search...", color = Color.White.copy(alpha = 0.4f), fontSize = 13.sp)
-                            }
-                            BasicTextField(
-                                value = searchQuery,
-                                onValueChange = onSearch,
-                                singleLine = true,
-                                textStyle = TextStyle(color = Color.White, fontSize = 13.sp),
-                                cursorBrush = SolidColor(Color.White),
-                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                                keyboardActions = KeyboardActions(onSearch = { onClearFocus() }),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .onFocusChanged { onSearchFocusedChange(it.isFocused) },
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
         // Navigation dots
         Row(
             Modifier
@@ -1816,6 +1803,70 @@ private fun FeaturedCarousel(
                             .clip(CircleShape)
                             .background(Color.White.copy(alpha = dotAlpha))
                     )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SearchOverlay(
+    searchQuery: String,
+    onSearch: (String) -> Unit,
+    isSearching: Boolean,
+    onSearchFocusedChange: (Boolean) -> Unit,
+    onClearFocus: () -> Unit,
+    focusRequester: FocusRequester,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.End,
+    ) {
+        Box(
+            modifier = Modifier
+                .animateContentSize()
+                .then(if (isSearching) Modifier.weight(1f) else Modifier.size(44.dp))
+                .height(44.dp)
+                .clip(RoundedCornerShape(44.dp))
+                .background(Color.Black.copy(alpha = 0.6f))
+                .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(44.dp))
+                .clickable(!isSearching) { onSearchFocusedChange(true) },
+            contentAlignment = Alignment.CenterStart,
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Icon(Icons.Default.Search, null, tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.size(18.dp))
+                
+                if (isSearching) {
+                    Box(modifier = Modifier.weight(1f)) {
+                        if (searchQuery.isEmpty()) {
+                            Text("Search...", color = Color.White.copy(alpha = 0.4f), fontSize = 13.sp)
+                        }
+                        BasicTextField(
+                            value = searchQuery,
+                            onValueChange = onSearch,
+                            singleLine = true,
+                            textStyle = TextStyle(color = Color.White, fontSize = 13.sp),
+                            cursorBrush = SolidColor(Color.White),
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                            keyboardActions = KeyboardActions(onSearch = { onClearFocus() }),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .focusRequester(focusRequester)
+                                .onFocusChanged { 
+                                    if (it.isFocused) {
+                                        onSearchFocusedChange(true)
+                                    }
+                                },
+                        )
+                    }
                 }
             }
         }
