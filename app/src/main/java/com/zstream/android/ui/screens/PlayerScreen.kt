@@ -50,14 +50,18 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.Player
+import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.hls.HlsMediaSource
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
 import androidx.navigation.NavController
 import com.zstream.android.R
 import com.zstream.android.provider.WebViewDataSource
+import androidx.media3.common.MediaItem.SubtitleConfiguration
+import android.net.Uri
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -191,9 +195,32 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                 }
 
                 val player = remember {
+                    val subtitleConfigs = if (settings.enableNativeSubtitles) {
+                        s.subtitles.mapNotNull { track ->
+                            val mimeType = when (track.type.lowercase()) {
+                                "srt" -> MimeTypes.APPLICATION_SUBRIP
+                                "vtt", "webvtt" -> MimeTypes.TEXT_VTT
+                                else -> MimeTypes.TEXT_VTT
+                            }
+                            runCatching {
+                                SubtitleConfiguration.Builder(Uri.parse(track.url))
+                                    .setMimeType(mimeType)
+                                    .setLanguage(track.language)
+                                    .setSelectionFlags(androidx.media3.common.C.SELECTION_FLAG_DEFAULT)
+                                    .build()
+                            }.getOrNull()
+                        }
+                    } else {
+                        emptyList()
+                    }
+
+                    val mediaItem = MediaItem.Builder()
+                        .setUri(s.streamUrl)
+                        .setSubtitleConfigurations(subtitleConfigs)
+                        .build()
+
                     ExoPlayer.Builder(context).build().apply {
-                        setMediaSource(HlsMediaSource.Factory(WebViewDataSource.Factory(vm.getProxyPort()))
-                            .createMediaSource(MediaItem.fromUri(s.streamUrl)))
+                        setMediaSource(DefaultMediaSourceFactory(WebViewDataSource.Factory(vm.getProxyPort())).createMediaSource(mediaItem))
                         videoScalingMode = androidx.media3.common.C.VIDEO_SCALING_MODE_SCALE_TO_FIT
                         prepare()
                         playWhenReady = true  // always start loading immediately
@@ -339,8 +366,23 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     }
                 }
                 val selectedLang by vm.selectedSubtitleLang.collectAsState()
+                val subtitlesEnabled = settings.subtitlesEnabled
 
-                if (!settings.enableNativeSubtitles && selectedLang != null && visibleCues.isNotEmpty()) {
+                LaunchedEffect(player, settings.enableNativeSubtitles, subtitlesEnabled, selectedLang) {
+                    player.trackSelectionParameters = player.trackSelectionParameters
+                        .buildUpon()
+                        .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, !settings.enableNativeSubtitles || !subtitlesEnabled)
+                        .setPreferredTextLanguage(
+                            if (settings.enableNativeSubtitles && subtitlesEnabled) {
+                                selectedLang ?: settings.defaultSubtitleLanguage
+                            } else {
+                                null
+                            }
+                        )
+                        .build()
+                }
+
+                if (!settings.enableNativeSubtitles && subtitlesEnabled && selectedLang != null && visibleCues.isNotEmpty()) {
                     // Move subtitles up when controls overlay is shown
                     val controlsBottom = if (controlsVisible) 80.dp else 0.dp
                     Log.d("PlayerScreen", "rendering ${visibleCues.size} cues at ${currentPositionMs}ms, " +
@@ -405,17 +447,14 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     player, vm.title,
                     controlsVisible = controlsVisible,
                     onControlsVisibilityChanged = { controlsVisible = it },
-                    subtitlesEnabled = selectedLang != null,
+                    subtitlesEnabled = subtitlesEnabled,
                     onToggleSubtitles = {
-                        if (selectedLang != null) {
+                        if (subtitlesEnabled) {
                             Log.d("PlayerScreen", "toggling subtitles OFF")
                             vm.disableSubtitles()
                         } else {
                             Log.d("PlayerScreen", "toggling subtitles ON")
-                            val state = vm.state.value
-                            if (state is PlayerState.Ready && state.subtitles.isNotEmpty()) {
-                                vm.selectSubtitle(state.subtitles.first().language)
-                            }
+                            vm.enableSubtitles()
                         }
                     },
                     onBack = { nav.popBackStack() },
