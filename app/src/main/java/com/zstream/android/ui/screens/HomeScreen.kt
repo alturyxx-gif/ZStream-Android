@@ -296,7 +296,7 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
     Box(modifier = Modifier
         .fillMaxSize()
         .background(theme.colors.background.main)
-        .safeDrawingPadding()) {
+        .navigationBarsPadding()) {
         if (!state.enableLowPerformanceMode && !state.enableFeatured) {
             CosmicBackground()
             ParticleOverlay()
@@ -322,6 +322,9 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
             }
             else -> {
                 val isSearching = isSearchFocused || state.searchQuery.isNotBlank()
+                val isFeaturedActive = state.enableFeatured && state.featuredMedia.isNotEmpty()
+                val shouldHeaderBeSticky = isSearching && isFeaturedActive
+
                 val displayedSearchResults = if (state.searchQuery.isNotBlank()) searchResults else emptyList()
 
                 val bookmarksList = state.bookmarks.flatMap { it.items }
@@ -335,16 +338,16 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
                 } }
                 
                 val headerTranslation by animateFloatAsState(
-                    targetValue = if (isSearching) 0f else -scrollOffset.toFloat(),
+                    targetValue = if (shouldHeaderBeSticky) 0f else -scrollOffset.toFloat(),
                     label = "headerTranslation"
                 )
                 
                 val headerBackground by animateColorAsState(
-                    targetValue = if (isSearching) theme.colors.background.main else Color.Transparent,
+                    targetValue = if (shouldHeaderBeSticky) theme.colors.background.main.copy(alpha = 0.85f) else Color.Transparent,
                     label = "headerBackground"
                 )
 
-                Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.statusBars)) {
+                Box(Modifier.fillMaxSize()) {
                     LazyColumn(
                         state = listState,
                         modifier = Modifier
@@ -362,7 +365,7 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
                                     modifier = Modifier.fillMaxWidth(),
                                 )
                             } else {
-                                Spacer(Modifier.height(115.dp)) // Placeholder height for header
+                                Spacer(Modifier.height(160.dp)) // Placeholder height for header
                             }
                         }
                         
@@ -417,6 +420,17 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
                             .fillMaxWidth()
                             .graphicsLayer { translationY = headerTranslation }
                             .background(headerBackground)
+                            .drawBehind {
+                                if (shouldHeaderBeSticky) {
+                                    drawLine(
+                                        color = Color.White.copy(alpha = 0.1f),
+                                        start = Offset(0f, size.height),
+                                        end = Offset(size.width, size.height),
+                                        strokeWidth = 1.dp.toPx()
+                                    )
+                                }
+                            }
+                            .statusBarsPadding()
                             .padding(bottom = 8.dp)
                     ) {
                         TopNavBar(
@@ -1533,7 +1547,7 @@ private fun FeaturedCarousel(
     }
 
     val height by animateDpAsState(
-        targetValue = if (isSearching) 115.dp else 450.dp,
+        targetValue = if (isSearching) 170.dp else 450.dp,
         label = "carouselHeight"
     )
     val contentAlpha by animateFloatAsState(
