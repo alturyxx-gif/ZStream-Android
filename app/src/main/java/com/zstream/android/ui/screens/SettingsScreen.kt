@@ -264,6 +264,7 @@ private fun SaveBar(theme: ZStreamTheme, vm: SettingsViewModel) {
             Button(
                 onClick = vm::saveToRemote,
                 colors = ButtonDefaults.buttonColors(containerColor = theme.colors.global.accentA),
+                border = BorderStroke(1.dp, theme.colors.type.divider.copy(alpha = 0.3f)),
                 shape = RoundedCornerShape(8.dp),
             ) {
                 Text("Save", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
@@ -1003,7 +1004,8 @@ private fun ConnectionsSection(settings: SettingsEntity, theme: ZStreamTheme, vm
                             ),
                             modifier = Modifier.fillMaxWidth().background(
                                 theme.colors.background.secondary, RoundedCornerShape(8.dp)
-                            ).padding(10.dp),
+                            ).border(1.dp, theme.colors.type.divider.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+                            .padding(10.dp),
                         )
                     }
                 }
@@ -1095,6 +1097,7 @@ private fun ConnectionsSection(settings: SettingsEntity, theme: ZStreamTheme, vm
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(8.dp))
                             .background(theme.colors.background.secondary)
+                            .border(1.dp, theme.colors.type.divider.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
                             .padding(horizontal = 12.dp, vertical = 10.dp),
                         textStyle = textStyle,
                         visualTransformation = if (tokenVisible) VisualTransformation.None

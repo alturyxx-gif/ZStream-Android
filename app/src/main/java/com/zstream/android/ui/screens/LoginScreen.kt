@@ -140,6 +140,7 @@ private fun BoxScope.LoginPanel(
             modifier = Modifier.fillMaxWidth().height(48.dp),
             shape = RoundedCornerShape(12.dp),
             colors = ButtonDefaults.buttonColors(containerColor = accent),
+            border = androidx.compose.foundation.BorderStroke(1.dp, txt.dimmed.copy(0.3f)),
         ) {
             if (authState is AuthState.Loading)
                 CircularProgressIndicator(Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
@@ -233,6 +234,7 @@ private fun BoxScope.ShowPassphrasePanel(
             modifier = Modifier.fillMaxWidth().height(48.dp),
             shape = RoundedCornerShape(12.dp),
             colors = ButtonDefaults.buttonColors(containerColor = accent),
+            border = androidx.compose.foundation.BorderStroke(1.dp, txt.dimmed.copy(0.3f)),
         ) {
             Text("I've saved it — continue", fontWeight = FontWeight.SemiBold)
         }
@@ -275,6 +277,7 @@ private fun BoxScope.ConfirmRegisterPanel(
             modifier = Modifier.fillMaxWidth().height(48.dp),
             shape = RoundedCornerShape(12.dp),
             colors = ButtonDefaults.buttonColors(containerColor = accent),
+            border = androidx.compose.foundation.BorderStroke(1.dp, txt.dimmed.copy(0.3f)),
         ) {
             if (authState is AuthState.Loading)
                 CircularProgressIndicator(Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
@@ -300,6 +303,7 @@ private fun AuthField(
     Box(
         Modifier.fillMaxWidth().height(52.dp)
             .clip(RoundedCornerShape(12.dp)).background(bg.copy(0.6f))
+            .border(1.dp, txt.dimmed.copy(0.3f), RoundedCornerShape(12.dp))
             .padding(horizontal = 16.dp),
         contentAlignment = Alignment.CenterStart,
     ) {
