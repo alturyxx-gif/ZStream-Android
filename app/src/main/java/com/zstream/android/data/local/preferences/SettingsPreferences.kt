@@ -240,6 +240,13 @@ class SettingsPreferences @Inject constructor(
             val currentFont = current[KEY_SUBTITLE_FONT] ?: "sans-serif"
             val currentTmdbApiKey = current[KEY_TMDB_API_KEY]
 
+            val mappedHomeSectionOrder = remote.homeSectionOrder?.map { section ->
+                when (section) {
+                    "watching" -> "continue_watching"
+                    else -> section
+                }
+            } ?: emptyList()
+
             updateSettings(SettingsEntity(
                 applicationTheme = remote.applicationTheme ?: "dark",
                 applicationLanguage = remote.applicationLanguage ?: "en",
@@ -274,7 +281,7 @@ class SettingsPreferences @Inject constructor(
                 tidbKey = remote.tidbKey,
                 proxyTmdb = remote.proxyTmdb ?: false,
                 tmdbApiKey = currentTmdbApiKey,
-                homeSectionOrder = remote.homeSectionOrder ?: emptyList(),
+                homeSectionOrder = mappedHomeSectionOrder,
                 forceCompactEpisodeView = remote.forceCompactEpisodeView ?: false,
                 enableAutoResumeOnPlaybackError = remote.enableAutoResumeOnPlaybackError ?: true,
                 subtitleColor = currentColor,
