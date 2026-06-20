@@ -1035,8 +1035,17 @@ private fun SandwichMenuDialog(nav: NavController, session: com.zstream.android.
             .padding(vertical = 8.dp)) {
             Column {
                 if (session != null) {
-                    SandwichItem(Icons.Default.CheckCircle, "Synced: ${session.nickname.ifBlank { session.userId.take(8) }}", Color(0xFF4ADE80), theme = theme) {
-                        accountVm.logout(); onDismiss()
+                    val displayName = session.nickname.ifBlank { session.deviceName.ifBlank { "Synced" } }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp, vertical = 2.dp)
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Icon(Icons.Default.CheckCircle, null, tint = Color(0xFF4ADE80), modifier = Modifier.size(18.dp))
+                        Text("Synced: $displayName", color = theme.colors.type.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                     }
                 } else {
                     SandwichItem(Icons.Default.Star, "Sync to Cloud", Color(0xFFD8C947), theme = theme) { nav.navigate("login"); onDismiss() }

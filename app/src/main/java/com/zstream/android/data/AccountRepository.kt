@@ -16,7 +16,7 @@ import javax.inject.Singleton
 private const val TAG = "AccountRepo"
 private val Context.accountStore by preferencesDataStore("account")
 
-data class AccountSession(val userId: String, val token: String, val nickname: String)
+data class AccountSession(val userId: String, val token: String, val nickname: String, val deviceName: String = "")
 
 @Singleton
 class AccountRepository @Inject constructor(
@@ -26,16 +26,18 @@ class AccountRepository @Inject constructor(
     private val KEY_TOKEN    = stringPreferencesKey("token")
     private val KEY_USER_ID  = stringPreferencesKey("user_id")
     private val KEY_NICKNAME = stringPreferencesKey("nickname")
+    private val KEY_DEVICE   = stringPreferencesKey("device_name")
 
     // Current session (can be null)
     var currentSession: AccountSession? = null
         private set
 
     val session: Flow<AccountSession?> = ctx.accountStore.data.map { prefs ->
-        val token    = prefs[KEY_TOKEN]    ?: return@map null
-        val userId   = prefs[KEY_USER_ID]  ?: return@map null
-        val nickname = prefs[KEY_NICKNAME] ?: ""
-        val account = AccountSession(userId, token, nickname)
+        val token      = prefs[KEY_TOKEN]    ?: return@map null
+        val userId     = prefs[KEY_USER_ID]  ?: return@map null
+        val nickname   = prefs[KEY_NICKNAME] ?: ""
+        val deviceName = prefs[KEY_DEVICE]   ?: ""
+        val account = AccountSession(userId, token, nickname, deviceName)
         currentSession = account
         account
     }
@@ -91,7 +93,7 @@ class AccountRepository @Inject constructor(
         val resp = api.loginComplete(LoginCompleteBody(pubB64, ChallengePayload(challenge.challenge, sig), encDevice))
         val userId = resp.user?.id ?: resp.session.userId
         Log.d(TAG, "login/complete resp token=${resp.token.take(20)}… userId=$userId session=${resp.session}")
-        return AccountSession(userId, resp.token, resp.user?.nickname ?: "").also { persist(it) }
+        return AccountSession(userId, resp.token, resp.user?.nickname ?: "", resp.session.device).also { persist(it) }
     }
 
     private suspend fun challengeRegister(pubB64: String, privKey: ByteArray, seed: ByteArray, device: String): AccountSession {
@@ -103,13 +105,14 @@ class AccountRepository @Inject constructor(
         Log.d(TAG, "register/complete sig=${sig.take(20)}… device(enc)=${encDevice.take(20)}…")
         val resp = api.registerComplete(RegisterCompleteBody(pubB64, ChallengePayload(challenge.challenge, sig), encDevice, ProfileBody()))
         Log.d(TAG, "register/complete resp token=${resp.token.take(20)}… session=${resp.session} user=${resp.user}")
-        return AccountSession(resp.session.userId, resp.token, resp.user.nickname).also { persist(it) }
+        return AccountSession(resp.session.userId, resp.token, resp.user.nickname, resp.session.device).also { persist(it) }
     }
 
     private suspend fun persist(account: AccountSession) = ctx.accountStore.edit { prefs ->
         prefs[KEY_TOKEN]    = account.token
         prefs[KEY_USER_ID]  = account.userId
         prefs[KEY_NICKNAME] = account.nickname
+        prefs[KEY_DEVICE]   = account.deviceName
     }
 
     private fun AccountSession.bearer() = "Bearer $token"

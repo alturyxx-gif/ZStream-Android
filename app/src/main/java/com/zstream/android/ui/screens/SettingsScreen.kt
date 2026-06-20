@@ -53,6 +53,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.LocalActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
@@ -62,6 +64,7 @@ import com.zstream.android.data.AccountSession
 import com.zstream.android.data.local.entity.SettingsEntity
 import com.zstream.android.theme.LocalZStreamTheme
 import com.zstream.android.theme.ZStreamTheme
+import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 @Composable
@@ -72,11 +75,26 @@ fun SettingsScreen(
     val activity = LocalActivity.current as ComponentActivity
     val accountVm: AccountViewModel = hiltViewModel(activity)
     val theme = LocalZStreamTheme.current
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val scope = rememberCoroutineScope()
     val session by accountVm.session.collectAsState()
     val settings by vm.settings.collectAsStateWithLifecycle()
     val dirty by vm.dirty.collectAsStateWithLifecycle()
     val currentTab by vm.currentTab.collectAsStateWithLifecycle()
     var showLogoutConfirm by remember { mutableStateOf(false) }
+
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        uri?.let {
+            scope.launch {
+                val json = vm.exportDataJson()
+                context.contentResolver.openOutputStream(it)?.use { os ->
+                    os.write(json.toByteArray())
+                }
+            }
+        }
+    }
 
     val tabs = listOf("Account", "Preferences", "Appearance", "Subtitles", "Connections")
 
@@ -114,7 +132,9 @@ fun SettingsScreen(
             } else {
                 Box(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
                     when (currentTab) {
-                        0 -> AccountSection(session, theme, vm, accountVm, showLogoutConfirm, { showLogoutConfirm = it }, nav)
+                        0 -> AccountSection(session, theme, vm, accountVm, showLogoutConfirm, { showLogoutConfirm = it }, nav, onExport = {
+                            exportLauncher.launch("zstream_backup_${System.currentTimeMillis()}.json")
+                        })
                         1 -> PreferencesSection(settings, theme, vm)
                         2 -> AppearanceSection(settings, theme, vm)
                         4 -> ConnectionsSection(settings, theme, vm)
@@ -284,9 +304,9 @@ private fun AccountSection(
     showLogoutConfirm: Boolean,
     onLogoutConfirmChange: (Boolean) -> Unit,
     nav: NavController,
+    onExport: () -> Unit,
 ) {
     var nickname by remember(session) { mutableStateOf(session?.nickname ?: "") }
-    var deviceName by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
 
     Column(Modifier.padding(bottom = 32.dp)) {
@@ -297,7 +317,18 @@ private fun AccountSection(
             SettingsCard(theme) {
                 SettingsRow("Nickname", nickname.ifEmpty { "—" }, theme)
                 HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
+                SettingsRow("Device Name", session.deviceName.ifEmpty { "Android" }, theme)
+                HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                 SettingsRow("User ID", session.userId, theme)
+            }
+            Spacer(Modifier.height(12.dp))
+            SettingsCard(theme) {
+                TextButton(
+                    onClick = onExport,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)
+                ) {
+                    Text("Export Data", color = theme.colors.type.link, fontWeight = FontWeight.SemiBold)
+                }
             }
             Spacer(Modifier.height(12.dp))
             SettingsCard(theme) {
@@ -333,16 +364,26 @@ private fun AccountSection(
             onDismissRequest = { onLogoutConfirmChange(false) },
             containerColor = theme.colors.modal.background,
             title = { Text("Log out?", color = theme.colors.type.emphasis) },
-            text = { Text("You will be signed out of your account.", color = theme.colors.type.text) },
+            text = { Text("You will be signed out of your account. Would you like to export your data first?", color = theme.colors.type.text) },
             confirmButton = {
-                TextButton(onClick = {
-                    accountVm.logout()
-                    onLogoutConfirmChange(false)
-                }) { Text("Log out", color = theme.colors.buttons.danger) }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(onClick = {
+                        onExport()
+                        onLogoutConfirmChange(false)
+                    }) {
+                        Text("Export", color = theme.colors.global.accentA)
+                    }
+                    TextButton(onClick = {
+                        accountVm.logout()
+                        onLogoutConfirmChange(false)
+                    }) {
+                        Text("Yes", color = theme.colors.buttons.danger)
+                    }
+                }
             },
             dismissButton = {
                 TextButton(onClick = { onLogoutConfirmChange(false) }) {
-                    Text("Cancel", color = theme.colors.type.secondary)
+                    Text("No", color = theme.colors.type.secondary)
                 }
             }
         )
