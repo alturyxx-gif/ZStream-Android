@@ -24,7 +24,7 @@ import coil.compose.AsyncImage
 import com.zstream.android.data.model.Media
 import com.zstream.android.theme.LocalZStreamTheme
 
-// Match p-stream bar colors
+// Match p-stream bar colorss
 private val ProgressTrack = Color(0xFF4A4A5A)
 private val ProgressFill = Color(0xFFA78BFA)
 private val BadgeBg = Color(0xFF2D2D3D)
