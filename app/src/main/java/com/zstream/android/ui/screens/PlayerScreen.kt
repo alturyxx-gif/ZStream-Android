@@ -162,7 +162,7 @@ private val BOTTOM_BAR_MENU_BUTTON_SIZE = 42.dp
 private val BOTTOM_BAR_MENU_ICON_SIZE = 22.dp
 private val PLAYER_DETAIL_SHEET_CORNER_RADIUS = 28.dp
 private const val PLAYER_DETAIL_SHEET_HEIGHT_FRACTION = 0.82f
-private val PLAYER_DETAIL_SHEET_SIDE_MARGIN = 18.dp
+private val PLAYER_DETAIL_SHEET_SIDE_MARGIN = 50.dp
 private val PLAYER_DETAIL_SHEET_BOTTOM_MARGIN = 18.dp
 private val PLAYER_DETAIL_SHEET_BACKDROP_HEIGHT = 360.dp
 private val PLAYER_DETAIL_SHEET_CONTENT_PADDING = 32.dp
@@ -1010,9 +1010,11 @@ private fun PlayerControls(
     }
 
     val progress = if (durationMs > 0) positionMs.toFloat() / durationMs else 0f
-    val qualityOptions = remember(tracksSnapshot) { collectQualityOptions(tracksSnapshot) }
+    val rawQualityOptions = remember(tracksSnapshot) { collectQualityOptions(tracksSnapshot) }
+    val autoQualitySelected = rawQualityOptions.count { it.selected } != 1
+    val qualityOptions = if (autoQualitySelected) rawQualityOptions.map { it.copy(selected = false) } else rawQualityOptions
     val audioOptions = remember(tracksSnapshot) { collectAudioOptions(tracksSnapshot) }
-    val selectedQualityLabel = qualityOptions.firstOrNull { it.selected }?.label ?: "Auto"
+    val selectedQualityLabel = if (autoQualitySelected) "Auto" else qualityOptions.firstOrNull { it.selected }?.label ?: "Auto"
     val selectedAudioLabel = audioOptions.firstOrNull { it.selected }?.label ?: "Default"
 
     LaunchedEffect(menuOpen) {
@@ -1042,7 +1044,7 @@ private fun PlayerControls(
 
                 Row(
                     modifier = Modifier.fillMaxWidth().align(Alignment.TopCenter)
-                        .background(Brush.verticalGradient(listOf(Color.Black.copy(0.75f), Color.Transparent)))
+                        .background(Brush.verticalGradient(listOf(Color.Black.copy(0.78f), Color.Black.copy(0.34f), Color.Transparent)))
                         .padding(start = TOP_BAR_LEFT_PADDING, end = TOP_BAR_RIGHT_PADDING, top = 12.dp, bottom = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -1126,7 +1128,8 @@ private fun PlayerControls(
                             }
                         }
                     }
-                    Row(modifier = Modifier.fillMaxWidth().background(Color.Black.copy(0.75f))
+                    Row(modifier = Modifier.fillMaxWidth()
+                        .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(0.34f), Color.Black.copy(0.78f))))
                         .padding(vertical = BOTTOM_BAR_PADDING_V),
                         verticalAlignment = Alignment.CenterVertically) {
                         Spacer(Modifier.width(BOTTOM_LEFT_START_PADDING))
@@ -1218,7 +1221,11 @@ private fun PlayerControls(
                         menuScrollPositions = menuScrollPositions,
                         onClose = { menuPage = null },
                         onBack = {
-                            menuPage = if (menuPage == PlayerMenuPage.Root) null else PlayerMenuPage.Root
+                            menuPage = when (menuPage) {
+                                null, PlayerMenuPage.Root -> null
+                                PlayerMenuPage.AdvancedColor -> PlayerMenuPage.Playback
+                                else -> PlayerMenuPage.Root
+                            }
                         },
                         onOpenPage = { menuPage = it },
                         onToggleSubtitles = onToggleSubtitles,
@@ -1390,6 +1397,7 @@ private fun PlayerMenuContent(
                         items = listOf(
                             PlayerMenuTileItem("Quality", selectedQualityLabel) { onOpenPage(PlayerMenuPage.Quality) },
                             PlayerMenuTileItem("Source", sourceId ?: "Auto") { onOpenPage(PlayerMenuPage.Source) },
+                            PlayerMenuTileItem("Subtitles", "Use CC button") {},
                             PlayerMenuTileItem("Audio", selectedAudioLabel) { onOpenPage(PlayerMenuPage.Audio) },
                         )
                     )
@@ -1977,7 +1985,7 @@ private fun PlayerInfoSheet(
             }
         }
         is PlayerInfoState.Movie -> {
-            PlayerInfoSheetScaffold(
+            SharedDetailSheetScaffold(
                 title = state.detail.title,
                 backdropUrl = state.detail.backdropUrl(),
                 logoUrl = state.detail.logoUrl(),
@@ -1987,18 +1995,23 @@ private fun PlayerInfoSheet(
                 theme = theme,
                 onClose = onClose
             ) {
-                PlayerMovieInfoContent(
+                SharedMovieDetailContent(
                     detail = state.detail,
                     context = context,
                     nav = nav,
                     theme = theme,
-                    isBookmarked = isBookmarked,
-                    onToggleBookmark = onToggleBookmark,
-                )
+                ) {
+                    SharedActionPill(Icons.Filled.Share, theme) {
+                        openPlayerInfoShareSheet(context, state.detail.title, state.detail.id, "movie")
+                    }
+                    SharedActionPill(if (isBookmarked) Icons.Filled.Bookmark else Icons.Filled.BookmarkBorder, theme) {
+                        onToggleBookmark()
+                    }
+                }
             }
         }
         is PlayerInfoState.Tv -> {
-            PlayerInfoSheetScaffold(
+            SharedDetailSheetScaffold(
                 title = state.detail.name,
                 backdropUrl = state.detail.backdropUrl(),
                 logoUrl = state.detail.logoUrl(),
@@ -2008,17 +2021,22 @@ private fun PlayerInfoSheet(
                 theme = theme,
                 onClose = onClose
             ) {
-                PlayerTvInfoContent(
+                SharedTvDetailContent(
                     detail = state.detail,
                     selectedSeason = state.selectedSeason,
                     allProgress = allProgress,
                     context = context,
                     nav = nav,
                     theme = theme,
-                    isBookmarked = isBookmarked,
-                    onToggleBookmark = onToggleBookmark,
                     onSelectSeason = onSelectSeason,
-                )
+                ) {
+                    SharedActionPill(Icons.Filled.Share, theme) {
+                        openPlayerInfoShareSheet(context, state.detail.name, state.detail.id, "tv")
+                    }
+                    SharedActionPill(if (isBookmarked) Icons.Filled.Bookmark else Icons.Filled.BookmarkBorder, theme) {
+                        onToggleBookmark()
+                    }
+                }
             }
         }
     }
