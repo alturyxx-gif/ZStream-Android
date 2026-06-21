@@ -269,7 +269,7 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
         wasKeyboardVisible = isKeyboardVisible
     }
 
-    BackHandler(enabled = isSearchFocused) {
+    BackHandler(enabled = isSearchFocused || state.searchQuery.isNotEmpty()) {
         isSearchFocused = false
         vm.onSearchChange("")
         focusManager.clearFocus()
@@ -378,7 +378,42 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
 
                         if (state.searchQuery.isNotBlank()) {
                             item { Spacer(Modifier.height(16.dp)) }
-                            item { SearchResultsGrid(displayedSearchResults, nav) }
+                            MediaGridLazy( section = displayedSearchResults, nav = nav, progressMap = emptyMap(), numOfColumns = numOfColumns )
+                            if (state.canLoadMore || displayedSearchResults.isNotEmpty()) {
+                                item {
+                                    Box(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        if (state.canLoadMore) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .clip(RoundedCornerShape(35))
+                                                    .background(theme.colors.background.secondary.copy(alpha = 1f))
+                                                    .border(
+                                                        1.dp,
+                                                        theme.colors.type.divider.copy(alpha = 1f),
+                                                        RoundedCornerShape(35)
+                                                    )
+                                                    .clickable { vm.searchLoadMore() }
+                                                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                                                contentAlignment = Alignment.Center
+                                            ) 
+                                            { Text("Load More", color = Color.White, fontSize = 18.sp) }
+                                        } else {
+                                            Box(
+                                                modifier = Modifier
+                                                    .clip(RoundedCornerShape(35))
+                                                    .background(theme.colors.background.secondary.copy(alpha = 1f))
+                                                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                                                contentAlignment = Alignment.Center
+                                            ) 
+                                            { Text("That's all we have...", color = Color.White, fontSize = 12.sp) }
+                                        }
+                                    }
+                                }
+                            }
+
                         } else {
                             // User sections first
                             state.userSections
@@ -402,8 +437,8 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
                                     val sectionPage = sectionPages[sectionId] ?: 0
                                     if (!state.enableCarouselView) {
                                         MediaGridPages(section, nav, state.progressMap, numOfColumns = numOfColumns, numOfRows = numOfRows, currentPage = sectionPage, onPageChange = { newPage -> sectionPages = sectionPages + (sectionId to newPage) })
-                                        //MediaGridLazy(section, nav, state.progressMap, numOfColumns)
-                                        // switch between these 2 lines to test the lazyview with the bookmarks section
+                                        //MediaGridLazy(section.items, nav, state.progressMap, numOfColumns)
+                                        // switch between these 2 lines to test the lazyview with the bookmarks and continue watching section
                                     } else {
                                         item { MediaCarouselSection(section, nav, progressMap = state.progressMap) }
                                     }
@@ -1006,12 +1041,12 @@ private fun MediaGridRow(
 
 // add ur own title if calling this cuz there could be a lot of ways to format it
 // currently unused
-private fun LazyListScope.MediaGridLazy(
-    section: MediaSection,
+fun LazyListScope.MediaGridLazy(
+    section: List<Media>,
     nav: NavController,
     progressMap: Map<String, ProgressEntity> = emptyMap(),
     numOfColumns: Int)
-{  val rows = section.items.chunked(numOfColumns)
+{  val rows = section.chunked(numOfColumns)
     items(rows) {rowData->
         MediaGridRow(
             rowItems = rowData,

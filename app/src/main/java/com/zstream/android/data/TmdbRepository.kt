@@ -15,8 +15,15 @@ class TmdbRepository @Inject constructor(private val api: TmdbApi) {
     suspend fun popularTv() = api.popularTv().results.map { it.copy(mediaType = "tv") }
     suspend fun topRatedTv() = api.topRatedTv().results.map { it.copy(mediaType = "tv") }
     suspend fun onAirTv() = api.onAirTv().results.map { it.copy(mediaType = "tv") }
-    suspend fun search(query: String, page: Int = 1) = api.search(query, page).results
-        .filter { it.mediaType == "movie" || it.mediaType == "tv" }
+    suspend fun search(
+        query: String,
+        page: Int = 1,
+        onTotalPages: ((Int) -> Unit)? = null //keep this last if adding something or pagecount search breaks
+    ): List<Media> {
+        val response = api.search(query, page)
+        onTotalPages?.invoke(response.totalPages)
+        return response.results.filter { it.mediaType == "movie" || it.mediaType == "tv" }
+    }
     suspend fun movieDetail(id: Int) = api.movieDetail(id)
     suspend fun tvDetail(id: Int) = api.tvDetail(id)
     suspend fun season(id: Int, season: Int) = api.season(id, season)
