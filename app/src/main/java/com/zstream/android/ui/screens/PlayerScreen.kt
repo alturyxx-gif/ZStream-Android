@@ -17,8 +17,10 @@ import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.util.TypedValue
 import android.view.WindowManager
 import android.widget.FrameLayout
+import androidx.activity.ComponentActivity
 import androidx.annotation.DrawableRes
 import androidx.annotation.OptIn
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -78,6 +80,9 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.core.app.OnPictureInPictureModeChangedProvider
+import androidx.core.app.PictureInPictureModeChangedInfo
+import androidx.core.util.Consumer
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Format
@@ -256,6 +261,20 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                         com.zstream.android.di.RepositoryEntryPoint::class.java
                     )
                 }
+                val activity = LocalContext.current as? ComponentActivity
+                val pipProvider = activity as? OnPictureInPictureModeChangedProvider
+                var isInPip by remember { mutableStateOf(activity?.isInPictureInPictureMode == true) }
+                val configuration = LocalConfiguration.current
+                DisposableEffect(pipProvider) {
+                    if (pipProvider == null) return@DisposableEffect onDispose {}
+                    val listener = Consumer<PictureInPictureModeChangedInfo> { info ->
+                        isInPip = info.isInPictureInPictureMode
+                    }
+                    pipProvider.addOnPictureInPictureModeChangedListener(listener)
+                    onDispose {
+                        pipProvider.removeOnPictureInPictureModeChangedListener(listener)
+                    }
+                }
                 val tmdbRepo = appRepos.tmdbRepository()
                 val playerScope = rememberCoroutineScope()
                 var showInfoSheet by remember { mutableStateOf(false) }
@@ -407,6 +426,8 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                 val playerViewRef = remember { androidx.compose.runtime.mutableStateOf<PlayerView?>(null) }
                 val videoTextureRef = remember { androidx.compose.runtime.mutableStateOf<TextureView?>(null) }
                 var currentVideoSize by remember { mutableStateOf(androidx.media3.common.VideoSize.UNKNOWN) }
+                val latestSettings by rememberUpdatedState(settings)
+                val latestVideoSize by rememberUpdatedState(currentVideoSize)
                 DisposableEffect(player) {
                     val listener = object : Player.Listener {
                         override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
@@ -469,20 +490,23 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                                 val textureView = TextureView(ctx).apply {
                                     layoutParams = FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT)
                                 }
+                                textureView.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+                                    applyVideoAdjustments(textureView, latestSettings, latestVideoSize)
+                                }
                                 addView(textureView, 0)
                                 player.setVideoTextureView(textureView)
                                 post {
                                     hidePlayerVideoSurface(this)
                                     applyVideoAdjustments(textureView, settings, currentVideoSize)
                                 }
-                                applyNativeSubtitleStyle(subtitleView, settings, controlsVisible)
+                                applyNativeSubtitleStyle(subtitleView, settings, controlsVisible, isInPip)
                                 playerViewRef.value = this
                                 videoTextureRef.value = textureView
                             }
                         },
                         update = { view ->
                             view.resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
-                            applyNativeSubtitleStyle(view.subtitleView, settings, controlsVisible)
+                            applyNativeSubtitleStyle(view.subtitleView, settings, controlsVisible, isInPip)
                             videoTextureRef.value?.let { applyVideoAdjustments(it, settings, currentVideoSize) }
                         },
                         modifier = Modifier.fillMaxSize()
@@ -517,14 +541,15 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
 
                 if (!settings.enableNativeSubtitles && subtitlesEnabled && selectedLang != null && visibleCues.isNotEmpty()) {
                     // Move subtitles up when controls overlay is shown
-                    val controlsBottom = if (controlsVisible) 80.dp else 0.dp
+                    val controlsBottom = if (isInPip) 0.dp else if (controlsVisible) 80.dp else 0.dp
                     Log.d("PlayerScreen", "rendering ${visibleCues.size} cues at ${currentPositionMs}ms, " +
                         "color=${settings.subtitleColor} size=${settings.subtitleSize} " +
                         "fontStyle=${settings.subtitleFontStyle} bgOpacity=${settings.subtitleBackgroundOpacity} " +
                         "bold=${settings.subtitleBold}")
                     val textColor = Color(android.graphics.Color.parseColor(settings.subtitleColor))
                     val bgAlpha = settings.subtitleBackgroundOpacity.coerceIn(0f, 1f)
-                    val fontSize = (settings.subtitleSize * 18).sp
+                    val pipSubtitleScale = if (isInPip) 0.72f else 1f
+                    val fontSize = (settings.subtitleSize * 18 * pipSubtitleScale).sp
                     val lineHeight = (fontSize.value * settings.subtitleLineHeight).sp
                     val subtitleShadow = when (settings.subtitleFontStyle) {
                         "raised" -> Shadow(Color.Black.copy(alpha = 0.8f), offset = androidx.compose.ui.geometry.Offset(0f, -4f), blurRadius = 0f)
@@ -543,8 +568,11 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     Box(
                         Modifier
                             .fillMaxSize()
-                            .padding(bottom = (48 + settings.subtitleVerticalPosition * 6f).dp + controlsBottom)
-                            .padding(horizontal = 48.dp),
+                            .padding(
+                                start = if (isInPip) 20.dp else 48.dp,
+                                end = if (isInPip) 20.dp else 48.dp,
+                                bottom = if (isInPip) 18.dp else (48 + settings.subtitleVerticalPosition * 6f).dp + controlsBottom
+                            ),
                         contentAlignment = Alignment.BottomCenter
                     ) {
                         Column(
@@ -628,9 +656,17 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     },
                     onBack = { nav.popBackStack() },
                     onPip = {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
-                        activity?.enterPictureInPictureMode(PictureInPictureParams.Builder().setAspectRatio(Rational(16, 9)).build())
-                })
+                        showInfoSheet = false
+                        showResumeDialog = false
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            isInPip = true
+                            activity?.enterPictureInPictureMode(
+                                PictureInPictureParams.Builder()
+                                    .setAspectRatio(Rational(16, 9))
+                                    .build()
+                            )
+                        }
+                    })
 
                 AnimatedVisibility(
                     visible = showInfoSheet,
@@ -723,10 +759,12 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
     }
 }
 
+@OptIn(UnstableApi::class)
 private fun applyNativeSubtitleStyle(
     subtitleView: androidx.media3.ui.SubtitleView?,
     settings: com.zstream.android.data.local.entity.SettingsEntity,
     controlsVisible: Boolean,
+    isInPip: Boolean,
 ) {
     if (subtitleView == null) return
 
@@ -736,12 +774,20 @@ private fun applyNativeSubtitleStyle(
     subtitleView.setUserDefaultStyle()
     subtitleView.setUserDefaultTextSize()
     subtitleView.setBottomPaddingFraction(androidx.media3.ui.SubtitleView.DEFAULT_BOTTOM_PADDING_FRACTION)
+    subtitleView.scaleX = if (isInPip) 0.78f else 1f
+    subtitleView.scaleY = if (isInPip) 0.78f else 1f
+    subtitleView.pivotX = subtitleView.width / 2f
+    subtitleView.pivotY = subtitleView.height.toFloat()
     val baseOffsetPx = TypedValue.applyDimension(
         TypedValue.COMPLEX_UNIT_DIP,
         NATIVE_SUBTITLE_BASE_OFFSET_DP,
         Resources.getSystem().displayMetrics,
     )
-    subtitleView.translationY = if (controlsVisible) -baseOffsetPx * NATIVE_SUBTITLE_OVERLAY_MULTIPLIER else -baseOffsetPx
+    subtitleView.translationY = when {
+        isInPip -> 0f
+        controlsVisible -> -baseOffsetPx * NATIVE_SUBTITLE_OVERLAY_MULTIPLIER
+        else -> -baseOffsetPx
+    }
 }
 
 private fun volumeBoostToMillibels(volumeBoost: Int): Int {
@@ -1085,7 +1131,11 @@ private fun PlayerControls(
                         }, modifier = Modifier.size(BOTTOM_BAR_MENU_BUTTON_SIZE)) {
                             Icon(Icons.Filled.Tune, null, tint = Color.White, modifier = Modifier.size(BOTTOM_BAR_MENU_ICON_SIZE))
                         }
-                        IconButton(onClick = onPip, modifier = Modifier.size(BOTTOM_BAR_MENU_BUTTON_SIZE)) {
+                        IconButton(onClick = {
+                            menuPage = null
+                            onControlsVisibilityChanged(false)
+                            onPip()
+                        }, modifier = Modifier.size(BOTTOM_BAR_MENU_BUTTON_SIZE)) {
                             Icon(Icons.Filled.PictureInPictureAlt, null, tint = Color.White, modifier = Modifier.size(BOTTOM_BAR_MENU_ICON_SIZE))
                         }
                         Spacer(Modifier.width(BOTTOM_RIGHT_END_PADDING))
@@ -1371,7 +1421,10 @@ private fun PlayerMenuContent(
                     onOpenPage(PlayerMenuPage.VideoMode)
                 }
                 Spacer(Modifier.height(10.dp))
-                PlayerMenuActionRow("Picture in Picture", subtitle = "Use native Android PiP flow") { onPip() }
+                PlayerMenuActionRow("Picture in Picture", subtitle = "Use native Android PiP flow") {
+                    onClose()
+                    onPip()
+                }
             }
             PlayerMenuPage.AdvancedColor -> {
                 PlayerMenuSliderRow(
@@ -1695,7 +1748,6 @@ private fun PlayerInfoSheetScaffold(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-        val viewportHeight = maxHeight
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -1706,7 +1758,7 @@ private fun PlayerInfoSheetScaffold(
                 shape = RoundedCornerShape(PLAYER_DETAIL_SHEET_CORNER_RADIUS),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = viewportHeight + PLAYER_DETAIL_SHEET_MIN_SCROLL_EXTRA)
+                    .heightIn(min = this@BoxWithConstraints.maxHeight + PLAYER_DETAIL_SHEET_MIN_SCROLL_EXTRA)
                     .border(1.dp, theme.colors.type.divider.copy(alpha = 0.2f), RoundedCornerShape(PLAYER_DETAIL_SHEET_CORNER_RADIUS))
             ) {
                 Column(Modifier.fillMaxWidth()) {
