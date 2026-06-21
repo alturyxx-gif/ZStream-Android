@@ -10,6 +10,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -22,12 +23,18 @@ import javax.inject.Inject
 import com.zstream.android.data.local.preferences.SettingsPreferences
 import com.zstream.android.data.local.entity.SettingsEntity
 
-enum class SourceStatus { TRYING, SUCCESS, FAILED }
+enum class SourceStatus { IDLE, TRYING, SUCCESS, FAILED }
 data class SourceResult(val id: String, val status: SourceStatus)
 
 sealed class PlayerState {
     object Idle : PlayerState()
     data class Scraping(val sources: List<SourceResult>) : PlayerState()
+    data class ManualSourceSelection(
+        val sources: List<SourceResult>,
+        val selectedSourceId: String? = null,
+        val candidate: Ready? = null,
+        val message: String? = null,
+    ) : PlayerState()
     data class Ready(
         val streamUrl: String,
         val headers: Map<String, String>,
@@ -87,12 +94,21 @@ class PlayerViewModel @Inject constructor(
 
     fun getProxyPort() = engine.proxy.port
 
-    fun load() {
+    fun load(selectedSourceId: String? = null) {
         sources.clear()
-        _state.value = PlayerState.Scraping(emptyList())
-
         viewModelScope.launch {
             runCatching {
+                val settingsValue = settingsPrefs.settings.first()
+                if (selectedSourceId == null && settingsValue.manualSourceSelection) {
+                    val availableSources = engine.sourceIds().map { SourceResult(it, SourceStatus.IDLE) }
+                    sources.clear()
+                    sources.addAll(availableSources)
+                    _state.value = PlayerState.ManualSourceSelection(availableSources)
+                    return@runCatching
+                }
+
+                _state.value = PlayerState.Scraping(emptyList())
+
                 val mediaInput = buildMap<String, Any> {
                     put("type", if (mediaType == "tv") "show" else "movie")
                     put("tmdbId", id.toString())
@@ -104,8 +120,14 @@ class PlayerViewModel @Inject constructor(
                     }
                 }
 
-                val result = engine.runAll(mediaInput) { evt ->
-                    handleEvent(evt)
+                val result = if (selectedSourceId != null) {
+                    engine.runSelected(mediaInput, selectedSourceId) { evt ->
+                        handleEvent(evt)
+                    }
+                } else {
+                    engine.runAll(mediaInput) { evt ->
+                        handleEvent(evt)
+                    }
                 }
                 Log.d("PlayerVM", "runAll result: ${result.toString().take(500)}")
 
@@ -126,21 +148,109 @@ class PlayerViewModel @Inject constructor(
                     return@runCatching
                 }
 
-                val headers = parseStreamHeaders(streamUrl)
-                val subtitleTracks = parseSubtitles(stream)
-                val sourceId = data?.optString("sourceId")?.takeIf { it.isNotBlank() }
-                val embedId = data?.optString("embedId")?.takeIf { it.isNotBlank() }
-                Log.d("PlayerVM", "parsed headers: $headers, subtitles: ${subtitleTracks.size}")
-                _state.value = PlayerState.Ready(streamUrl, headers, subtitleTracks, sources.toList(), sourceId, embedId)
+                val readyState = buildReadyState(data, streamUrl)
+                Log.d("PlayerVM", "parsed headers: ${readyState.headers}, subtitles: ${readyState.subtitles.size}")
+                _state.value = readyState
 
                 // Mirror web behavior: subtitle on/off is a local persisted preference.
-                if (settings.value.subtitlesEnabled && subtitleTracks.isNotEmpty()) {
-                    downloadAndParseSubtitles(subtitleTracks)
+                if (settings.value.subtitlesEnabled && readyState.subtitles.isNotEmpty()) {
+                    downloadAndParseSubtitles(readyState.subtitles)
                 }
             }.onFailure {
                 Log.e("PlayerVM", "error: ${it.message}", it)
                 _state.value = PlayerState.Error(it.message ?: "Unknown error", sources.toList())
             }
+        }
+    }
+
+    fun selectSource(sourceId: String) {
+        if (settings.value.manualSourceSelection && _state.value !is PlayerState.Ready) {
+            probeSource(sourceId)
+        } else {
+            load(selectedSourceId = sourceId)
+        }
+    }
+
+    fun probeSource(sourceId: String) {
+        val currentSources = if (sources.isEmpty()) {
+            engine.sourceIds().map { SourceResult(it, SourceStatus.IDLE) }.also {
+                sources.clear()
+                sources.addAll(it)
+            }
+        } else sources.toList()
+
+        val updated = currentSources.map {
+            if (it.id == sourceId) it.copy(status = SourceStatus.TRYING) else it
+        }
+        sources.clear()
+        sources.addAll(updated)
+        _state.value = PlayerState.ManualSourceSelection(updated, selectedSourceId = sourceId, candidate = null, message = null)
+
+        viewModelScope.launch {
+            runCatching {
+                val mediaInput = buildMap<String, Any> {
+                    put("type", if (mediaType == "tv") "show" else "movie")
+                    put("tmdbId", id.toString())
+                    put("title", title)
+                    put("releaseYear", year)
+                    if (mediaType == "tv" && season != null && episode != null) {
+                        put("season", mapOf("number" to season, "tmdbId" to "", "title" to "Season $season"))
+                        put("episode", mapOf("number" to episode, "tmdbId" to "", "title" to "Episode $episode"))
+                    }
+                }
+                val result = engine.runSelected(mediaInput, sourceId) { }
+                if (!result.optBoolean("ok", false)) {
+                    val failed = updated.map { if (it.id == sourceId) it.copy(status = SourceStatus.FAILED) else it }
+                    sources.clear()
+                    sources.addAll(failed)
+                    _state.value = PlayerState.ManualSourceSelection(
+                        failed,
+                        selectedSourceId = sourceId,
+                        candidate = null,
+                        message = result.optString("error", "Source did not return a playable stream")
+                    )
+                    return@runCatching
+                }
+                val data = result.optJSONObject("data")
+                val stream = data?.optJSONObject("stream")
+                val streamUrl = stream?.let { findStreamUrl(it) }
+                if (streamUrl == null) {
+                    val failed = updated.map { if (it.id == sourceId) it.copy(status = SourceStatus.FAILED) else it }
+                    sources.clear()
+                    sources.addAll(failed)
+                    _state.value = PlayerState.ManualSourceSelection(
+                        failed,
+                        selectedSourceId = sourceId,
+                        candidate = null,
+                        message = "No playable stream found"
+                    )
+                    return@runCatching
+                }
+                val success = updated.map { if (it.id == sourceId) it.copy(status = SourceStatus.SUCCESS) else it }
+                val candidate = buildReadyState(data, streamUrl, success)
+                sources.clear()
+                sources.addAll(success)
+                _state.value = PlayerState.ManualSourceSelection(success, selectedSourceId = sourceId, candidate = candidate, message = null)
+            }.onFailure {
+                val failed = updated.map { if (it.id == sourceId) it.copy(status = SourceStatus.FAILED) else it }
+                sources.clear()
+                sources.addAll(failed)
+                _state.value = PlayerState.ManualSourceSelection(
+                    failed,
+                    selectedSourceId = sourceId,
+                    candidate = null,
+                    message = it.message ?: "Failed to probe source"
+                )
+            }
+        }
+    }
+
+    fun confirmManualSourceSelection() {
+        val current = _state.value as? PlayerState.ManualSourceSelection ?: return
+        val candidate = current.candidate ?: return
+        _state.value = candidate
+        if (settings.value.subtitlesEnabled && candidate.subtitles.isNotEmpty()) {
+            downloadAndParseSubtitles(candidate.subtitles)
         }
     }
 
@@ -393,10 +503,22 @@ class PlayerViewModel @Inject constructor(
         val idx = sources.indexOfFirst { it.id == id }
         if (idx >= 0) sources[idx] = SourceResult(id, status)
         else sources.add(SourceResult(id, status))
-        // Don't overwrite Ready/Error state with Scraping updates
         if (_state.value is PlayerState.Scraping) {
             _state.value = PlayerState.Scraping(sources.toList())
         }
+    }
+
+    private fun buildReadyState(
+        data: JSONObject?,
+        streamUrl: String,
+        sourceList: List<SourceResult> = sources.toList()
+    ): PlayerState.Ready {
+        val stream = data?.optJSONObject("stream")
+        val headers = parseStreamHeaders(streamUrl)
+        val subtitleTracks = parseSubtitles(stream)
+        val sourceId = data?.optString("sourceId")?.takeIf { it.isNotBlank() }
+        val embedId = data?.optString("embedId")?.takeIf { it.isNotBlank() }
+        return PlayerState.Ready(streamUrl, headers, subtitleTracks, sourceList, sourceId, embedId)
     }
 
     private fun findStreamUrl(stream: JSONObject): String? {

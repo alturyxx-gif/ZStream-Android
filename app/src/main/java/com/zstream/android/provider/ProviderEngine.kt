@@ -42,6 +42,8 @@ class ProviderEngine @Inject constructor() {
         .readTimeout(15, TimeUnit.SECONDS)
         .build()
 
+    fun sourceIds(): List<String> = sources.map { it.id }
+
     fun init(activity: Activity) {
         extractor = StreamExtractor(activity)
     }
@@ -56,13 +58,34 @@ class ProviderEngine @Inject constructor() {
     suspend fun runAll(mediaInput: Map<String, Any>, onEvent: (JSONObject) -> Unit): JSONObject {
         val media = parseMedia(mediaInput)
             ?: return JSONObject("""{"ok":false,"error":"missing tmdbId"}""")
+        return runSources(media, sources, onEvent)
+    }
 
+    suspend fun runSelected(
+        mediaInput: Map<String, Any>,
+        selectedSourceId: String,
+        onEvent: (JSONObject) -> Unit
+    ): JSONObject {
+        val media = parseMedia(mediaInput)
+            ?: return JSONObject("""{"ok":false,"error":"missing tmdbId"}""")
+        val selectedSources = sources.filter { it.id == selectedSourceId }
+        if (selectedSources.isEmpty()) {
+            return JSONObject("""{"ok":false,"error":"Unknown source: $selectedSourceId"}""")
+        }
+        return runSources(media, selectedSources, onEvent)
+    }
+
+    private suspend fun runSources(
+        media: MediaRequest,
+        selectedSources: List<StreamSource>,
+        onEvent: (JSONObject) -> Unit
+    ): JSONObject {
         onEvent(JSONObject(JSONObject().apply {
             put("event", "init")
-            put("sourceIds", org.json.JSONArray(sources.map { it.id }))
+            put("sourceIds", org.json.JSONArray(selectedSources.map { it.id }))
         }.toString()))
 
-        for (source in sources) {
+        for (source in selectedSources) {
             onEvent(JSONObject("""{"event":"start","id":"${source.id}"}"""))
             val url = runCatching { extractor.extract(source, media) }
                 .onFailure { Log.e(TAG, "[${source.id}] extract failed: ${it.message}") }
