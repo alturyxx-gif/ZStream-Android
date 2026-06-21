@@ -4,8 +4,9 @@ import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.zstream.android.provider.ProviderEngine
 import com.zstream.android.data.BookmarkRepository
+import com.zstream.android.data.TmdbRepository
+import com.zstream.android.provider.ProviderEngine
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -17,6 +18,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
@@ -25,6 +27,7 @@ import com.zstream.android.data.local.entity.SettingsEntity
 
 enum class SourceStatus { IDLE, TRYING, SUCCESS, FAILED }
 data class SourceResult(val id: String, val status: SourceStatus)
+data class SkipSegment(val type: String, val startMs: Long?, val endMs: Long?)
 
 sealed class PlayerState {
     object Idle : PlayerState()
@@ -55,6 +58,7 @@ class PlayerViewModel @Inject constructor(
     private val engine: ProviderEngine,
     private val settingsPrefs: SettingsPreferences,
     private val bookmarkRepo: BookmarkRepository,
+    private val tmdbRepo: TmdbRepository,
     savedState: SavedStateHandle,
 ) : ViewModel() {
     val settings = settingsPrefs.settings
@@ -80,10 +84,14 @@ class PlayerViewModel @Inject constructor(
     private val _selectedSubtitleLang = MutableStateFlow<String?>(null)
     val selectedSubtitleLang = _selectedSubtitleLang.asStateFlow()
 
+    private val _skipSegments = MutableStateFlow<List<SkipSegment>>(emptyList())
+    val skipSegments = _skipSegments.asStateFlow()
+
     val isBookmarked = bookmarkRepo.observeBookmark(tmdbId)
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     private val sources = mutableListOf<SourceResult>()
+    private var skipSegmentsCacheKey: String? = null
 
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
@@ -93,6 +101,20 @@ class PlayerViewModel @Inject constructor(
     init { load() }
 
     fun getProxyPort() = engine.proxy.port
+
+    fun loadSkipSegments(durationMs: Long) {
+        val cacheKey = buildSkipSegmentsCacheKey() ?: return
+        if (skipSegmentsCacheKey == cacheKey) return
+
+        viewModelScope.launch {
+            val settingsValue = settingsPrefs.settings.first()
+            val resolvedSegments = fetchTheIntroDbSegments(durationMs, settingsValue.tidbKey)
+                ?: fetchFallbackSkipSegments(settingsValue)
+                ?: emptyList()
+            skipSegmentsCacheKey = cacheKey
+            _skipSegments.value = resolvedSegments
+        }
+    }
 
     fun load(selectedSourceId: String? = null) {
         sources.clear()
@@ -473,6 +495,116 @@ class PlayerViewModel @Inject constructor(
 
     private fun timeToMs(h: Int, m: Int, s: Int, ms: Int): Long {
         return h.toLong() * 3600000 + m.toLong() * 60000 + s.toLong() * 1000 + ms.toLong()
+    }
+
+    private suspend fun fetchTheIntroDbSegments(durationMs: Long, tidbKey: String?): List<SkipSegment>? = withContext(Dispatchers.IO) {
+        val apiUrl = buildString {
+            append("https://api.theintrodb.org/v3/media?tmdb_id=$tmdbId")
+            if (mediaType == "tv" && season != null && episode != null) {
+                append("&season=$season&episode=$episode")
+            }
+            if (durationMs > 0) {
+                append("&duration_ms=$durationMs")
+            }
+        }
+
+        val request = Request.Builder()
+            .url(apiUrl)
+            .apply {
+                if (!tidbKey.isNullOrBlank()) {
+                    header("Authorization", "Bearer $tidbKey")
+                }
+            }
+            .build()
+
+        runCatching {
+            httpClient.newCall(request).execute().use { response ->
+                if (response.code == 404) return@withContext null
+                if (!response.isSuccessful) {
+                    Log.w("PlayerVM", "TIDB skip segments failed with ${response.code}")
+                    return@withContext emptyList()
+                }
+                parseSkipSegmentsFromTidb(JSONObject(response.body?.string().orEmpty()))
+            }
+        }.getOrElse {
+            Log.e("PlayerVM", "Failed to fetch TIDB skip segments", it)
+            emptyList()
+        }
+    }
+
+    private suspend fun fetchFallbackSkipSegments(settings: SettingsEntity): List<SkipSegment>? {
+        if (mediaType != "tv" || season == null || episode == null) return null
+
+        val imdbId = runCatching { tmdbRepo.tvDetail(id).imdbId }.getOrNull()
+        if (imdbId.isNullOrBlank()) return null
+
+        fetchIntroDbTime(imdbId)?.let { introEndMs ->
+            return listOf(SkipSegment(type = "intro", startMs = 0L, endMs = introEndMs))
+        }
+
+        if (!settings.febboxKey.isNullOrBlank()) {
+            fetchFedSkipsTime(imdbId)?.let { introEndMs ->
+                return listOf(SkipSegment(type = "intro", startMs = 0L, endMs = introEndMs))
+            }
+        }
+
+        return null
+    }
+
+    private suspend fun fetchIntroDbTime(imdbId: String): Long? = withContext(Dispatchers.IO) {
+        val request = Request.Builder()
+            .url("https://api.introdb.app/intro?imdb_id=$imdbId&season=$season&episode=$episode")
+            .build()
+        runCatching {
+            httpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@withContext null
+                JSONObject(response.body?.string().orEmpty()).optLong("end_ms").takeIf { it > 0 }
+            }
+        }.getOrNull()
+    }
+
+    private suspend fun fetchFedSkipsTime(imdbId: String): Long? = withContext(Dispatchers.IO) {
+        val request = Request.Builder()
+            .url("https://fed-skips.pstream.mov/$imdbId/$season/$episode")
+            .build()
+        runCatching {
+            httpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@withContext null
+                val raw = JSONObject(response.body?.string().orEmpty()).optString("introSkipTime")
+                raw.removeSuffix("s").toLongOrNull()?.times(1000)
+            }
+        }.getOrNull()
+    }
+
+    private fun parseSkipSegmentsFromTidb(json: JSONObject): List<SkipSegment> {
+        val types = listOf("intro", "recap", "credits", "preview")
+        return buildList {
+            types.forEach { type ->
+                val items = json.optJSONArray(type) ?: JSONArray()
+                for (i in 0 until items.length()) {
+                    val item = items.optJSONObject(i) ?: continue
+                    add(
+                        SkipSegment(
+                            type = type,
+                            startMs = item.optNullableLong("start_ms"),
+                            endMs = item.optNullableLong("end_ms"),
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    private fun buildSkipSegmentsCacheKey(): String? {
+        return when {
+            mediaType == "movie" -> "skip-movie-$tmdbId"
+            mediaType == "tv" && season != null && episode != null -> "skip-tv-$tmdbId-$season-$episode"
+            else -> null
+        }
+    }
+
+    private fun JSONObject.optNullableLong(key: String): Long? {
+        return if (isNull(key)) null else optLong(key)
     }
 
     private fun handleEvent(evt: JSONObject) {
