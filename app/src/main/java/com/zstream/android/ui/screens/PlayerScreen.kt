@@ -17,25 +17,35 @@ import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ClosedCaption
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PictureInPictureAlt
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Tune
@@ -82,6 +92,14 @@ import androidx.media3.common.MediaItem.SubtitleConfiguration
 import android.net.Uri
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import dagger.hilt.android.EntryPointAccessors
+import com.zstream.android.Urls
+import com.zstream.android.data.model.MovieDetail
+import com.zstream.android.data.model.Season
+import com.zstream.android.data.model.TvDetail
+import com.zstream.android.theme.LocalZStreamTheme
+import com.zstream.android.theme.ZStreamTheme
+import coil.compose.AsyncImage
 
 private val RedProgress = Color(0xFFE53935)
 
@@ -112,9 +130,29 @@ private const val NATIVE_SUBTITLE_OVERLAY_MULTIPLIER = 5f
 private val MENU_PANEL_WIDTH = 360.dp
 private val MENU_PANEL_HEIGHT = 430.dp
 private val OVERLAY_PANEL_SHAPE = RoundedCornerShape(24.dp)
+private val BOTTOM_BAR_MENU_BUTTON_SIZE = 42.dp
+private val BOTTOM_BAR_MENU_ICON_SIZE = 22.dp
+private val PLAYER_DETAIL_SHEET_CORNER_RADIUS = 28.dp
+private const val PLAYER_DETAIL_SHEET_HEIGHT_FRACTION = 0.82f
+private val PLAYER_DETAIL_SHEET_SIDE_MARGIN = 18.dp
+private val PLAYER_DETAIL_SHEET_BOTTOM_MARGIN = 18.dp
+private val PLAYER_DETAIL_SHEET_BACKDROP_HEIGHT = 360.dp
+private val PLAYER_DETAIL_SHEET_CONTENT_PADDING = 32.dp
+private val PLAYER_DETAIL_SHEET_BOTTOM_SPACER = 36.dp
+private val PLAYER_DETAIL_SHEET_MIN_SCROLL_EXTRA = 1.dp
+private val PLAYER_DETAIL_SHEET_SECTION_GAP = 18.dp
+private val PLAYER_DETAIL_SHEET_CARD_COLOR = Color(0xFF141414).copy(alpha = 0.98f)
+private val PLAYER_DETAIL_SHEET_OUTLINE = Color.White.copy(alpha = 0.08f)
 
 private enum class PlayerMenuPage {
     Root, Captions, Playback, Source, Quality, Audio, Download, WatchParty, SkipSegments
+}
+
+private sealed class PlayerInfoState {
+    object Loading : PlayerInfoState()
+    data class Movie(val detail: MovieDetail) : PlayerInfoState()
+    data class Tv(val detail: TvDetail, val selectedSeason: Season? = null) : PlayerInfoState()
+    data class Error(val message: String) : PlayerInfoState()
 }
 
 private data class QualityOption(
@@ -204,6 +242,16 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                 val session by accountVm.session.collectAsState()
                 val progressList by accountVm.progress.collectAsState()
                 val settings by vm.settings.collectAsState()
+                val appRepos = remember(context) {
+                    EntryPointAccessors.fromApplication(
+                        context.applicationContext,
+                        com.zstream.android.di.RepositoryEntryPoint::class.java
+                    )
+                }
+                val tmdbRepo = appRepos.tmdbRepository()
+                val playerScope = rememberCoroutineScope()
+                var showInfoSheet by remember { mutableStateOf(false) }
+                var infoState by remember { mutableStateOf<PlayerInfoState?>(null) }
 
                 // Find existing progress for this tmdbId (mirroring p-stream ResumePart)
                 val existingProgress = remember(progressList) {
@@ -509,11 +557,78 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     },
                     onSelectSubtitle = vm::selectSubtitle,
                     onDisableSubtitles = vm::disableSubtitles,
+                    onInfo = {
+                        showInfoSheet = true
+                        playerScope.launch {
+                            infoState = PlayerInfoState.Loading
+                            infoState = runCatching {
+                                if (vm.mediaType == "tv") {
+                                    val detail = tmdbRepo.tvDetail(vm.tmdbId.toInt())
+                                    val firstSeason = detail.seasons
+                                        ?.firstOrNull { it.seasonNumber > 0 }
+                                        ?.let { tmdbRepo.season(vm.tmdbId.toInt(), it.seasonNumber) }
+                                    PlayerInfoState.Tv(detail, firstSeason)
+                                } else {
+                                    PlayerInfoState.Movie(tmdbRepo.movieDetail(vm.tmdbId.toInt()))
+                                }
+                            }.getOrElse { PlayerInfoState.Error(it.message ?: "Failed to load details") }
+                        }
+                    },
                     onBack = { nav.popBackStack() },
                     onPip = {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
                         activity?.enterPictureInPictureMode(PictureInPictureParams.Builder().setAspectRatio(Rational(16, 9)).build())
                 })
+
+                AnimatedVisibility(
+                    visible = showInfoSheet,
+                    enter = fadeIn() + slideInVertically(initialOffsetY = { it / 2 }),
+                    exit = fadeOut() + slideOutVertically(targetOffsetY = { it / 2 }),
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Black.copy(alpha = 0.34f))
+                            .clickable(
+                                indication = null,
+                                interactionSource = remember { MutableInteractionSource() }
+                            ) { showInfoSheet = false }
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .fillMaxWidth()
+                                .fillMaxHeight(PLAYER_DETAIL_SHEET_HEIGHT_FRACTION)
+                                .padding(
+                                    start = PLAYER_DETAIL_SHEET_SIDE_MARGIN,
+                                    end = PLAYER_DETAIL_SHEET_SIDE_MARGIN,
+                                    bottom = PLAYER_DETAIL_SHEET_BOTTOM_MARGIN
+                                )
+                                .clickable(
+                                    indication = null,
+                                    interactionSource = remember { MutableInteractionSource() }
+                                ) {}
+                                .clip(RoundedCornerShape(PLAYER_DETAIL_SHEET_CORNER_RADIUS))
+                        ) {
+                            PlayerInfoSheet(
+                                state = infoState,
+                                nav = nav,
+                                isBookmarked = isBookmarked != null,
+                                onToggleBookmark = vm::toggleBookmark,
+                                onClose = { showInfoSheet = false },
+                                onSelectSeason = { seasonNumber ->
+                                    playerScope.launch {
+                                        val current = infoState as? PlayerInfoState.Tv ?: return@launch
+                                        infoState = current.copy(
+                                            selectedSeason = tmdbRepo.season(vm.tmdbId.toInt(), seasonNumber)
+                                        )
+                                    }
+                                }
+                            )
+                        }
+                    }
+                }
 
                 // Resume dialog — mirrors p-stream ResumePart
                 if (showResumeDialog) {
@@ -592,6 +707,7 @@ private fun PlayerControls(
     onToggleSubtitles: () -> Unit = {},
     onSelectSubtitle: (String) -> Unit,
     onDisableSubtitles: () -> Unit,
+    onInfo: () -> Unit,
     onBack: () -> Unit,
     onPip: () -> Unit,
 ) {
@@ -646,7 +762,6 @@ private fun PlayerControls(
                         .background(Brush.verticalGradient(listOf(Color.Black.copy(0.75f), Color.Transparent)))
                         .padding(start = TOP_BAR_LEFT_PADDING, end = TOP_BAR_RIGHT_PADDING, top = 12.dp, bottom = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = onBack, modifier = Modifier.size(TOP_BAR_BUTTON_SIZE)) {
@@ -660,11 +775,8 @@ private fun PlayerControls(
                                 Text(episodeLabel, color = Color.White.copy(0.62f), fontSize = 11.sp)
                             }
                         }
-                    }
-                    Row(modifier = Modifier.clip(RoundedCornerShape(50)).background(Color.Black.copy(0.55f)).padding(horizontal = 10.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        IconButton(onClick = { /* info stub */ }, modifier = Modifier.size(TOP_BAR_BUTTON_SIZE)) {
+                        Spacer(Modifier.width(12.dp))
+                        IconButton(onClick = onInfo, modifier = Modifier.size(TOP_BAR_BUTTON_SIZE)) {
                             Icon(Icons.Default.Info, "Info", tint = Color.White.copy(alpha = 0.85f), modifier = Modifier.size(TOP_BAR_ICON_SIZE))
                         }
                         IconButton(onClick = onToggleBookmark, modifier = Modifier.size(TOP_BAR_BUTTON_SIZE)) {
@@ -675,10 +787,8 @@ private fun PlayerControls(
                                 modifier = Modifier.size(TOP_BAR_ICON_SIZE)
                             )
                         }
-                        IconButton(onClick = { menuPage = PlayerMenuPage.Root }, modifier = Modifier.size(TOP_BAR_BUTTON_SIZE)) {
-                            Icon(Icons.Filled.Settings, "Settings", tint = Color.White, modifier = Modifier.size(TOP_BAR_ICON_SIZE))
-                        }
                     }
+                    Spacer(Modifier.weight(1f))
                 }
 
                 Row(modifier = Modifier.align(Alignment.Center),
@@ -752,14 +862,15 @@ private fun PlayerControls(
                         Spacer(Modifier.width(4.dp))
                         Text("${formatTime(positionMs)} / ${formatTime(durationMs)}", color = Color.White, fontSize = 12.sp)
                         Spacer(Modifier.weight(1f))
-                        IconButton(onClick = { menuPage = PlayerMenuPage.Captions }, modifier = Modifier.size(BOTTOM_BAR_BUTTON_SIZE)) {
-                            Icon(Icons.Filled.ClosedCaption, null, tint = if (subtitlesEnabled) Color.White else Color.White.copy(alpha = 0.55f), modifier = Modifier.size(BOTTOM_BAR_ICON_SIZE))
+                        IconButton(onClick = { menuPage = PlayerMenuPage.Captions }, modifier = Modifier.size(BOTTOM_BAR_MENU_BUTTON_SIZE)) {
+                            Icon(Icons.Filled.ClosedCaption, null, tint = if (subtitlesEnabled) Color.White else Color.White.copy(alpha = 0.55f), modifier = Modifier.size(BOTTOM_BAR_MENU_ICON_SIZE))
                         }
-                        IconButton(onClick = { menuPage = PlayerMenuPage.Root }, modifier = Modifier.size(BOTTOM_BAR_BUTTON_SIZE)) {
-                            Icon(Icons.Filled.Tune, null, tint = Color.White, modifier = Modifier.size(BOTTOM_BAR_ICON_SIZE))
+                        IconButton(onClick = { menuPage = PlayerMenuPage.Root }, modifier = Modifier.size(BOTTOM_BAR_MENU_BUTTON_SIZE)) {
+                            Icon(Icons.Filled.Tune, null, tint = Color.White, modifier = Modifier.size(BOTTOM_BAR_MENU_ICON_SIZE))
                         }
-                        DrawableControlIcon(R.drawable.ic_player_expand) {
-                            onPip()}
+                        IconButton(onClick = onPip, modifier = Modifier.size(BOTTOM_BAR_MENU_BUTTON_SIZE)) {
+                            Icon(Icons.Filled.PictureInPictureAlt, null, tint = Color.White, modifier = Modifier.size(BOTTOM_BAR_MENU_ICON_SIZE))
+                        }
                         Spacer(Modifier.width(BOTTOM_RIGHT_END_PADDING))
                     }
                 }
@@ -1089,6 +1200,568 @@ private fun PlayerMenuSourceRow(source: SourceResult) {
             Text(source.status.name.lowercase().replaceFirstChar { it.uppercase() }, color = Color.White.copy(alpha = 0.55f), fontSize = 12.sp)
         }
     }
+}
+
+@Composable
+private fun PlayerInfoSheet(
+    state: PlayerInfoState?,
+    nav: NavController,
+    isBookmarked: Boolean,
+    onToggleBookmark: () -> Unit,
+    onClose: () -> Unit,
+    onSelectSeason: (Int) -> Unit,
+) {
+    val context = LocalContext.current
+    val theme = LocalZStreamTheme.current
+    when (state) {
+        null, PlayerInfoState.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator(color = Color.White)
+        }
+        is PlayerInfoState.Error -> Box(Modifier.fillMaxSize().padding(PLAYER_DETAIL_SHEET_CONTENT_PADDING), contentAlignment = Alignment.Center) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(state.message, color = Color.White)
+                Spacer(Modifier.height(12.dp))
+                TextButton(onClick = onClose) { Text("Close") }
+            }
+        }
+        is PlayerInfoState.Movie -> {
+            PlayerInfoSheetScaffold(
+                title = state.detail.title,
+                backdropUrl = state.detail.backdropUrl(),
+                logoUrl = state.detail.logoUrl(),
+                posterUrl = state.detail.posterUrl(),
+                year = state.detail.releaseDate?.take(4),
+                rating = state.detail.voteAverage?.let { String.format("%.1f", it) },
+                theme = theme,
+                onClose = onClose
+            ) {
+                PlayerMovieInfoContent(
+                    detail = state.detail,
+                    context = context,
+                    nav = nav,
+                    theme = theme,
+                    isBookmarked = isBookmarked,
+                    onToggleBookmark = onToggleBookmark,
+                )
+            }
+        }
+        is PlayerInfoState.Tv -> {
+            PlayerInfoSheetScaffold(
+                title = state.detail.name,
+                backdropUrl = state.detail.backdropUrl(),
+                logoUrl = state.detail.logoUrl(),
+                posterUrl = state.detail.posterUrl(),
+                year = state.detail.firstAirDate?.take(4),
+                rating = state.detail.voteAverage?.let { String.format("%.1f", it) },
+                theme = theme,
+                onClose = onClose
+            ) {
+                PlayerTvInfoContent(
+                    detail = state.detail,
+                    selectedSeason = state.selectedSeason,
+                    context = context,
+                    nav = nav,
+                    theme = theme,
+                    isBookmarked = isBookmarked,
+                    onToggleBookmark = onToggleBookmark,
+                    onSelectSeason = onSelectSeason,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PlayerInfoSheetScaffold(
+    title: String,
+    backdropUrl: String?,
+    logoUrl: String?,
+    posterUrl: String?,
+    year: String?,
+    rating: String?,
+    theme: ZStreamTheme,
+    onClose: () -> Unit,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val viewportHeight = maxHeight
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+        ) {
+            Surface(
+                color = theme.colors.background.main,
+                shape = RoundedCornerShape(PLAYER_DETAIL_SHEET_CORNER_RADIUS),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = viewportHeight + PLAYER_DETAIL_SHEET_MIN_SCROLL_EXTRA)
+                    .border(1.dp, theme.colors.type.divider.copy(alpha = 0.2f), RoundedCornerShape(PLAYER_DETAIL_SHEET_CORNER_RADIUS))
+            ) {
+                Column(Modifier.fillMaxWidth()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(PLAYER_DETAIL_SHEET_BACKDROP_HEIGHT)
+                    ) {
+                        AsyncImage(
+                            model = backdropUrl ?: posterUrl,
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                        )
+                        Box(
+                            Modifier
+                                .fillMaxSize()
+                                .background(
+                                    Brush.verticalGradient(
+                                        listOf(
+                                            Color.Transparent,
+                                            Color.Black.copy(alpha = 0.18f),
+                                            theme.colors.background.main
+                                        )
+                                    )
+                                )
+                        )
+                        IconButton(
+                            onClick = onClose,
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(start = 24.dp, end = 24.dp, top = 48.dp)
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(Color.Black.copy(alpha = 0.75f))
+                                .border(1.dp, Color.White.copy(alpha = 0.15f), CircleShape)
+                        ) {
+                            Icon(Icons.Filled.Close, null, tint = Color.White)
+                        }
+                        Column(
+                            modifier = Modifier
+                                .align(Alignment.BottomStart)
+                                .padding(horizontal = PLAYER_DETAIL_SHEET_CONTENT_PADDING, vertical = 0.dp)
+                        ) {
+                            if (logoUrl != null) {
+                                AsyncImage(
+                                    model = logoUrl,
+                                    contentDescription = title,
+                                    modifier = Modifier
+                                        .height(100.dp)
+                                        .fillMaxWidth(0.6f),
+                                    contentScale = androidx.compose.ui.layout.ContentScale.Fit
+                                )
+                            } else {
+                                Text(
+                                    title.uppercase(),
+                                    color = theme.colors.type.emphasis,
+                                    style = MaterialTheme.typography.headlineLarge,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    letterSpacing = 4.sp
+                                )
+                            }
+                            Spacer(Modifier.height(6.dp))
+                            MetadataRow(
+                                content = listOfNotNull(
+                                    rating?.toDoubleOrNull()?.let { numericRating -> { TmdbRating(numericRating, theme) } },
+                                    year?.let { { Text(it, fontSize = 12.sp, color = Color.White) } }
+                                ),
+                                theme = theme,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Alignment.CenterVertically
+                            )
+                            Spacer(Modifier.height(18.dp))
+                        }
+                    }
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 14.dp)
+                    ) {
+                        content()
+                        Spacer(Modifier.height(PLAYER_DETAIL_SHEET_BOTTOM_SPACER))
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ColumnScope.PlayerMovieInfoContent(
+    detail: MovieDetail,
+    context: android.content.Context,
+    nav: NavController,
+    theme: ZStreamTheme,
+    isBookmarked: Boolean,
+    onToggleBookmark: () -> Unit,
+) {
+    val genres = detail.genres.orEmpty()
+    val cast = detail.credits?.cast.orEmpty().take(8)
+
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 32.dp, vertical = 14.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        PlayerSheetActionPill(Icons.Filled.Share, theme) {
+            openPlayerInfoShareSheet(context, detail.title, detail.id, "movie")
+        }
+        PlayerSheetActionPill(if (isBookmarked) Icons.Filled.Bookmark else Icons.Filled.BookmarkBorder, theme) {
+            onToggleBookmark()
+        }
+    }
+
+    Row(Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(40.dp)) {
+        Column(Modifier.weight(1f)) {
+            detail.overview?.takeIf { it.isNotBlank() }?.let { Text(it, color = theme.colors.type.text, fontSize = 14.sp) }
+            Spacer(Modifier.height(18.dp))
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                genres.forEach { PlayerSheetGenreChip(it.name, theme) }
+            }
+        }
+        Column(Modifier.widthIn(max = 240.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            PlayerSheetDetailSpec("Runtime", detail.runtime?.let { "$it min" } ?: "-", theme)
+            PlayerSheetDetailSpec("Language", "EN", theme)
+            PlayerSheetDetailSpec("Release Date", detail.releaseDate ?: "-", theme)
+            PlayerSheetDetailSpec("Rating", "PG-13", theme)
+        }
+    }
+
+    PlayerSheetSectionHeader("Cast", theme)
+    PlayerSheetCastRow(cast, theme, context)
+    PlayerSheetSectionHeader("Trailers", theme)
+    PlayerSheetTrailerGrid(detail.videos?.results?.filter { it.site == "YouTube" && it.type == "Trailer" }.orEmpty(), theme, context)
+    PlayerSheetSectionHeader("Similar", theme)
+    PlayerSheetSimilarGrid(detail.similar?.results.orEmpty(), theme, nav)
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ColumnScope.PlayerTvInfoContent(
+    detail: TvDetail,
+    selectedSeason: Season?,
+    context: android.content.Context,
+    nav: NavController,
+    theme: ZStreamTheme,
+    isBookmarked: Boolean,
+    onToggleBookmark: () -> Unit,
+    onSelectSeason: (Int) -> Unit,
+) {
+    val seasons = detail.seasons.orEmpty().filter { it.seasonNumber > 0 }
+
+    Row(Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 14.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        PlayerSheetActionPill(Icons.Filled.Share, theme) {
+            openPlayerInfoShareSheet(context, detail.name, detail.id, "tv")
+        }
+        PlayerSheetActionPill(if (isBookmarked) Icons.Filled.Bookmark else Icons.Filled.BookmarkBorder, theme) {
+            onToggleBookmark()
+        }
+    }
+
+    Row(Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(40.dp)) {
+        Column(Modifier.weight(1f)) {
+            detail.overview?.takeIf { it.isNotBlank() }?.let { Text(it, color = theme.colors.type.text, fontSize = 14.sp) }
+            Spacer(Modifier.height(18.dp))
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                detail.genres.orEmpty().forEach { PlayerSheetGenreChip(it.name, theme) }
+            }
+        }
+        Column(Modifier.widthIn(max = 240.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            PlayerSheetDetailSpec("Seasons", detail.numberOfSeasons?.toString() ?: "—", theme)
+            PlayerSheetDetailSpec("Language", "EN", theme)
+            PlayerSheetDetailSpec("Release Date", detail.firstAirDate ?: "—", theme)
+            PlayerSheetDetailSpec("Rating", "TV-14", theme)
+        }
+    }
+
+    PlayerSheetSectionHeader("Seasons", theme)
+    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(horizontal = 32.dp)) {
+        items(seasons) { season ->
+            FilterChip(
+                selected = season.seasonNumber == selectedSeason?.seasonNumber,
+                onClick = { onSelectSeason(season.seasonNumber) },
+                label = { Text("S${season.seasonNumber}") }
+            )
+        }
+    }
+    Spacer(Modifier.height(16.dp))
+
+    selectedSeason?.episodes?.let { episodes ->
+        PlayerSheetSectionHeader("Episodes", theme)
+        episodes.forEach { episode ->
+            PlayerSheetEpisodeRow(episode, theme)
+        }
+    }
+
+    PlayerSheetSectionHeader("Cast", theme)
+    PlayerSheetCastRow(detail.credits?.cast.orEmpty().take(8), theme, context)
+    PlayerSheetSectionHeader("Trailers", theme)
+    PlayerSheetTrailerGrid(detail.videos?.results?.filter { it.site == "YouTube" && it.type == "Trailer" }.orEmpty(), theme, context)
+    PlayerSheetSectionHeader("Similar", theme)
+    PlayerSheetSimilarGrid(detail.similar?.results.orEmpty(), theme, nav)
+}
+
+@Composable
+private fun PlayerSheetCastRow(cast: List<com.zstream.android.data.model.CastMember>, theme: ZStreamTheme, context: android.content.Context) {
+    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(horizontal = 32.dp, vertical = 8.dp)) {
+        items(cast) { member ->
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(105.dp).clickable {
+                openPlayerInfoCastProfile(context, member.id, member.externalIds?.imdbId)
+            }) {
+                AsyncImage(
+                    model = member.profilePath?.let { "${Urls.TMDB_IMAGE}w185$it" },
+                    contentDescription = member.name,
+                    modifier = Modifier.size(96.dp).clip(CircleShape).border(1.dp, theme.colors.type.text.copy(alpha = 0.08f), CircleShape),
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                )
+                Spacer(Modifier.height(10.dp))
+                Text(member.name.orEmpty(), maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelMedium, color = theme.colors.type.emphasis)
+                Text(member.character.orEmpty(), maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelSmall, color = theme.colors.type.secondary)
+            }
+        }
+    }
+}
+
+@Composable
+private fun PlayerSheetSectionHeader(title: String, theme: ZStreamTheme) {
+    Text(title, modifier = Modifier.padding(start = 32.dp, end = 32.dp, top = 18.dp, bottom = 0.dp), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = theme.colors.type.emphasis)
+}
+
+@Composable
+private fun PlayerSheetDetailSpec(label: String, value: String, theme: ZStreamTheme) {
+    Column {
+        Text(label, style = MaterialTheme.typography.labelMedium, color = theme.colors.type.secondary)
+        Text(value, style = MaterialTheme.typography.bodyMedium, color = theme.colors.type.emphasis)
+    }
+}
+
+@Composable
+private fun PlayerSheetGenreChip(label: String, theme: ZStreamTheme) {
+    Surface(
+        color = theme.colors.type.text.copy(alpha = 0.08f),
+        shape = RoundedCornerShape(4.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.type.divider.copy(alpha = 0.15f))
+    ) {
+        Text(label, modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp), style = MaterialTheme.typography.labelMedium, color = theme.colors.type.text)
+    }
+}
+
+@Composable
+private fun MetadataRow(
+    content: List<@Composable () -> Unit>,
+    theme: ZStreamTheme,
+    horizontalArrangement: Arrangement.Horizontal,
+    verticalArrangement: Alignment.Vertical
+) {
+    Row(horizontalArrangement = horizontalArrangement, verticalAlignment = verticalArrangement) {
+        content.forEachIndexed { index, contentItem ->
+            if (index > 0) Text("•", fontSize = 12.sp, color = Color.White, modifier = Modifier.padding(horizontal = 4.dp))
+            contentItem()
+        }
+    }
+}
+
+@Composable
+private fun TmdbRating(rating: Double, theme: ZStreamTheme) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Image(
+            painter = painterResource(id = R.drawable.tmdb_logo),
+            contentDescription = "TMDB Logo",
+            modifier = Modifier.size(24.dp)
+        )
+        Spacer(Modifier.width(4.dp))
+        Text(text = "%.1f".format(rating), color = theme.colors.type.emphasis, fontSize = 12.sp)
+    }
+}
+
+@Composable
+private fun PlayerSheetActionPill(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    theme: ZStreamTheme,
+    onClick: () -> Unit,
+) {
+    Surface(
+        shape = RoundedCornerShape(50.dp),
+        color = theme.colors.type.text.copy(alpha = 0.05f),
+        border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.type.divider.copy(alpha = 0.3f)),
+        modifier = Modifier.clickable(onClick = onClick)
+    ) {
+        Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(icon, null, modifier = Modifier.size(20.dp), tint = theme.colors.type.text)
+        }
+    }
+}
+
+@Composable
+private fun PlayerSheetTrailerGrid(trailers: List<com.zstream.android.data.model.TrailerData>, theme: ZStreamTheme, context: android.content.Context) {
+    if (trailers.isEmpty()) {
+        Text("No trailers available", modifier = Modifier.padding(horizontal = 32.dp, vertical = 12.dp), color = theme.colors.type.secondary)
+        return
+    }
+
+    Column(Modifier.padding(horizontal = 32.dp, vertical = 12.dp)) {
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            items(trailers.take(3)) { trailer ->
+                Box(
+                    modifier = Modifier
+                        .width(200.dp)
+                        .aspectRatio(16f / 9f)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(theme.colors.modal.background)
+                        .clickable { openPlayerInfoYoutubeTrailer(context, trailer.key) }
+                ) {
+                    AsyncImage(
+                        model = "https://img.youtube.com/vi/${trailer.key}/0.jpg",
+                        contentDescription = trailer.name,
+                        contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                    Text(trailer.name, color = Color.White, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(8.dp))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PlayerSheetSimilarGrid(similar: List<com.zstream.android.data.model.Media>, theme: ZStreamTheme, nav: NavController) {
+    if (similar.isEmpty()) {
+        Text("No similar movies available", modifier = Modifier.padding(horizontal = 32.dp, vertical = 12.dp), color = theme.colors.type.secondary)
+        return
+    }
+
+    Column(Modifier.padding(horizontal = 32.dp, vertical = 12.dp)) {
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(similar.take(10)) { movie ->
+                Column(
+                    modifier = Modifier
+                        .width(140.dp)
+                        .clickable {
+                            val mediaType = movie.type
+                            nav.navigate("detail/$mediaType/${movie.id}")
+                        }
+                ) {
+                    Box(modifier = Modifier.fillMaxWidth().height(205.dp).clip(RoundedCornerShape(8.dp)).background(theme.colors.modal.background)) {
+                        movie.posterUrl()?.let {
+                            AsyncImage(model = it, contentDescription = movie.displayTitle, contentScale = androidx.compose.ui.layout.ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Text(movie.displayTitle, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelMedium, color = theme.colors.type.emphasis)
+                    val year = (movie.releaseDate ?: movie.firstAirDate)?.take(4) ?: "—"
+                    val capitalizedMovie = movie.type.replaceFirstChar { it.uppercase() }
+                    Text("$capitalizedMovie • $year", style = MaterialTheme.typography.labelSmall, color = theme.colors.type.secondary)
+                    Spacer(Modifier.height(16.dp))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PlayerSheetEpisodeRow(episode: com.zstream.android.data.model.Episode, theme: ZStreamTheme) {
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 32.dp, vertical = 4.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(theme.colors.modal.background)
+    ) {
+        Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
+            Box(
+                Modifier
+                    .width(120.dp)
+                    .fillMaxHeight()
+            ) {
+                AsyncImage(
+                    model = episode.stillPath?.let { "${Urls.TMDB_IMAGE}w780$it" },
+                    contentDescription = null,
+                    modifier = Modifier
+                        .matchParentSize()
+                        .clip(RoundedCornerShape(topStart = 12.dp, bottomStart = 12.dp)),
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                )
+
+                Box(
+                    Modifier
+                        .align(Alignment.TopStart)
+                        .padding(6.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(Color(0xFF2D2D3D))
+                        .padding(horizontal = 6.dp, vertical = 1.dp)
+                ) {
+                    Text(
+                        "E${episode.episodeNumber}",
+                        color = Color(0xFFC4C4D4),
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
+            Column(Modifier.weight(1f).padding(12.dp)) {
+                Text(
+                    episode.name.orEmpty(),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    color = theme.colors.type.emphasis,
+                    fontWeight = FontWeight.Medium
+                )
+
+                episode.overview?.takeIf { it.isNotBlank() }?.let { desc ->
+                    Spacer(Modifier.height(4.dp))
+                    var expanded by remember { mutableStateOf(false) }
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) { expanded = !expanded }
+                    ) {
+                        Text(
+                            desc,
+                            maxLines = if (expanded) Int.MAX_VALUE else 3,
+                            overflow = TextOverflow.Ellipsis,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = theme.colors.type.text
+                        )
+                    }
+                    Spacer(Modifier.height(4.dp))
+                }
+            }
+        }
+    }
+}
+
+private fun openPlayerInfoShareSheet(context: android.content.Context, title: String, id: Int, mediaType: String) {
+    val url = "https://www.themoviedb.org/$mediaType/$id"
+    val shareText = "$title on ZStream!\n\n$url"
+    val intent = android.content.Intent().apply {
+        action = android.content.Intent.ACTION_SEND
+        putExtra(android.content.Intent.EXTRA_TEXT, shareText)
+        type = "text/plain"
+    }
+    context.startActivity(android.content.Intent.createChooser(intent, "Share"))
+}
+
+private fun openPlayerInfoYoutubeTrailer(context: android.content.Context, youtubeKey: String) {
+    val intent = android.content.Intent(
+        android.content.Intent.ACTION_VIEW,
+        Uri.parse("https://www.youtube.com/watch?v=$youtubeKey")
+    )
+    context.startActivity(intent)
+}
+
+private fun openPlayerInfoCastProfile(context: android.content.Context, castId: Int, imdbId: String?) {
+    val url = if (!imdbId.isNullOrEmpty()) {
+        "https://www.imdb.com/name/$imdbId/"
+    } else {
+        "https://www.themoviedb.org/person/$castId"
+    }
+    val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse(url))
+    context.startActivity(intent)
 }
 
 private fun collectQualityOptions(tracks: Tracks): List<QualityOption> {
