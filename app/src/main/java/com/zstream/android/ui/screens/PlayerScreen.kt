@@ -25,13 +25,10 @@ import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.drag
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -56,17 +53,13 @@ import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Tune
-import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
@@ -173,9 +166,11 @@ private val PLAYER_DETAIL_SHEET_CARD_COLOR = Color(0xFF141414).copy(alpha = 0.98
 private val PLAYER_DETAIL_SHEET_OUTLINE = Color.White.copy(alpha = 0.08f)
 private const val PLAYBACK_SPEED_MIN = 0.25f
 private const val PLAYBACK_SPEED_MAX = 5f
+private val MANUAL_SOURCE_PANEL_WIDTH = 343.dp
+private val MANUAL_SOURCE_PANEL_HEIGHT = 431.dp
 
 private enum class PlayerMenuPage {
-    Root, Captions, Playback, AdvancedColor, Source, Quality, Audio, Download, WatchParty, SkipSegments
+    Root, Captions, Playback, AdvancedColor, Sources, Quality, Audio, Download, WatchParty, SkipSegments
 }
 
 private sealed class PlayerInfoState {
@@ -252,68 +247,43 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                 }
             }
             is PlayerState.ManualSourceSelection -> {
-                Column(
+                Surface(
                     Modifier
                         .align(Alignment.Center)
-                        .padding(32.dp)
-                        .widthIn(max = 420.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                        .width(MANUAL_SOURCE_PANEL_WIDTH)
+                        .heightIn(min = MANUAL_SOURCE_PANEL_HEIGHT),
+                    color = Color(0xFF141414).copy(alpha = 0.98f),
+                    shape = RoundedCornerShape(24.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.08f))
                 ) {
-                    Text("Choose a source", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
-                    Spacer(Modifier.height(10.dp))
-                    Text(
-                        "Automatic source selection is disabled. Pick a source to test, then confirm the one you want to use.",
-                        color = Color.White.copy(alpha = 0.72f),
-                        fontSize = 13.sp,
-                        textAlign = TextAlign.Center
-                    )
-                    Spacer(Modifier.height(20.dp))
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        s.sources.forEach { source ->
-                            val selected = source.id == s.selectedSourceId
-                            Surface(
-                                color = if (selected) Color.White.copy(alpha = 0.10f) else Color.White.copy(alpha = 0.05f),
-                                shape = RoundedCornerShape(16.dp),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable { vm.probeSource(source.id) }
-                            ) {
-                                Row(
-                                    Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 14.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(source.id, color = Color.White, modifier = Modifier.weight(1f))
-                                    val symbol = when (source.status) {
-                                        SourceStatus.IDLE -> "•"
-                                        SourceStatus.TRYING -> "⟳"
-                                        SourceStatus.SUCCESS -> "✓"
-                                        SourceStatus.FAILED -> "✕"
+                    Column(Modifier.fillMaxSize()) {
+                        PlayerMenuHeader(title = "Sources", showBack = false, onBack = {})
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = PLAYER_MENU_INNER_HORIZONTAL_PADDING)
+                                .padding(top = 10.dp)
+                        ) {
+                            s.sources.forEach { source ->
+                                PlayerMenuSelectableRow(
+                                    title = sourceDisplayName(source.id),
+                                    selected = source.id == s.selectedSourceId,
+                                    onClick = { vm.probeSource(source.id) },
+                                    rightContent = {
+                                        ManualSourceStatusContent(
+                                            source = source,
+                                            onUse = vm::confirmManualSourceSelection
+                                        )
                                     }
-                                    val tint = when (source.status) {
-                                        SourceStatus.SUCCESS -> Color(0xFF4ADE80)
-                                        SourceStatus.FAILED -> Color(0xFFF87171)
-                                        SourceStatus.TRYING -> Color(0xFFFBBF24)
-                                        SourceStatus.IDLE -> Color.Gray
-                                    }
-                                    Text(symbol, color = tint, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                )
+                                if (source != s.sources.last()) {
+                                    Spacer(Modifier.height(2.dp))
                                 }
                             }
-                        }
-                    }
-                    s.message?.takeIf { it.isNotBlank() }?.let {
-                        Spacer(Modifier.height(14.dp))
-                        Text(it, color = Color.White.copy(alpha = 0.68f), fontSize = 12.sp, textAlign = TextAlign.Center)
-                    }
-                    if (s.candidate != null && s.selectedSourceId != null) {
-                        Spacer(Modifier.height(18.dp))
-                        Button(
-                            onClick = vm::confirmManualSourceSelection,
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Text("Use ${s.selectedSourceId}")
+                            s.message?.takeIf { it.isNotBlank() }?.let {
+                                Spacer(Modifier.height(16.dp))
+                                Text(it, color = PLAYER_MENU_MUTED_TEXT, fontSize = 12.sp)
+                            }
                         }
                     }
                 }
@@ -1437,7 +1407,7 @@ private fun PlayerMenuContent(
                     PlayerMenuPage.Captions -> "Subtitles"
                     PlayerMenuPage.Playback -> "Playback"
                     PlayerMenuPage.AdvancedColor -> "Advanced Color"
-                    PlayerMenuPage.Source -> "Source"
+                    PlayerMenuPage.Sources -> "Source"
                     PlayerMenuPage.Quality -> "Quality"
                     PlayerMenuPage.Audio -> "Audio"
                     PlayerMenuPage.Download -> "Download"
@@ -1463,7 +1433,7 @@ private fun PlayerMenuContent(
                     .padding(
                         start = PLAYER_MENU_INNER_HORIZONTAL_PADDING,
                         end = PLAYER_MENU_INNER_HORIZONTAL_PADDING,
-                        top = if (currentPage == PlayerMenuPage.Root) 24.dp else 0.dp,
+                        top = if (currentPage == PlayerMenuPage.Root) 6.dp else 0.dp,
                         bottom = PLAYER_MENU_INNER_BOTTOM_PADDING
                     )
             ) {
@@ -1472,7 +1442,7 @@ private fun PlayerMenuContent(
                     PlayerMenuGridSection(
                         items = listOf(
                             PlayerMenuTileItem("Quality", selectedQualityLabel) { onOpenPage(PlayerMenuPage.Quality) },
-                            PlayerMenuTileItem("Source", sourceId ?: "Auto") { onOpenPage(PlayerMenuPage.Source) },
+                            PlayerMenuTileItem("Source", sourceId ?: "Auto") { onOpenPage(PlayerMenuPage.Sources) },
                             PlayerMenuTileItem("Subtitles", "Use CC button") {},
                             PlayerMenuTileItem("Audio", selectedAudioLabel) { onOpenPage(PlayerMenuPage.Audio) },
                         )
@@ -1626,7 +1596,7 @@ private fun PlayerMenuContent(
                     }
                 }
 
-                PlayerMenuPage.Source -> {
+                PlayerMenuPage.Sources -> {
                     PlayerMenuSection {
                         PlayerMenuSummaryCard(
                             title = sourceId ?: "Unknown source",
@@ -1991,10 +1961,17 @@ private fun PlayerMenuSliderRow(
 }
 
 @Composable
-private fun PlayerMenuSelectableRow(title: String, subtitle: String? = null, selected: Boolean = false, onClick: () -> Unit) {
+private fun PlayerMenuSelectableRow(
+    title: String,
+    subtitle: String? = null,
+    selected: Boolean = false,
+    onClick: () -> Unit,
+    rightContent: (@Composable RowScope.() -> Unit)? = null,
+) {
     Surface(
         color = if (selected) PLAYER_MENU_CARD_ACTIVE_FILL else Color.Transparent,
         shape = RoundedCornerShape(14.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.15f)),
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)
     ) {
         Row(
@@ -2008,10 +1985,62 @@ private fun PlayerMenuSelectableRow(title: String, subtitle: String? = null, sel
                     Text(subtitle, color = PLAYER_MENU_DIM_TEXT, fontSize = 12.sp)
                 }
             }
-            if (selected) {
+            if (rightContent != null) {
+                Row(verticalAlignment = Alignment.CenterVertically, content = rightContent)
+            } else if (selected) {
                 Icon(Icons.Filled.Check, null, tint = Color(0xFF86EFAC), modifier = Modifier.size(18.dp))
             }
         }
+    }
+}
+
+@Composable
+private fun ManualSourceStatusContent(source: SourceResult, onUse: () -> Unit) {
+    when (source.status) {
+        SourceStatus.IDLE -> Unit
+        SourceStatus.TRYING -> {
+            CircularProgressIndicator(
+                modifier = Modifier.size(16.dp),
+                color = Color.White,
+                strokeWidth = 2.dp
+            )
+        }
+        SourceStatus.FAILED -> {
+            Box(
+                modifier = Modifier
+                    .size(16.dp)
+                    .border(2.dp, Color(0xFFF87171), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .width(8.dp)
+                        .height(2.dp)
+                        .background(Color(0xFFF87171), RoundedCornerShape(999.dp))
+                )
+            }
+        }
+        SourceStatus.SUCCESS -> {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(Icons.Filled.Check, null, tint = Color(0xFF86EFAC), modifier = Modifier.size(18.dp))
+                TextButton(
+                    onClick = onUse,
+                    colors = ButtonDefaults.textButtonColors(contentColor = Color.White),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.15f)),
+                    modifier = Modifier.height(28.dp)
+                ) {
+                    Text("Use", fontSize = 12.sp)
+                }
+            }
+        }
+    }
+}
+
+private fun sourceDisplayName(id: String): String = when (id.lowercase()) {
+    "vidlink" -> "VidLink"
+    else -> id.split('-', '_').joinToString(" ") { token ->
+        token.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
     }
 }
 

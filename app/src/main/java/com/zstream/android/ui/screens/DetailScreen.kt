@@ -53,7 +53,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -182,8 +181,6 @@ private fun TvDetailModal(
     allProgress: List<com.zstream.android.data.local.entity.ProgressEntity>,
 ) {
     val d = state.detail
-    val season = state.selectedSeason
-    var selectedSeasonNum by remember { mutableIntStateOf(season?.seasonNumber ?: 1) }
     SharedDetailSheetScaffold(
         title = d.name,
         backdropUrl = d.backdropUrl(),
@@ -197,24 +194,23 @@ private fun TvDetailModal(
     ) {
         SharedTvDetailContent(
             detail = d,
-            selectedSeason = season,
+            selectedSeason = state.selectedSeason,
             allProgress = allProgress,
             context = context,
             nav = nav,
             theme = theme,
             onSelectSeason = { seasonNumber ->
-                selectedSeasonNum = seasonNumber
                 vm.selectSeason(seasonNumber)
             },
         ) {
             Button(
                 onClick = {
                     if (hasProgress && progress != null) {
-                        val sNum = progress.seasonNumber ?: season?.seasonNumber ?: 1
+                        val sNum = progress.seasonNumber ?: state.selectedSeason?.seasonNumber ?: 1
                         val eNum = progress.episodeNumber ?: 1
                         nav.navigate("player/tv/${d.id}?season=$sNum&episode=$eNum&title=${d.name.encode()}&year=${d.firstAirDate?.take(4)?.toIntOrNull() ?: 0}&poster=${d.posterPath?.encode() ?: ""}")
                     } else {
-                        val firstEp = season?.episodes?.firstOrNull()
+                        val firstEp = state.selectedSeason?.episodes?.firstOrNull()
                         if (firstEp != null) {
                             nav.navigate("player/tv/${d.id}?season=${firstEp.seasonNumber}&episode=${firstEp.episodeNumber}&title=${d.name.encode()}&year=${d.firstAirDate?.take(4)?.toIntOrNull() ?: 0}&poster=${d.posterPath?.encode() ?: ""}")
                         }
