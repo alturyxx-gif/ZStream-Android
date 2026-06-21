@@ -239,11 +239,81 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     Text("Finding stream…", color = Color.White, fontSize = 14.sp)
                     sources.forEach { src ->
                         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 2.dp)) {
-                            Text(when (src.status) { SourceStatus.TRYING -> "⟳"; SourceStatus.SUCCESS -> "✓"; SourceStatus.FAILED -> "✕" },
-                                color = when (src.status) { SourceStatus.SUCCESS -> Color.Green; SourceStatus.FAILED -> Color.Red; else -> Color.Gray },
+                            Text(when (src.status) { SourceStatus.IDLE -> "•"; SourceStatus.TRYING -> "⟳"; SourceStatus.SUCCESS -> "✓"; SourceStatus.FAILED -> "✕" },
+                                color = when (src.status) { SourceStatus.SUCCESS -> Color.Green; SourceStatus.FAILED -> Color.Red; SourceStatus.TRYING -> Color.Gray; SourceStatus.IDLE -> Color.Gray },
                                 fontSize = 11.sp)
                             Spacer(Modifier.width(6.dp))
                             Text(src.id, color = Color.Gray, fontSize = 11.sp)
+                        }
+                    }
+                }
+                IconButton(onClick = { nav.popBackStack() }, modifier = Modifier.align(Alignment.TopStart).padding(4.dp)) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = Color.White)
+                }
+            }
+            is PlayerState.ManualSourceSelection -> {
+                Column(
+                    Modifier
+                        .align(Alignment.Center)
+                        .padding(32.dp)
+                        .widthIn(max = 420.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text("Choose a source", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        "Automatic source selection is disabled. Pick a source to test, then confirm the one you want to use.",
+                        color = Color.White.copy(alpha = 0.72f),
+                        fontSize = 13.sp,
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(Modifier.height(20.dp))
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        s.sources.forEach { source ->
+                            val selected = source.id == s.selectedSourceId
+                            Surface(
+                                color = if (selected) Color.White.copy(alpha = 0.10f) else Color.White.copy(alpha = 0.05f),
+                                shape = RoundedCornerShape(16.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { vm.probeSource(source.id) }
+                            ) {
+                                Row(
+                                    Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 14.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(source.id, color = Color.White, modifier = Modifier.weight(1f))
+                                    val symbol = when (source.status) {
+                                        SourceStatus.IDLE -> "•"
+                                        SourceStatus.TRYING -> "⟳"
+                                        SourceStatus.SUCCESS -> "✓"
+                                        SourceStatus.FAILED -> "✕"
+                                    }
+                                    val tint = when (source.status) {
+                                        SourceStatus.SUCCESS -> Color(0xFF4ADE80)
+                                        SourceStatus.FAILED -> Color(0xFFF87171)
+                                        SourceStatus.TRYING -> Color(0xFFFBBF24)
+                                        SourceStatus.IDLE -> Color.Gray
+                                    }
+                                    Text(symbol, color = tint, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+                    s.message?.takeIf { it.isNotBlank() }?.let {
+                        Spacer(Modifier.height(14.dp))
+                        Text(it, color = Color.White.copy(alpha = 0.68f), fontSize = 12.sp, textAlign = TextAlign.Center)
+                    }
+                    if (s.candidate != null && s.selectedSourceId != null) {
+                        Spacer(Modifier.height(18.dp))
+                        Button(
+                            onClick = vm::confirmManualSourceSelection,
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text("Use ${s.selectedSourceId}")
                         }
                     }
                 }
@@ -654,6 +724,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     onResetAdvancedColor = vm::resetAdvancedColor,
                     onSetVolumeBoost = vm::setVolumeBoost,
                     onSetVideoScaleMode = vm::setVideoScaleMode,
+                    onSelectSource = vm::selectSource,
                     onInfo = {
                         showInfoSheet = true
                         playerScope.launch {
@@ -974,6 +1045,7 @@ private fun PlayerControls(
     onResetAdvancedColor: () -> Unit,
     onSetVolumeBoost: (Int) -> Unit,
     onSetVideoScaleMode: (String) -> Unit,
+    onSelectSource: (String) -> Unit,
     onInfo: () -> Unit,
     onBack: () -> Unit,
     onPip: () -> Unit,
@@ -1210,6 +1282,7 @@ private fun PlayerControls(
                         sourceId = readyState.sourceId,
                         embedId = readyState.embedId,
                         sourceResults = readyState.sources,
+                        manualSourceSelection = settings.manualSourceSelection,
                         selectedSubtitleLanguage = selectedSubtitleLanguage,
                         subtitlesEnabled = subtitlesEnabled,
                         subtitleTracks = readyState.subtitles,
@@ -1264,6 +1337,7 @@ private fun PlayerControls(
                                 .setPreferredAudioLanguage(option.language)
                                 .build()
                         },
+                        onSelectSource = onSelectSource,
                         onPip = onPip,
                     )
                 }
@@ -1311,6 +1385,7 @@ private fun PlayerMenuContent(
     sourceId: String?,
     embedId: String?,
     sourceResults: List<SourceResult>,
+    manualSourceSelection: Boolean,
     selectedSubtitleLanguage: String?,
     subtitlesEnabled: Boolean,
     subtitleTracks: List<SubtitleTrack>,
@@ -1338,6 +1413,7 @@ private fun PlayerMenuContent(
     onSelectQuality: (QualityOption) -> Unit,
     onSelectAutoQuality: () -> Unit,
     onSelectAudio: (AudioOption) -> Unit,
+    onSelectSource: (String) -> Unit,
     onPip: () -> Unit,
 ) {
     val scrollState = rememberScrollState(menuScrollPositions[page] ?: 0)
@@ -1555,16 +1631,28 @@ private fun PlayerMenuContent(
                         PlayerMenuSummaryCard(
                             title = sourceId ?: "Unknown source",
                             value = embedId ?: "No embed metadata",
-                            subtitle = "Manual source switching is preserved as current Android state."
+                            subtitle = if (manualSourceSelection) "Pick a source to retry playback through that provider." else "Enable Manual Source Selection in settings to choose providers here."
                         )
                     }
-                    PlayerMenuSection {
-                        sourceResults.forEach { source ->
-                            PlayerMenuSourceRow(source)
+                    if (manualSourceSelection) {
+                        PlayerMenuSection {
+                            sourceResults.forEach { source ->
+                                PlayerMenuSelectableRow(
+                                    title = source.id,
+                                    subtitle = source.status.name.lowercase().replaceFirstChar { it.uppercase() },
+                                    selected = source.id == sourceId,
+                                    onClick = {
+                                        onClose()
+                                        onSelectSource(source.id)
+                                    }
+                                )
+                            }
                         }
-                    }
-                    if (sourceResults.isEmpty()) {
-                        PlayerMenuStubCard("Manual source switching is not wired yet. Current provider metadata is ready for it.")
+                        if (sourceResults.isEmpty()) {
+                            PlayerMenuStubCard("No sources are available for manual selection yet.")
+                        }
+                    } else {
+                        PlayerMenuStubCard("Manual source selection is currently disabled in app settings.")
                     }
                 }
                 PlayerMenuPage.Quality -> {
@@ -1937,6 +2025,7 @@ private fun PlayerMenuStubCard(message: String) {
 @Composable
 private fun PlayerMenuSourceRow(source: SourceResult) {
     val color = when (source.status) {
+        SourceStatus.IDLE -> Color.Gray
         SourceStatus.SUCCESS -> Color(0xFF4ADE80)
         SourceStatus.FAILED -> Color(0xFFF87171)
         SourceStatus.TRYING -> Color(0xFFFBBF24)
