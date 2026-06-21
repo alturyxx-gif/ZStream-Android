@@ -63,12 +63,14 @@ import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.TextStyle
@@ -76,6 +78,8 @@ import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -1525,6 +1529,58 @@ private fun parseTimeToSeconds(timeStr: String): Double? {
 }
 
 @Composable
+private fun RowScope.GuideColumn(title: String, body: String) {
+    Column(modifier = Modifier.weight(1f)) {
+        Text(title, color = Color.White.copy(alpha = 0.8f), fontSize = 12.sp, fontWeight = FontWeight.Medium)
+        Spacer(Modifier.height(2.dp))
+        Text(body, color = Color.White.copy(alpha = 0.56f), fontSize = 12.sp, lineHeight = 16.sp)
+    }
+}
+
+private fun guideStart(segmentType: String): String = when (segmentType) {
+    "intro", "recap" -> "Optional. Leave blank to start from the beginning."
+    "credits", "preview" -> "Required. Set where the segment begins."
+    else -> "Set where the segment begins."
+}
+
+private fun guideEnd(segmentType: String): String = when (segmentType) {
+    "intro", "recap" -> "Required. Set where playback should resume."
+    "credits" -> "Optional. Leave blank if credits run to the end."
+    "preview" -> "Optional. Leave blank if preview runs to the end."
+    else -> "Set where playback should resume."
+}
+
+private fun guideDuration(segmentType: String): String = when (segmentType) {
+    "intro", "recap" -> "Usually short and near the start of the episode."
+    "credits" -> "Usually late in the runtime and may continue to the end."
+    "preview" -> "Usually after the main content, often near the end."
+    else -> "Use timestamps that match the visible segment."
+}
+
+private fun guideExclude(segmentType: String): String = when (segmentType) {
+    "intro" -> "Do not include studio logos or unrelated cold open content."
+    "recap" -> "Only include the recap block, not the opening titles."
+    "credits" -> "Do not include post-credit scenes if playback should continue."
+    "preview" -> "Only include the next-episode preview block."
+    else -> "Avoid overlapping unrelated content."
+}
+
+@Composable
+private fun outlinedFieldColors(theme: ZStreamTheme): TextFieldColors {
+    return OutlinedTextFieldDefaults.colors(
+        focusedTextColor = theme.colors.type.text,
+        unfocusedTextColor = theme.colors.type.text,
+        focusedBorderColor = theme.colors.buttons.purple,
+        unfocusedBorderColor = theme.colors.background.secondary,
+        focusedLabelColor = Color.White.copy(alpha = 0.8f),
+        unfocusedLabelColor = Color.White.copy(alpha = 0.56f),
+        focusedPlaceholderColor = Color.White.copy(alpha = 0.32f),
+        unfocusedPlaceholderColor = Color.White.copy(alpha = 0.32f),
+        cursorColor = Color.White
+    )
+}
+
+@Composable
 private fun SkipSegmentSubmissionDialog(
     seed: SkipSegment?,
     tmdbId: Int,
@@ -1535,6 +1591,7 @@ private fun SkipSegmentSubmissionDialog(
     onDismiss: () -> Unit,
     onSubmit: suspend (SkipSegmentSubmission) -> Result<Unit>,
 ) {
+    val theme = LocalZStreamTheme.current
     val scope = rememberCoroutineScope()
     var segmentType by remember(seed) { mutableStateOf(seed?.type ?: "intro") }
     var startText by remember(seed) { mutableStateOf(seed?.startMs?.let { (it / 1000).toString() }.orEmpty()) }
@@ -1542,86 +1599,219 @@ private fun SkipSegmentSubmissionDialog(
     var errorText by remember { mutableStateOf<String?>(null) }
     var isSubmitting by remember { mutableStateOf(false) }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = Color(0xFF171717),
-        title = { Text("Submit Segment", color = Color.White) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                Text("Submit skip segment timings to TheIntroDB.", color = Color.White.copy(alpha = 0.72f), fontSize = 13.sp)
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf("intro", "recap", "credits", "preview").forEach { type ->
-                        FilterChip(
-                            selected = segmentType == type,
-                            onClick = { segmentType = type },
-                            label = { Text(segmentTypeLabel(type)) }
+    fun submit() {
+        val startSeconds = parseTimeToSeconds(startText)
+        val endSeconds = parseTimeToSeconds(endText)
+        when {
+            (segmentType == "intro" || segmentType == "recap") && (endSeconds == null || endSeconds.isNaN()) ->
+                errorText = "End time is required for this segment type."
+            (segmentType == "credits" || segmentType == "preview") && (startSeconds == null || startSeconds.isNaN()) ->
+                errorText = "Start time is required for this segment type."
+            (startSeconds != null && startSeconds.isNaN()) || (endSeconds != null && endSeconds.isNaN()) ->
+                errorText = "Invalid time format."
+            else -> {
+                errorText = null
+                scope.launch {
+                    isSubmitting = true
+                    val result = onSubmit(
+                        SkipSegmentSubmission(
+                            tmdbId = tmdbId,
+                            type = if (mediaType == "tv") "tv" else "movie",
+                            segment = segmentType,
+                            season = seasonNumber,
+                            episode = episodeNumber,
+                            startSec = if (segmentType == "intro" || segmentType == "recap") startSeconds else startSeconds ?: 0.0,
+                            endSec = if (segmentType == "credits" || segmentType == "preview") endSeconds else endSeconds,
+                            videoDurationMs = videoDurationMs,
                         )
-                    }
+                    )
+                    isSubmitting = false
+                    result
+                        .onSuccess { onDismiss() }
+                        .onFailure { errorText = it.message ?: "Failed to submit segment." }
                 }
-                OutlinedTextField(
-                    value = startText,
-                    onValueChange = { startText = it },
-                    label = { Text("Start time") },
-                    placeholder = { Text(if (segmentType == "credits" || segmentType == "preview") "2:30 or 150" else "2:30 or 150 (optional)") },
-                    singleLine = true
-                )
-                OutlinedTextField(
-                    value = endText,
-                    onValueChange = { endText = it },
-                    label = { Text("End time") },
-                    placeholder = { Text(if (segmentType == "intro" || segmentType == "recap") "3:30 or 210" else "3:30 or 210 (optional)") },
-                    singleLine = true
-                )
-                errorText?.let { Text(it, color = Color(0xFFF87171), fontSize = 12.sp) }
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    val startSeconds = parseTimeToSeconds(startText)
-                    val endSeconds = parseTimeToSeconds(endText)
-                    when {
-                        (segmentType == "intro" || segmentType == "recap") && (endSeconds == null || endSeconds.isNaN()) ->
-                            errorText = "End time is required for this segment type."
-                        (segmentType == "credits" || segmentType == "preview") && (startSeconds == null || startSeconds.isNaN()) ->
-                            errorText = "Start time is required for this segment type."
-                        (startSeconds != null && startSeconds.isNaN()) || (endSeconds != null && endSeconds.isNaN()) ->
-                            errorText = "Invalid time format."
-                        else -> {
-                            errorText = null
-                            scope.launch {
-                                isSubmitting = true
-                                val result = onSubmit(
-                                    SkipSegmentSubmission(
-                                        tmdbId = tmdbId,
-                                        type = if (mediaType == "tv") "tv" else "movie",
-                                        segment = segmentType,
-                                        season = seasonNumber,
-                                        episode = episodeNumber,
-                                        startSec = if (segmentType == "intro" || segmentType == "recap") startSeconds else startSeconds ?: 0.0,
-                                        endSec = if (segmentType == "credits" || segmentType == "preview") endSeconds else endSeconds,
-                                        videoDurationMs = videoDurationMs,
-                                    )
-                                )
-                                isSubmitting = false
-                                result
-                                    .onSuccess { onDismiss() }
-                                    .onFailure { errorText = it.message ?: "Failed to submit segment." }
-                            }
-                        }
-                    }
-                },
-                enabled = !isSubmitting
-            ) {
-                Text(if (isSubmitting) "Submitting..." else "Submit")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel")
             }
         }
-    )
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.6f))
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Surface(
+                color = theme.colors.modal.background.copy(alpha = 0.96f),
+                shape = RoundedCornerShape(28.dp),
+                tonalElevation = 0.dp,
+                shadowElevation = 24.dp,
+                border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.type.divider.copy(alpha = 0.2f)),
+                modifier = Modifier
+                    .fillMaxWidth(0.95f)
+                    .fillMaxHeight(0.97f)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.radialGradient(
+                                colors = listOf(
+                                    theme.colors.mediaCard.hoverAccent.copy(alpha = 0.16f),
+                                    theme.colors.modal.background
+                                ),
+                                center = Offset(220f, 140f),
+                                radius = 780f
+                            )
+                        )
+                ) {
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(12.dp)
+                            .size(36.dp)
+                    ) {
+                        Icon(Icons.Filled.Close, null, tint = theme.colors.type.secondary)
+                    }
+
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState())
+                            .padding(horizontal = 20.dp, vertical = 20.dp)
+                            .padding(top = 28.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Filled.Download, null, tint = Color.White, modifier = Modifier.size(20.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Submit Segment", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "Submit skip segment timings to TheIntroDB.",
+                            color = Color.White.copy(alpha = 0.72f),
+                            fontSize = 14.sp,
+                            lineHeight = 20.sp
+                        )
+
+                        Spacer(Modifier.height(20.dp))
+                        Surface(
+                            color = theme.colors.authentication.inputBg.copy(alpha = 0.5f),
+                            shape = RoundedCornerShape(18.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.background.secondary)
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(18.dp),
+                                verticalArrangement = Arrangement.spacedBy(14.dp)
+                            ) {
+                                Text("Segment Type", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    listOf("intro", "recap", "credits", "preview").forEach { type ->
+                                        FilterChip(
+                                            selected = segmentType == type,
+                                            onClick = { segmentType = type },
+                                            label = { Text(segmentTypeLabel(type)) },
+                                            border = FilterChipDefaults.filterChipBorder(
+                                                enabled = true,
+                                                selected = segmentType == type,
+                                                borderColor = theme.colors.background.secondary,
+                                                selectedBorderColor = theme.colors.buttons.purple
+                                            ),
+                                            colors = FilterChipDefaults.filterChipColors(
+                                                containerColor = Color.Transparent,
+                                                selectedContainerColor = theme.colors.buttons.purple.copy(alpha = 0.2f),
+                                                labelColor = Color.White,
+                                                selectedLabelColor = Color.White
+                                            )
+                                        )
+                                    }
+                                }
+                                Text("Choose the segment type and enter timestamps in `seconds`, `mm:ss`, or `hh:mm:ss`.", color = Color.White.copy(alpha = 0.56f), fontSize = 12.sp)
+                                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+                                    OutlinedTextField(
+                                        value = startText,
+                                        onValueChange = { startText = it },
+                                        label = { Text("Start time") },
+                                        placeholder = { Text(if (segmentType == "credits" || segmentType == "preview") "2:30 or 150" else "2:30 or 150 (optional)") },
+                                        singleLine = true,
+                                        modifier = Modifier.weight(1f),
+                                        colors = outlinedFieldColors(theme)
+                                    )
+                                    OutlinedTextField(
+                                        value = endText,
+                                        onValueChange = { endText = it },
+                                        label = { Text("End time") },
+                                        placeholder = { Text(if (segmentType == "intro" || segmentType == "recap") "3:30 or 210" else "3:30 or 210 (optional)") },
+                                        singleLine = true,
+                                        modifier = Modifier.weight(1f),
+                                        colors = outlinedFieldColors(theme)
+                                    )
+                                }
+                                Surface(
+                                    color = theme.colors.modal.background,
+                                    shape = RoundedCornerShape(14.dp),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.background.secondary)
+                                ) {
+                                    Column(
+                                        modifier = Modifier.fillMaxWidth().padding(14.dp),
+                                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        Text("Timing Guide", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                            GuideColumn("Start", guideStart(segmentType))
+                                            GuideColumn("End", guideEnd(segmentType))
+                                        }
+                                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                            GuideColumn("Duration", guideDuration(segmentType))
+                                            GuideColumn("Exclude", guideExclude(segmentType))
+                                        }
+                                    }
+                                }
+                                if (errorText != null) {
+                                    Text(errorText!!, color = theme.colors.type.danger, fontSize = 12.sp)
+                                }
+                            }
+                        }
+
+                        Spacer(Modifier.height(18.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            TextButton(
+                                onClick = onDismiss,
+                                enabled = !isSubmitting,
+                                colors = ButtonDefaults.textButtonColors(contentColor = theme.colors.buttons.secondaryText)
+                            ) {
+                                Text("Cancel")
+                            }
+                            Button(
+                                onClick = ::submit,
+                                enabled = !isSubmitting,
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = theme.colors.buttons.purple,
+                                    contentColor = Color.White,
+                                    disabledContainerColor = theme.colors.buttons.purple.copy(alpha = 0.45f),
+                                    disabledContentColor = Color.White.copy(alpha = 0.7f)
+                                ),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Text(if (isSubmitting) "Submitting..." else "Submit")
+                            }
+                        }
+                        Spacer(Modifier.height(8.dp))
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable
