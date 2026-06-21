@@ -21,6 +21,7 @@ import androidx.activity.ComponentActivity
 import androidx.annotation.DrawableRes
 import androidx.annotation.OptIn
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.animation.*
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
@@ -714,6 +715,13 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     onSetVideoScaleMode = vm::setVideoScaleMode,
                     onSelectSource = vm::selectSource,
                     skipSegments = skipSegments,
+                    canSubmitSkipSegments = LocalConfiguration.current.smallestScreenWidthDp < 600,
+                    hasTidbKey = !settings.tidbKey.isNullOrBlank(),
+                    onSubmitSkipSegment = vm::submitSkipSegment,
+                    tmdbId = vm.tmdbId.toIntOrNull() ?: 0,
+                    mediaType = vm.mediaType,
+                    seasonNumber = vm.season,
+                    episodeNumber = vm.episode,
                     onInfo = {
                         showInfoSheet = true
                         playerScope.launch {
@@ -1036,6 +1044,13 @@ private fun PlayerControls(
     onSetVideoScaleMode: (String) -> Unit,
     onSelectSource: (String) -> Unit,
     skipSegments: List<SkipSegment>,
+    canSubmitSkipSegments: Boolean,
+    hasTidbKey: Boolean,
+    onSubmitSkipSegment: suspend (SkipSegmentSubmission) -> Result<Unit>,
+    tmdbId: Int,
+    mediaType: String,
+    seasonNumber: Int?,
+    episodeNumber: Int?,
     onInfo: () -> Unit,
     onBack: () -> Unit,
     onPip: () -> Unit,
@@ -1052,6 +1067,8 @@ private fun PlayerControls(
     var tracksSnapshot by remember { mutableStateOf(player.currentTracks) }
     var playbackSpeed by remember { mutableFloatStateOf(player.playbackParameters.speed) }
     val menuOpen = menuPage != null
+    var showSkipSubmissionDialog by remember { mutableStateOf(false) }
+    var skipSubmissionSeed by remember { mutableStateOf<SkipSegment?>(null) }
 
     DisposableEffect(player) {
         val listener = object : Player.Listener {
@@ -1350,6 +1367,8 @@ private fun PlayerControls(
                         qualityOptions = qualityOptions,
                         audioOptions = audioOptions,
                         skipSegments = skipSegments,
+                        canSubmitSkipSegments = canSubmitSkipSegments,
+                        hasTidbKey = hasTidbKey,
                         menuScrollPositions = menuScrollPositions,
                         onClose = { menuPage = null },
                         onBack = {
@@ -1397,12 +1416,29 @@ private fun PlayerControls(
                                 .build()
                         },
                         onSelectSource = onSelectSource,
+                        onOpenSkipSubmission = {
+                            skipSubmissionSeed = it ?: (skipSegments.firstOrNull() ?: SkipSegment("intro", null, null))
+                            showSkipSubmissionDialog = true
+                        },
                         onSeekToMs = { player.seekTo(it) },
                         onPip = onPip,
                     )
                 }
             }
         }
+    }
+
+    if (showSkipSubmissionDialog) {
+        SkipSegmentSubmissionDialog(
+            seed = skipSubmissionSeed,
+            tmdbId = tmdbId,
+            mediaType = mediaType,
+            seasonNumber = seasonNumber,
+            episodeNumber = episodeNumber,
+            videoDurationMs = durationMs.takeIf { it > 0L },
+            onDismiss = { showSkipSubmissionDialog = false },
+            onSubmit = onSubmitSkipSegment
+        )
     }
 }
 
@@ -1457,6 +1493,135 @@ private fun skipSegmentLabel(type: String): String = when (type) {
     "credits" -> "Skip Credits"
     "preview" -> "Skip Preview"
     else -> type.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+}
+
+private fun segmentTypeLabel(type: String): String = when (type) {
+    "intro" -> "Intro"
+    "recap" -> "Recap"
+    "credits" -> "Credits"
+    "preview" -> "Preview"
+    else -> type.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+}
+
+private fun parseTimeToSeconds(timeStr: String): Double? {
+    val trimmed = timeStr.trim()
+    if (trimmed.isEmpty()) return null
+
+    Regex("""^(\d{1,2}):(0?[0-5]\d):(0?[0-5]\d)$""").matchEntire(trimmed)?.let { match ->
+        val hours = match.groupValues[1].toInt()
+        val minutes = match.groupValues[2].toInt()
+        val seconds = match.groupValues[3].toInt()
+        return (hours * 3600 + minutes * 60 + seconds).toDouble()
+    }
+
+    Regex("""^(\d{1,3}):(0?[0-5]\d)$""").matchEntire(trimmed)?.let { match ->
+        val minutes = match.groupValues[1].toInt()
+        val seconds = match.groupValues[2].toInt()
+        return (minutes * 60 + seconds).toDouble()
+    }
+
+    if (trimmed.contains(":")) return Double.NaN
+    return trimmed.toDoubleOrNull()?.takeIf { it >= 0.0 && it <= 21_600_000.0 } ?: Double.NaN
+}
+
+@Composable
+private fun SkipSegmentSubmissionDialog(
+    seed: SkipSegment?,
+    tmdbId: Int,
+    mediaType: String,
+    seasonNumber: Int?,
+    episodeNumber: Int?,
+    videoDurationMs: Long?,
+    onDismiss: () -> Unit,
+    onSubmit: suspend (SkipSegmentSubmission) -> Result<Unit>,
+) {
+    val scope = rememberCoroutineScope()
+    var segmentType by remember(seed) { mutableStateOf(seed?.type ?: "intro") }
+    var startText by remember(seed) { mutableStateOf(seed?.startMs?.let { (it / 1000).toString() }.orEmpty()) }
+    var endText by remember(seed) { mutableStateOf(seed?.endMs?.let { (it / 1000).toString() }.orEmpty()) }
+    var errorText by remember { mutableStateOf<String?>(null) }
+    var isSubmitting by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Color(0xFF171717),
+        title = { Text("Submit Segment", color = Color.White) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Text("Submit skip segment timings to TheIntroDB.", color = Color.White.copy(alpha = 0.72f), fontSize = 13.sp)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("intro", "recap", "credits", "preview").forEach { type ->
+                        FilterChip(
+                            selected = segmentType == type,
+                            onClick = { segmentType = type },
+                            label = { Text(segmentTypeLabel(type)) }
+                        )
+                    }
+                }
+                OutlinedTextField(
+                    value = startText,
+                    onValueChange = { startText = it },
+                    label = { Text("Start time") },
+                    placeholder = { Text(if (segmentType == "credits" || segmentType == "preview") "2:30 or 150" else "2:30 or 150 (optional)") },
+                    singleLine = true
+                )
+                OutlinedTextField(
+                    value = endText,
+                    onValueChange = { endText = it },
+                    label = { Text("End time") },
+                    placeholder = { Text(if (segmentType == "intro" || segmentType == "recap") "3:30 or 210" else "3:30 or 210 (optional)") },
+                    singleLine = true
+                )
+                errorText?.let { Text(it, color = Color(0xFFF87171), fontSize = 12.sp) }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val startSeconds = parseTimeToSeconds(startText)
+                    val endSeconds = parseTimeToSeconds(endText)
+                    when {
+                        (segmentType == "intro" || segmentType == "recap") && (endSeconds == null || endSeconds.isNaN()) ->
+                            errorText = "End time is required for this segment type."
+                        (segmentType == "credits" || segmentType == "preview") && (startSeconds == null || startSeconds.isNaN()) ->
+                            errorText = "Start time is required for this segment type."
+                        (startSeconds != null && startSeconds.isNaN()) || (endSeconds != null && endSeconds.isNaN()) ->
+                            errorText = "Invalid time format."
+                        else -> {
+                            errorText = null
+                            scope.launch {
+                                isSubmitting = true
+                                val result = onSubmit(
+                                    SkipSegmentSubmission(
+                                        tmdbId = tmdbId,
+                                        type = if (mediaType == "tv") "tv" else "movie",
+                                        segment = segmentType,
+                                        season = seasonNumber,
+                                        episode = episodeNumber,
+                                        startSec = if (segmentType == "intro" || segmentType == "recap") startSeconds else startSeconds ?: 0.0,
+                                        endSec = if (segmentType == "credits" || segmentType == "preview") endSeconds else endSeconds,
+                                        videoDurationMs = videoDurationMs,
+                                    )
+                                )
+                                isSubmitting = false
+                                result
+                                    .onSuccess { onDismiss() }
+                                    .onFailure { errorText = it.message ?: "Failed to submit segment." }
+                            }
+                        }
+                    }
+                },
+                enabled = !isSubmitting
+            ) {
+                Text(if (isSubmitting) "Submitting..." else "Submit")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
 }
 
 @Composable
@@ -1540,6 +1705,8 @@ private fun PlayerMenuContent(
     qualityOptions: List<QualityOption>,
     audioOptions: List<AudioOption>,
     skipSegments: List<SkipSegment>,
+    canSubmitSkipSegments: Boolean,
+    hasTidbKey: Boolean,
     menuScrollPositions: SnapshotStateMap<PlayerMenuPage, Int>,
     onClose: () -> Unit,
     onBack: () -> Unit,
@@ -1560,6 +1727,7 @@ private fun PlayerMenuContent(
     onSelectAutoQuality: () -> Unit,
     onSelectAudio: (AudioOption) -> Unit,
     onSelectSource: (String) -> Unit,
+    onOpenSkipSubmission: (SkipSegment?) -> Unit,
     onSeekToMs: (Long) -> Unit,
     onPip: () -> Unit,
 ) {
@@ -1842,6 +2010,25 @@ private fun PlayerMenuContent(
                 PlayerMenuPage.WatchParty -> PlayerMenuStubCard("Watch party surface is prepared. Session APIs and state sync are still stubbed.")
                 PlayerMenuPage.SkipSegments -> {
                     PlayerMenuSection {
+                        if (canSubmitSkipSegments) {
+                            if (hasTidbKey) {
+                                Button(
+                                    onClick = {
+                                        onOpenSkipSubmission(null)
+                                    },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = Color.White,
+                                        contentColor = Color.Black
+                                    ),
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text("Submit Segment")
+                                }
+                            } else {
+                                PlayerMenuStubCard("To submit new segments, enter your TheIntroDB API key in the connections settings.")
+                            }
+                        }
                         if (skipSegments.isEmpty()) {
                             PlayerMenuStubCard("No skip segments available.")
                         } else {
@@ -1849,7 +2036,12 @@ private fun PlayerMenuContent(
                                 PlayerMenuSelectableRow(
                                     title = skipSegmentLabel(segment.type),
                                     subtitle = "${formatTime(segment.startMs ?: 0L)} - ${segment.endMs?.let(::formatTime) ?: "End of video"}",
-                                    onClick = { onSeekToMs(segment.startMs ?: 0L) }
+                                    onClick = {
+                                        onSeekToMs(segment.startMs ?: 0L)
+                                        if (canSubmitSkipSegments && hasTidbKey) {
+                                            onOpenSkipSubmission(segment)
+                                        }
+                                    }
                                 )
                             }
                         }

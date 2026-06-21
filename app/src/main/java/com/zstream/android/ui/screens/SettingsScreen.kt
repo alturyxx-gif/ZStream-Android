@@ -65,7 +65,15 @@ import com.zstream.android.data.local.entity.SettingsEntity
 import com.zstream.android.theme.LocalZStreamTheme
 import com.zstream.android.theme.ZStreamTheme
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
+
+private sealed interface TidbValidationState {
+    data object Idle : TidbValidationState
+    data object Checking : TidbValidationState
+    data object Valid : TidbValidationState
+    data class Invalid(val message: String) : TidbValidationState
+}
 
 @Composable
 fun SettingsScreen(
@@ -1017,53 +1025,71 @@ private fun ConnectionsSection(settings: SettingsEntity, theme: ZStreamTheme, vm
         Spacer(Modifier.height(8.dp))
         SectionLabel("Proxy", theme)
         SettingsCard(theme) {
-            ToggleRow("Proxy TMDB", "Route TMDB requests through proxy", settings.proxyTmdb, vm::setProxyTmdb, theme = theme)
+            ToggleRow("Proxy TMDB (unimplemented)", "Route TMDB requests through proxy", settings.proxyTmdb, vm::setProxyTmdb, theme = theme)
         }
 
         Spacer(Modifier.height(16.dp))
         SectionLabel("TMDB API Key", theme)
         SettingsCard(theme) {
-            var showTmdbInput by remember { mutableStateOf(settings.tmdbApiKey != null) }
-
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Top,
-            ) {
-                Column(Modifier.weight(1f).padding(end = 12.dp)) {
-                    Text("TMDB Token", color = theme.colors.type.text, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                    if (showTmdbInput) {
-                        Spacer(Modifier.height(6.dp))
-                        var input by remember(settings.tmdbApiKey) { mutableStateOf(settings.tmdbApiKey ?: "") }
-                        BasicTextField(
-                            value = input,
-                            onValueChange = { input = it; vm.setTmdbApiKey(it.ifBlank { null }) },
-                            singleLine = true,
-                            cursorBrush = SolidColor(Color.White),
-                            textStyle = TextStyle(
-                                color = theme.colors.type.text, fontSize = 13.sp,
-                            ),
-                            modifier = Modifier.fillMaxWidth().background(
-                                theme.colors.background.secondary, RoundedCornerShape(8.dp)
-                            ).border(1.dp, theme.colors.type.divider.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
-                            .padding(10.dp),
+            Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                Text("TMDB Token (optional)", color = theme.colors.type.text, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "Add your TMDB API key for direct TMDB-backed features.",
+                    color = theme.colors.type.dimmed,
+                    fontSize = 11.sp,
+                    lineHeight = 16.sp,
+                )
+                Spacer(Modifier.height(10.dp))
+                var tokenVisible by remember { mutableStateOf(false) }
+                val tmdbValue = settings.tmdbApiKey ?: ""
+                BasicTextField(
+                    value = tmdbValue,
+                    onValueChange = { vm.setTmdbApiKey(it.ifEmpty { null }) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(theme.colors.background.secondary)
+                        .border(1.dp, theme.colors.type.divider.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    textStyle = TextStyle(color = theme.colors.type.text, fontSize = 12.sp),
+                    visualTransformation = if (tokenVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                    singleLine = true,
+                    decorationBox = { innerTextField ->
+                        Box {
+                            if (tmdbValue.isEmpty()) {
+                                Text(
+                                    "eyJ0eX...",
+                                    color = theme.colors.type.dimmed,
+                                    fontSize = 12.sp,
+                                )
+                            }
+                            innerTextField()
+                        }
+                    },
+                )
+                Spacer(Modifier.height(6.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    TextButton(onClick = { tokenVisible = !tokenVisible }) {
+                        Text(
+                            if (tokenVisible) "Hide" else "Show",
+                            color = theme.colors.global.accentA,
+                            fontSize = 11.sp,
                         )
                     }
-                }
-                if (!showTmdbInput) {
-                    TextButton(onClick = { showTmdbInput = true }) {
-                        Text("Set", color = theme.colors.global.accentA, fontSize = 13.sp)
-                    }
-                } else if (settings.tmdbApiKey != null) {
-                    TextButton(onClick = { vm.setTmdbApiKey(null); showTmdbInput = false }) {
-                        Text("Remove", color = theme.colors.buttons.danger, fontSize = 13.sp)
+                    TextButton(onClick = { vm.setTmdbApiKey(null) }, enabled = tmdbValue.isNotEmpty()) {
+                        Text(
+                            "Clear",
+                            color = if (tmdbValue.isNotEmpty()) theme.colors.buttons.danger else theme.colors.type.dimmed,
+                            fontSize = 11.sp,
+                        )
                     }
                 }
             }
         }
 
         Spacer(Modifier.height(16.dp))
-        SectionLabel("Febbox / Aurora API (unimplemented)", theme)
+        SectionLabel("Febbox / Aurora API", theme)
         SettingsCard(theme) {
             var showInstructions by remember { mutableStateOf(settings.febboxKey != null) }
 
@@ -1073,7 +1099,7 @@ private fun ConnectionsSection(settings: SettingsEntity, theme: ZStreamTheme, vm
                 verticalAlignment = Alignment.Top,
             ) {
                 Column(Modifier.weight(1f).padding(end = 12.dp)) {
-                    Text("Aurora API (4K)", color = theme.colors.type.text, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    Text("Aurora API (4K) (unimplemented)", color = theme.colors.type.text, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(4.dp))
                     Text(
                         "Bring your own FREE Febbox account to unlock Aurora API — the best sources with 4K quality, Dolby Atmos, and the fastest load times.",
@@ -1172,10 +1198,98 @@ private fun ConnectionsSection(settings: SettingsEntity, theme: ZStreamTheme, vm
         Spacer(Modifier.height(16.dp))
         SectionLabel("External Services", theme)
         SettingsCard(theme) {
-            if (settings.tidbKey != null) {
-                SettingsRow("TheIntroDB Key", "••••••••", theme)
-            } else {
-                SettingsRow("TheIntroDB", "Not configured", theme)
+            Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                Text("TheIntroDB", color = theme.colors.type.text, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "Add your TheIntroDB API key to submit new skip segments from the player.",
+                    color = theme.colors.type.dimmed,
+                    fontSize = 11.sp,
+                    lineHeight = 16.sp,
+                )
+                Spacer(Modifier.height(10.dp))
+                var tokenVisible by remember { mutableStateOf(false) }
+                val tidbValue = settings.tidbKey ?: ""
+                var tidbValidationState by remember { mutableStateOf<TidbValidationState>(TidbValidationState.Idle) }
+                var lastValidatedTidbValue by remember { mutableStateOf<String?>(null) }
+                LaunchedEffect(tidbValue) {
+                    if (tidbValue.isBlank()) {
+                        tidbValidationState = TidbValidationState.Idle
+                        lastValidatedTidbValue = null
+                        return@LaunchedEffect
+                    }
+                    tidbValidationState = TidbValidationState.Checking
+                    delay(500)
+                    if (tidbValue != settings.tidbKey.orEmpty()) return@LaunchedEffect
+                    val result = vm.validateTidbKey(tidbValue)
+                    lastValidatedTidbValue = tidbValue
+                    tidbValidationState = result.fold(
+                        onSuccess = { isValid -> if (isValid) TidbValidationState.Valid else TidbValidationState.Invalid("Key was rejected by TheIntroDB.") },
+                        onFailure = { TidbValidationState.Invalid(it.message ?: "Validation failed.") }
+                    )
+                }
+                BasicTextField(
+                    value = tidbValue,
+                    onValueChange = { vm.setTidbKey(it.ifEmpty { null }) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(theme.colors.background.secondary)
+                        .border(1.dp, theme.colors.type.divider.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    textStyle = TextStyle(color = theme.colors.type.text, fontSize = 12.sp),
+                    visualTransformation = if (tokenVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                    singleLine = true,
+                    decorationBox = { innerTextField ->
+                        Box {
+                            if (tidbValue.isEmpty()) {
+                                Text(
+                                    "theintrodb:user...",
+                                    color = theme.colors.type.dimmed,
+                                    fontSize = 12.sp,
+                                )
+                            }
+                            innerTextField()
+                        }
+                    },
+                )
+                Spacer(Modifier.height(6.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    TextButton(onClick = { tokenVisible = !tokenVisible }) {
+                        Text(
+                            if (tokenVisible) "Hide" else "Show",
+                            color = theme.colors.global.accentA,
+                            fontSize = 11.sp,
+                        )
+                    }
+                    TextButton(onClick = { vm.setTidbKey(null) }, enabled = tidbValue.isNotEmpty()) {
+                        Text(
+                            "Clear",
+                            color = if (tidbValue.isNotEmpty()) theme.colors.buttons.danger else theme.colors.type.dimmed,
+                            fontSize = 11.sp,
+                        )
+                    }
+                }
+                when (val state = tidbValidationState) {
+                    TidbValidationState.Idle -> Unit
+                    TidbValidationState.Checking -> {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(12.dp),
+                                strokeWidth = 2.dp,
+                                color = theme.colors.global.accentA,
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text("Checking key…", color = theme.colors.type.dimmed, fontSize = 11.sp)
+                        }
+                    }
+                    TidbValidationState.Valid -> {
+                        Text("Key accepted by TheIntroDB.", color = theme.colors.type.success, fontSize = 11.sp)
+                    }
+                    is TidbValidationState.Invalid -> {
+                        Text(state.message, color = theme.colors.type.danger, fontSize = 11.sp)
+                    }
+                }
             }
         }
     }
