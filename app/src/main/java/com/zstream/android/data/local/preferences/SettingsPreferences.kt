@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.zstream.android.data.local.entity.SettingsEntity
@@ -45,6 +46,12 @@ class SettingsPreferences @Inject constructor(
     private val KEY_ENABLE_DOUBLE_CLICK_TO_SEEK = booleanPreferencesKey("enable_double_click_to_seek")
     private val KEY_ENABLE_NUMBER_KEY_SEEKING = booleanPreferencesKey("enable_number_key_seeking")
     private val KEY_ENABLE_HOLD_TO_BOOST = booleanPreferencesKey("enable_hold_to_boost")
+    private val KEY_VIDEO_BRIGHTNESS = intPreferencesKey("video_brightness")
+    private val KEY_VIDEO_CONTRAST = intPreferencesKey("video_contrast")
+    private val KEY_VIDEO_SATURATION = intPreferencesKey("video_saturation")
+    private val KEY_VIDEO_HUE_ROTATE = intPreferencesKey("video_hue_rotate")
+    private val KEY_VOLUME_BOOST = intPreferencesKey("volume_boost")
+    private val KEY_VIDEO_SCALE_MODE = stringPreferencesKey("video_scale_mode")
 
     // Discover/Home Settings
     private val KEY_ENABLE_DISCOVER = booleanPreferencesKey("enable_discover")
@@ -111,6 +118,12 @@ class SettingsPreferences @Inject constructor(
             enableDoubleClickToSeek = prefs[KEY_ENABLE_DOUBLE_CLICK_TO_SEEK] ?: true,
             enableNumberKeySeeking = prefs[KEY_ENABLE_NUMBER_KEY_SEEKING] ?: false,
             enableHoldToBoost = prefs[KEY_ENABLE_HOLD_TO_BOOST] ?: false,
+            videoBrightness = prefs[KEY_VIDEO_BRIGHTNESS] ?: 100,
+            videoContrast = prefs[KEY_VIDEO_CONTRAST] ?: 100,
+            videoSaturation = prefs[KEY_VIDEO_SATURATION] ?: 100,
+            videoHueRotate = prefs[KEY_VIDEO_HUE_ROTATE] ?: 0,
+            volumeBoost = prefs[KEY_VOLUME_BOOST] ?: 100,
+            videoScaleMode = prefs[KEY_VIDEO_SCALE_MODE] ?: "fit",
             enableDiscover = prefs[KEY_ENABLE_DISCOVER] ?: true,
             enableFeatured = prefs[KEY_ENABLE_FEATURED] ?: true,
             enableDetailsModal = prefs[KEY_ENABLE_DETAILS_MODAL] ?: true,
@@ -172,6 +185,12 @@ class SettingsPreferences @Inject constructor(
             prefs[KEY_ENABLE_DOUBLE_CLICK_TO_SEEK] = entity.enableDoubleClickToSeek
             prefs[KEY_ENABLE_NUMBER_KEY_SEEKING] = entity.enableNumberKeySeeking
             prefs[KEY_ENABLE_HOLD_TO_BOOST] = entity.enableHoldToBoost
+            prefs[KEY_VIDEO_BRIGHTNESS] = entity.videoBrightness
+            prefs[KEY_VIDEO_CONTRAST] = entity.videoContrast
+            prefs[KEY_VIDEO_SATURATION] = entity.videoSaturation
+            prefs[KEY_VIDEO_HUE_ROTATE] = entity.videoHueRotate
+            prefs[KEY_VOLUME_BOOST] = entity.volumeBoost
+            prefs[KEY_VIDEO_SCALE_MODE] = entity.videoScaleMode
             prefs[KEY_ENABLE_DISCOVER] = entity.enableDiscover
             prefs[KEY_ENABLE_FEATURED] = entity.enableFeatured
             prefs[KEY_ENABLE_DETAILS_MODAL] = entity.enableDetailsModal
@@ -243,6 +262,12 @@ class SettingsPreferences @Inject constructor(
             val currentFont = current[KEY_SUBTITLE_FONT] ?: "sans-serif"
             val currentTmdbApiKey = current[KEY_TMDB_API_KEY]
             val currentSubtitlesEnabled = current[KEY_SUBTITLES_ENABLED] ?: false
+            val currentVideoBrightness = current[KEY_VIDEO_BRIGHTNESS] ?: 100
+            val currentVideoContrast = current[KEY_VIDEO_CONTRAST] ?: 100
+            val currentVideoSaturation = current[KEY_VIDEO_SATURATION] ?: 100
+            val currentVideoHueRotate = current[KEY_VIDEO_HUE_ROTATE] ?: 0
+            val currentVolumeBoost = current[KEY_VOLUME_BOOST] ?: 100
+            val currentVideoScaleMode = current[KEY_VIDEO_SCALE_MODE] ?: "fit"
 
             val mappedHomeSectionOrder = remote.homeSectionOrder?.map { section ->
                 when (section) {
@@ -269,6 +294,12 @@ class SettingsPreferences @Inject constructor(
                 enableDoubleClickToSeek = remote.enableDoubleClickToSeek ?: true,
                 enableNumberKeySeeking = remote.enableNumberKeySeeking ?: false,
                 enableHoldToBoost = remote.enableHoldToBoost ?: false,
+                videoBrightness = currentVideoBrightness,
+                videoContrast = currentVideoContrast,
+                videoSaturation = currentVideoSaturation,
+                videoHueRotate = currentVideoHueRotate,
+                volumeBoost = currentVolumeBoost,
+                videoScaleMode = currentVideoScaleMode,
                 enableDiscover = remote.enableDiscover ?: true,
                 enableFeatured = remote.enableFeatured ?: true,
                 enableDetailsModal = remote.enableDetailsModal ?: true,
@@ -410,6 +441,42 @@ class SettingsPreferences @Inject constructor(
     suspend fun setEnableHoldToBoost(enabled: Boolean) {
         context.settingsStore.edit { prefs ->
             prefs[KEY_ENABLE_HOLD_TO_BOOST] = enabled
+        }
+    }
+
+    suspend fun setVideoBrightness(value: Int) {
+        context.settingsStore.edit { prefs ->
+            prefs[KEY_VIDEO_BRIGHTNESS] = value
+        }
+    }
+
+    suspend fun setVideoContrast(value: Int) {
+        context.settingsStore.edit { prefs ->
+            prefs[KEY_VIDEO_CONTRAST] = value
+        }
+    }
+
+    suspend fun setVideoSaturation(value: Int) {
+        context.settingsStore.edit { prefs ->
+            prefs[KEY_VIDEO_SATURATION] = value
+        }
+    }
+
+    suspend fun setVideoHueRotate(value: Int) {
+        context.settingsStore.edit { prefs ->
+            prefs[KEY_VIDEO_HUE_ROTATE] = value
+        }
+    }
+
+    suspend fun setVolumeBoost(value: Int) {
+        context.settingsStore.edit { prefs ->
+            prefs[KEY_VOLUME_BOOST] = value
+        }
+    }
+
+    suspend fun setVideoScaleMode(value: String) {
+        context.settingsStore.edit { prefs ->
+            prefs[KEY_VIDEO_SCALE_MODE] = value
         }
     }
 
