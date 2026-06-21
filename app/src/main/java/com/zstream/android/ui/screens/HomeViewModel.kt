@@ -38,6 +38,7 @@ data class HomeState(
     val searchQuery: String = "",
     val loading: Boolean = true,
     val error: String? = null,
+    val enableCarouselView: Boolean = true,
 ) {
     val userSections: List<MediaSection> get() {
         val userContent = mutableListOf<MediaSection>()
@@ -84,6 +85,7 @@ class HomeViewModel @Inject constructor(
                     enableDiscover = s.enableDiscover,
                     enableFeatured = s.enableFeatured,
                     enableLowPerformanceMode = s.enableLowPerformanceMode,
+                    enableCarouselView = s.enableCarouselView,
                 ) }
             }
         }

@@ -451,7 +451,7 @@ private fun AppearanceSection(settings: SettingsEntity, theme: ZStreamTheme, vm:
             HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
             ToggleRow("Image Logos", "Show logo images for media", settings.enableImageLogos, vm::setEnableImageLogos, theme = theme, disabled = settings.enableLowPerformanceMode)
             HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
-            ToggleRow("Carousel View", "Horizontal carousel for media rows", settings.enableCarouselView, vm::setEnableCarouselView, theme = theme)
+            ToggleRow("Carousel View", "Switch between a carousel and grid view for continue watching and bookmarks", settings.enableCarouselView, vm::setEnableCarouselView, theme = theme)
             HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
             ToggleRow("Minimal Cards", "Compact card display", settings.enableMinimalCards, vm::setEnableMinimalCards, theme = theme)
         }
