@@ -74,6 +74,7 @@ class HomeViewModel @Inject constructor(
     val state = _state.asStateFlow()
     private var currentSearchPage = 1
     private var isSearchingMore = false
+    private var searchGeneration = 0
     init { 
         load()
         observeUserContent()
@@ -237,6 +238,7 @@ class HomeViewModel @Inject constructor(
     fun onSearchChange(q: String) {
         isSearchingMore = false
         setSearch(q)
+        searchGeneration++
         currentSearchPage = 1
         searchJob?.cancel()
         _searchResults.value = emptyList()
@@ -244,12 +246,16 @@ class HomeViewModel @Inject constructor(
         if (q.isBlank()) {
             return
         }
+        val generation = searchGeneration
         searchJob = viewModelScope.launch {
             delay(300) // debounce
             runCatching {
                 val firstResults = repo.search(q, currentSearchPage) { total ->
-                    _state.update { it.copy(canLoadMore = currentSearchPage < total) }
+                    if (searchGeneration == generation) {
+                        _state.update { it.copy(canLoadMore = currentSearchPage < total) }
+                    }
                 }
+                if (searchGeneration != generation) return@launch
                 _searchResults.value = firstResults
             }
         }
@@ -258,20 +264,29 @@ class HomeViewModel @Inject constructor(
         val q = state.value.searchQuery
         if (q.isBlank() || !state.value.canLoadMore || isSearchingMore) return
 
+        val generation = searchGeneration
         viewModelScope.launch {
             isSearchingMore = true
-            currentSearchPage++
+            try {
+                currentSearchPage++
 
-            runCatching {
-                val nextResults = repo.search(q, currentSearchPage) { total ->
-                    _state.update { it.copy(canLoadMore = currentSearchPage < total) }
+                runCatching {
+                    val nextResults = repo.search(q, currentSearchPage) { total ->
+                        if (searchGeneration == generation) {
+                            _state.update { it.copy(canLoadMore = currentSearchPage < total) }
+                        }
+                    }
+                    if (searchGeneration == generation) {
+                        _searchResults.value = _searchResults.value + nextResults
+                    }
+                }.onFailure {
+                    if (searchGeneration == generation) {
+                        currentSearchPage--
+                    }
                 }
-                _searchResults.value = _searchResults.value + nextResults
-
-            }.onFailure {
-                currentSearchPage--
+            } finally {
+                isSearchingMore = false
             }
-            isSearchingMore = false
         }
     }
 }

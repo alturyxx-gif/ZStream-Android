@@ -11,6 +11,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -47,7 +48,21 @@ class DetailViewModel @Inject constructor(
     val allProgress = progressRepo.observeAllProgressForTmdb(id.toString())
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    init { load() }
+    private var pendingInitialSeasonNumber: Int? = null
+    private var initialSeasonResolved = false
+
+    init {
+        if (mediaType == "tv") {
+            viewModelScope.launch {
+                progress.collectLatest { currentProgress ->
+                    val seasonNumber = currentProgress?.seasonNumber ?: return@collectLatest
+                    pendingInitialSeasonNumber = seasonNumber
+                    applyPendingInitialSeason()
+                }
+            }
+        }
+        load()
+    }
 
     fun toggleBookmark() {
         val current = _state.value
@@ -84,10 +99,14 @@ class DetailViewModel @Inject constructor(
                     _state.value = DetailState.Movie(repo.movieDetail(id))
                 } else {
                     val detail = repo.tvDetail(id)
-                    val firstSeason = detail.seasons
+                    val preferredSeasonNumber = pendingInitialSeasonNumber ?: progress.value?.seasonNumber
+                    val firstSeason = preferredSeasonNumber?.let { seasonNumber ->
+                        detail.seasons?.firstOrNull { it.seasonNumber == seasonNumber }?.let { repo.season(id, seasonNumber) }
+                    } ?: detail.seasons
                         ?.firstOrNull { it.seasonNumber > 0 }
                         ?.let { repo.season(id, it.seasonNumber) }
                     _state.value = DetailState.Tv(detail, firstSeason)
+                    applyPendingInitialSeason()
                 }
             }.onFailure { _state.value = DetailState.Error(it.message ?: "Failed to load") }
         }
@@ -95,6 +114,26 @@ class DetailViewModel @Inject constructor(
 
     fun selectSeason(seasonNumber: Int) {
         val current = _state.value as? DetailState.Tv ?: return
+        viewModelScope.launch {
+            runCatching { repo.season(id, seasonNumber) }
+                .onSuccess { _state.value = current.copy(selectedSeason = it) }
+        }
+    }
+
+    private fun applyPendingInitialSeason() {
+        if (initialSeasonResolved) return
+        val seasonNumber = pendingInitialSeasonNumber ?: return
+        val current = _state.value as? DetailState.Tv ?: return
+        if (current.selectedSeason?.seasonNumber == seasonNumber) {
+            initialSeasonResolved = true
+            return
+        }
+        if (current.detail.seasons.orEmpty().none { it.seasonNumber == seasonNumber }) {
+            initialSeasonResolved = true
+            return
+        }
+
+        initialSeasonResolved = true
         viewModelScope.launch {
             runCatching { repo.season(id, seasonNumber) }
                 .onSuccess { _state.value = current.copy(selectedSeason = it) }
