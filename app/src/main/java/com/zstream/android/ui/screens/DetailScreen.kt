@@ -126,29 +126,24 @@ fun MovieDetailModal(
     bookmarkRepo: com.zstream.android.data.BookmarkRepository,
     hasProgress: Boolean
 ) {
-
     val d = state.detail
-    val genres = d.genres.orEmpty()
-    val cast = d.credits?.cast.orEmpty().take(8)
-
-    Column(
-        Modifier
-            .fillMaxSize()
-            .background(theme.colors.background.main)
-            .verticalScroll(rememberScrollState()),
+    SharedDetailSheetScaffold(
+        title = d.title,
+        backdropUrl = d.backdropUrl(),
+        logoUrl = d.logoUrl(),
+        posterUrl = d.posterUrl(),
+        year = d.releaseDate?.take(4),
+        rating = d.voteAverage?.let { String.format("%.1f", it) },
+        theme = theme,
+        onClose = { nav.popBackStack() },
+        modifier = Modifier.background(theme.colors.background.main)
     ) {
-        // Movie Backdrop Image
-        Box(Modifier.fillMaxWidth().height(360.dp)) {
-            AsyncImage(model = d.backdropUrl(), contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-            Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(androidx.compose.ui.graphics.Color.Transparent, androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.18f), theme.colors.background.main))))
-
-            XCloseButton(nav)
-
-            MinimalMovieDetails(d, theme)
-        }
-
-        // Resume and Share button
-        Row(Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 14.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        SharedMovieDetailContent(
+            detail = d,
+            context = context,
+            nav = nav,
+            theme = theme,
+        ) {
             Button(
                 onClick = { nav.navigate("player/movie/${d.id}?title=${d.title.encode()}&year=${d.releaseDate?.take(4)?.toIntOrNull() ?: 0}&poster=${d.posterPath?.encode() ?: ""}") },
                 colors = ButtonDefaults.buttonColors(containerColor = theme.colors.buttons.primary),
@@ -160,100 +155,18 @@ fun MovieDetailModal(
                 Spacer(Modifier.width(6.dp))
                 Text(if (hasProgress) "Resume" else "Play", color = theme.colors.buttons.primaryText)
             }
-            ActionPill(Icons.Filled.Share, "", theme, 50.dp) {
+            SharedActionPill(Icons.Filled.Share, theme) {
                 openShareSheet(context, d.title, d.id, "movie")
             }
             BookmarkButton(
-                d.id.toString(), d.title, "movie", 
-                d.releaseDate?.take(4)?.toIntOrNull(), d.posterPath, 
+                d.id.toString(), d.title, "movie",
+                d.releaseDate?.take(4)?.toIntOrNull(), d.posterPath,
                 bookmarkRepo, theme
             )
         }
-
-        // Movie Details
-        Row(Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(40.dp)) {
-            Column(Modifier.weight(1f)) {
-                d.overview?.takeIf { it.isNotBlank() }?.let { Text(it, color = theme.colors.type.text, fontSize = 14.sp) }
-                Spacer(Modifier.height(18.dp))
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    genres.forEach { GenreChip(it.name, theme) }
-                }
-            }
-            Column(Modifier.widthIn(max = 240.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                DetailSpec("Runtime", d.runtime?.let { "$it min" } ?: "-", theme)
-                DetailSpec("Language", "EN", theme)
-                DetailSpec("Release Date", d.releaseDate ?: "-", theme)
-                DetailSpec("Rating", "PG-13", theme)
-            }
-        }
-
-        SectionHeader("Cast", theme)
-        CastRow(cast, theme, context)
-        
-        SectionHeader("Trailers", theme)
-        TrailerGrid(d.videos?.results?.filter { it.site == "YouTube" && it.type == "Trailer" }.orEmpty(), theme, context)
-        
-        SectionHeader("Similar", theme)
-        SimilarMoviesGrid(d.similar?.results.orEmpty(), theme, nav)
     }
 }
 
-// should be the same as MinimalTVDetails but are different functions because of the MovieDetail variable
-@Composable
-private fun BoxScope.MinimalMovieDetails(
-    d: MovieDetail,
-    theme: ZStreamTheme
-) {
-    Column(Modifier
-        .align(Alignment.BottomStart)
-        .padding(horizontal = 32.dp, vertical = 0.dp)) {
-        d.logoUrl()?.let {
-            Box(Modifier
-                .height(100.dp)
-                .fillMaxWidth(0.6f)) {
-                AsyncImage(
-                    model = it,
-                    contentDescription = d.title,
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier.fillMaxSize()
-                )
-            }
-        } ?: run {
-            Text(
-                d.title.uppercase(),
-                color = theme.colors.type.emphasis,
-                style = MaterialTheme.typography.headlineLarge,
-                fontWeight = FontWeight.ExtraBold,
-                letterSpacing = 4.sp
-            )
-        }
-        MetadataRow(
-            listOfNotNull(
-                d.voteAverage?.let { { TmdbRating(it, theme) } },
-                d.releaseDate?.let { { Text(it.take(4), fontSize = 12.sp, color = Color.White) } }
-            ),
-            theme,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Alignment.CenterVertically
-        )
-    }
-}
-
-@Composable
-private fun BoxScope.XCloseButton(nav: NavController) {
-    IconButton(
-        onClick = { nav.popBackStack() },
-        modifier = Modifier
-            .align(Alignment.TopEnd)
-            .padding(start = 24.dp, end = 24.dp, top = 48.dp)
-            .size(40.dp)
-            .clip(CircleShape)
-            .background(Color.Black.copy(alpha = 0.75f))
-            .border(1.dp, Color.White.copy(alpha = 0.15f), CircleShape)
-    ) {
-        Icon(Icons.Filled.Close, null, tint = Color.White)
-    }
-}
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -271,22 +184,29 @@ private fun TvDetailModal(
     val d = state.detail
     val season = state.selectedSeason
     var selectedSeasonNum by remember { mutableIntStateOf(season?.seasonNumber ?: 1) }
-
-    Column(
-        Modifier
-            .fillMaxSize()
-            .background(theme.colors.background.main)
-            .verticalScroll(rememberScrollState()),
+    SharedDetailSheetScaffold(
+        title = d.name,
+        backdropUrl = d.backdropUrl(),
+        logoUrl = d.logoUrl(),
+        posterUrl = d.posterUrl(),
+        year = d.firstAirDate?.take(4),
+        rating = d.voteAverage?.let { String.format("%.1f", it) },
+        theme = theme,
+        onClose = { nav.popBackStack() },
+        modifier = Modifier.background(theme.colors.background.main)
     ) {
-        Box(Modifier.fillMaxWidth().height(360.dp)) {
-            AsyncImage(model = d.backdropUrl(), contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-            Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(androidx.compose.ui.graphics.Color.Transparent, androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.18f), theme.colors.background.main))))
-
-            XCloseButton(nav)
-            MinimalTVDetails(d, theme)
-        }
-
-        Row(Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 14.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        SharedTvDetailContent(
+            detail = d,
+            selectedSeason = season,
+            allProgress = allProgress,
+            context = context,
+            nav = nav,
+            theme = theme,
+            onSelectSeason = { seasonNumber ->
+                selectedSeasonNum = seasonNumber
+                vm.selectSeason(seasonNumber)
+            },
+        ) {
             Button(
                 onClick = {
                     if (hasProgress && progress != null) {
@@ -314,97 +234,15 @@ private fun TvDetailModal(
                 } else "Play"
                 Text(label, color = theme.colors.buttons.primaryText)
             }
-            ActionPill(Icons.Filled.Share, "", theme, 50.dp) {
+            SharedActionPill(Icons.Filled.Share, theme) {
                 openShareSheet(context, d.name, d.id, "tv")
             }
             BookmarkButton(
-                d.id.toString(), d.name, "tv", 
-                d.firstAirDate?.take(4)?.toIntOrNull(), d.posterPath, 
+                d.id.toString(), d.name, "tv",
+                d.firstAirDate?.take(4)?.toIntOrNull(), d.posterPath,
                 bookmarkRepo, theme
             )
-            }
-        Row(Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(40.dp)) {
-            Column(Modifier.weight(1f)) {
-               d.overview?.takeIf { it.isNotBlank() }?.let { Text(it, color = theme.colors.type.text, fontSize = 14.sp) }
-               Spacer(Modifier.height(18.dp))
-               FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                   d.genres.orEmpty().forEach { GenreChip(it.name, theme) }
-               }
-            }
-            Column(Modifier.widthIn(max = 240.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-               DetailSpec("Seasons", d.numberOfSeasons?.toString() ?: "—", theme)
-               DetailSpec("Language", "EN", theme)
-               DetailSpec("Release Date", d.firstAirDate ?: "—", theme)
-               DetailSpec("Rating", "TV-14", theme)
-            }
         }
-
-        SectionHeader("Seasons", theme)
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(horizontal = 32.dp)) {
-            items(d.seasons.orEmpty().filter { it.seasonNumber > 0 }) { s ->
-               FilterChip(selected = s.seasonNumber == selectedSeasonNum, onClick = { selectedSeasonNum = s.seasonNumber; vm.selectSeason(s.seasonNumber) }, label = { Text("S${s.seasonNumber}") })
-            }
-        }
-        Spacer(Modifier.height(16.dp))
-        season?.episodes?.let { episodes ->
-            SectionHeader("Episodes", theme)
-            val progressMap = allProgress.filter { it.seasonNumber == selectedSeasonNum }
-                .associateBy { it.episodeNumber }
-            episodes.forEach { ep ->
-                SharedEpisodeRow(ep, d.id, d.name, d.posterPath, nav, theme, progressMap[ep.episodeNumber])
-            }
-        }
-        
-        SectionHeader("Cast", theme)
-        CastRow(d.credits?.cast.orEmpty().take(8), theme, context)
-        
-        SectionHeader("Trailers", theme)
-        TrailerGrid(d.videos?.results?.filter { it.site == "YouTube" && it.type == "Trailer" }.orEmpty(), theme, context)
-        
-        SectionHeader("Similar", theme)
-        SimilarMoviesGrid(d.similar?.results.orEmpty(), theme, nav)
-    }
-}
-
-// should be the same as MinimalMovieDetails but are different functions because of the TvDetail variable
-@Composable
-private fun BoxScope.MinimalTVDetails(
-    d: TvDetail,
-    theme: ZStreamTheme
-) {
-    Column(Modifier
-        .align(Alignment.BottomStart)
-        .padding(horizontal = 32.dp, vertical = 0.dp)) {
-        d.logoUrl()?.let {
-            Box(Modifier
-                .height(100.dp)
-                .fillMaxWidth(0.6f)) {
-                AsyncImage(
-                    model = it,
-                    contentDescription = d.name,
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier.fillMaxSize()
-                )
-            }
-        } ?: run {
-            Text(
-                d.name.uppercase(),
-                color = theme.colors.type.emphasis,
-                style = MaterialTheme.typography.headlineLarge,
-                fontWeight = FontWeight.ExtraBold,
-                letterSpacing = 4.sp
-            )
-        }
-        MetadataRow(
-            listOfNotNull(
-                d.voteAverage?.let { { TmdbRating(it, theme) } },
-                        d.firstAirDate?.let { { Text(it.take(4), fontSize = 12.sp, color = Color.White) } },
-            ),
-            theme,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Alignment.CenterVertically
-        )
-
     }
 }
 
@@ -718,7 +556,7 @@ private fun SimilarMoviesGrid(similar: List<com.zstream.android.data.model.Media
     }
 }
 
-private fun openShareSheet(context: android.content.Context, title: String, id: Int, mediaType: String) {
+internal fun openShareSheet(context: android.content.Context, title: String, id: Int, mediaType: String) {
    val url = "https://www.themoviedb.org/$mediaType/$id"
    val shareText = "$title on ZStream!\n\n$url"
    val intent = android.content.Intent().apply {
@@ -730,7 +568,7 @@ private fun openShareSheet(context: android.content.Context, title: String, id: 
    context.startActivity(chooser)
 }
 
-private fun openCastProfile(context: android.content.Context, castId: Int, imdbId: String?) {
+internal fun openCastProfile(context: android.content.Context, castId: Int, imdbId: String?) {
    val url = if (!imdbId.isNullOrEmpty()) {
        "https://www.imdb.com/name/$imdbId/"
    } else {
@@ -740,7 +578,7 @@ private fun openCastProfile(context: android.content.Context, castId: Int, imdbI
    context.startActivity(intent)
 }
 
-private fun openYoutubeTrailer(context: android.content.Context, youtubeKey: String) {
+internal fun openYoutubeTrailer(context: android.content.Context, youtubeKey: String) {
    val url = "https://www.youtube.com/watch?v=$youtubeKey"
    val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))
    context.startActivity(intent)
