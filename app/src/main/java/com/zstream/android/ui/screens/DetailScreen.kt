@@ -351,7 +351,7 @@ private fun TvDetailModal(
             val progressMap = allProgress.filter { it.seasonNumber == selectedSeasonNum }
                 .associateBy { it.episodeNumber }
             episodes.forEach { ep ->
-                EpisodeRow(ep, d.id, d.name, d.posterPath, nav, theme, progressMap[ep.episodeNumber])
+                SharedEpisodeRow(ep, d.id, d.name, d.posterPath, nav, theme, progressMap[ep.episodeNumber])
             }
         }
         
@@ -409,7 +409,7 @@ private fun BoxScope.MinimalTVDetails(
 }
 
 @Composable
-private fun EpisodeRow(
+internal fun SharedEpisodeRow(
     ep: Episode,
     showId: Int,
     title: String,
