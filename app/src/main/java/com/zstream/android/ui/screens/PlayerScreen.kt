@@ -2,11 +2,17 @@ package com.zstream.android.ui.screens
 
 import android.app.Activity
 import android.app.PictureInPictureParams
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
+import android.graphics.Paint
 import android.content.pm.ActivityInfo
 import android.content.res.Resources
+import android.media.audiofx.LoudnessEnhancer
 import android.os.Build
 import android.util.Log
 import android.util.Rational
+import android.view.TextureView
+import android.view.View
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.util.TypedValue
 import android.view.WindowManager
@@ -143,9 +149,11 @@ private val PLAYER_DETAIL_SHEET_MIN_SCROLL_EXTRA = 1.dp
 private val PLAYER_DETAIL_SHEET_SECTION_GAP = 18.dp
 private val PLAYER_DETAIL_SHEET_CARD_COLOR = Color(0xFF141414).copy(alpha = 0.98f)
 private val PLAYER_DETAIL_SHEET_OUTLINE = Color.White.copy(alpha = 0.08f)
+private const val PLAYBACK_SPEED_MIN = 0.25f
+private const val PLAYBACK_SPEED_MAX = 5f
 
 private enum class PlayerMenuPage {
-    Root, Captions, Playback, Source, Quality, Audio, Download, WatchParty, SkipSegments
+    Root, Captions, Playback, AdvancedColor, VideoMode, Source, Quality, Audio, Download, WatchParty, SkipSegments
 }
 
 private sealed class PlayerInfoState {
@@ -397,24 +405,19 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
 
                 // Re-apply RESIZE_MODE_FIT when video size changes (codec resolution updates)
                 val playerViewRef = remember { androidx.compose.runtime.mutableStateOf<PlayerView?>(null) }
+                val videoTextureRef = remember { androidx.compose.runtime.mutableStateOf<TextureView?>(null) }
+                var currentVideoSize by remember { mutableStateOf(androidx.media3.common.VideoSize.UNKNOWN) }
                 DisposableEffect(player) {
                     val listener = object : Player.Listener {
                         override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
+                            currentVideoSize = videoSize
                             val pv = playerViewRef.value ?: return
                             pv.resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
-                            // Fix emulator goldfish codec forcing VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING.
-                            // Find the TextureView and reset its transform to identity so it doesn't crop.
-                            fun findTextureView(v: android.view.View): android.graphics.SurfaceTexture? {
-                                if (v is android.view.TextureView) {
-                                    v.setTransform(android.graphics.Matrix())
-                                    return v.surfaceTexture
+                            videoTextureRef.value?.let { textureView ->
+                                textureView.post {
+                                    applyVideoAdjustments(textureView, settings, videoSize)
                                 }
-                                if (v is android.view.ViewGroup) {
-                                    for (i in 0 until v.childCount) findTextureView(v.getChildAt(i))
-                                }
-                                return null
                             }
-                            pv.post { findTextureView(pv) }
                         }
                     }
                     player.addListener(listener)
@@ -422,29 +425,69 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                 }
 
                 var controlsVisible by remember { mutableStateOf(true) }
+                var audioSessionId by remember(player) { mutableIntStateOf(player.audioSessionId) }
 
-                // Automatically hide controls after 3s of playing
-                LaunchedEffect(controlsVisible, player.isPlaying) {
-                    if (controlsVisible && player.isPlaying) { delay(3000); controlsVisible = false }
+                DisposableEffect(player) {
+                    val listener = object : Player.Listener {
+                        override fun onAudioSessionIdChanged(audioSessionIdValue: Int) {
+                            audioSessionId = audioSessionIdValue
+                        }
+                    }
+                    player.addListener(listener)
+                    onDispose { player.removeListener(listener) }
                 }
 
-                AndroidView(
-                    factory = { ctx ->
-                        PlayerView(ctx).apply {
-                            this.player = player
-                            useController = false
-                            resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
-                            layoutParams = FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT)
-                            applyNativeSubtitleStyle(subtitleView, settings, controlsVisible)
-                            playerViewRef.value = this
-                        }
-                    },
-                    update = { view ->
-                        view.resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
-                        applyNativeSubtitleStyle(view.subtitleView, settings, controlsVisible)
-                    },
-                    modifier = Modifier.fillMaxSize()
-                )
+                DisposableEffect(player, audioSessionId, settings.volumeBoost) {
+                    if (audioSessionId == androidx.media3.common.C.AUDIO_SESSION_ID_UNSET || audioSessionId == 0) {
+                        return@DisposableEffect onDispose {}
+                    }
+
+                    val enhancer = runCatching { LoudnessEnhancer(audioSessionId) }.getOrNull()
+                    if (enhancer == null) {
+                        return@DisposableEffect onDispose {}
+                    }
+
+                    val enabled = settings.volumeBoost > 100
+                    enhancer.setEnabled(enabled)
+                    if (enabled) {
+                        enhancer.setTargetGain(volumeBoostToMillibels(settings.volumeBoost))
+                    }
+
+                    onDispose {
+                        runCatching { enhancer.release() }
+                    }
+                }
+
+                Box(modifier = Modifier.fillMaxSize()) {
+                    AndroidView(
+                        factory = { ctx ->
+                            PlayerView(ctx).apply {
+                                this.player = player
+                                useController = false
+                                resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
+                                layoutParams = FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT)
+                                val textureView = TextureView(ctx).apply {
+                                    layoutParams = FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT)
+                                }
+                                addView(textureView, 0)
+                                player.setVideoTextureView(textureView)
+                                post {
+                                    hidePlayerVideoSurface(this)
+                                    applyVideoAdjustments(textureView, settings, currentVideoSize)
+                                }
+                                applyNativeSubtitleStyle(subtitleView, settings, controlsVisible)
+                                playerViewRef.value = this
+                                videoTextureRef.value = textureView
+                            }
+                        },
+                        update = { view ->
+                            view.resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
+                            applyNativeSubtitleStyle(view.subtitleView, settings, controlsVisible)
+                            videoTextureRef.value?.let { applyVideoAdjustments(it, settings, currentVideoSize) }
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
 
                 // Custom Subtitle Overlay — using downloaded + parsed cues with timing
                 val vmCues by vm.subtitleCues.collectAsState()
@@ -540,6 +583,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                         "S${vm.season} E${vm.episode}"
                     } else null,
                     readyState = s,
+                    settings = settings,
                     selectedSubtitleLanguage = selectedLang,
                     isBookmarked = isBookmarked != null,
                     onToggleBookmark = vm::toggleBookmark,
@@ -557,6 +601,14 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     },
                     onSelectSubtitle = vm::selectSubtitle,
                     onDisableSubtitles = vm::disableSubtitles,
+                    onSetEnableAutoplay = vm::setEnableAutoplay,
+                    onSetVideoBrightness = vm::setVideoBrightness,
+                    onSetVideoContrast = vm::setVideoContrast,
+                    onSetVideoSaturation = vm::setVideoSaturation,
+                    onSetVideoHueRotate = vm::setVideoHueRotate,
+                    onResetAdvancedColor = vm::resetAdvancedColor,
+                    onSetVolumeBoost = vm::setVolumeBoost,
+                    onSetVideoScaleMode = vm::setVideoScaleMode,
                     onInfo = {
                         showInfoSheet = true
                         playerScope.launch {
@@ -692,12 +744,148 @@ private fun applyNativeSubtitleStyle(
     subtitleView.translationY = if (controlsVisible) -baseOffsetPx * NATIVE_SUBTITLE_OVERLAY_MULTIPLIER else -baseOffsetPx
 }
 
+private fun volumeBoostToMillibels(volumeBoost: Int): Int {
+    val over = (volumeBoost - 100).coerceAtLeast(0)
+    return over * 45
+}
+
+private fun hidePlayerVideoSurface(view: View) {
+    if (view is TextureView) return
+    if (view is android.view.SurfaceView) {
+        view.visibility = View.GONE
+        return
+    }
+    if (view is android.view.ViewGroup) {
+        for (index in 0 until view.childCount) {
+            hidePlayerVideoSurface(view.getChildAt(index))
+        }
+    }
+}
+
+private fun buildVideoColorMatrix(
+    settings: com.zstream.android.data.local.entity.SettingsEntity,
+): ColorMatrix? {
+    val brightness = settings.videoBrightness
+    val contrast = settings.videoContrast
+    val saturation = settings.videoSaturation
+    val hueRotate = settings.videoHueRotate
+
+    if (brightness == 100 && contrast == 100 && saturation == 100 && hueRotate == 0) {
+        return null
+    }
+
+    val result = ColorMatrix()
+
+    if (brightness != 100) {
+        val brightnessScale = brightness / 100f
+        result.postConcat(
+            ColorMatrix(
+                floatArrayOf(
+                    brightnessScale, 0f, 0f, 0f, 0f,
+                    0f, brightnessScale, 0f, 0f, 0f,
+                    0f, 0f, brightnessScale, 0f, 0f,
+                    0f, 0f, 0f, 1f, 0f
+                )
+            )
+        )
+    }
+
+    if (contrast != 100) {
+        val contrastScale = contrast / 100f
+        val translate = (-0.5f * contrastScale + 0.5f) * 255f
+        result.postConcat(
+            android.graphics.ColorMatrix(
+                floatArrayOf(
+                    contrastScale, 0f, 0f, 0f, translate,
+                    0f, contrastScale, 0f, 0f, translate,
+                    0f, 0f, contrastScale, 0f, translate,
+                    0f, 0f, 0f, 1f, 0f
+                )
+            )
+        )
+    }
+
+    if (saturation != 100) {
+        val saturationMatrix = android.graphics.ColorMatrix()
+        saturationMatrix.setSaturation(saturation / 100f)
+        result.postConcat(saturationMatrix)
+    }
+
+    if (hueRotate != 0) {
+        val hueMatrix = ColorMatrix().apply { setRotate(0, hueRotate.toFloat()) }
+        val tempMatrix = ColorMatrix().apply { setRotate(1, hueRotate.toFloat()) }
+        hueMatrix.postConcat(tempMatrix)
+        tempMatrix.setRotate(2, hueRotate.toFloat())
+        hueMatrix.postConcat(tempMatrix)
+        result.postConcat(hueMatrix)
+    }
+
+    return result
+}
+
+private fun applyVideoAdjustments(
+    textureView: TextureView,
+    settings: com.zstream.android.data.local.entity.SettingsEntity,
+    videoSize: androidx.media3.common.VideoSize,
+) {
+    textureView.post {
+        val transform = android.graphics.Matrix()
+        val viewWidth = textureView.width.toFloat()
+        val viewHeight = textureView.height.toFloat()
+        val videoWidth = videoSize.width.takeIf { it > 0 }?.toFloat()
+        val videoHeight = videoSize.height.takeIf { it > 0 }?.toFloat()
+        val pixelRatio = videoSize.pixelWidthHeightRatio.takeIf { it > 0f } ?: 1f
+
+        if (viewWidth > 0f && viewHeight > 0f && videoWidth != null && videoHeight != null) {
+            val contentWidth = videoWidth * pixelRatio
+            val contentHeight = videoHeight
+            val widthRatio = contentWidth / viewWidth
+            val heightRatio = contentHeight / viewHeight
+            val fitScaleX: Float
+            val fitScaleY: Float
+
+            if (widthRatio > heightRatio) {
+                fitScaleX = 1f
+                fitScaleY = heightRatio / widthRatio
+            } else {
+                fitScaleX = widthRatio / heightRatio
+                fitScaleY = 1f
+            }
+
+            when (settings.videoScaleMode.lowercase()) {
+                "stretch" -> Unit
+                "fill" -> {
+                    val minFitScale = minOf(fitScaleX, fitScaleY).coerceAtLeast(0.0001f)
+                    val fillScaleX = fitScaleX / minFitScale
+                    val fillScaleY = fitScaleY / minFitScale
+                    transform.setScale(fillScaleX, fillScaleY, viewWidth / 2f, viewHeight / 2f)
+                }
+                else -> {
+                    transform.setScale(fitScaleX, fitScaleY, viewWidth / 2f, viewHeight / 2f)
+                }
+            }
+        }
+        textureView.setTransform(transform)
+    }
+
+    val matrix = buildVideoColorMatrix(settings)
+    if (matrix == null) {
+        textureView.setLayerType(View.LAYER_TYPE_NONE, null)
+    } else {
+        val paint = Paint().apply {
+            colorFilter = ColorMatrixColorFilter(matrix)
+        }
+        textureView.setLayerType(View.LAYER_TYPE_HARDWARE, paint)
+    }
+}
+
 @Composable
 private fun PlayerControls(
     player: ExoPlayer,
     title: String,
     episodeLabel: String?,
     readyState: PlayerState.Ready,
+    settings: com.zstream.android.data.local.entity.SettingsEntity,
     selectedSubtitleLanguage: String?,
     isBookmarked: Boolean,
     onToggleBookmark: () -> Unit,
@@ -707,6 +895,14 @@ private fun PlayerControls(
     onToggleSubtitles: () -> Unit = {},
     onSelectSubtitle: (String) -> Unit,
     onDisableSubtitles: () -> Unit,
+    onSetEnableAutoplay: (Boolean) -> Unit,
+    onSetVideoBrightness: (Int) -> Unit,
+    onSetVideoContrast: (Int) -> Unit,
+    onSetVideoSaturation: (Int) -> Unit,
+    onSetVideoHueRotate: (Int) -> Unit,
+    onResetAdvancedColor: () -> Unit,
+    onSetVolumeBoost: (Int) -> Unit,
+    onSetVideoScaleMode: (String) -> Unit,
     onInfo: () -> Unit,
     onBack: () -> Unit,
     onPip: () -> Unit,
@@ -746,6 +942,21 @@ private fun PlayerControls(
     val audioOptions = remember(tracksSnapshot) { collectAudioOptions(tracksSnapshot) }
     val selectedQualityLabel = qualityOptions.firstOrNull { it.selected }?.label ?: "Auto"
     val selectedAudioLabel = audioOptions.firstOrNull { it.selected }?.label ?: "Default"
+
+    LaunchedEffect(menuOpen) {
+        if (menuOpen && !controlsVisible) {
+            onControlsVisibilityChanged(true)
+        }
+    }
+
+    LaunchedEffect(controlsVisible, isPlaying, menuOpen) {
+        if (controlsVisible && isPlaying && !menuOpen) {
+            delay(3000)
+            if (!menuOpen) {
+                onControlsVisibilityChanged(false)
+            }
+        }
+    }
 
     Box(modifier = Modifier.fillMaxSize()
         .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) {
@@ -862,10 +1073,16 @@ private fun PlayerControls(
                         Spacer(Modifier.width(4.dp))
                         Text("${formatTime(positionMs)} / ${formatTime(durationMs)}", color = Color.White, fontSize = 12.sp)
                         Spacer(Modifier.weight(1f))
-                        IconButton(onClick = { menuPage = PlayerMenuPage.Captions }, modifier = Modifier.size(BOTTOM_BAR_MENU_BUTTON_SIZE)) {
+                        IconButton(onClick = {
+                            onControlsVisibilityChanged(true)
+                            menuPage = PlayerMenuPage.Captions
+                        }, modifier = Modifier.size(BOTTOM_BAR_MENU_BUTTON_SIZE)) {
                             Icon(Icons.Filled.ClosedCaption, null, tint = if (subtitlesEnabled) Color.White else Color.White.copy(alpha = 0.55f), modifier = Modifier.size(BOTTOM_BAR_MENU_ICON_SIZE))
                         }
-                        IconButton(onClick = { menuPage = PlayerMenuPage.Root }, modifier = Modifier.size(BOTTOM_BAR_MENU_BUTTON_SIZE)) {
+                        IconButton(onClick = {
+                            onControlsVisibilityChanged(true)
+                            menuPage = PlayerMenuPage.Root
+                        }, modifier = Modifier.size(BOTTOM_BAR_MENU_BUTTON_SIZE)) {
                             Icon(Icons.Filled.Tune, null, tint = Color.White, modifier = Modifier.size(BOTTOM_BAR_MENU_ICON_SIZE))
                         }
                         IconButton(onClick = onPip, modifier = Modifier.size(BOTTOM_BAR_MENU_BUTTON_SIZE)) {
@@ -874,74 +1091,83 @@ private fun PlayerControls(
                         Spacer(Modifier.width(BOTTOM_RIGHT_END_PADDING))
                     }
                 }
+            }
+        }
 
-                AnimatedVisibility(
-                    visible = menuOpen,
-                    enter = fadeIn() + slideInVertically(initialOffsetY = { it / 3 }),
-                    exit = fadeOut() + slideOutVertically(targetOffsetY = { it / 3 }),
-                    modifier = Modifier.align(Alignment.BottomEnd).padding(end = 28.dp, bottom = 86.dp)
-                ) {
-                    Surface(
-                        color = Color(0xFF141414).copy(alpha = 0.96f),
-                        shape = OVERLAY_PANEL_SHAPE,
-                        tonalElevation = 0.dp,
-                        shadowElevation = 18.dp,
-                        modifier = Modifier
-                            .widthIn(max = MENU_PANEL_WIDTH)
-                            .heightIn(max = MENU_PANEL_HEIGHT)
-                            .border(1.dp, Color.White.copy(alpha = 0.08f), OVERLAY_PANEL_SHAPE)
-                    ) {
-                        PlayerMenuContent(
-                            page = menuPage ?: PlayerMenuPage.Root,
-                            title = title,
-                            sourceId = readyState.sourceId,
-                            embedId = readyState.embedId,
-                            sourceResults = readyState.sources,
-                            selectedSubtitleLanguage = selectedSubtitleLanguage,
-                            subtitlesEnabled = subtitlesEnabled,
-                            subtitleTracks = readyState.subtitles,
-                            playbackSpeed = playbackSpeed,
-                            selectedQualityLabel = selectedQualityLabel,
-                            selectedAudioLabel = selectedAudioLabel,
-                            qualityOptions = qualityOptions,
-                            audioOptions = audioOptions,
-                            onClose = { menuPage = null },
-                            onBack = {
-                                menuPage = if (menuPage == PlayerMenuPage.Root) null else PlayerMenuPage.Root
-                            },
-                            onOpenPage = { menuPage = it },
-                            onToggleSubtitles = onToggleSubtitles,
-                            onDisableSubtitles = onDisableSubtitles,
-                            onSelectSubtitle = onSelectSubtitle,
+        AnimatedVisibility(
+            visible = menuOpen,
+            enter = fadeIn() + slideInVertically(initialOffsetY = { it / 3 }),
+            exit = fadeOut() + slideOutVertically(targetOffsetY = { it / 3 }),
+            modifier = Modifier.align(Alignment.BottomEnd).padding(end = 28.dp, bottom = 86.dp)
+        ) {
+            Surface(
+                color = Color(0xFF141414).copy(alpha = 0.96f),
+                shape = OVERLAY_PANEL_SHAPE,
+                tonalElevation = 0.dp,
+                shadowElevation = 18.dp,
+                modifier = Modifier
+                    .widthIn(max = MENU_PANEL_WIDTH)
+                    .heightIn(max = MENU_PANEL_HEIGHT)
+                    .border(1.dp, Color.White.copy(alpha = 0.08f), OVERLAY_PANEL_SHAPE)
+            ) {
+                PlayerMenuContent(
+                    page = menuPage ?: PlayerMenuPage.Root,
+                    title = title,
+                    settings = settings,
+                    sourceId = readyState.sourceId,
+                    embedId = readyState.embedId,
+                    sourceResults = readyState.sources,
+                    selectedSubtitleLanguage = selectedSubtitleLanguage,
+                    subtitlesEnabled = subtitlesEnabled,
+                    subtitleTracks = readyState.subtitles,
+                    playbackSpeed = playbackSpeed,
+                    selectedQualityLabel = selectedQualityLabel,
+                    selectedAudioLabel = selectedAudioLabel,
+                    qualityOptions = qualityOptions,
+                    audioOptions = audioOptions,
+                    onClose = { menuPage = null },
+                    onBack = {
+                        menuPage = if (menuPage == PlayerMenuPage.Root) null else PlayerMenuPage.Root
+                    },
+                    onOpenPage = { menuPage = it },
+                    onToggleSubtitles = onToggleSubtitles,
+                    onDisableSubtitles = onDisableSubtitles,
+                    onSelectSubtitle = onSelectSubtitle,
+                    onSetEnableAutoplay = onSetEnableAutoplay,
+                    onSetVideoBrightness = onSetVideoBrightness,
+                    onSetVideoContrast = onSetVideoContrast,
+                    onSetVideoSaturation = onSetVideoSaturation,
+                            onSetVideoHueRotate = onSetVideoHueRotate,
+                            onResetAdvancedColor = onResetAdvancedColor,
+                            onSetVolumeBoost = onSetVolumeBoost,
+                            onSetVideoScaleMode = onSetVideoScaleMode,
                             onSetPlaybackSpeed = { speed ->
-                                player.playbackParameters = PlaybackParameters(speed)
-                                playbackSpeed = speed
-                            },
-                            onSelectQuality = { option ->
-                                player.trackSelectionParameters = player.trackSelectionParameters
-                                    .buildUpon()
-                                    .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
-                                    .addOverride(TrackSelectionOverride(option.group, option.trackIndex))
-                                    .build()
-                            },
-                            onSelectAutoQuality = {
-                                player.trackSelectionParameters = player.trackSelectionParameters
-                                    .buildUpon()
-                                    .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
-                                    .build()
-                            },
-                            onSelectAudio = { option ->
-                                player.trackSelectionParameters = player.trackSelectionParameters
-                                    .buildUpon()
-                                    .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
-                                    .addOverride(TrackSelectionOverride(option.group, option.trackIndex))
-                                    .setPreferredAudioLanguage(option.language)
-                                    .build()
-                            },
-                            onPip = onPip,
-                        )
-                    }
-                }
+                        player.playbackParameters = PlaybackParameters(speed)
+                        playbackSpeed = speed
+                    },
+                    onSelectQuality = { option ->
+                        player.trackSelectionParameters = player.trackSelectionParameters
+                            .buildUpon()
+                            .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
+                            .addOverride(TrackSelectionOverride(option.group, option.trackIndex))
+                            .build()
+                    },
+                    onSelectAutoQuality = {
+                        player.trackSelectionParameters = player.trackSelectionParameters
+                            .buildUpon()
+                            .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
+                            .build()
+                    },
+                    onSelectAudio = { option ->
+                        player.trackSelectionParameters = player.trackSelectionParameters
+                            .buildUpon()
+                            .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
+                            .addOverride(TrackSelectionOverride(option.group, option.trackIndex))
+                            .setPreferredAudioLanguage(option.language)
+                            .build()
+                    },
+                    onPip = onPip,
+                )
             }
         }
     }
@@ -959,10 +1185,30 @@ private fun formatTime(ms: Long): String {
     return if (h > 0) "%d:%02d:%02d".format(h, m, sec) else "%d:%02d".format(m, sec)
 }
 
+private fun advancedColorSummary(settings: com.zstream.android.data.local.entity.SettingsEntity): String {
+    return if (
+        settings.videoBrightness == 100 &&
+        settings.videoContrast == 100 &&
+        settings.videoSaturation == 100 &&
+        settings.videoHueRotate == 0
+    ) {
+        "Default"
+    } else {
+        "Adjusted"
+    }
+}
+
+private fun videoScaleModeLabel(mode: String): String = when (mode.lowercase()) {
+    "fill" -> "Fill"
+    "stretch" -> "Stretch"
+    else -> "Fit"
+}
+
 @Composable
 private fun PlayerMenuContent(
     page: PlayerMenuPage,
     title: String,
+    settings: com.zstream.android.data.local.entity.SettingsEntity,
     sourceId: String?,
     embedId: String?,
     sourceResults: List<SourceResult>,
@@ -980,6 +1226,14 @@ private fun PlayerMenuContent(
     onToggleSubtitles: () -> Unit,
     onDisableSubtitles: () -> Unit,
     onSelectSubtitle: (String) -> Unit,
+    onSetEnableAutoplay: (Boolean) -> Unit,
+    onSetVideoBrightness: (Int) -> Unit,
+    onSetVideoContrast: (Int) -> Unit,
+    onSetVideoSaturation: (Int) -> Unit,
+    onSetVideoHueRotate: (Int) -> Unit,
+    onResetAdvancedColor: () -> Unit,
+    onSetVolumeBoost: (Int) -> Unit,
+    onSetVideoScaleMode: (String) -> Unit,
     onSetPlaybackSpeed: (Float) -> Unit,
     onSelectQuality: (QualityOption) -> Unit,
     onSelectAutoQuality: () -> Unit,
@@ -1003,6 +1257,8 @@ private fun PlayerMenuContent(
                     PlayerMenuPage.Root -> "Player Settings"
                     PlayerMenuPage.Captions -> "Subtitles"
                     PlayerMenuPage.Playback -> "Playback"
+                    PlayerMenuPage.AdvancedColor -> "Advanced Color"
+                    PlayerMenuPage.VideoMode -> "Video Mode"
                     PlayerMenuPage.Source -> "Source"
                     PlayerMenuPage.Quality -> "Quality"
                     PlayerMenuPage.Audio -> "Audio"
@@ -1063,9 +1319,126 @@ private fun PlayerMenuContent(
                         )
                     }
                 }
+                Spacer(Modifier.height(12.dp))
+                PlayerMenuSliderRow(
+                    label = "Custom speed",
+                    value = playbackSpeed,
+                    valueText = "${String.format("%.2f", playbackSpeed)}x",
+                    range = PLAYBACK_SPEED_MIN..PLAYBACK_SPEED_MAX,
+                    steps = 94,
+                    onValueChange = { onSetPlaybackSpeed((it * 20).toInt() / 20f) },
+                    onReset = { onSetPlaybackSpeed(1f) },
+                    isDefault = playbackSpeed == 1f
+                )
                 Spacer(Modifier.height(14.dp))
+                PlayerMenuToggleRow("Autoplay next episode", settings.enableAutoplay) {
+                    onSetEnableAutoplay(!settings.enableAutoplay)
+                }
+                Spacer(Modifier.height(10.dp))
+                PlayerMenuSliderRow(
+                    label = "Brightness",
+                    value = settings.videoBrightness.toFloat(),
+                    valueText = "${settings.videoBrightness}%",
+                    range = 10f..200f,
+                    steps = 37,
+                    onValueChange = { onSetVideoBrightness((it / 5).toInt() * 5) },
+                    onReset = { onSetVideoBrightness(100) },
+                    isDefault = settings.videoBrightness == 100
+                )
+                Spacer(Modifier.height(10.dp))
+                PlayerMenuToggleRow("Volume Boost", settings.volumeBoost > 100) {
+                    onSetVolumeBoost(if (settings.volumeBoost > 100) 100 else 150)
+                }
+                if (settings.volumeBoost > 100) {
+                    Spacer(Modifier.height(10.dp))
+                    PlayerMenuSliderRow(
+                        label = "Boost level",
+                        value = settings.volumeBoost.toFloat(),
+                        valueText = "${settings.volumeBoost}%",
+                        range = 100f..300f,
+                        steps = 19,
+                        onValueChange = { onSetVolumeBoost((it / 10).toInt() * 10) },
+                        onReset = { onSetVolumeBoost(100) },
+                        isDefault = settings.volumeBoost == 100
+                    )
+                }
+                Spacer(Modifier.height(10.dp))
+                PlayerMenuNavRow(Icons.Filled.Tune, "Advanced Color", advancedColorSummary(settings)) {
+                    onOpenPage(PlayerMenuPage.AdvancedColor)
+                }
+                Spacer(Modifier.height(10.dp))
+                PlayerMenuNavRow(Icons.Filled.PictureInPictureAlt, "Video Mode", videoScaleModeLabel(settings.videoScaleMode)) {
+                    onOpenPage(PlayerMenuPage.VideoMode)
+                }
+                Spacer(Modifier.height(10.dp))
                 PlayerMenuActionRow("Picture in Picture", subtitle = "Use native Android PiP flow") { onPip() }
-                PlayerMenuStubCard("Brightness, volume boost, and advanced playback preferences are not wired yet.")
+            }
+            PlayerMenuPage.AdvancedColor -> {
+                PlayerMenuSliderRow(
+                    label = "Brightness",
+                    value = settings.videoBrightness.toFloat(),
+                    valueText = "${settings.videoBrightness}%",
+                    range = 10f..200f,
+                    steps = 37,
+                    onValueChange = { onSetVideoBrightness((it / 5).toInt() * 5) },
+                    onReset = { onSetVideoBrightness(100) },
+                    isDefault = settings.videoBrightness == 100
+                )
+                Spacer(Modifier.height(10.dp))
+                PlayerMenuSliderRow(
+                    label = "Contrast",
+                    value = settings.videoContrast.toFloat(),
+                    valueText = "${settings.videoContrast}%",
+                    range = 50f..200f,
+                    steps = 29,
+                    onValueChange = { onSetVideoContrast((it / 5).toInt() * 5) },
+                    onReset = { onSetVideoContrast(100) },
+                    isDefault = settings.videoContrast == 100
+                )
+                Spacer(Modifier.height(10.dp))
+                PlayerMenuSliderRow(
+                    label = "Saturation",
+                    value = settings.videoSaturation.toFloat(),
+                    valueText = "${settings.videoSaturation}%",
+                    range = 0f..200f,
+                    steps = 39,
+                    onValueChange = { onSetVideoSaturation((it / 5).toInt() * 5) },
+                    onReset = { onSetVideoSaturation(100) },
+                    isDefault = settings.videoSaturation == 100
+                )
+                Spacer(Modifier.height(10.dp))
+                PlayerMenuSliderRow(
+                    label = "Hue",
+                    value = settings.videoHueRotate.toFloat(),
+                    valueText = "${settings.videoHueRotate}°",
+                    range = -180f..180f,
+                    steps = 71,
+                    onValueChange = { onSetVideoHueRotate((it / 5).toInt() * 5) },
+                    onReset = { onSetVideoHueRotate(0) },
+                    isDefault = settings.videoHueRotate == 0
+                )
+                Spacer(Modifier.height(10.dp))
+                PlayerMenuActionRow("Reset all color adjustments", selected = false, onClick = onResetAdvancedColor)
+                PlayerMenuStubCard("Color adjustments persist locally and apply to the active player surface in real time.")
+            }
+            PlayerMenuPage.VideoMode -> {
+                listOf(
+                    "fit" to "Fit",
+                    "fill" to "Fill",
+                    "stretch" to "Stretch",
+                ).forEach { (value, label) ->
+                    PlayerMenuActionRow(
+                        title = label,
+                        subtitle = when (value) {
+                            "fit" -> "Preserve aspect ratio with black bars if needed"
+                            "fill" -> "Zoom to fill the screen and crop overflow"
+                            else -> "Stretch to fill the screen"
+                        },
+                        selected = settings.videoScaleMode == value
+                    ) {
+                        onSetVideoScaleMode(value)
+                    }
+                }
             }
             PlayerMenuPage.Source -> {
                 PlayerMenuSummaryCard("Selected Source", sourceId ?: "Unknown", embedId ?: "No embed metadata")
@@ -1152,6 +1525,44 @@ private fun PlayerMenuToggleRow(title: String, checked: Boolean, onToggle: () ->
         ) {
             Text(title, color = Color.White, modifier = Modifier.weight(1f))
             Switch(checked = checked, onCheckedChange = { onToggle() })
+        }
+    }
+}
+
+@Composable
+private fun PlayerMenuSliderRow(
+    label: String,
+    value: Float,
+    valueText: String,
+    range: ClosedFloatingPointRange<Float>,
+    steps: Int,
+    onValueChange: (Float) -> Unit,
+    onReset: () -> Unit,
+    isDefault: Boolean,
+) {
+    Surface(color = Color.White.copy(alpha = 0.06f), shape = RoundedCornerShape(16.dp)) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(label, color = Color.White.copy(alpha = 0.82f), fontSize = 13.sp, modifier = Modifier.weight(1f))
+                Text(valueText, color = Color.White, fontSize = 13.sp)
+                if (!isDefault) {
+                    Spacer(Modifier.width(8.dp))
+                    TextButton(onClick = onReset, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)) {
+                        Text("Reset", fontSize = 11.sp)
+                    }
+                }
+            }
+            Slider(
+                value = value.coerceIn(range.start, range.endInclusive),
+                onValueChange = onValueChange,
+                valueRange = range,
+                steps = steps,
+                colors = SliderDefaults.colors(
+                    thumbColor = Color.White,
+                    activeTrackColor = Color.White,
+                    inactiveTrackColor = Color.White.copy(alpha = 0.18f)
+                )
+            )
         }
     }
 }

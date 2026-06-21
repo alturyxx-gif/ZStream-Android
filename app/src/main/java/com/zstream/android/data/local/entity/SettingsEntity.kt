@@ -32,6 +32,12 @@ data class SettingsEntity(
     val enableDoubleClickToSeek: Boolean = true,
     val enableNumberKeySeeking: Boolean = false,
     val enableHoldToBoost: Boolean = false,
+    val videoBrightness: Int = 100,
+    val videoContrast: Int = 100,
+    val videoSaturation: Int = 100,
+    val videoHueRotate: Int = 0,
+    val volumeBoost: Int = 100,
+    val videoScaleMode: String = "fit",
 
     // Discover/Home Settings
     val enableDiscover: Boolean = true,
