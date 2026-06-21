@@ -39,6 +39,7 @@ data class HomeState(
     val loading: Boolean = true,
     val error: String? = null,
     val enableCarouselView: Boolean = true,
+    val canLoadMore: Boolean = false
 ) {
     val userSections: List<MediaSection> get() {
         val userContent = mutableListOf<MediaSection>()
@@ -71,7 +72,8 @@ class HomeViewModel @Inject constructor(
 ) : ViewModel() {
     private val _state = MutableStateFlow(HomeState())
     val state = _state.asStateFlow()
-
+    private var currentSearchPage = 1
+    private var isSearchingMore = false
     init { 
         load()
         observeUserContent()
@@ -233,12 +235,43 @@ class HomeViewModel @Inject constructor(
     private var searchJob: kotlinx.coroutines.Job? = null
 
     fun onSearchChange(q: String) {
+        isSearchingMore = false
         setSearch(q)
+        currentSearchPage = 1
         searchJob?.cancel()
-        if (q.isBlank()) { _searchResults.value = emptyList(); return }
+        _searchResults.value = emptyList()
+        _state.update { it.copy(canLoadMore = false) }
+        if (q.isBlank()) {
+            return
+        }
         searchJob = viewModelScope.launch {
             delay(300) // debounce
-            runCatching { _searchResults.value = repo.search(q) }
+            runCatching {
+                val firstResults = repo.search(q, currentSearchPage) { total ->
+                    _state.update { it.copy(canLoadMore = currentSearchPage < total) }
+                }
+                _searchResults.value = firstResults
+            }
+        }
+    }
+    fun searchLoadMore() {
+        val q = state.value.searchQuery
+        if (q.isBlank() || !state.value.canLoadMore || isSearchingMore) return
+
+        viewModelScope.launch {
+            isSearchingMore = true
+            currentSearchPage++
+
+            runCatching {
+                val nextResults = repo.search(q, currentSearchPage) { total ->
+                    _state.update { it.copy(canLoadMore = currentSearchPage < total) }
+                }
+                _searchResults.value = _searchResults.value + nextResults
+
+            }.onFailure {
+                currentSearchPage--
+            }
+            isSearchingMore = false
         }
     }
 }
