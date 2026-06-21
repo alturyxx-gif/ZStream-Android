@@ -1148,76 +1148,91 @@ private fun PlayerControls(
             visible = menuOpen,
             enter = fadeIn() + slideInVertically(initialOffsetY = { it / 3 }),
             exit = fadeOut() + slideOutVertically(targetOffsetY = { it / 3 }),
-            modifier = Modifier.align(Alignment.BottomEnd).padding(end = 28.dp, bottom = 86.dp)
+            modifier = Modifier.fillMaxSize()
         ) {
-            Surface(
-                color = Color(0xFF141414).copy(alpha = 0.96f),
-                shape = OVERLAY_PANEL_SHAPE,
-                tonalElevation = 0.dp,
-                shadowElevation = 18.dp,
+            Box(
                 modifier = Modifier
-                    .widthIn(max = MENU_PANEL_WIDTH)
-                    .heightIn(max = MENU_PANEL_HEIGHT)
-                    .border(1.dp, Color.White.copy(alpha = 0.08f), OVERLAY_PANEL_SHAPE)
+                    .fillMaxSize()
+                    .clickable(
+                        indication = null,
+                        interactionSource = remember { MutableInteractionSource() }
+                    ) { menuPage = null }
             ) {
-                PlayerMenuContent(
-                    page = menuPage ?: PlayerMenuPage.Root,
-                    title = title,
-                    settings = settings,
-                    sourceId = readyState.sourceId,
-                    embedId = readyState.embedId,
-                    sourceResults = readyState.sources,
-                    selectedSubtitleLanguage = selectedSubtitleLanguage,
-                    subtitlesEnabled = subtitlesEnabled,
-                    subtitleTracks = readyState.subtitles,
-                    playbackSpeed = playbackSpeed,
-                    selectedQualityLabel = selectedQualityLabel,
-                    selectedAudioLabel = selectedAudioLabel,
-                    qualityOptions = qualityOptions,
-                    audioOptions = audioOptions,
-                    onClose = { menuPage = null },
-                    onBack = {
-                        menuPage = if (menuPage == PlayerMenuPage.Root) null else PlayerMenuPage.Root
-                    },
-                    onOpenPage = { menuPage = it },
-                    onToggleSubtitles = onToggleSubtitles,
-                    onDisableSubtitles = onDisableSubtitles,
-                    onSelectSubtitle = onSelectSubtitle,
-                    onSetEnableAutoplay = onSetEnableAutoplay,
-                    onSetVideoBrightness = onSetVideoBrightness,
-                    onSetVideoContrast = onSetVideoContrast,
-                    onSetVideoSaturation = onSetVideoSaturation,
-                            onSetVideoHueRotate = onSetVideoHueRotate,
-                            onResetAdvancedColor = onResetAdvancedColor,
-                            onSetVolumeBoost = onSetVolumeBoost,
-                            onSetVideoScaleMode = onSetVideoScaleMode,
-                            onSetPlaybackSpeed = { speed ->
-                        player.playbackParameters = PlaybackParameters(speed)
-                        playbackSpeed = speed
-                    },
-                    onSelectQuality = { option ->
-                        player.trackSelectionParameters = player.trackSelectionParameters
-                            .buildUpon()
-                            .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
-                            .addOverride(TrackSelectionOverride(option.group, option.trackIndex))
-                            .build()
-                    },
-                    onSelectAutoQuality = {
-                        player.trackSelectionParameters = player.trackSelectionParameters
-                            .buildUpon()
-                            .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
-                            .build()
-                    },
-                    onSelectAudio = { option ->
-                        player.trackSelectionParameters = player.trackSelectionParameters
-                            .buildUpon()
-                            .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
-                            .addOverride(TrackSelectionOverride(option.group, option.trackIndex))
-                            .setPreferredAudioLanguage(option.language)
-                            .build()
-                    },
-                    onPip = onPip,
-                )
+                Surface(
+                    color = Color(0xFF141414).copy(alpha = 0.96f),
+                    shape = OVERLAY_PANEL_SHAPE,
+                    tonalElevation = 0.dp,
+                    shadowElevation = 18.dp,
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(end = 28.dp, bottom = 86.dp)
+                        .widthIn(max = MENU_PANEL_WIDTH)
+                        .heightIn(max = MENU_PANEL_HEIGHT)
+                        .border(1.dp, Color.White.copy(alpha = 0.08f), OVERLAY_PANEL_SHAPE)
+                        .clickable(
+                            indication = null,
+                            interactionSource = remember { MutableInteractionSource() }
+                        ) {}
+                ) {
+                    PlayerMenuContent(
+                        page = menuPage ?: PlayerMenuPage.Root,
+                        title = title,
+                        settings = settings,
+                        sourceId = readyState.sourceId,
+                        embedId = readyState.embedId,
+                        sourceResults = readyState.sources,
+                        selectedSubtitleLanguage = selectedSubtitleLanguage,
+                        subtitlesEnabled = subtitlesEnabled,
+                        subtitleTracks = readyState.subtitles,
+                        playbackSpeed = playbackSpeed,
+                        selectedQualityLabel = selectedQualityLabel,
+                        selectedAudioLabel = selectedAudioLabel,
+                        qualityOptions = qualityOptions,
+                        audioOptions = audioOptions,
+                        onClose = { menuPage = null },
+                        onBack = {
+                            menuPage = if (menuPage == PlayerMenuPage.Root) null else PlayerMenuPage.Root
+                        },
+                        onOpenPage = { menuPage = it },
+                        onToggleSubtitles = onToggleSubtitles,
+                        onDisableSubtitles = onDisableSubtitles,
+                        onSelectSubtitle = onSelectSubtitle,
+                        onSetEnableAutoplay = onSetEnableAutoplay,
+                        onSetVideoBrightness = onSetVideoBrightness,
+                        onSetVideoContrast = onSetVideoContrast,
+                        onSetVideoSaturation = onSetVideoSaturation,
+                        onSetVideoHueRotate = onSetVideoHueRotate,
+                        onResetAdvancedColor = onResetAdvancedColor,
+                        onSetVolumeBoost = onSetVolumeBoost,
+                        onSetVideoScaleMode = onSetVideoScaleMode,
+                        onSetPlaybackSpeed = { speed ->
+                            player.playbackParameters = PlaybackParameters(speed)
+                            playbackSpeed = speed
+                        },
+                        onSelectQuality = { option ->
+                            player.trackSelectionParameters = player.trackSelectionParameters
+                                .buildUpon()
+                                .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
+                                .addOverride(TrackSelectionOverride(option.group, option.trackIndex))
+                                .build()
+                        },
+                        onSelectAutoQuality = {
+                            player.trackSelectionParameters = player.trackSelectionParameters
+                                .buildUpon()
+                                .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
+                                .build()
+                        },
+                        onSelectAudio = { option ->
+                            player.trackSelectionParameters = player.trackSelectionParameters
+                                .buildUpon()
+                                .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
+                                .addOverride(TrackSelectionOverride(option.group, option.trackIndex))
+                                .setPreferredAudioLanguage(option.language)
+                                .build()
+                        },
+                        onPip = onPip,
+                    )
+                }
             }
         }
     }
