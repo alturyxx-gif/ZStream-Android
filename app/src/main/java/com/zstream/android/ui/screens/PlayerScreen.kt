@@ -48,9 +48,11 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material.icons.filled.Share
@@ -60,6 +62,7 @@ import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -138,6 +141,20 @@ private val BOTTOM_RIGHT_END_PADDING = 36.dp    // padding after last right icon
 private val BOTTOM_BAR_PADDING_V = 8.dp        // vertical padding in bottom controls row
 private const val NATIVE_SUBTITLE_BASE_OFFSET_DP = 20f
 private const val NATIVE_SUBTITLE_OVERLAY_MULTIPLIER = 5f
+private val PLAYER_MENU_SECTION_DIVIDER = Color.White.copy(alpha = 0.14f)
+private val PLAYER_MENU_MUTED_TEXT = Color.White.copy(alpha = 0.62f)
+private val PLAYER_MENU_DIM_TEXT = Color.White.copy(alpha = 0.48f)
+private val PLAYER_MENU_CARD_FILL = Color.White.copy(alpha = 0.08f)
+private val PLAYER_MENU_CARD_ACTIVE_FILL = Color.White.copy(alpha = 0.14f)
+private val PLAYER_MENU_BOX_TILE_HEIGHT = 80.dp
+private val PLAYER_MENU_INNER_HORIZONTAL_PADDING = 24.dp
+private val PLAYER_MENU_INNER_BOTTOM_PADDING = 18.dp
+
+private data class PlayerMenuTileItem(
+    val title: String,
+    val value: String,
+    val onClick: () -> Unit,
+)
 private val MENU_PANEL_WIDTH = 360.dp
 private val MENU_PANEL_HEIGHT = 430.dp
 private val OVERLAY_PANEL_SHAPE = RoundedCornerShape(24.dp)
@@ -158,7 +175,7 @@ private const val PLAYBACK_SPEED_MIN = 0.25f
 private const val PLAYBACK_SPEED_MAX = 5f
 
 private enum class PlayerMenuPage {
-    Root, Captions, Playback, AdvancedColor, VideoMode, Source, Quality, Audio, Download, WatchParty, SkipSegments
+    Root, Captions, Playback, AdvancedColor, Source, Quality, Audio, Download, WatchParty, SkipSegments
 }
 
 private sealed class PlayerInfoState {
@@ -644,10 +661,13 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                             infoState = runCatching {
                                 if (vm.mediaType == "tv") {
                                     val detail = tmdbRepo.tvDetail(vm.tmdbId.toInt())
-                                    val firstSeason = detail.seasons
-                                        ?.firstOrNull { it.seasonNumber > 0 }
-                                        ?.let { tmdbRepo.season(vm.tmdbId.toInt(), it.seasonNumber) }
-                                    PlayerInfoState.Tv(detail, firstSeason)
+                                    val initialSeasonNumber = vm.season
+                                        ?: existingProgress?.seasonNumber
+                                        ?: detail.seasons?.firstOrNull { it.seasonNumber > 0 }?.seasonNumber
+                                    val initialSeason = initialSeasonNumber?.let {
+                                        tmdbRepo.season(vm.tmdbId.toInt(), it)
+                                    }
+                                    PlayerInfoState.Tv(detail, initialSeason)
                                 } else {
                                     PlayerInfoState.Movie(tmdbRepo.movieDetail(vm.tmdbId.toInt()))
                                 }
@@ -702,6 +722,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                             PlayerInfoSheet(
                                 state = infoState,
                                 nav = nav,
+                                allProgress = progressList,
                                 isBookmarked = isBookmarked != null,
                                 onToggleBookmark = vm::toggleBookmark,
                                 onClose = { showInfoSheet = false },
@@ -899,7 +920,11 @@ private fun applyVideoAdjustments(
             }
 
             when (settings.videoScaleMode.lowercase()) {
-                "stretch" -> Unit
+                "stretch" -> {
+                    val stretchScaleX = (1f / fitScaleX.coerceAtLeast(0.0001f))
+                    val stretchScaleY = (1f / fitScaleY.coerceAtLeast(0.0001f))
+                    transform.setScale(stretchScaleX, stretchScaleY, viewWidth / 2f, viewHeight / 2f)
+                }
                 "fill" -> {
                     val minFitScale = minOf(fitScaleX, fitScaleY).coerceAtLeast(0.0001f)
                     val fillScaleX = fitScaleX / minFitScale
@@ -960,6 +985,7 @@ private fun PlayerControls(
     var isDragging by remember { mutableStateOf(false) }
     var scrubPosition by remember { mutableFloatStateOf(0f) }
     var menuPage by remember { mutableStateOf<PlayerMenuPage?>(null) }
+    val menuScrollPositions = remember { mutableStateMapOf<PlayerMenuPage, Int>() }
     var tracksSnapshot by remember { mutableStateOf(player.currentTracks) }
     var playbackSpeed by remember { mutableFloatStateOf(player.playbackParameters.speed) }
     val menuOpen = menuPage != null
@@ -1189,6 +1215,7 @@ private fun PlayerControls(
                         selectedAudioLabel = selectedAudioLabel,
                         qualityOptions = qualityOptions,
                         audioOptions = audioOptions,
+                        menuScrollPositions = menuScrollPositions,
                         onClose = { menuPage = null },
                         onBack = {
                             menuPage = if (menuPage == PlayerMenuPage.Root) null else PlayerMenuPage.Root
@@ -1285,6 +1312,7 @@ private fun PlayerMenuContent(
     selectedAudioLabel: String,
     qualityOptions: List<QualityOption>,
     audioOptions: List<AudioOption>,
+    menuScrollPositions: SnapshotStateMap<PlayerMenuPage, Int>,
     onClose: () -> Unit,
     onBack: () -> Unit,
     onOpenPage: (PlayerMenuPage) -> Unit,
@@ -1305,25 +1333,27 @@ private fun PlayerMenuContent(
     onSelectAudio: (AudioOption) -> Unit,
     onPip: () -> Unit,
 ) {
+    val scrollState = rememberScrollState(menuScrollPositions[page] ?: 0)
+    DisposableEffect(page) {
+        onDispose {
+            menuScrollPositions[page] = scrollState.value
+        }
+    }
+    LaunchedEffect(page) {
+        scrollState.scrollTo(menuScrollPositions[page] ?: 0)
+    }
+
     Column(
         modifier = Modifier
-            .padding(18.dp)
             .widthIn(max = MENU_PANEL_WIDTH)
-            .verticalScroll(rememberScrollState())
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            if (page != PlayerMenuPage.Root) {
-                IconButton(onClick = onBack, modifier = Modifier.size(32.dp)) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = Color.White, modifier = Modifier.size(16.dp))
-                }
-            }
-            Text(
-                text = when (page) {
-                    PlayerMenuPage.Root -> "Player Settings"
+        if (page != PlayerMenuPage.Root) {
+            PlayerMenuHeader(
+                title = when (page) {
+                    PlayerMenuPage.Root -> ""
                     PlayerMenuPage.Captions -> "Subtitles"
                     PlayerMenuPage.Playback -> "Playback"
                     PlayerMenuPage.AdvancedColor -> "Advanced Color"
-                    PlayerMenuPage.VideoMode -> "Video Mode"
                     PlayerMenuPage.Source -> "Source"
                     PlayerMenuPage.Quality -> "Quality"
                     PlayerMenuPage.Audio -> "Audio"
@@ -1331,269 +1361,490 @@ private fun PlayerMenuContent(
                     PlayerMenuPage.WatchParty -> "Watch Party"
                     PlayerMenuPage.SkipSegments -> "Skip Segments"
                 },
-                color = Color.White,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 18.sp,
-                modifier = Modifier.weight(1f)
+                showBack = true,
+                onBack = onBack,
             )
-            TextButton(onClick = onClose) { Text("Close") }
         }
-        Spacer(Modifier.height(12.dp))
-
-        when (page) {
-            PlayerMenuPage.Root -> {
-                PlayerMenuSummaryCard("Now Playing", title, "Media controls mirror the frontend shell.")
-                Spacer(Modifier.height(10.dp))
-                PlayerMenuNavRow(Icons.Filled.ClosedCaption, "Subtitles", selectedSubtitleLanguage ?: if (subtitlesEnabled) "On" else "Off") { onOpenPage(PlayerMenuPage.Captions) }
-                PlayerMenuNavRow(Icons.Filled.Speed, "Playback", "${playbackSpeed}x") { onOpenPage(PlayerMenuPage.Playback) }
-                PlayerMenuNavRow(Icons.Filled.Tune, "Source", sourceId ?: "Auto selected") { onOpenPage(PlayerMenuPage.Source) }
-                PlayerMenuNavRow(Icons.Filled.Settings, "Quality", selectedQualityLabel) { onOpenPage(PlayerMenuPage.Quality) }
-                PlayerMenuNavRow(Icons.Filled.VolumeUp, "Audio", selectedAudioLabel) { onOpenPage(PlayerMenuPage.Audio) }
-                PlayerMenuNavRow(Icons.Filled.Download, "Download", "Stub") { onOpenPage(PlayerMenuPage.Download) }
-                PlayerMenuNavRow(Icons.Filled.PictureInPictureAlt, "Watch Party", "Stub") { onOpenPage(PlayerMenuPage.WatchParty) }
-                PlayerMenuNavRow(Icons.Filled.Tune, "Skip Segments", "Stub") { onOpenPage(PlayerMenuPage.SkipSegments) }
-            }
-            PlayerMenuPage.Captions -> {
-                PlayerMenuToggleRow("Enable subtitles", subtitlesEnabled, onToggleSubtitles)
-                Spacer(Modifier.height(10.dp))
-                PlayerMenuActionRow("Off", selected = !subtitlesEnabled || selectedSubtitleLanguage == null) {
-                    onDisableSubtitles()
-                }
-                subtitleTracks.forEach { track ->
-                    PlayerMenuActionRow(
-                        title = track.label.ifBlank { track.language },
-                        subtitle = track.type.uppercase(),
-                        selected = subtitlesEnabled && selectedSubtitleLanguage == track.language
-                    ) {
-                        onSelectSubtitle(track.language)
+        AnimatedContent(
+            targetState = page,
+            transitionSpec = {
+                val forward = targetState.ordinal > initialState.ordinal
+                (slideInHorizontally { if (forward) it / 4 else -it / 4 } + fadeIn()) togetherWith
+                    (slideOutHorizontally { if (forward) -it / 4 else it / 4 } + fadeOut())
+            },
+            label = "playerMenuPage"
+        ) { currentPage ->
+            Column(
+                modifier = Modifier
+                    .verticalScroll(scrollState)
+                    .padding(
+                        start = PLAYER_MENU_INNER_HORIZONTAL_PADDING,
+                        end = PLAYER_MENU_INNER_HORIZONTAL_PADDING,
+                        top = if (currentPage == PlayerMenuPage.Root) 24.dp else 0.dp,
+                        bottom = PLAYER_MENU_INNER_BOTTOM_PADDING
+                    )
+            ) {
+            when (currentPage) {
+                PlayerMenuPage.Root -> {
+                    PlayerMenuGridSection(
+                        items = listOf(
+                            PlayerMenuTileItem("Quality", selectedQualityLabel) { onOpenPage(PlayerMenuPage.Quality) },
+                            PlayerMenuTileItem("Source", sourceId ?: "Auto") { onOpenPage(PlayerMenuPage.Source) },
+                            PlayerMenuTileItem("Audio", selectedAudioLabel) { onOpenPage(PlayerMenuPage.Audio) },
+                        )
+                    )
+                    PlayerMenuSection {
+                        PlayerMenuLinkRow("Download", rightIcon = Icons.Filled.Download) {
+                            onOpenPage(PlayerMenuPage.Download)
+                        }
+                        PlayerMenuLinkRow("Watch Party", rightIcon = Icons.Filled.Group) {
+                            onOpenPage(PlayerMenuPage.WatchParty)
+                        }
+                    }
+                    PlayerMenuSection {
+                        PlayerMenuChevronRow("Playback") {
+                            onOpenPage(PlayerMenuPage.Playback)
+                        }
+                        PlayerMenuChevronRow("Skip Segments") {
+                            onOpenPage(PlayerMenuPage.SkipSegments)
+                        }
                     }
                 }
-                if (subtitleTracks.isEmpty()) {
-                    PlayerMenuStubCard("No subtitles were returned for this stream.")
+                PlayerMenuPage.Captions -> {
+                    PlayerMenuSection {
+                        PlayerMenuToggleRow("Enable subtitles", subtitlesEnabled, onToggleSubtitles)
+                    }
+                    PlayerMenuSection {
+                        PlayerMenuSelectableRow(
+                            title = "Off",
+                            selected = !subtitlesEnabled || selectedSubtitleLanguage == null,
+                            onClick = onDisableSubtitles
+                        )
+                        subtitleTracks.forEach { track ->
+                            PlayerMenuSelectableRow(
+                                title = track.label.ifBlank { track.language },
+                                subtitle = track.type.uppercase(),
+                                selected = subtitlesEnabled && selectedSubtitleLanguage == track.language,
+                                onClick = { onSelectSubtitle(track.language) }
+                            )
+                        }
+                    }
+                    if (subtitleTracks.isEmpty()) {
+                        PlayerMenuStubCard("No subtitles were returned for this stream.")
+                    }
                 }
-            }
-            PlayerMenuPage.Playback -> {
-                Text("Speed", color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
-                Spacer(Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                    listOf(0.5f, 1f, 1.25f, 1.5f, 2f).forEach { speed ->
-                        FilterChip(
-                            selected = playbackSpeed == speed,
-                            onClick = { onSetPlaybackSpeed(speed) },
-                            label = { Text("${speed}x") }
+                PlayerMenuPage.Playback -> {
+                    PlayerMenuSection {
+                        PlayerMenuFieldTitle("Speed")
+                        Spacer(Modifier.height(12.dp))
+                        PlayerMenuSpeedOptions(playbackSpeed = playbackSpeed, onSetPlaybackSpeed = onSetPlaybackSpeed)
+                    }
+                    PlayerMenuSection {
+                        PlayerMenuSliderRow(
+                            label = "Custom speed",
+                            value = playbackSpeed,
+                            valueText = "${String.format("%.2f", playbackSpeed)}x",
+                            range = PLAYBACK_SPEED_MIN..PLAYBACK_SPEED_MAX,
+                            steps = 0,
+                            onValueChange = { onSetPlaybackSpeed((it * 20).toInt() / 20f) },
+                            onReset = { onSetPlaybackSpeed(1f) },
+                            isDefault = playbackSpeed == 1f
+                        )
+                        PlayerMenuToggleRow("Autoplay next episode", settings.enableAutoplay) {
+                            onSetEnableAutoplay(!settings.enableAutoplay)
+                        }
+                        PlayerMenuSliderRow(
+                            label = "Brightness",
+                            value = settings.videoBrightness.toFloat(),
+                            valueText = "${settings.videoBrightness}%",
+                            range = 10f..200f,
+                            steps = 0,
+                            onValueChange = { onSetVideoBrightness((it / 5).toInt() * 5) },
+                            onReset = { onSetVideoBrightness(100) },
+                            isDefault = settings.videoBrightness == 100
+                        )
+                        PlayerMenuToggleRow("Volume Boost", settings.volumeBoost > 100) {
+                            onSetVolumeBoost(if (settings.volumeBoost > 100) 100 else 150)
+                        }
+                        if (settings.volumeBoost > 100) {
+                            PlayerMenuSliderRow(
+                                label = "Boost level",
+                                value = settings.volumeBoost.toFloat(),
+                                valueText = "${settings.volumeBoost}%",
+                                range = 100f..300f,
+                                steps = 0,
+                                onValueChange = { onSetVolumeBoost((it / 10).toInt() * 10) },
+                                onReset = { onSetVolumeBoost(100) },
+                                isDefault = settings.volumeBoost == 100
+                            )
+                        }
+                        PlayerMenuChevronRow("Advanced color", advancedColorSummary(settings)) {
+                            onOpenPage(PlayerMenuPage.AdvancedColor)
+                        }
+                        PlayerMenuFieldTitle("Video mode")
+                        Spacer(Modifier.height(12.dp))
+                        PlayerMenuSegmentedOptions(
+                            options = listOf("fit" to "Fit", "fill" to "Fill", "stretch" to "Stretch"),
+                            selected = settings.videoScaleMode,
+                            onSelect = onSetVideoScaleMode
                         )
                     }
                 }
-                Spacer(Modifier.height(12.dp))
-                PlayerMenuSliderRow(
-                    label = "Custom speed",
-                    value = playbackSpeed,
-                    valueText = "${String.format("%.2f", playbackSpeed)}x",
-                    range = PLAYBACK_SPEED_MIN..PLAYBACK_SPEED_MAX,
-                    steps = 94,
-                    onValueChange = { onSetPlaybackSpeed((it * 20).toInt() / 20f) },
-                    onReset = { onSetPlaybackSpeed(1f) },
-                    isDefault = playbackSpeed == 1f
-                )
-                Spacer(Modifier.height(14.dp))
-                PlayerMenuToggleRow("Autoplay next episode", settings.enableAutoplay) {
-                    onSetEnableAutoplay(!settings.enableAutoplay)
-                }
-                Spacer(Modifier.height(10.dp))
-                PlayerMenuSliderRow(
-                    label = "Brightness",
-                    value = settings.videoBrightness.toFloat(),
-                    valueText = "${settings.videoBrightness}%",
-                    range = 10f..200f,
-                    steps = 37,
-                    onValueChange = { onSetVideoBrightness((it / 5).toInt() * 5) },
-                    onReset = { onSetVideoBrightness(100) },
-                    isDefault = settings.videoBrightness == 100
-                )
-                Spacer(Modifier.height(10.dp))
-                PlayerMenuToggleRow("Volume Boost", settings.volumeBoost > 100) {
-                    onSetVolumeBoost(if (settings.volumeBoost > 100) 100 else 150)
-                }
-                if (settings.volumeBoost > 100) {
-                    Spacer(Modifier.height(10.dp))
-                    PlayerMenuSliderRow(
-                        label = "Boost level",
-                        value = settings.volumeBoost.toFloat(),
-                        valueText = "${settings.volumeBoost}%",
-                        range = 100f..300f,
-                        steps = 19,
-                        onValueChange = { onSetVolumeBoost((it / 10).toInt() * 10) },
-                        onReset = { onSetVolumeBoost(100) },
-                        isDefault = settings.volumeBoost == 100
-                    )
-                }
-                Spacer(Modifier.height(10.dp))
-                PlayerMenuNavRow(Icons.Filled.Tune, "Advanced Color", advancedColorSummary(settings)) {
-                    onOpenPage(PlayerMenuPage.AdvancedColor)
-                }
-                Spacer(Modifier.height(10.dp))
-                PlayerMenuNavRow(Icons.Filled.PictureInPictureAlt, "Video Mode", videoScaleModeLabel(settings.videoScaleMode)) {
-                    onOpenPage(PlayerMenuPage.VideoMode)
-                }
-                Spacer(Modifier.height(10.dp))
-                PlayerMenuActionRow("Picture in Picture", subtitle = "Use native Android PiP flow") {
-                    onClose()
-                    onPip()
-                }
-            }
-            PlayerMenuPage.AdvancedColor -> {
-                PlayerMenuSliderRow(
-                    label = "Brightness",
-                    value = settings.videoBrightness.toFloat(),
-                    valueText = "${settings.videoBrightness}%",
-                    range = 10f..200f,
-                    steps = 37,
-                    onValueChange = { onSetVideoBrightness((it / 5).toInt() * 5) },
-                    onReset = { onSetVideoBrightness(100) },
-                    isDefault = settings.videoBrightness == 100
-                )
-                Spacer(Modifier.height(10.dp))
-                PlayerMenuSliderRow(
-                    label = "Contrast",
-                    value = settings.videoContrast.toFloat(),
-                    valueText = "${settings.videoContrast}%",
-                    range = 50f..200f,
-                    steps = 29,
-                    onValueChange = { onSetVideoContrast((it / 5).toInt() * 5) },
-                    onReset = { onSetVideoContrast(100) },
-                    isDefault = settings.videoContrast == 100
-                )
-                Spacer(Modifier.height(10.dp))
-                PlayerMenuSliderRow(
-                    label = "Saturation",
-                    value = settings.videoSaturation.toFloat(),
-                    valueText = "${settings.videoSaturation}%",
-                    range = 0f..200f,
-                    steps = 39,
-                    onValueChange = { onSetVideoSaturation((it / 5).toInt() * 5) },
-                    onReset = { onSetVideoSaturation(100) },
-                    isDefault = settings.videoSaturation == 100
-                )
-                Spacer(Modifier.height(10.dp))
-                PlayerMenuSliderRow(
-                    label = "Hue",
-                    value = settings.videoHueRotate.toFloat(),
-                    valueText = "${settings.videoHueRotate}°",
-                    range = -180f..180f,
-                    steps = 71,
-                    onValueChange = { onSetVideoHueRotate((it / 5).toInt() * 5) },
-                    onReset = { onSetVideoHueRotate(0) },
-                    isDefault = settings.videoHueRotate == 0
-                )
-                Spacer(Modifier.height(10.dp))
-                PlayerMenuActionRow("Reset all color adjustments", selected = false, onClick = onResetAdvancedColor)
-                PlayerMenuStubCard("Color adjustments persist locally and apply to the active player surface in real time.")
-            }
-            PlayerMenuPage.VideoMode -> {
-                listOf(
-                    "fit" to "Fit",
-                    "fill" to "Fill",
-                    "stretch" to "Stretch",
-                ).forEach { (value, label) ->
-                    PlayerMenuActionRow(
-                        title = label,
-                        subtitle = when (value) {
-                            "fit" -> "Preserve aspect ratio with black bars if needed"
-                            "fill" -> "Zoom to fill the screen and crop overflow"
-                            else -> "Stretch to fill the screen"
-                        },
-                        selected = settings.videoScaleMode == value
-                    ) {
-                        onSetVideoScaleMode(value)
+                PlayerMenuPage.AdvancedColor -> {
+                    PlayerMenuSection {
+                        PlayerMenuSliderRow(
+                            label = "Brightness",
+                            value = settings.videoBrightness.toFloat(),
+                            valueText = "${settings.videoBrightness}%",
+                            range = 10f..200f,
+                            steps = 0,
+                            onValueChange = { onSetVideoBrightness((it / 5).toInt() * 5) },
+                            onReset = { onSetVideoBrightness(100) },
+                            isDefault = settings.videoBrightness == 100
+                        )
+                        PlayerMenuSliderRow(
+                            label = "Contrast",
+                            value = settings.videoContrast.toFloat(),
+                            valueText = "${settings.videoContrast}%",
+                            range = 50f..200f,
+                            steps = 0,
+                            onValueChange = { onSetVideoContrast((it / 5).toInt() * 5) },
+                            onReset = { onSetVideoContrast(100) },
+                            isDefault = settings.videoContrast == 100
+                        )
+                        PlayerMenuSliderRow(
+                            label = "Saturation",
+                            value = settings.videoSaturation.toFloat(),
+                            valueText = "${settings.videoSaturation}%",
+                            range = 0f..200f,
+                            steps = 0,
+                            onValueChange = { onSetVideoSaturation((it / 5).toInt() * 5) },
+                            onReset = { onSetVideoSaturation(100) },
+                            isDefault = settings.videoSaturation == 100
+                        )
+                        PlayerMenuSliderRow(
+                            label = "Hue",
+                            value = settings.videoHueRotate.toFloat(),
+                            valueText = "${settings.videoHueRotate}°",
+                            range = -180f..180f,
+                            steps = 0,
+                            onValueChange = { onSetVideoHueRotate((it / 5).toInt() * 5) },
+                            onReset = { onSetVideoHueRotate(0) },
+                            isDefault = settings.videoHueRotate == 0
+                        )
+                        TextButton(
+                            onClick = onResetAdvancedColor,
+                            contentPadding = PaddingValues(0.dp),
+                            modifier = Modifier.align(Alignment.CenterHorizontally)
+                        ) {
+                            Text("Reset all", color = PLAYER_MENU_MUTED_TEXT)
+                        }
                     }
                 }
-            }
-            PlayerMenuPage.Source -> {
-                PlayerMenuSummaryCard("Selected Source", sourceId ?: "Unknown", embedId ?: "No embed metadata")
-                Spacer(Modifier.height(10.dp))
-                sourceResults.forEach { source ->
-                    PlayerMenuSourceRow(source)
-                }
-                if (sourceResults.isEmpty()) {
-                    PlayerMenuStubCard("Manual source switching is not wired yet. Current provider metadata is ready for it.")
-                }
-            }
-            PlayerMenuPage.Quality -> {
-                PlayerMenuActionRow("Auto", subtitle = "Adaptive streaming", selected = qualityOptions.none { it.selected }) {
-                    onSelectAutoQuality()
-                }
-                qualityOptions.forEach { option ->
-                    PlayerMenuActionRow(
-                        title = option.label,
-                        subtitle = "${option.height}p",
-                        selected = option.selected
-                    ) {
-                        onSelectQuality(option)
+
+                PlayerMenuPage.Source -> {
+                    PlayerMenuSection {
+                        PlayerMenuSummaryCard(
+                            title = sourceId ?: "Unknown source",
+                            value = embedId ?: "No embed metadata",
+                            subtitle = "Manual source switching is preserved as current Android state."
+                        )
+                    }
+                    PlayerMenuSection {
+                        sourceResults.forEach { source ->
+                            PlayerMenuSourceRow(source)
+                        }
+                    }
+                    if (sourceResults.isEmpty()) {
+                        PlayerMenuStubCard("Manual source switching is not wired yet. Current provider metadata is ready for it.")
                     }
                 }
-                if (qualityOptions.isEmpty()) {
-                    PlayerMenuStubCard("No manual quality tracks exposed by Media3 for this stream.")
-                }
-            }
-            PlayerMenuPage.Audio -> {
-                audioOptions.forEach { option ->
-                    PlayerMenuActionRow(
-                        title = option.label,
-                        subtitle = option.language ?: "Unknown",
-                        selected = option.selected
-                    ) {
-                        onSelectAudio(option)
+                PlayerMenuPage.Quality -> {
+                    PlayerMenuSection {
+                        PlayerMenuSelectableRow(
+                            title = "Auto",
+                            subtitle = "Adaptive streaming",
+                            selected = qualityOptions.none { it.selected },
+                            onClick = onSelectAutoQuality
+                        )
+                        qualityOptions.forEach { option ->
+                            PlayerMenuSelectableRow(
+                                title = option.label,
+                                subtitle = "${option.height}p",
+                                selected = option.selected,
+                                onClick = { onSelectQuality(option) }
+                            )
+                        }
+                    }
+                    if (qualityOptions.isEmpty()) {
+                        PlayerMenuStubCard("No manual quality tracks exposed by Media3 for this stream.")
                     }
                 }
-                if (audioOptions.isEmpty()) {
-                    PlayerMenuStubCard("No selectable audio tracks exposed by Media3 for this stream.")
+                PlayerMenuPage.Audio -> {
+                    PlayerMenuSection {
+                        audioOptions.forEach { option ->
+                            PlayerMenuSelectableRow(
+                                title = option.label,
+                                subtitle = option.language ?: "Unknown",
+                                selected = option.selected,
+                                onClick = { onSelectAudio(option) }
+                            )
+                        }
+                    }
+                    if (audioOptions.isEmpty()) {
+                        PlayerMenuStubCard("No selectable audio tracks exposed by Media3 for this stream.")
+                    }
                 }
+                PlayerMenuPage.Download -> PlayerMenuStubCard("Download UI is prepared. Source-specific download API wiring is still stubbed.")
+                PlayerMenuPage.WatchParty -> PlayerMenuStubCard("Watch party surface is prepared. Session APIs and state sync are still stubbed.")
+                PlayerMenuPage.SkipSegments -> PlayerMenuStubCard("Skip segment controls are prepared. Segment metadata and auto-skip APIs are still stubbed.")
             }
-            PlayerMenuPage.Download -> PlayerMenuStubCard("Download UI is prepared. Source-specific download API wiring is still stubbed.")
-            PlayerMenuPage.WatchParty -> PlayerMenuStubCard("Watch party surface is prepared. Session APIs and state sync are still stubbed.")
-            PlayerMenuPage.SkipSegments -> PlayerMenuStubCard("Skip segment controls are prepared. Segment metadata and auto-skip APIs are still stubbed.")
+        }
         }
     }
+}
+
+@Composable
+private fun PlayerMenuHeader(title: String, showBack: Boolean, onBack: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = PLAYER_MENU_INNER_HORIZONTAL_PADDING)
+            .padding(top = 20.dp, bottom = 14.dp)
+            .border(width = 1.dp, color = Color.Transparent)
+            .padding(bottom = 0.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .border(width = 0.dp, color = Color.Transparent),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (showBack) {
+                IconButton(onClick = onBack, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = Color.White, modifier = Modifier.size(18.dp))
+                }
+                Spacer(Modifier.width(4.dp))
+            }
+            Text(
+                text = title,
+                color = Color.White,
+                fontWeight = FontWeight.Bold,
+                fontSize = 18.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = PLAYER_MENU_INNER_HORIZONTAL_PADDING)
+            .height(1.dp)
+            .background(PLAYER_MENU_SECTION_DIVIDER)
+    )
+}
+
+@Composable
+private fun PlayerMenuSection(content: @Composable ColumnScope.() -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+        content = content
+    )
+}
+
+@Composable
+private fun PlayerMenuGridSection(items: List<PlayerMenuTileItem>) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        items.chunked(2).forEach { rowItems ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                rowItems.forEach { item ->
+                    Box(modifier = Modifier.weight(1f)) {
+                        PlayerMenuBoxNavTile(item.title, item.value, item.onClick)
+                    }
+                }
+                if (rowItems.size == 1) {
+                    Spacer(Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PlayerMenuSectionTitle(text: String) {
+    Text(
+        text = text.uppercase(),
+        color = PLAYER_MENU_MUTED_TEXT,
+        fontSize = 11.sp,
+        fontWeight = FontWeight.Bold,
+        modifier = Modifier.padding(start = 2.dp, top = 22.dp, bottom = 10.dp)
+    )
 }
 
 @Composable
 private fun PlayerMenuSummaryCard(title: String, value: String, subtitle: String) {
-    Surface(color = Color.White.copy(alpha = 0.06f), shape = RoundedCornerShape(18.dp)) {
+    Surface(color = PLAYER_MENU_CARD_FILL, shape = RoundedCornerShape(18.dp)) {
         Column(Modifier.fillMaxWidth().padding(14.dp)) {
-            Text(title, color = Color.White.copy(alpha = 0.62f), fontSize = 12.sp)
-            Spacer(Modifier.height(4.dp))
-            Text(value, color = Color.White, fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.height(4.dp))
-            Text(subtitle, color = Color.White.copy(alpha = 0.5f), fontSize = 12.sp)
+            Text(title, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+            Spacer(Modifier.height(6.dp))
+            Text(value, color = PLAYER_MENU_MUTED_TEXT, fontSize = 12.sp)
+            Spacer(Modifier.height(2.dp))
+            Text(subtitle, color = PLAYER_MENU_DIM_TEXT, fontSize = 12.sp)
         }
     }
 }
 
 @Composable
-private fun PlayerMenuNavRow(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, value: String, onClick: () -> Unit) {
+private fun PlayerMenuBoxNavTile(title: String, value: String, onClick: () -> Unit) {
     Surface(
-        color = Color.Transparent,
-        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp).clickable(onClick = onClick)
+        color = PLAYER_MENU_CARD_FILL,
+        shape = RoundedCornerShape(18.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(PLAYER_MENU_BOX_TILE_HEIGHT)
+            .clickable(onClick = onClick)
     ) {
-        Row(Modifier.fillMaxWidth().padding(vertical = 10.dp, horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(icon, null, tint = Color.White.copy(alpha = 0.92f), modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(12.dp))
-            Text(title, color = Color.White, modifier = Modifier.weight(1f))
-            Text(value, color = Color.White.copy(alpha = 0.55f), fontSize = 12.sp)
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Text(title, color = Color.White, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                value,
+                color = PLAYER_MENU_MUTED_TEXT,
+                fontSize = 12.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center
+            )
+        }
+    }
+}
+
+@Composable
+private fun PlayerMenuFieldTitle(text: String) {
+    Text(text, color = Color.White, fontWeight = FontWeight.Medium, fontSize = 14.sp)
+}
+
+@Composable
+private fun PlayerMenuSpeedOptions(playbackSpeed: Float, onSetPlaybackSpeed: (Float) -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color.White.copy(alpha = 0.08f), RoundedCornerShape(14.dp))
+            .padding(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        listOf(0.25f, 0.5f, 1f, 1.5f, 2f).forEach { speed ->
+            val selected = playbackSpeed == speed
+            TextButton(
+                onClick = { onSetPlaybackSpeed(speed) },
+                colors = ButtonDefaults.textButtonColors(
+                    containerColor = if (selected) Color.White.copy(alpha = 0.12f) else Color.Transparent,
+                    contentColor = Color.White
+                ),
+                contentPadding = PaddingValues(horizontal = 0.dp, vertical = 8.dp),
+                modifier = Modifier.weight(1f)
+            ) {
+                Text("${speed}x", color = if (selected) Color.White else PLAYER_MENU_MUTED_TEXT)
+            }
+        }
+    }
+}
+
+@Composable
+private fun PlayerMenuSegmentedOptions(
+    options: List<Pair<String, String>>,
+    selected: String,
+    onSelect: (String) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color.White.copy(alpha = 0.08f), RoundedCornerShape(14.dp))
+            .padding(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        options.forEach { (value, label) ->
+            val isSelected = selected.equals(value, ignoreCase = true)
+            TextButton(
+                onClick = { onSelect(value) },
+                colors = ButtonDefaults.textButtonColors(
+                    containerColor = if (isSelected) Color.White.copy(alpha = 0.12f) else Color.Transparent,
+                    contentColor = Color.White
+                ),
+                contentPadding = PaddingValues(horizontal = 0.dp, vertical = 8.dp),
+                modifier = Modifier.weight(1f)
+            ) {
+                Text(label, color = if (isSelected) Color.White else PLAYER_MENU_MUTED_TEXT)
+            }
+        }
+    }
+}
+
+@Composable
+private fun PlayerMenuChevronRow(title: String, value: String? = null, onClick: () -> Unit) {
+    TextButton(
+        onClick = onClick,
+        contentPadding = PaddingValues(horizontal = 0.dp, vertical = 10.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            Text(title, color = Color.White, modifier = Modifier.weight(1f), textAlign = TextAlign.Start)
+            if (!value.isNullOrBlank()) {
+                Text(
+                    value,
+                    color = PLAYER_MENU_MUTED_TEXT,
+                    fontSize = 13.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(Modifier.width(4.dp))
+            }
+            Icon(Icons.Filled.ChevronRight, null, tint = Color.White, modifier = Modifier.size(20.dp))
+        }
+    }
+}
+
+@Composable
+private fun PlayerMenuLinkRow(title: String, rightIcon: androidx.compose.ui.graphics.vector.ImageVector, onClick: () -> Unit) {
+    TextButton(
+        onClick = onClick,
+        contentPadding = PaddingValues(horizontal = 0.dp, vertical = 10.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            Text(title, color = Color.White, modifier = Modifier.weight(1f), textAlign = TextAlign.Start)
+            Icon(rightIcon, null, tint = Color.White, modifier = Modifier.size(19.dp))
         }
     }
 }
 
 @Composable
 private fun PlayerMenuToggleRow(title: String, checked: Boolean, onToggle: () -> Unit) {
-    Surface(color = Color.White.copy(alpha = 0.06f), shape = RoundedCornerShape(16.dp)) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(title, color = Color.White, modifier = Modifier.weight(1f))
-            Switch(checked = checked, onCheckedChange = { onToggle() })
-        }
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(title, color = Color.White, modifier = Modifier.weight(1f))
+        Switch(checked = checked, onCheckedChange = { onToggle() })
     }
 }
 
@@ -1608,50 +1859,61 @@ private fun PlayerMenuSliderRow(
     onReset: () -> Unit,
     isDefault: Boolean,
 ) {
-    Surface(color = Color.White.copy(alpha = 0.06f), shape = RoundedCornerShape(16.dp)) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(label, color = Color.White.copy(alpha = 0.82f), fontSize = 13.sp, modifier = Modifier.weight(1f))
+    Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(label, color = PLAYER_MENU_MUTED_TEXT, fontSize = 13.sp, modifier = Modifier.weight(1f))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.height(24.dp)
+            ) {
                 Text(valueText, color = Color.White, fontSize = 13.sp)
-                if (!isDefault) {
-                    Spacer(Modifier.width(8.dp))
-                    TextButton(onClick = onReset, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)) {
-                        Text("Reset", fontSize = 11.sp)
+                Box(
+                    modifier = Modifier.size(18.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (!isDefault) {
+                        TextButton(onClick = onReset, contentPadding = PaddingValues(0.dp)) {
+                            Icon(Icons.Filled.Close, null, tint = PLAYER_MENU_MUTED_TEXT, modifier = Modifier.size(14.dp))
+                        }
                     }
                 }
             }
-            Slider(
-                value = value.coerceIn(range.start, range.endInclusive),
-                onValueChange = onValueChange,
-                valueRange = range,
-                steps = steps,
-                colors = SliderDefaults.colors(
-                    thumbColor = Color.White,
-                    activeTrackColor = Color.White,
-                    inactiveTrackColor = Color.White.copy(alpha = 0.18f)
-                )
-            )
         }
+        Slider(
+            value = value.coerceIn(range.start, range.endInclusive),
+            onValueChange = onValueChange,
+            valueRange = range,
+            steps = steps,
+            colors = SliderDefaults.colors(
+                thumbColor = Color.White,
+                activeTrackColor = Color.White,
+                inactiveTrackColor = Color.White.copy(alpha = 0.18f)
+            )
+        )
     }
 }
 
 @Composable
-private fun PlayerMenuActionRow(title: String, subtitle: String? = null, selected: Boolean = false, onClick: () -> Unit) {
+private fun PlayerMenuSelectableRow(title: String, subtitle: String? = null, selected: Boolean = false, onClick: () -> Unit) {
     Surface(
-        color = if (selected) Color.White.copy(alpha = 0.12f) else Color.Transparent,
-        shape = RoundedCornerShape(16.dp),
-        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp).clickable(onClick = onClick)
+        color = if (selected) PLAYER_MENU_CARD_ACTIVE_FILL else Color.Transparent,
+        shape = RoundedCornerShape(14.dp),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)
     ) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             Column(Modifier.weight(1f)) {
-                Text(title, color = Color.White)
+                Text(title, color = if (selected) Color.White else Color.White.copy(alpha = 0.96f))
                 if (subtitle != null) {
                     Spacer(Modifier.height(2.dp))
-                    Text(subtitle, color = Color.White.copy(alpha = 0.52f), fontSize = 12.sp)
+                    Text(subtitle, color = PLAYER_MENU_DIM_TEXT, fontSize = 12.sp)
                 }
             }
             if (selected) {
-                Icon(Icons.Filled.Check, null, tint = Color.White, modifier = Modifier.size(16.dp))
+                Icon(Icons.Filled.Check, null, tint = Color(0xFF86EFAC), modifier = Modifier.size(18.dp))
             }
         }
     }
@@ -1659,8 +1921,8 @@ private fun PlayerMenuActionRow(title: String, subtitle: String? = null, selecte
 
 @Composable
 private fun PlayerMenuStubCard(message: String) {
-    Surface(color = Color(0xFF1A1A1A), shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
-        Text(message, color = Color.White.copy(alpha = 0.66f), fontSize = 12.sp, modifier = Modifier.padding(14.dp))
+    Surface(color = Color.White.copy(alpha = 0.04f), shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth().padding(top = 10.dp)) {
+        Text(message, color = PLAYER_MENU_MUTED_TEXT, fontSize = 12.sp, modifier = Modifier.padding(14.dp))
     }
 }
 
@@ -1671,20 +1933,31 @@ private fun PlayerMenuSourceRow(source: SourceResult) {
         SourceStatus.FAILED -> Color(0xFFF87171)
         SourceStatus.TRYING -> Color(0xFFFBBF24)
     }
-    Surface(color = Color.White.copy(alpha = 0.04f), shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
+    Surface(color = Color.White.copy(alpha = 0.04f), shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(8.dp).background(color, CircleShape))
             Spacer(Modifier.width(10.dp))
             Text(source.id, color = Color.White, modifier = Modifier.weight(1f))
-            Text(source.status.name.lowercase().replaceFirstChar { it.uppercase() }, color = Color.White.copy(alpha = 0.55f), fontSize = 12.sp)
+            Text(source.status.name.lowercase().replaceFirstChar { it.uppercase() }, color = PLAYER_MENU_MUTED_TEXT, fontSize = 12.sp)
         }
     }
+}
+
+@Composable
+private fun PlayerMenuHintText(text: String) {
+    Text(
+        text = text,
+        color = PLAYER_MENU_MUTED_TEXT,
+        fontSize = 12.sp,
+        modifier = Modifier.padding(top = 18.dp)
+    )
 }
 
 @Composable
 private fun PlayerInfoSheet(
     state: PlayerInfoState?,
     nav: NavController,
+    allProgress: List<com.zstream.android.data.local.entity.ProgressEntity>,
     isBookmarked: Boolean,
     onToggleBookmark: () -> Unit,
     onClose: () -> Unit,
@@ -1738,6 +2011,7 @@ private fun PlayerInfoSheet(
                 PlayerTvInfoContent(
                     detail = state.detail,
                     selectedSeason = state.selectedSeason,
+                    allProgress = allProgress,
                     context = context,
                     nav = nav,
                     theme = theme,
@@ -1919,6 +2193,7 @@ private fun ColumnScope.PlayerMovieInfoContent(
 private fun ColumnScope.PlayerTvInfoContent(
     detail: TvDetail,
     selectedSeason: Season?,
+    allProgress: List<com.zstream.android.data.local.entity.ProgressEntity>,
     context: android.content.Context,
     nav: NavController,
     theme: ZStreamTheme,
@@ -1966,9 +2241,20 @@ private fun ColumnScope.PlayerTvInfoContent(
     Spacer(Modifier.height(16.dp))
 
     selectedSeason?.episodes?.let { episodes ->
+        val progressMap = allProgress
+            .filter { it.seasonNumber == selectedSeason.seasonNumber }
+            .associateBy { it.episodeNumber }
         PlayerSheetSectionHeader("Episodes", theme)
         episodes.forEach { episode ->
-            PlayerSheetEpisodeRow(episode, theme)
+            SharedEpisodeRow(
+                ep = episode,
+                showId = detail.id,
+                title = detail.name,
+                posterPath = detail.posterPath,
+                nav = nav,
+                theme = theme,
+                episodeProgress = progressMap[episode.episodeNumber]
+            )
         }
     }
 
