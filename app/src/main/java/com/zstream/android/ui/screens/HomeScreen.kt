@@ -10,6 +10,10 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -21,9 +25,17 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -38,6 +50,8 @@ import dev.chrisbanes.haze.rememberHazeState
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.requestFocus
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -63,6 +77,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -216,6 +231,10 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
     val state by vm.state.collectAsState()
     val searchResults by vm.searchResults.collectAsState()
     val theme = LocalZStreamTheme.current
+    val configuration = LocalConfiguration.current
+    val screenWidth = configuration.screenWidthDp
+    val numOfColumns = (screenWidth / 125).coerceAtLeast(2)
+    val numOfRows = (2)
     val accountVm: AccountViewModel = hiltViewModel()
     val session by accountVm.session.collectAsState()
     var showLayoutMenu by remember { mutableStateOf(false) }
@@ -228,6 +247,7 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
     var notifications by remember { mutableStateOf<List<NotificationItem>>(emptyList()) }
     var readGuids by remember { mutableStateOf<Set<String>>(emptySet()) }
     var sectionOrder by remember { mutableStateOf(defaultSectionOrder) }
+    var sectionPages by remember { mutableStateOf(mapOf<String, Int>()) }
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
     val uriHandler = LocalUriHandler.current
@@ -240,9 +260,11 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
 
     var wasKeyboardVisible by remember { mutableStateOf(false) }
     LaunchedEffect(isKeyboardVisible) {
-        if (wasKeyboardVisible && !isKeyboardVisible && isSearchFocused && state.searchQuery.isEmpty()) {
-            isSearchFocused = false
-            focusManager.clearFocus()
+        if (wasKeyboardVisible && !isKeyboardVisible) {
+            focusManager.clearFocus() // <--- Force clear focus when keyboard hides
+            if (isSearchFocused && state.searchQuery.isEmpty()) {
+                isSearchFocused = false
+            }
         }
         wasKeyboardVisible = isKeyboardVisible
     }
@@ -309,12 +331,12 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
 
                 val density = LocalDensity.current
 
-                val scrollOffset by remember { derivedStateOf { 
-                    if (listState.firstVisibleItemIndex == 0) listState.firstVisibleItemScrollOffset else 2000 
+                val scrollOffset by remember { derivedStateOf {
+                    if (listState.firstVisibleItemIndex == 0) listState.firstVisibleItemScrollOffset else 2000
                 } }
-                
+
                 val headerTranslation = if (shouldHeaderBeSticky) 0f else -scrollOffset.toFloat()
-                
+
                 val stickyHeaderHazeStyle = remember(theme.colors.background.main) {
                     HazeStyle(
                         backgroundColor = theme.colors.background.main,
@@ -347,7 +369,7 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
                                 Spacer(Modifier.height(160.dp)) // Placeholder height for header
                             }
                         }
-                        
+
                         if (!state.enableFeatured || state.featuredMedia.isEmpty()) {
                             item { HeroSection(state.searchQuery, vm::onSearchChange, nav, placeholder) }
                             item { GenrePills(state.selectedGenreId, vm::setGenre) }
@@ -359,7 +381,7 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
                             item { SearchResultsGrid(displayedSearchResults, nav) }
                         } else {
                             // User sections first
-                            items(state.userSections
+                            state.userSections
                                 .sortedBy { section ->
                                     val id = when (section.title) {
                                         "Continue Watching" -> "continue_watching"
@@ -375,20 +397,32 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
                                         else -> true
                                     }
                                 }
-                            ) { section -> MediaCarouselSection(section, nav, progressMap = state.progressMap) }
-
-                            item { Spacer(Modifier.height(16.dp)) }
+                                .forEach { section ->
+                                    val sectionId = section.title
+                                    val sectionPage = sectionPages[sectionId] ?: 0
+                                    if (!state.enableCarouselView) {
+                                        MediaGridPages(section, nav, state.progressMap, numOfColumns = numOfColumns, numOfRows = numOfRows, currentPage = sectionPage, onPageChange = { newPage -> sectionPages = sectionPages + (sectionId to newPage) })
+                                        //MediaGridLazy(section, nav, state.progressMap, numOfColumns)
+                                        // switch between these 2 lines to test the lazyview with the bookmarks section
+                                    } else {
+                                        item { MediaCarouselSection(section, nav, progressMap = state.progressMap) }
+                                    }
+                                    item { Spacer(Modifier.height(20.dp)) }
+                                }
 
                             if (state.enableDiscover) {
                                 item { HomeTabs(state.activeTab, vm::setTab) }
 
                                 // Base sections second
-                                items(state.baseSections.map { section ->
+                                state.baseSections.map { section ->
                                     val filtered = if (state.selectedGenreId != null)
                                         section.items.filter { it.genreIds?.contains(state.selectedGenreId) == true }
                                     else section.items
                                     section.copy(items = filtered)
-                                }.filter { it.items.isNotEmpty() }) { section -> MediaCarouselSection(section, nav, progressMap = state.progressMap) }
+                                }.filter { it.items.isNotEmpty() }.forEach { section ->
+                                    item { MediaCarouselSection(section, nav, progressMap = state.progressMap) }
+                                    item { Spacer(Modifier.height(20.dp)) }
+                                }
                             }
                         }
                     }
@@ -444,7 +478,7 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
                         }
                     }
                 }
-        }
+            }
         }
 
         if (showLayoutMenu) {
@@ -812,7 +846,9 @@ private fun HeroSection(searchQuery: String, onSearch: (String) -> Unit, nav: Na
                         )
                         drawRoundRect(
                             brush = brush,
-                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(DISCOVER_BUTTON_CORNER_RADIUS.toPx())
+                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(
+                                DISCOVER_BUTTON_CORNER_RADIUS.toPx()
+                            )
                         )
                     }
                     .padding(2.dp)
@@ -892,6 +928,21 @@ private fun HomeTabs(activeTab: HomeTab, onTab: (HomeTab) -> Unit) {
     }
 }
 
+/**
+ * unified section title fun for carousel, paged grid, lazy grid, main homescreen lazycolumn
+ */
+
+@Composable
+private fun SyncedSectionTitle(title: String) {
+    val theme = LocalZStreamTheme.current
+    Text(
+        text = title,
+        color = theme.colors.type.emphasis,
+        fontWeight = FontWeight.Bold,
+        fontSize = 16.sp,
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+    )
+}
 @Composable
 private fun MediaCarouselSection(
     section: MediaSection,
@@ -899,11 +950,9 @@ private fun MediaCarouselSection(
     progressMap: Map<String, ProgressEntity> = emptyMap(),
 ) {
     val theme = LocalZStreamTheme.current
-    Column(modifier = Modifier.padding(bottom = 24.dp)) {
-        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-            Text(section.title, color = theme.colors.type.emphasis, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-//            Text("View more →", color = theme.colors.type.dimmed, fontSize = 11.sp) // TODO: add ability to click this
-        }
+    Column {
+        SyncedSectionTitle(section.title)
+//      Text("View more →", color = theme.colors.type.dimmed, fontSize = 11.sp) // TODO: add ability to click this
 
         LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             items(section.items) { media ->
@@ -915,6 +964,172 @@ private fun MediaCarouselSection(
                     percentage = progressInfo?.first,
                     seriesLabel = progressInfo?.second,
                 )
+            }
+        }
+    }
+}
+
+/**
+ * Alternate media grid view
+ * Paged and lazy views calling single row function
+ */
+@Composable
+private fun MediaGridRow(
+    rowItems: List<Media>,
+    nav: NavController,
+    progressMap: Map<String, ProgressEntity> = emptyMap(),
+    numOfColumns: Int
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 5.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        rowItems.forEach { media ->
+            val progress = progressMap[media.id.toString()]
+            val progressInfo = progress?.let { getProgressInfo(it) }
+            Box(modifier = Modifier.weight(1f)) {
+                MediaCard(
+                    media = media,
+                    onClick = { nav.navigate("detail/${media.type}/${media.id}") },
+                    percentage = progressInfo?.first,
+                    seriesLabel = progressInfo?.second
+                )
+            }
+        }
+        repeat(numOfColumns - rowItems.size) {
+            Box(modifier = Modifier.weight(1f)) {}
+        }
+    }
+}
+
+// add ur own title if calling this cuz there could be a lot of ways to format it
+// currently unused
+private fun LazyListScope.MediaGridLazy(
+    section: MediaSection,
+    nav: NavController,
+    progressMap: Map<String, ProgressEntity> = emptyMap(),
+    numOfColumns: Int)
+{  val rows = section.items.chunked(numOfColumns)
+    items(rows) {rowData->
+        MediaGridRow(
+            rowItems = rowData,
+            nav = nav,
+            progressMap = progressMap,
+            numOfColumns = numOfColumns
+        )
+    }
+    item {
+        Spacer(Modifier.height(16.dp))
+    }
+
+
+}
+
+private fun LazyListScope.MediaGridPages(
+    section: MediaSection,
+    nav: NavController,
+    progressMap: Map<String, ProgressEntity> = emptyMap(),
+    numOfColumns: Int,
+    numOfRows: Int,
+    currentPage: Int,
+    onPageChange: (Int) -> Unit,
+) {
+    item {
+        val theme = LocalZStreamTheme.current
+        val focusManager = LocalFocusManager.current
+        val pageSize = remember(numOfColumns, numOfRows) { numOfColumns * numOfRows }
+        val totalPages = remember(section.items.size, pageSize) {
+            (section.items.size + pageSize - 1) / pageSize
+        }
+        val clampedPage = currentPage.coerceIn(0, (totalPages - 1).coerceAtLeast(0))
+        val displayedCards = remember(clampedPage, section.items, pageSize) {
+            section.items.drop(clampedPage * pageSize).take(pageSize)
+        }
+        var editValue by remember { mutableStateOf((clampedPage + 1).toString()) }
+
+        LaunchedEffect(clampedPage) {
+            editValue = (clampedPage + 1).toString()
+        }
+
+        AnimatedContent(
+            targetState = clampedPage,
+            label = "pageTransition",
+            transitionSpec = {
+                fadeIn(animationSpec = tween(200)) togetherWith fadeOut(animationSpec = tween(200))
+            }
+        ) { targetPage ->
+            val cards = remember(targetPage, section.items, pageSize) {
+                section.items.drop(targetPage * pageSize).take(pageSize)
+            }
+
+            Column {
+                SyncedSectionTitle(section.title)
+                cards.chunked(numOfColumns).forEach { rowItems ->
+                    MediaGridRow(
+                        rowItems = rowItems,
+                        nav = nav,
+                        progressMap = progressMap,
+                        numOfColumns = numOfColumns
+                    )
+                }
+                Spacer(Modifier.height(0.dp))
+            }
+        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 5.dp),
+            horizontalArrangement = Arrangement.spacedBy(24.dp, Alignment.CenterHorizontally),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = { if (clampedPage > 0) onPageChange(clampedPage - 1) }) {
+                Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, null, tint = Color.White, modifier = Modifier.size(32.dp))
+            }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color.White.copy(alpha = 0.1f))
+                    .padding(horizontal = 8.dp, vertical = 4.dp)
+            ) {
+                BasicTextField(
+                    value = editValue,
+                    onValueChange = { if (it.all { c -> c.isDigit() }) editValue = it },
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Number,
+                        imeAction = ImeAction.Done
+                    ),
+                    keyboardActions = KeyboardActions(
+                        onDone = {
+                            val page = editValue.toIntOrNull()
+                            if (page != null && page in 1..totalPages) {
+                                onPageChange(page - 1)
+                            } else {
+                                editValue = (clampedPage + 1).toString()
+                            }
+                            focusManager.clearFocus()
+                        }
+                    ),
+                    textStyle = TextStyle(
+                        color = Color.White,
+                        textAlign = TextAlign.Center,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold
+                    ),
+                    cursorBrush = SolidColor(theme.colors.global.accentA),
+                    modifier = Modifier.width(40.dp)
+                )
+                Text(
+                    text = " / $totalPages",
+                    color = Color.White,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            IconButton(onClick = { if (clampedPage < totalPages - 1) onPageChange(clampedPage + 1) }) {
+                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = Color.White, modifier = Modifier.size(32.dp))
             }
         }
     }
@@ -994,10 +1209,17 @@ private fun LayoutMenuDialog(
                     Box(
                         modifier = Modifier
                             .onGloballyPositioned { itemHeights[index] = it.size.height }
-                            .offset { IntOffset(0, if (isDragging) draggedOffset.roundToInt() else 0) }
+                            .offset {
+                                IntOffset(
+                                    0,
+                                    if (isDragging) draggedOffset.roundToInt() else 0
+                                )
+                            }
                     ) {
                         Row(
-                            Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
                             Arrangement.spacedBy(8.dp),
                             Alignment.CenterVertically,
                         ) {
@@ -1263,12 +1485,16 @@ private fun NotificationsDialog(
                     }
                     Spacer(Modifier.height(16.dp))
                     if (notifications.isEmpty()) {
-                        Box(Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
+                        Box(Modifier
+                            .fillMaxWidth()
+                            .height(200.dp), contentAlignment = Alignment.Center) {
                             Text("No notifications", color = theme.colors.type.dimmed, fontSize = 13.sp)
                         }
                     } else {
                         Column(
-                            modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .verticalScroll(rememberScrollState()),
                             verticalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
                             notifications.forEach { notif ->
@@ -1316,7 +1542,10 @@ private fun NotificationCard(
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             if (!isRead) {
-                Box(Modifier.size(8.dp).clip(CircleShape).background(categoryColor))
+                Box(Modifier
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(categoryColor))
                 Spacer(Modifier.width(6.dp))
             }
             if (notif.category.isNotEmpty()) {
@@ -1400,7 +1629,9 @@ private fun NotificationDetailView(
             }
         }
         Spacer(Modifier.height(16.dp))
-        Column(modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 if (notif.category.isNotEmpty()) {
                     Box(
@@ -1487,7 +1718,10 @@ private fun TipJarDialog(onDismiss: () -> Unit) {
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
                             Box(
-                                modifier = Modifier.size(36.dp).clip(CircleShape).background(crypto.color.copy(alpha = 0.2f)),
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(CircleShape)
+                                    .background(crypto.color.copy(alpha = 0.2f)),
                                 contentAlignment = Alignment.Center,
                             ) {
                                 Text(crypto.symbol, color = crypto.color, fontWeight = FontWeight.Bold, fontSize = 12.sp)
@@ -1565,8 +1799,8 @@ private fun FeaturedCarousel(
     Box(modifier = modifier.height(height)) {
         HorizontalPager(
             state = pagerState,
-            modifier = Modifier.fillMaxSize().graphicsLayer { 
-                alpha = contentAlpha 
+            modifier = Modifier.fillMaxSize().graphicsLayer {
+                alpha = contentAlpha
                 translationY = carouselOffset.toPx()
             }.blur(blurRadius),
             key = { media[it].id }
@@ -1818,7 +2052,7 @@ private fun FeaturedCarousel(
                 val active = i == pagerState.currentPage
                 val dotWidth by animateDpAsState(if (active) 18.dp else 8.dp, label = "dotWidth")
                 val dotAlpha by animateFloatAsState(if (active) 1f else 0.4f, label = "dotAlpha")
-                
+
                 Box(
                     modifier = Modifier
                         .clickable(
@@ -1881,7 +2115,7 @@ private fun SearchOverlay(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Icon(Icons.Default.Search, null, tint = theme.colors.type.secondary, modifier = Modifier.size(18.dp))
-                
+
                 if (isSearching) {
                     Box(modifier = Modifier.weight(1f)) {
                         if (searchQuery.isEmpty()) {
@@ -1898,7 +2132,7 @@ private fun SearchOverlay(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .focusRequester(focusRequester)
-                                .onFocusChanged { 
+                                .onFocusChanged {
                                     if (it.isFocused) {
                                         onSearchFocusedChange(true)
                                     }
