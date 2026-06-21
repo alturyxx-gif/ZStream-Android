@@ -168,6 +168,14 @@ private const val PLAYBACK_SPEED_MIN = 0.25f
 private const val PLAYBACK_SPEED_MAX = 5f
 private val MANUAL_SOURCE_PANEL_WIDTH = 343.dp
 private val MANUAL_SOURCE_PANEL_HEIGHT = 431.dp
+private val SKIP_SEGMENT_BUTTON_WIDTH = 160.dp
+
+private val SKIP_SEGMENT_COLORS = mapOf(
+    "intro" to Color(0xBF6366F1),
+    "recap" to Color(0xBFF59E0B),
+    "credits" to Color(0xBF22C55E),
+    "preview" to Color(0xBFEC4899),
+)
 
 private enum class PlayerMenuPage {
     Root, Captions, Playback, AdvancedColor, Sources, Quality, Audio, Download, WatchParty, SkipSegments
@@ -580,7 +588,15 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     }
                 }
                 val selectedLang by vm.selectedSubtitleLang.collectAsState()
+                val skipSegments by vm.skipSegments.collectAsState()
                 val subtitlesEnabled = settings.subtitlesEnabled
+
+                LaunchedEffect(vm.tmdbId, vm.season, vm.episode, player.duration) {
+                    val duration = player.duration.coerceAtLeast(0L)
+                    if (duration > 0) {
+                        vm.loadSkipSegments(duration)
+                    }
+                }
 
                 LaunchedEffect(player, settings.enableNativeSubtitles, subtitlesEnabled, selectedLang) {
                     player.trackSelectionParameters = player.trackSelectionParameters
@@ -695,6 +711,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     onSetVolumeBoost = vm::setVolumeBoost,
                     onSetVideoScaleMode = vm::setVideoScaleMode,
                     onSelectSource = vm::selectSource,
+                    skipSegments = skipSegments,
                     onInfo = {
                         showInfoSheet = true
                         playerScope.launch {
@@ -1016,6 +1033,7 @@ private fun PlayerControls(
     onSetVolumeBoost: (Int) -> Unit,
     onSetVideoScaleMode: (String) -> Unit,
     onSelectSource: (String) -> Unit,
+    skipSegments: List<SkipSegment>,
     onInfo: () -> Unit,
     onBack: () -> Unit,
     onPip: () -> Unit,
@@ -1058,6 +1076,35 @@ private fun PlayerControls(
     val audioOptions = remember(tracksSnapshot) { collectAudioOptions(tracksSnapshot) }
     val selectedQualityLabel = if (autoQualitySelected) "Auto" else qualityOptions.firstOrNull { it.selected }?.label ?: "Auto"
     val selectedAudioLabel = audioOptions.firstOrNull { it.selected }?.label ?: "Default"
+    val currentTimeSeconds = positionMs / 1000f
+    val activeSkipSegments = remember(skipSegments, currentTimeSeconds) {
+        skipSegments.filter { shouldShowSkipButton(currentTimeSeconds, it) != SkipButtonVisibility.None }
+    }
+    val skippedSegmentIds = remember { mutableStateMapOf<String, Boolean>() }
+
+    LaunchedEffect(readyState.sourceId, skipSegments) {
+        skippedSegmentIds.clear()
+    }
+
+    LaunchedEffect(settings.enableAutoSkipSegments, settings.enableSkipCredits, currentTimeSeconds, skipSegments) {
+        if (!settings.enableAutoSkipSegments) return@LaunchedEffect
+        skipSegments.forEach { segment ->
+            val isCreditsToEnd = segment.type == "credits" && segment.endMs == null
+            val isCreditsDisabled = segment.type == "credits" && !settings.enableSkipCredits
+            if (isCreditsDisabled) return@forEach
+            if (segment.type != "credits" && segment.endMs == null) return@forEach
+            if (isCreditsToEnd && !settings.enableSkipCredits) return@forEach
+
+            val startSeconds = (segment.startMs ?: 0L) / 1000f
+            val endSeconds = if (segment.endMs != null) segment.endMs / 1000f else Float.POSITIVE_INFINITY
+            val segmentId = skipSegmentId(segment)
+            if (currentTimeSeconds >= startSeconds && currentTimeSeconds < endSeconds && skippedSegmentIds[segmentId] != true) {
+                val seekTargetMs = segment.endMs ?: (durationMs.takeIf { it > 0 } ?: positionMs + 10_000L)
+                player.seekTo(seekTargetMs)
+                skippedSegmentIds[segmentId] = true
+            }
+        }
+    }
 
     LaunchedEffect(menuOpen) {
         if (menuOpen && !controlsVisible) {
@@ -1138,6 +1185,21 @@ private fun PlayerControls(
                             modifier = Modifier.height(CENTER_ICON_HEIGHT).wrapContentWidth())
                     }
                 }
+
+                SkipSegmentOverlay(
+                    controlsVisible = controlsVisible,
+                    currentTimeSeconds = currentTimeSeconds,
+                    segments = activeSkipSegments,
+                    durationMs = durationMs,
+                    onSkip = { segment ->
+                        val seekTargetMs = segment.endMs ?: durationMs
+                        if (seekTargetMs > 0) {
+                            player.seekTo(seekTargetMs)
+                            skippedSegmentIds[skipSegmentId(segment)] = true
+                        }
+                    },
+                    modifier = Modifier.align(Alignment.BottomEnd)
+                )
 
                 Column(modifier = Modifier.fillMaxWidth().align(Alignment.BottomCenter)) {
                     Box(
@@ -1261,6 +1323,7 @@ private fun PlayerControls(
                         selectedAudioLabel = selectedAudioLabel,
                         qualityOptions = qualityOptions,
                         audioOptions = audioOptions,
+                        skipSegments = skipSegments,
                         menuScrollPositions = menuScrollPositions,
                         onClose = { menuPage = null },
                         onBack = {
@@ -1308,6 +1371,7 @@ private fun PlayerControls(
                                 .build()
                         },
                         onSelectSource = onSelectSource,
+                        onSeekToMs = { player.seekTo(it) },
                         onPip = onPip,
                     )
                 }
@@ -1347,6 +1411,79 @@ private fun videoScaleModeLabel(mode: String): String = when (mode.lowercase()) 
     else -> "Fit"
 }
 
+private enum class SkipButtonVisibility { Always, Hover, None }
+
+private fun shouldShowSkipButton(currentTimeSeconds: Float, segment: SkipSegment): SkipButtonVisibility {
+    val currentTimeMs = currentTimeSeconds * 1000f
+    val startMs = (segment.startMs ?: 0L).toFloat()
+    val endMs = (segment.endMs ?: Long.MAX_VALUE).toFloat()
+    if (currentTimeMs < startMs || currentTimeMs > endMs) return SkipButtonVisibility.None
+    val timeInSegment = currentTimeMs - startMs
+    return if (timeInSegment <= 10_000f) SkipButtonVisibility.Always else SkipButtonVisibility.Hover
+}
+
+private fun skipSegmentId(segment: SkipSegment): String =
+    "${segment.type}-${segment.startMs ?: "null"}-${segment.endMs ?: "null"}"
+
+private fun skipSegmentLabel(type: String): String = when (type) {
+    "intro" -> "Skip Intro"
+    "recap" -> "Skip Recap"
+    "credits" -> "Skip Credits"
+    "preview" -> "Skip Preview"
+    else -> type.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+}
+
+@Composable
+private fun SkipSegmentOverlay(
+    controlsVisible: Boolean,
+    currentTimeSeconds: Float,
+    segments: List<SkipSegment>,
+    durationMs: Long,
+    onSkip: (SkipSegment) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    if (segments.isEmpty()) return
+
+    Column(
+        modifier = modifier.padding(end = 48.dp, bottom = if (controlsVisible) 96.dp else 48.dp),
+        horizontalAlignment = Alignment.End,
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        segments.forEach { segment ->
+            val visibility = shouldShowSkipButton(currentTimeSeconds, segment)
+            val show = visibility == SkipButtonVisibility.Always || (visibility == SkipButtonVisibility.Hover && controlsVisible)
+            AnimatedVisibility(
+                visible = show,
+                enter = fadeIn() + slideInVertically(initialOffsetY = { it / 3 }),
+                exit = fadeOut() + slideOutVertically(targetOffsetY = { it / 3 }),
+            ) {
+                TextButton(
+                    onClick = { onSkip(segment) },
+                    colors = ButtonDefaults.textButtonColors(
+                        containerColor = SKIP_SEGMENT_COLORS[segment.type] ?: Color(0xBF6366F1),
+                        contentColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.width(SKIP_SEGMENT_BUTTON_WIDTH).height(40.dp)
+                ) {
+                    Icon(
+                        painterResource(R.drawable.ic_player_skip_fwd),
+                        null,
+                        tint = Color.White,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        if (segment.type == "credits" && segment.endMs == null && durationMs > 0L) "Next Episode" else skipSegmentLabel(segment.type),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun PlayerMenuContent(
     page: PlayerMenuPage,
@@ -1364,6 +1501,7 @@ private fun PlayerMenuContent(
     selectedAudioLabel: String,
     qualityOptions: List<QualityOption>,
     audioOptions: List<AudioOption>,
+    skipSegments: List<SkipSegment>,
     menuScrollPositions: SnapshotStateMap<PlayerMenuPage, Int>,
     onClose: () -> Unit,
     onBack: () -> Unit,
@@ -1384,6 +1522,7 @@ private fun PlayerMenuContent(
     onSelectAutoQuality: () -> Unit,
     onSelectAudio: (AudioOption) -> Unit,
     onSelectSource: (String) -> Unit,
+    onSeekToMs: (Long) -> Unit,
     onPip: () -> Unit,
 ) {
     val scrollState = rememberScrollState(menuScrollPositions[page] ?: 0)
@@ -1433,7 +1572,7 @@ private fun PlayerMenuContent(
                     .padding(
                         start = PLAYER_MENU_INNER_HORIZONTAL_PADDING,
                         end = PLAYER_MENU_INNER_HORIZONTAL_PADDING,
-                        top = if (currentPage == PlayerMenuPage.Root) 6.dp else 0.dp,
+                        top = 0.dp,
                         bottom = PLAYER_MENU_INNER_BOTTOM_PADDING
                     )
             ) {
@@ -1663,7 +1802,21 @@ private fun PlayerMenuContent(
                 }
                 PlayerMenuPage.Download -> PlayerMenuStubCard("Download UI is prepared. Source-specific download API wiring is still stubbed.")
                 PlayerMenuPage.WatchParty -> PlayerMenuStubCard("Watch party surface is prepared. Session APIs and state sync are still stubbed.")
-                PlayerMenuPage.SkipSegments -> PlayerMenuStubCard("Skip segment controls are prepared. Segment metadata and auto-skip APIs are still stubbed.")
+                PlayerMenuPage.SkipSegments -> {
+                    PlayerMenuSection {
+                        if (skipSegments.isEmpty()) {
+                            PlayerMenuStubCard("No skip segments available.")
+                        } else {
+                            skipSegments.forEach { segment ->
+                                PlayerMenuSelectableRow(
+                                    title = skipSegmentLabel(segment.type),
+                                    subtitle = "${formatTime(segment.startMs ?: 0L)} - ${segment.endMs?.let(::formatTime) ?: "End of video"}",
+                                    onClick = { onSeekToMs(segment.startMs ?: 0L) }
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
         }
