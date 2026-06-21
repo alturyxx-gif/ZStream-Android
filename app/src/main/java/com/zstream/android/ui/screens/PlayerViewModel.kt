@@ -16,8 +16,10 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URLDecoder
@@ -29,6 +31,16 @@ import com.zstream.android.data.local.entity.SettingsEntity
 enum class SourceStatus { IDLE, TRYING, SUCCESS, FAILED }
 data class SourceResult(val id: String, val status: SourceStatus)
 data class SkipSegment(val type: String, val startMs: Long?, val endMs: Long?)
+data class SkipSegmentSubmission(
+    val tmdbId: Int,
+    val type: String,
+    val segment: String,
+    val season: Int? = null,
+    val episode: Int? = null,
+    val startSec: Double? = null,
+    val endSec: Double? = null,
+    val videoDurationMs: Long? = null,
+)
 
 sealed class PlayerState {
     object Idle : PlayerState()
@@ -114,6 +126,43 @@ class PlayerViewModel @Inject constructor(
                 ?: emptyList()
             skipSegmentsCacheKey = cacheKey
             _skipSegments.value = resolvedSegments
+        }
+    }
+
+    suspend fun submitSkipSegment(submission: SkipSegmentSubmission): Result<Unit> = withContext(Dispatchers.IO) {
+        val tidbKey = settingsPrefs.settings.first().tidbKey
+        if (tidbKey.isNullOrBlank()) {
+            return@withContext Result.failure(IllegalStateException("TIDB API key is not set"))
+        }
+
+        val body = JSONObject().apply {
+            put("tmdb_id", submission.tmdbId)
+            put("type", submission.type)
+            put("segment", submission.segment)
+            submission.season?.let { put("season", it) }
+            submission.episode?.let { put("episode", it) }
+            if (submission.startSec != null) put("start_sec", submission.startSec) else put("start_sec", JSONObject.NULL)
+            if (submission.endSec != null) put("end_sec", submission.endSec) else put("end_sec", JSONObject.NULL)
+            submission.videoDurationMs?.let { put("video_duration_ms", it) }
+        }
+
+        runCatching {
+            val request = Request.Builder()
+                .url("https://api.theintrodb.org/v3/submit")
+                .post(body.toString().toRequestBody("application/json".toMediaType()))
+                .header("Content-Type", "application/json")
+                .header("Authorization", "Bearer $tidbKey")
+                .build()
+
+            httpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    val errorBody = response.body?.string().orEmpty()
+                    val message = runCatching { JSONObject(errorBody).optString("error") }.getOrNull()
+                        ?.takeIf { it.isNotBlank() }
+                        ?: response.message
+                    throw IllegalStateException(message.ifBlank { "Failed to submit segment" })
+                }
+            }
         }
     }
 

@@ -18,6 +18,13 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONObject
+import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
 @HiltViewModel
@@ -28,6 +35,10 @@ class SettingsViewModel @Inject constructor(
     private val bookmarkRepo: BookmarkRepository,
     private val api: BackendApi,
 ) : ViewModel() {
+    private val httpClient = OkHttpClient.Builder()
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(15, TimeUnit.SECONDS)
+        .build()
 
     private val _dirty = MutableStateFlow(false)
     val dirty: StateFlow<Boolean> = _dirty
@@ -158,6 +169,45 @@ class SettingsViewModel @Inject constructor(
 
     fun setFebboxKey(key: String?) {
         update { copy(febboxKey = key) }
+    }
+
+    fun setTidbKey(key: String?) {
+        update { copy(tidbKey = key) }
+    }
+
+    suspend fun validateTidbKey(key: String): Result<Boolean> = withContext(kotlinx.coroutines.Dispatchers.IO) {
+        if (key.isBlank()) return@withContext Result.success(false)
+
+        val body = JSONObject().apply {
+            put("tmdb_id", 0)
+            put("type", "movie")
+            put("segment", "intro")
+            put("start_sec", JSONObject.NULL)
+            put("end_sec", 1)
+            put("video_duration_ms", 1000)
+        }.toString()
+
+        val request = Request.Builder()
+            .url("https://api.theintrodb.org/v3/submit")
+            .post(body.toRequestBody("application/json".toMediaType()))
+            .header("Content-Type", "application/json")
+            .header("Authorization", "Bearer $key")
+            .build()
+
+        runCatching {
+            httpClient.newCall(request).execute().use { response ->
+                when (response.code) {
+                    200, 201, 202, 400, 404, 409, 422 -> true
+                    401, 403 -> false
+                    else -> {
+                        val errorBody = response.body?.string().orEmpty()
+                        val errorMessage = runCatching { JSONObject(errorBody).optString("error") }.getOrNull()
+                        throw IllegalStateException(errorMessage?.takeIf { it.isNotBlank() }
+                            ?: "Validation request failed (${response.code})")
+                    }
+                }
+            }
+        }
     }
 
     fun setHomeSectionOrder(order: List<String>) {
