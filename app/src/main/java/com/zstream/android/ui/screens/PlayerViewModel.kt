@@ -20,6 +20,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
+import java.net.URLDecoder
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import com.zstream.android.data.local.preferences.SettingsPreferences
@@ -68,9 +69,9 @@ class PlayerViewModel @Inject constructor(
     val mediaType = savedState.get<String>("mediaType") ?: "movie"
     val season = savedState.get<Int>("season").takeIf { it != -1 }
     val episode = savedState.get<Int>("episode").takeIf { it != -1 }
-    val title = savedState.get<String>("title") ?: ""
+    val title = savedState.get<String>("title")?.decodeRouteParam().orEmpty()
     val year = savedState.get<Int>("year") ?: 0
-    val poster = savedState.get<String>("poster")?.takeIf { it.isNotBlank() }
+    val poster = savedState.get<String>("poster")?.decodeRouteParam()?.takeIf { it.isNotBlank() }
     val tmdbId = id.toString()
     val seasonId = season?.toString()
     val episodeId = episode?.toString()
@@ -605,6 +606,10 @@ class PlayerViewModel @Inject constructor(
 
     private fun JSONObject.optNullableLong(key: String): Long? {
         return if (isNull(key)) null else optLong(key)
+    }
+
+    private fun String.decodeRouteParam(): String {
+        return runCatching { URLDecoder.decode(this, "UTF-8") }.getOrDefault(this)
     }
 
     private fun handleEvent(evt: JSONObject) {

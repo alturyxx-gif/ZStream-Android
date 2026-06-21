@@ -22,6 +22,8 @@ import androidx.annotation.DrawableRes
 import androidx.annotation.OptIn
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.animation.*
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
@@ -97,6 +99,7 @@ import com.zstream.android.R
 import com.zstream.android.provider.WebViewDataSource
 import androidx.media3.common.MediaItem.SubtitleConfiguration
 import android.net.Uri
+import androidx.compose.ui.graphics.graphicsLayer
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import dagger.hilt.android.EntryPointAccessors
@@ -169,8 +172,7 @@ private const val PLAYBACK_SPEED_MAX = 5f
 private val MANUAL_SOURCE_PANEL_WIDTH = 343.dp
 private val MANUAL_SOURCE_PANEL_HEIGHT = 431.dp
 private val SKIP_SEGMENT_BUTTON_WIDTH = 160.dp
-
-private val SKIP_SEGMENT_COLORS = mapOf(
+private val SKIP_SEGMENT_BAR_COLORS = mapOf(
     "intro" to Color(0xBF6366F1),
     "recap" to Color(0xBFF59E0B),
     "credits" to Color(0xBF22C55E),
@@ -1038,6 +1040,7 @@ private fun PlayerControls(
     onBack: () -> Unit,
     onPip: () -> Unit,
 ) {
+    val theme = LocalZStreamTheme.current
     var isPlaying by remember { mutableStateOf(player.isPlaying) }
     var positionMs by remember { mutableLongStateOf(0L) }
     var durationMs by remember { mutableLongStateOf(0L) }
@@ -1162,7 +1165,6 @@ private fun PlayerControls(
                             )
                         }
                     }
-                    Spacer(Modifier.weight(1f))
                 }
 
                 Row(modifier = Modifier.align(Alignment.Center),
@@ -1187,6 +1189,7 @@ private fun PlayerControls(
                 }
 
                 SkipSegmentOverlay(
+                    theme = theme,
                     controlsVisible = controlsVisible,
                     currentTimeSeconds = currentTimeSeconds,
                     segments = activeSkipSegments,
@@ -1202,7 +1205,7 @@ private fun PlayerControls(
                 )
 
                 Column(modifier = Modifier.fillMaxWidth().align(Alignment.BottomCenter)) {
-                    Box(
+                    BoxWithConstraints(
                         Modifier.fillMaxWidth()
                             .padding(horizontal = SCRUBBER_SIDE_PADDING)
                             .height(28.dp)
@@ -1223,7 +1226,23 @@ private fun PlayerControls(
                                 }
                             }
                     ) {
+                        val scrubberWidth = maxWidth
                         Box(Modifier.fillMaxWidth().height(3.dp).align(Alignment.Center).background(Color.White.copy(0.25f)))
+                        if (durationMs > 0 && skipSegments.isNotEmpty()) {
+                            skipSegments.forEach { segment ->
+                                val startFraction = ((segment.startMs ?: 0L).toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
+                                val endFraction = ((segment.endMs ?: durationMs).toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
+                                val widthFraction = (endFraction - startFraction).coerceAtLeast(0.0025f)
+                                Box(
+                                    Modifier
+                                        .align(Alignment.CenterStart)
+                                        .offset(x = scrubberWidth * startFraction)
+                                        .width(scrubberWidth * widthFraction)
+                                        .height(3.dp)
+                                        .background(SKIP_SEGMENT_BAR_COLORS[segment.type] ?: Color.White.copy(alpha = 0.35f))
+                                )
+                            }
+                        }
                         Box(Modifier.fillMaxWidth(if (isDragging) scrubPosition else progress).height(3.dp).align(Alignment.CenterStart).background(RedProgress))
                         if (isDragging) {
                             val thumbFraction = scrubPosition
@@ -1233,7 +1252,14 @@ private fun PlayerControls(
                         }
                     }
                     Row(modifier = Modifier.fillMaxWidth()
-                        .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(0.34f), Color.Black.copy(0.78f))))
+                        .background(
+                            Brush.verticalGradient(
+                                0f to Color.Transparent,
+                                0.22f to Color.Black.copy(0.18f),
+                                0.58f to Color.Black.copy(0.48f),
+                                1f to Color.Black.copy(0.78f)
+                            )
+                        )
                         .padding(vertical = BOTTOM_BAR_PADDING_V),
                         verticalAlignment = Alignment.CenterVertically) {
                         Spacer(Modifier.width(BOTTOM_LEFT_START_PADDING))
@@ -1435,6 +1461,7 @@ private fun skipSegmentLabel(type: String): String = when (type) {
 
 @Composable
 private fun SkipSegmentOverlay(
+    theme: ZStreamTheme,
     controlsVisible: Boolean,
     currentTimeSeconds: Float,
     segments: List<SkipSegment>,
@@ -1443,9 +1470,14 @@ private fun SkipSegmentOverlay(
     modifier: Modifier = Modifier,
 ) {
     if (segments.isEmpty()) return
+    val bottomOffset by animateDpAsState(
+        targetValue = if (controlsVisible) 96.dp else 48.dp,
+        animationSpec = tween(durationMillis = 200),
+        label = "skipSegmentBottomOffset"
+    )
 
     Column(
-        modifier = modifier.padding(end = 48.dp, bottom = if (controlsVisible) 96.dp else 48.dp),
+        modifier = modifier.padding(end = 48.dp, bottom = bottomOffset),
         horizontalAlignment = Alignment.End,
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
@@ -1460,21 +1492,27 @@ private fun SkipSegmentOverlay(
                 TextButton(
                     onClick = { onSkip(segment) },
                     colors = ButtonDefaults.textButtonColors(
-                        containerColor = SKIP_SEGMENT_COLORS[segment.type] ?: Color(0xBF6366F1),
-                        contentColor = Color.White
+                        containerColor = theme.colors.buttons.primary,
+                        contentColor = theme.colors.buttons.primaryText,
                     ),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.width(SKIP_SEGMENT_BUTTON_WIDTH).height(40.dp)
+                    shape = RoundedCornerShape(8.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                    modifier = Modifier
+                        .width(SKIP_SEGMENT_BUTTON_WIDTH)
+                        .height(40.dp)
+                        .graphicsLayer(scaleX = 0.95f, scaleY = 0.95f)
                 ) {
                     Icon(
                         painterResource(R.drawable.ic_player_skip_fwd),
                         null,
-                        tint = Color.White,
-                        modifier = Modifier.size(16.dp)
+                        tint = theme.colors.buttons.primaryText,
+                        modifier = Modifier.size(18.dp)
                     )
                     Spacer(Modifier.width(6.dp))
                     Text(
                         if (segment.type == "credits" && segment.endMs == null && durationMs > 0L) "Next Episode" else skipSegmentLabel(segment.type),
+                        color = theme.colors.buttons.primaryText,
+                        fontWeight = FontWeight.Bold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
