@@ -63,7 +63,20 @@ import com.zstream.android.Urls
 import com.zstream.android.data.AccountSession
 import com.zstream.android.data.local.entity.SettingsEntity
 import com.zstream.android.theme.LocalZStreamTheme
+import com.zstream.android.theme.ThemeRegistry
 import com.zstream.android.theme.ZStreamTheme
+import com.zstream.android.ui.components.themed.ZsBottomSheetSectionCard
+import com.zstream.android.ui.components.themed.ZsButton
+import com.zstream.android.ui.components.themed.ZsButtonVariant
+import com.zstream.android.ui.components.themed.ZsIconButton
+import com.zstream.android.ui.components.themed.ZsIconButtonVariant
+import com.zstream.android.ui.components.themed.ZsStatusBanner
+import com.zstream.android.ui.components.themed.ZsStatusBannerVariant
+import com.zstream.android.ui.components.themed.ZsSwitchRow
+import com.zstream.android.ui.components.themed.ZsTextButton
+import com.zstream.android.ui.components.themed.ZsTextField
+import com.zstream.android.ui.components.themed.ZsThemePreviewCard
+import com.zstream.android.ui.navigation.rememberSafeNavigateBack
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
@@ -85,6 +98,7 @@ fun SettingsScreen(
     val theme = LocalZStreamTheme.current
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
+    val onBack = rememberSafeNavigateBack(nav, scope)
     val session by accountVm.session.collectAsState()
     val settings by vm.settings.collectAsStateWithLifecycle()
     val dirty by vm.dirty.collectAsStateWithLifecycle()
@@ -118,7 +132,7 @@ fun SettingsScreen(
                 Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = { nav.popBackStack() }) {
+                IconButton(onClick = onBack) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = Color.White)
                 }
                 Spacer(Modifier.width(8.dp))
@@ -224,51 +238,6 @@ private fun SettingsRow(label: String, value: String, theme: ZStreamTheme) {
     ) {
         Text(label, color = theme.colors.type.text, fontSize = 14.sp)
         Text(value, color = theme.colors.type.secondary, fontSize = 13.sp, maxLines = 1, modifier = Modifier.widthIn(max = 200.dp))
-    }
-}
-
-@Composable
-private fun ToggleRow(
-    title: String,
-    description: String? = null,
-    enabled: Boolean,
-    onToggle: (Boolean) -> Unit,
-    disabled: Boolean = false,
-    indent: Boolean = false,
-    theme: ZStreamTheme,
-    notice: String? = null,
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(enabled = !disabled) { onToggle(!enabled) }
-            .padding(start = if (indent) 32.dp else 16.dp, end = 16.dp, top = 12.dp, bottom = 12.dp)
-            .then(if (disabled) Modifier.alpha(0.5f) else Modifier)
-    ) {
-        Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Column(Modifier.weight(1f)) {
-                Text(title, color = theme.colors.type.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                if (description != null) {
-                    Spacer(Modifier.height(2.dp))
-                    Text(description, color = theme.colors.type.dimmed, fontSize = 11.sp, lineHeight = 16.sp)
-                }
-                if (notice != null) {
-                    Spacer(Modifier.height(4.dp))
-                    Text(notice, color = theme.colors.type.danger, fontSize = 10.sp)
-                }
-            }
-            Switch(
-                checked = enabled,
-                onCheckedChange = { if (!disabled) onToggle(it) },
-                colors = SwitchDefaults.colors(
-                    checkedThumbColor = Color.White,
-                    checkedTrackColor = theme.colors.global.accentA,
-                    uncheckedThumbColor = theme.colors.type.dimmed,
-                    uncheckedTrackColor = theme.colors.background.secondary,
-                ),
-                modifier = Modifier.padding(top = 2.dp),
-            )
-        }
     }
 }
 
@@ -412,31 +381,80 @@ private fun PreferencesSection(settings: SettingsEntity, theme: ZStreamTheme, vm
         Spacer(Modifier.height(16.dp))
         SectionLabel("Playback", theme)
         SettingsCard(theme) {
-            ToggleRow("Autoplay", "Automatically play the next episode", settings.enableAutoplay, vm::setEnableAutoplay, theme = theme, disabled = settings.enableLowPerformanceMode)
+            ZsSwitchRow(
+                title = "Autoplay",
+                subtitle = "Automatically play the next episode",
+                checked = settings.enableAutoplay,
+                onCheckedChange = vm::setEnableAutoplay,
+                enabled = !settings.enableLowPerformanceMode,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
             if (settings.enableAutoplay && !settings.enableLowPerformanceMode) {
                 HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
-                ToggleRow("Skip Credits", "Auto-skip opening credits", settings.enableSkipCredits, vm::setEnableSkipCredits, theme = theme, indent = true)
+                ZsSwitchRow(
+                    title = "Skip Credits",
+                    subtitle = "Auto-skip opening credits",
+                    checked = settings.enableSkipCredits,
+                    onCheckedChange = vm::setEnableSkipCredits,
+                    modifier = Modifier.padding(start = 32.dp, end = 16.dp),
+                )
             }
             HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
-            ToggleRow("Low Performance Mode", "Disable animations and visual effects", settings.enableLowPerformanceMode, vm::setEnableLowPerformanceMode, theme = theme)
+            ZsSwitchRow(
+                title = "Low Performance Mode",
+                subtitle = "Disable animations and visual effects",
+                checked = settings.enableLowPerformanceMode,
+                onCheckedChange = vm::setEnableLowPerformanceMode,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
             HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
-            ToggleRow("Native Subtitles", "Use native subtitle renderer", settings.enableNativeSubtitles, vm::setEnableNativeSubtitles, theme = theme)
+            ZsSwitchRow(
+                title = "Native Subtitles",
+                subtitle = "Use native subtitle renderer",
+                checked = settings.enableNativeSubtitles,
+                onCheckedChange = vm::setEnableNativeSubtitles,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
         }
 
         Spacer(Modifier.height(16.dp))
         SectionLabel("Player Controls", theme)
         SettingsCard(theme) {
-            ToggleRow("Hold to Boost", "Hold to increase playback speed", settings.enableHoldToBoost, vm::setEnableHoldToBoost, theme = theme)
+            ZsSwitchRow(
+                title = "Hold to Boost",
+                subtitle = "Hold to increase playback speed",
+                checked = settings.enableHoldToBoost,
+                onCheckedChange = vm::setEnableHoldToBoost,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
             HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
-            ToggleRow("Double-click to Seek", "Double-tap to seek forward/backward", settings.enableDoubleClickToSeek, vm::setEnableDoubleClickToSeek, theme = theme)
+            ZsSwitchRow(
+                title = "Double-click to Seek",
+                subtitle = "Double-tap to seek forward/backward",
+                checked = settings.enableDoubleClickToSeek,
+                onCheckedChange = vm::setEnableDoubleClickToSeek,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
         }
 
         Spacer(Modifier.height(16.dp))
         SectionLabel("Sources", theme)
         SettingsCard(theme) {
-            ToggleRow("Manual Source Selection", "Choose sources manually", settings.manualSourceSelection, vm::setManualSourceSelection, theme = theme)
+            ZsSwitchRow(
+                title = "Manual Source Selection",
+                subtitle = "Choose sources manually",
+                checked = settings.manualSourceSelection,
+                onCheckedChange = vm::setManualSourceSelection,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
             HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
-            ToggleRow("Auto-resume on Error", "Automatically try next source on playback error", settings.enableAutoResumeOnPlaybackError, vm::setEnableAutoResumeOnPlaybackError, theme = theme)
+            ZsSwitchRow(
+                title = "Auto-resume on Error",
+                subtitle = "Automatically try next source on playback error",
+                checked = settings.enableAutoResumeOnPlaybackError,
+                onCheckedChange = vm::setEnableAutoResumeOnPlaybackError,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
         }
     }
 }
@@ -445,37 +463,120 @@ private fun PreferencesSection(settings: SettingsEntity, theme: ZStreamTheme, vm
 
 @Composable
 private fun AppearanceSection(settings: SettingsEntity, theme: ZStreamTheme, vm: SettingsViewModel) {
+    val allThemes = ThemeRegistry.allThemes
+    val activeTheme = ThemeRegistry.getThemeById(settings.applicationTheme)
+
     Column(Modifier.padding(bottom = 32.dp)) {
         Spacer(Modifier.height(8.dp))
         SectionLabel("Home Page", theme)
         SettingsCard(theme) {
-            ToggleRow("Discover", "Show discover section on home", settings.enableDiscover, vm::setEnableDiscover, theme = theme, disabled = settings.enableLowPerformanceMode)
+            ZsSwitchRow(
+                title = "Discover",
+                subtitle = "Show discover section on home",
+                checked = settings.enableDiscover,
+                onCheckedChange = vm::setEnableDiscover,
+                enabled = !settings.enableLowPerformanceMode,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
             if (settings.enableDiscover && !settings.enableLowPerformanceMode) {
                 HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
-                ToggleRow("Featured", "Show featured content in discover", settings.enableFeatured, { vm.setEnableFeatured(it); if (!it) vm.setEnableFeatured(false) }, theme = theme, indent = true)
+                ZsSwitchRow(
+                    title = "Featured",
+                    subtitle = "Show featured content in discover",
+                    checked = settings.enableFeatured,
+                    onCheckedChange = {
+                        vm.setEnableFeatured(it)
+                        if (!it) vm.setEnableFeatured(false)
+                    },
+                    modifier = Modifier.padding(start = 32.dp, end = 16.dp),
+                )
             }
             HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
-            ToggleRow("Details Modal", "Show details in a modal instead of full page", settings.enableDetailsModal, vm::setEnableDetailsModal, theme = theme, disabled = settings.enableLowPerformanceMode)
+            ZsSwitchRow(
+                title = "Details Modal",
+                subtitle = "Show details in a modal instead of full page",
+                checked = settings.enableDetailsModal,
+                onCheckedChange = vm::setEnableDetailsModal,
+                enabled = !settings.enableLowPerformanceMode,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
             HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
-            ToggleRow("Image Logos", "Show logo images for media", settings.enableImageLogos, vm::setEnableImageLogos, theme = theme, disabled = settings.enableLowPerformanceMode)
+            ZsSwitchRow(
+                title = "Image Logos",
+                subtitle = "Show logo images for media",
+                checked = settings.enableImageLogos,
+                onCheckedChange = vm::setEnableImageLogos,
+                enabled = !settings.enableLowPerformanceMode,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
             HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
-            ToggleRow("Carousel View", "Switch between a carousel and grid view for continue watching and bookmarks", settings.enableCarouselView, vm::setEnableCarouselView, theme = theme)
+            ZsSwitchRow(
+                title = "Carousel View",
+                subtitle = "Switch between a carousel and grid view for continue watching and bookmarks",
+                checked = settings.enableCarouselView,
+                onCheckedChange = vm::setEnableCarouselView,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
             HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
-            ToggleRow("Minimal Cards", "Compact card display", settings.enableMinimalCards, vm::setEnableMinimalCards, theme = theme)
+            ZsSwitchRow(
+                title = "Minimal Cards",
+                subtitle = "Compact card display",
+                checked = settings.enableMinimalCards,
+                onCheckedChange = vm::setEnableMinimalCards,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
         }
 
         Spacer(Modifier.height(16.dp))
         SectionLabel("Player UI", theme)
         SettingsCard(theme) {
-            ToggleRow("Pause Overlay", "Show overlay when paused", settings.enablePauseOverlay, vm::setEnablePauseOverlay, theme = theme, disabled = settings.enableLowPerformanceMode)
+            ZsSwitchRow(
+                title = "Pause Overlay",
+                subtitle = "Show overlay when paused",
+                checked = settings.enablePauseOverlay,
+                onCheckedChange = vm::setEnablePauseOverlay,
+                enabled = !settings.enableLowPerformanceMode,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
             HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
-            ToggleRow("Compact Episode View", "Compact episode list in player", settings.forceCompactEpisodeView, vm::setForceCompactEpisodeView, theme = theme, disabled = settings.enableLowPerformanceMode)
+            ZsSwitchRow(
+                title = "Compact Episode View",
+                subtitle = "Compact episode list in player",
+                checked = settings.forceCompactEpisodeView,
+                onCheckedChange = vm::setForceCompactEpisodeView,
+                enabled = !settings.enableLowPerformanceMode,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
         }
 
         Spacer(Modifier.height(16.dp))
         SectionLabel("Theme", theme)
         SettingsCard(theme) {
-            SettingsRow("Active Theme", settings.applicationTheme.replaceFirstChar { it.uppercase() }, theme)
+            SettingsRow("Active Theme", activeTheme.name, theme)
+        }
+
+        Spacer(Modifier.height(12.dp))
+        Text(
+            "Built-in themes imported from p-stream. Theme templates and screen migrations should consume these shared tokens instead of hardcoded colors.",
+            color = theme.colors.type.secondary,
+            fontSize = 12.sp,
+            lineHeight = 18.sp,
+            modifier = Modifier.padding(horizontal = 20.dp),
+        )
+        Spacer(Modifier.height(12.dp))
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            allThemes.forEach { themeOption ->
+                ZsThemePreviewCard(
+                    themeOption = themeOption,
+                    selected = themeOption.id == activeTheme.id,
+                    onClick = { vm.setApplicationTheme(themeOption.id) },
+                )
+            }
         }
     }
 }
@@ -756,7 +857,13 @@ private fun SubtitlesSettingsContent(settings: SettingsEntity, theme: ZStreamThe
         Spacer(Modifier.height(8.dp))
         SectionLabel("Behavior", theme)
         SettingsCard(theme) {
-            ToggleRow("Native Subtitles", "Use system subtitle renderer", settings.enableNativeSubtitles, vm::setEnableNativeSubtitles, theme = theme)
+            ZsSwitchRow(
+                title = "Native Subtitles",
+                subtitle = "Use system subtitle renderer",
+                checked = settings.enableNativeSubtitles,
+                onCheckedChange = vm::setEnableNativeSubtitles,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
         }
 
         if (!settings.enableNativeSubtitles) {
@@ -765,7 +872,13 @@ private fun SubtitlesSettingsContent(settings: SettingsEntity, theme: ZStreamThe
             SettingsCard(theme) {
                 SliderRow("Background Opacity", settings.subtitleBackgroundOpacity * 100, 0f, 100f, { "${it.toInt()}%" }, { vm.setSubtitleBackgroundOpacity(it / 100f) }, theme)
                 HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
-                ToggleRow("Background Blur", "Apply blur effect behind subtitles", settings.subtitleBackgroundBlurEnabled, vm::setSubtitleBackgroundBlurEnabled, theme = theme)
+                ZsSwitchRow(
+                    title = "Background Blur",
+                    subtitle = "Apply blur effect behind subtitles",
+                    checked = settings.subtitleBackgroundBlurEnabled,
+                    onCheckedChange = vm::setSubtitleBackgroundBlurEnabled,
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                )
                 if (settings.subtitleBackgroundBlurEnabled) {
                     HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                     SliderRow("Blur Amount", settings.subtitleBackgroundBlur * 100, 0f, 100f, { "${it.toInt()}%" }, { vm.setSubtitleBackgroundBlur(it / 100f) }, theme)
@@ -785,7 +898,12 @@ private fun SubtitlesSettingsContent(settings: SettingsEntity, theme: ZStreamThe
                 HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                 DropdownRow("Font Family", listOf("sans-serif", "sans-serif-condensed", "serif", "monospace"), settings.subtitleFont, vm::setSubtitleFont, theme)
                 HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
-                ToggleRow("Bold", null, settings.subtitleBold, vm::setSubtitleBold, theme = theme)
+                ZsSwitchRow(
+                    title = "Bold",
+                    checked = settings.subtitleBold,
+                    onCheckedChange = vm::setSubtitleBold,
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                )
                 HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                 
                 //  Color picker
@@ -1025,7 +1143,13 @@ private fun ConnectionsSection(settings: SettingsEntity, theme: ZStreamTheme, vm
         Spacer(Modifier.height(8.dp))
         SectionLabel("Proxy", theme)
         SettingsCard(theme) {
-            ToggleRow("Proxy TMDB (unimplemented)", "Route TMDB requests through proxy", settings.proxyTmdb, vm::setProxyTmdb, theme = theme)
+            ZsSwitchRow(
+                title = "Proxy TMDB (unimplemented)",
+                subtitle = "Route TMDB requests through proxy",
+                checked = settings.proxyTmdb,
+                onCheckedChange = vm::setProxyTmdb,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
         }
 
         Spacer(Modifier.height(16.dp))
@@ -1115,7 +1239,7 @@ private fun ConnectionsSection(settings: SettingsEntity, theme: ZStreamTheme, vm
                     checked = showInstructions,
                     onCheckedChange = { showInstructions = it },
                     colors = SwitchDefaults.colors(
-                        checkedThumbColor = Color.White,
+                        checkedThumbColor = theme.colors.type.emphasis,
                         checkedTrackColor = theme.colors.global.accentA,
                         uncheckedThumbColor = theme.colors.type.dimmed,
                         uncheckedTrackColor = theme.colors.background.secondary,
@@ -1126,11 +1250,10 @@ private fun ConnectionsSection(settings: SettingsEntity, theme: ZStreamTheme, vm
             if (showInstructions) {
                 HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
 
-                Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-                    Text(
-                        "To get your Febbox token:",
-                        color = theme.colors.type.text, fontSize = 12.sp, lineHeight = 18.sp,
-                    )
+                ZsBottomSheetSectionCard(
+                    title = "To get your Febbox token",
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                ) {
                     val steps = listOf(
                         "Go to febbox.com and log in with Google (use a fresh account!)",
                         "Open DevTools or inspect the page",
@@ -1138,19 +1261,24 @@ private fun ConnectionsSection(settings: SettingsEntity, theme: ZStreamTheme, vm
                         "Copy the 'ui' cookie's value.",
                         "Close the tab, but do NOT logout!",
                     )
-                    steps.forEachIndexed { i, step ->
-                        Spacer(Modifier.height(2.dp))
-                        Text(
-                            "${i + 1}. $step",
-                            color = theme.colors.type.text, fontSize = 11.sp, lineHeight = 16.sp,
-                        )
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        steps.forEachIndexed { i, step ->
+                            Text(
+                                "${i + 1}. $step",
+                                color = theme.colors.type.text,
+                                fontSize = 11.sp,
+                                lineHeight = 16.sp,
+                            )
+                        }
                     }
                 }
 
                 HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
 
-                Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-                    Text("Token", color = theme.colors.type.text, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                ZsBottomSheetSectionCard(
+                    title = "Token",
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                ) {
                     Spacer(Modifier.height(8.dp))
                     var tokenVisible by remember { mutableStateOf(false) }
                     val febboxValue = settings.febboxKey ?: ""
@@ -1198,8 +1326,10 @@ private fun ConnectionsSection(settings: SettingsEntity, theme: ZStreamTheme, vm
         Spacer(Modifier.height(16.dp))
         SectionLabel("External Services", theme)
         SettingsCard(theme) {
-            Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-                Text("TheIntroDB", color = theme.colors.type.text, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            ZsBottomSheetSectionCard(
+                title = "TheIntroDB (optional)",
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            ) {
                 Spacer(Modifier.height(4.dp))
                 Text(
                     "Add your TheIntroDB API key to submit new skip segments from the player.",
@@ -1284,10 +1414,16 @@ private fun ConnectionsSection(settings: SettingsEntity, theme: ZStreamTheme, vm
                         }
                     }
                     TidbValidationState.Valid -> {
-                        Text("Key accepted by TheIntroDB.", color = theme.colors.type.success, fontSize = 11.sp)
+                        ZsStatusBanner(
+                            message = "Key accepted by TheIntroDB.",
+                            variant = ZsStatusBannerVariant.Success,
+                        )
                     }
                     is TidbValidationState.Invalid -> {
-                        Text(state.message, color = theme.colors.type.danger, fontSize = 11.sp)
+                        ZsStatusBanner(
+                            message = state.message,
+                            variant = ZsStatusBannerVariant.Error,
+                        )
                     }
                 }
             }

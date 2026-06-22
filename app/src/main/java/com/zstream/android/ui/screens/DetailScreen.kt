@@ -43,7 +43,6 @@ import kotlinx.coroutines.launch
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -64,6 +63,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
@@ -76,8 +76,15 @@ import com.zstream.android.data.model.CastMember
 import com.zstream.android.data.model.Episode
 import com.zstream.android.data.model.MovieDetail
 import com.zstream.android.data.model.TvDetail
+import com.zstream.android.data.model.airedEpisodes
 import com.zstream.android.theme.LocalZStreamTheme
 import com.zstream.android.theme.ZStreamTheme
+import com.zstream.android.ui.components.themed.ZsBottomSheetSectionHeader
+import com.zstream.android.ui.components.themed.ZsChip
+import com.zstream.android.ui.components.themed.ZsChipVariant
+import com.zstream.android.ui.components.themed.ZsStatusBanner
+import com.zstream.android.ui.components.themed.ZsStatusBannerVariant
+import com.zstream.android.ui.navigation.rememberSafeNavigateBack
 
 private fun String.encode() = java.net.URLEncoder.encode(this, "UTF-8").replace("+", "%20")
 
@@ -85,6 +92,8 @@ private fun String.encode() = java.net.URLEncoder.encode(this, "UTF-8").replace(
 fun DetailScreen(nav: NavController, vm: DetailViewModel = hiltViewModel()) {
     val state by vm.state.collectAsState()
     val theme = LocalZStreamTheme.current
+    val scope = rememberCoroutineScope()
+    val onBack = rememberSafeNavigateBack(nav, scope)
     val context = androidx.compose.ui.platform.LocalContext.current
     val bookmarkRepo = EntryPointAccessors.fromApplication(
         context.applicationContext,
@@ -97,20 +106,24 @@ fun DetailScreen(nav: NavController, vm: DetailViewModel = hiltViewModel()) {
 
     when (val s = state) {
         is DetailState.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator()
+            CircularProgressIndicator(color = theme.colors.global.accentA)
         }
         is DetailState.Error -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(s.message, color = MaterialTheme.colorScheme.error)
+                ZsStatusBanner(
+                    message = s.message,
+                    variant = ZsStatusBannerVariant.Error,
+                    modifier = Modifier.padding(horizontal = 20.dp),
+                )
                 Spacer(Modifier.height(12.dp))
                 Button(onClick = vm::load) { Text("Retry") }
             }
         }
         is DetailState.Movie -> {
-            MovieDetailModal(s, nav, context, theme, bookmarkRepo, hasProgress)
+            MovieDetailModal(s, nav, context, theme, bookmarkRepo, hasProgress, onBack)
         }
         is DetailState.Tv -> {
-            TvDetailModal(s, vm, nav, context, theme, bookmarkRepo, hasProgress, progress, allProgress)
+            TvDetailModal(s, vm, nav, context, theme, bookmarkRepo, hasProgress, progress, allProgress, onBack)
         }
     }
 }
@@ -123,7 +136,8 @@ fun MovieDetailModal(
     context: android.content.Context, 
     theme: com.zstream.android.theme.ZStreamTheme,
     bookmarkRepo: com.zstream.android.data.BookmarkRepository,
-    hasProgress: Boolean
+    hasProgress: Boolean,
+    onBack: () -> Unit,
 ) {
     val d = state.detail
     SharedDetailSheetScaffold(
@@ -134,7 +148,7 @@ fun MovieDetailModal(
         year = d.releaseDate?.take(4),
         rating = d.voteAverage?.let { String.format("%.1f", it) },
         theme = theme,
-        onClose = { nav.popBackStack() },
+        onClose = onBack,
         modifier = Modifier.background(theme.colors.background.main)
     ) {
         SharedMovieDetailContent(
@@ -145,14 +159,17 @@ fun MovieDetailModal(
         ) {
             Button(
                 onClick = { nav.navigate("player/movie/${d.id}?title=${d.title.encode()}&year=${d.releaseDate?.take(4)?.toIntOrNull() ?: 0}&poster=${d.posterPath?.encode() ?: ""}") },
-                colors = ButtonDefaults.buttonColors(containerColor = theme.colors.buttons.primary),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = theme.colors.buttons.purple,
+                    contentColor = theme.colors.type.emphasis,
+                ),
                 border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.type.divider.copy(alpha = 0.3f)),
                 shape = RoundedCornerShape(6.dp),
                 modifier = Modifier.widthIn(min = 120.dp)
             ) {
-                Icon(Icons.Filled.PlayArrow, null, tint = theme.colors.buttons.primaryText)
+                Icon(Icons.Filled.PlayArrow, null, tint = theme.colors.type.emphasis)
                 Spacer(Modifier.width(6.dp))
-                Text(if (hasProgress) "Resume" else "Play", color = theme.colors.buttons.primaryText)
+                Text(if (hasProgress) "Resume" else "Play", color = theme.colors.type.emphasis)
             }
             SharedActionPill(Icons.Filled.Share, theme) {
                 openShareSheet(context, d.title, d.id, "movie")
@@ -179,6 +196,7 @@ private fun TvDetailModal(
     hasProgress: Boolean,
     progress: com.zstream.android.data.local.entity.ProgressEntity?,
     allProgress: List<com.zstream.android.data.local.entity.ProgressEntity>,
+    onBack: () -> Unit,
 ) {
     val d = state.detail
     SharedDetailSheetScaffold(
@@ -189,7 +207,7 @@ private fun TvDetailModal(
         year = d.firstAirDate?.take(4),
         rating = d.voteAverage?.let { String.format("%.1f", it) },
         theme = theme,
-        onClose = { nav.popBackStack() },
+        onClose = onBack,
         modifier = Modifier.background(theme.colors.background.main)
     ) {
         SharedTvDetailContent(
@@ -203,6 +221,11 @@ private fun TvDetailModal(
                 vm.selectSeason(seasonNumber)
             },
         ) {
+            val label = if (hasProgress && progress != null) {
+                val sNum = progress.seasonNumber
+                val eNum = progress.episodeNumber
+                if (sNum != null && eNum != null) "Resume S${sNum}:E${eNum}" else "Resume"
+            } else "Play"
             Button(
                 onClick = {
                     if (hasProgress && progress != null) {
@@ -210,25 +233,23 @@ private fun TvDetailModal(
                         val eNum = progress.episodeNumber ?: 1
                         nav.navigate("player/tv/${d.id}?season=$sNum&episode=$eNum&title=${d.name.encode()}&year=${d.firstAirDate?.take(4)?.toIntOrNull() ?: 0}&poster=${d.posterPath?.encode() ?: ""}")
                     } else {
-                        val firstEp = state.selectedSeason?.episodes?.firstOrNull()
+                        val firstEp = state.selectedSeason?.episodes?.airedEpisodes()?.firstOrNull()
                         if (firstEp != null) {
                             nav.navigate("player/tv/${d.id}?season=${firstEp.seasonNumber}&episode=${firstEp.episodeNumber}&title=${d.name.encode()}&year=${d.firstAirDate?.take(4)?.toIntOrNull() ?: 0}&poster=${d.posterPath?.encode() ?: ""}")
                         }
                     }
                 },
-                colors = ButtonDefaults.buttonColors(containerColor = theme.colors.buttons.primary),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = theme.colors.buttons.purple,
+                    contentColor = theme.colors.type.emphasis,
+                ),
                 border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.type.divider.copy(alpha = 0.3f)),
                 shape = RoundedCornerShape(6.dp),
                 modifier = Modifier.widthIn(min = 120.dp)
             ) {
-                Icon(Icons.Filled.PlayArrow, null, tint = theme.colors.buttons.primaryText)
+                Icon(Icons.Filled.PlayArrow, null, tint = theme.colors.type.emphasis)
                 Spacer(Modifier.width(6.dp))
-                val label = if (hasProgress && progress != null) {
-                    val sNum = progress.seasonNumber
-                    val eNum = progress.episodeNumber
-                    if (sNum != null && eNum != null) "Resume S${sNum}:E${eNum}" else "Resume"
-                } else "Play"
-                Text(label, color = theme.colors.buttons.primaryText)
+                Text(label, color = theme.colors.type.emphasis)
             }
             SharedActionPill(Icons.Filled.Share, theme) {
                 openShareSheet(context, d.name, d.id, "tv")
@@ -288,12 +309,12 @@ internal fun SharedEpisodeRow(
                         .align(Alignment.TopStart)
                         .padding(6.dp)
                         .clip(RoundedCornerShape(4.dp))
-                        .background(Color(0xFF2D2D3D))
+                        .background(theme.colors.mediaCard.badge)
                         .padding(horizontal = 6.dp, vertical = 1.dp)
                 ) {
                     Text(
                         "E${ep.episodeNumber}",
-                        color = Color(0xFFC4C4D4),
+                        color = theme.colors.mediaCard.badgeText,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold
                     )
@@ -314,20 +335,33 @@ internal fun SharedEpisodeRow(
                 ep.overview?.takeIf { it.isNotBlank() }?.let { desc ->
                     Spacer(Modifier.height(4.dp))
                     var expanded by remember { mutableStateOf(false) }
+                    var canExpand by remember(desc) { mutableStateOf(false) }
+                    val collapsedLines = 3
                     Box(
                         Modifier
                             .fillMaxWidth()
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null
-                            ) { expanded = !expanded }
+                            .let { modifier ->
+                                if (canExpand) {
+                                    modifier.clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null
+                                    ) { expanded = !expanded }
+                                } else {
+                                    modifier
+                                }
+                            }
                     ) {
                         Text(
                             desc,
-                            maxLines = if (expanded) Int.MAX_VALUE else 3,
+                            maxLines = if (expanded) Int.MAX_VALUE else collapsedLines,
                             overflow = TextOverflow.Ellipsis,
                             style = MaterialTheme.typography.bodySmall,
-                            color = theme.colors.type.text
+                            color = theme.colors.type.text,
+                            onTextLayout = { layoutResult: TextLayoutResult ->
+                                if (!expanded) {
+                                    canExpand = layoutResult.hasVisualOverflow
+                                }
+                            }
                         )
                     }
                     Spacer(Modifier.height(4.dp))
@@ -341,14 +375,14 @@ internal fun SharedEpisodeRow(
                     .fillMaxWidth()
                     .height(4.dp)
                     .align(Alignment.BottomCenter)
-                    .background(Color(0xFF8D8D8D).copy(alpha = 0.25f))
+                    .background(theme.colors.progress.background.copy(alpha = 0.25f))
             ) {
                 Box(
                     Modifier
                         .fillMaxWidth(fraction = pct / 100f)
                         .height(4.dp)
                         .align(Alignment.CenterStart)
-                        .background(Color(0xFF5A62EB))
+                        .background(theme.colors.progress.filled)
                 )
             }
         }
@@ -377,26 +411,10 @@ private fun CastRow(cast: List<CastMember>, theme: com.zstream.android.theme.ZSt
 }
 
 @Composable
-private fun SectionHeader(title: String, theme: com.zstream.android.theme.ZStreamTheme) {
-    Text(title, modifier = Modifier.padding(start = 32.dp, end = 32.dp, top = 18.dp, bottom = 0.dp), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = theme.colors.type.emphasis)
-}
-
-@Composable
 private fun DetailSpec(label: String, value: String, theme: com.zstream.android.theme.ZStreamTheme) {
     Column {
         Text(label, style = MaterialTheme.typography.labelMedium, color = theme.colors.type.secondary)
         Text(value, style = MaterialTheme.typography.bodyMedium, color = theme.colors.type.emphasis)
-    }
-}
-
-@Composable
-private fun GenreChip(label: String, theme: com.zstream.android.theme.ZStreamTheme) {
-    Surface(
-        color = theme.colors.type.text.copy(alpha = 0.08f),
-        shape = RoundedCornerShape(4.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.type.divider.copy(alpha = 0.15f))
-    ) {
-        Text(label, modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp), style = MaterialTheme.typography.labelMedium, color = theme.colors.type.text)
     }
 }
 
@@ -489,7 +507,11 @@ private fun ActionPill(
 @Composable
 private fun TrailerGrid(trailers: List<com.zstream.android.data.model.TrailerData>, theme: com.zstream.android.theme.ZStreamTheme, context: android.content.Context) {
     if (trailers.isEmpty()) {
-        Text("No trailers available", modifier = Modifier.padding(horizontal = 32.dp, vertical = 12.dp), color = theme.colors.type.secondary)
+        ZsStatusBanner(
+            message = "No trailers available",
+            variant = ZsStatusBannerVariant.Info,
+            modifier = Modifier.padding(horizontal = 32.dp, vertical = 12.dp),
+        )
         return
     }
     
@@ -520,7 +542,11 @@ private fun TrailerGrid(trailers: List<com.zstream.android.data.model.TrailerDat
 @Composable
 private fun SimilarMoviesGrid(similar: List<com.zstream.android.data.model.Media>, theme: com.zstream.android.theme.ZStreamTheme, nav: NavController) {
     if (similar.isEmpty()) {
-        Text("No similar movies available", modifier = Modifier.padding(horizontal = 32.dp, vertical = 12.dp), color = theme.colors.type.secondary)
+        ZsStatusBanner(
+            message = "No similar movies available",
+            variant = ZsStatusBannerVariant.Info,
+            modifier = Modifier.padding(horizontal = 32.dp, vertical = 12.dp),
+        )
         return
     }
     

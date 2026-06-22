@@ -7,7 +7,12 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.google.gson.Gson
+import com.google.gson.JsonSyntaxException
+import com.zstream.android.data.local.entity.CustomThemeSettings
+import com.zstream.android.data.local.entity.SavedCustomTheme
 import com.zstream.android.data.local.entity.SettingsEntity
+import com.zstream.android.data.local.entity.ThemeColors
 import com.zstream.android.di.TmdbTokenCache
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
@@ -26,8 +31,11 @@ private val Context.settingsStore by preferencesDataStore("app_settings")
 class SettingsPreferences @Inject constructor(
     @ApplicationContext private val context: Context,
 ) {
+    private val gson = Gson()
+
     // UI/Display Settings
     private val KEY_APPLICATION_THEME = stringPreferencesKey("application_theme")
+    private val KEY_CUSTOM_THEME = stringPreferencesKey("custom_theme")
     private val KEY_APPLICATION_LANGUAGE = stringPreferencesKey("application_language")
     private val KEY_ENABLE_THUMBNAILS = booleanPreferencesKey("enable_thumbnails")
     private val KEY_ENABLE_IMAGE_LOGOS = booleanPreferencesKey("enable_image_logos")
@@ -101,7 +109,8 @@ class SettingsPreferences @Inject constructor(
      */
     val settings: Flow<SettingsEntity> = context.settingsStore.data.map { prefs ->
         SettingsEntity(
-            applicationTheme = prefs[KEY_APPLICATION_THEME] ?: "dark",
+            applicationTheme = prefs[KEY_APPLICATION_THEME] ?: "default",
+            customTheme = decodeCustomTheme(prefs[KEY_CUSTOM_THEME]),
             applicationLanguage = prefs[KEY_APPLICATION_LANGUAGE] ?: "en",
             defaultSubtitleLanguage = prefs[KEY_DEFAULT_SUBTITLE_LANGUAGE],
             enableThumbnails = prefs[KEY_ENABLE_THUMBNAILS] ?: true,
@@ -165,6 +174,11 @@ class SettingsPreferences @Inject constructor(
     suspend fun updateSettings(entity: SettingsEntity, syncToRemote: Boolean = true) {
         context.settingsStore.edit { prefs ->
             prefs[KEY_APPLICATION_THEME] = entity.applicationTheme
+            if (entity.customTheme != null) {
+                prefs[KEY_CUSTOM_THEME] = gson.toJson(entity.customTheme)
+            } else {
+                prefs.remove(KEY_CUSTOM_THEME)
+            }
             prefs[KEY_APPLICATION_LANGUAGE] = entity.applicationLanguage
             if (entity.defaultSubtitleLanguage != null) {
                 prefs[KEY_DEFAULT_SUBTITLE_LANGUAGE] = entity.defaultSubtitleLanguage
@@ -277,7 +291,8 @@ class SettingsPreferences @Inject constructor(
             } ?: emptyList()
 
             updateSettings(SettingsEntity(
-                applicationTheme = remote.applicationTheme ?: "dark",
+                applicationTheme = remote.applicationTheme ?: "default",
+                customTheme = remote.customTheme?.toEntity(),
                 applicationLanguage = remote.applicationLanguage ?: "en",
                 defaultSubtitleLanguage = remote.defaultSubtitleLanguage,
                 enableThumbnails = remote.enableThumbnails ?: true,
@@ -341,6 +356,16 @@ class SettingsPreferences @Inject constructor(
     suspend fun setApplicationTheme(theme: String) {
         context.settingsStore.edit { prefs ->
             prefs[KEY_APPLICATION_THEME] = theme
+        }
+    }
+
+    suspend fun setCustomTheme(customTheme: CustomThemeSettings?) {
+        context.settingsStore.edit { prefs ->
+            if (customTheme == null) {
+                prefs.remove(KEY_CUSTOM_THEME)
+            } else {
+                prefs[KEY_CUSTOM_THEME] = gson.toJson(customTheme)
+            }
         }
     }
 
@@ -598,4 +623,40 @@ class SettingsPreferences @Inject constructor(
             }
         }
     }
+
+    private fun decodeCustomTheme(raw: String?): CustomThemeSettings? {
+        if (raw.isNullOrBlank()) return null
+        return try {
+            gson.fromJson(raw, CustomThemeSettings::class.java)
+        } catch (_: JsonSyntaxException) {
+            null
+        }
+    }
 }
+
+private fun com.zstream.android.data.remote.CustomThemeSettingsResponse.toEntity(): CustomThemeSettings =
+    CustomThemeSettings(
+        primary = primary,
+        secondary = secondary,
+        tertiary = tertiary,
+        activeTheme = activeTheme?.let {
+            ThemeColors(
+                primary = it.primary,
+                secondary = it.secondary,
+                tertiary = it.tertiary,
+            )
+        },
+        savedCustomThemes = savedCustomThemes?.map { saved ->
+            SavedCustomTheme(
+                id = saved.id,
+                name = saved.name,
+                primary = saved.primary,
+                secondary = saved.secondary,
+                tertiary = saved.tertiary,
+                customPrimaryHex = saved.customPrimaryHex,
+                customSecondaryHex = saved.customSecondaryHex,
+                customTertiaryHex = saved.customTertiaryHex,
+            )
+        } ?: emptyList(),
+        hiddenDefaultThemes = hiddenDefaultThemes ?: emptyList(),
+    )
