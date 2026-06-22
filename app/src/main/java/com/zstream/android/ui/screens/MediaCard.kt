@@ -23,12 +23,25 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.zstream.android.data.model.Media
 import com.zstream.android.theme.LocalZStreamTheme
+import androidx.compose.runtime.compositionLocalOf
 
 // Match p-stream bar colors
 private val ProgressTrack = Color(0xFF4A4A5A)
 private val ProgressFill = Color(0xFFA78BFA)
 private val BadgeBg = Color(0xFF2D2D3D)
 private val BadgeText = Color(0xFFC4C4D4)
+
+
+typealias MediaCardComponent = @Composable (
+    media: Media,
+    onClick: () -> Unit,
+    percentage: Float?,
+    seriesLabel: String?
+) -> Unit
+
+val LocalMediaCard = compositionLocalOf<MediaCardComponent> {
+    { m, o, p, s -> MediaCardStandard(m, o, p, s) }
+}
 
 @Composable
 fun MediaCard(
@@ -37,7 +50,7 @@ fun MediaCard(
     percentage: Float? = null,
     seriesLabel: String? = null,
 ) {
-    com.zstream.android.theme.LocalMediaCard.current(media, onClick, percentage, seriesLabel)
+    LocalMediaCard.current(media, onClick, percentage, seriesLabel)
 }
 @Composable
 fun MediaCardStandard(
