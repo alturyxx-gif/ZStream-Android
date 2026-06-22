@@ -21,6 +21,9 @@ import com.zstream.android.ui.screens.MediaCardMinimal
 import com.zstream.android.ui.screens.MediaCardStandard
 import com.zstream.android.theme.LocalMediaCard
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.CompositionLocalProvider
+import kotlinx.coroutines.flow.map
 
 private val Lato = FontFamily(
     Font(R.font.lato_light, weight = FontWeight.Light),
@@ -62,21 +65,27 @@ private val AppTypography = with(Typography()) {
     )
 }
 
+/**
+ * Settings can be passed through here to avoid Prop Drilling
+ * see enableminimalcards code as example
+ */
+
 @Composable
 fun ZStreamTheme(content: @Composable () -> Unit) {
     val themeVm: ThemeViewModel = viewModel()
     val currentTheme = themeVm.currentTheme.value
     val settingsVm: SettingsViewModel = hiltViewModel()
-    val settings by settingsVm.settings.collectAsState()
-    val cardImplementation = if (settings.enableMinimalCards) {
-        ::MediaCardMinimal
-    } else {
-        ::MediaCardStandard
+        // apparently if u call ZStreamTheme in a @Preview this crashes it but idk how to fix it cleanly and easily
+        // dont think its worth it to figure out, it seems like u dont use it anyway
+    val useMinimalCards by remember(settingsVm) {
+        settingsVm.settings.map { it.enableMinimalCards } //takes value from settings
+    }.collectAsState(initial = false)
+    val cardImplementation = remember(useMinimalCards) {
+        if (useMinimalCards) ::MediaCardMinimal else ::MediaCardStandard // picks which card to use
     }
     
-    androidx.compose.runtime.CompositionLocalProvider(
+    CompositionLocalProvider(
         LocalZStreamTheme provides currentTheme,
-        //LocalSettings provides settings, //unused rn but maybe useful for passing other settings ill see
         LocalMediaCard provides cardImplementation
     ) {
         MaterialTheme(

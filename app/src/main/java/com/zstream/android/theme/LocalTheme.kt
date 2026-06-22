@@ -3,14 +3,12 @@ package com.zstream.android.theme
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.compositionLocalOf
-import com.zstream.android.data.local.entity.SettingsEntity
 import com.zstream.android.data.model.Media
 import com.zstream.android.ui.screens.MediaCardStandard
 
 val LocalZStreamTheme = staticCompositionLocalOf<ZStreamTheme> {
     error("ZStreamTheme not provided")
 }
-//val LocalSettings = compositionLocalOf { SettingsEntity() } //unused rn but maybe useful for passing other settings ill see
 
 typealias MediaCardComponent = @Composable (
     media: Media,
