@@ -4,16 +4,23 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.zstream.android.R
 import com.zstream.android.theme.LocalZStreamTheme
 import com.zstream.android.theme.ThemeViewModel
+import com.zstream.android.ui.screens.SettingsViewModel
+import com.zstream.android.ui.screens.MediaCardMinimal
+import com.zstream.android.ui.screens.MediaCardStandard
+import com.zstream.android.theme.LocalMediaCard
+import androidx.compose.runtime.getValue
 
 private val Lato = FontFamily(
     Font(R.font.lato_light, weight = FontWeight.Light),
@@ -59,9 +66,18 @@ private val AppTypography = with(Typography()) {
 fun ZStreamTheme(content: @Composable () -> Unit) {
     val themeVm: ThemeViewModel = viewModel()
     val currentTheme = themeVm.currentTheme.value
+    val settingsVm: SettingsViewModel = hiltViewModel()
+    val settings by settingsVm.settings.collectAsState()
+    val cardImplementation = if (settings.enableMinimalCards) {
+        ::MediaCardMinimal
+    } else {
+        ::MediaCardStandard
+    }
     
     androidx.compose.runtime.CompositionLocalProvider(
-        LocalZStreamTheme provides currentTheme
+        LocalZStreamTheme provides currentTheme,
+        //LocalSettings provides settings, //unused rn but maybe useful for passing other settings ill see
+        LocalMediaCard provides cardImplementation
     ) {
         MaterialTheme(
             colorScheme = ColorScheme,
