@@ -29,6 +29,7 @@ import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import com.zstream.android.Urls
 import com.zstream.android.theme.LocalZStreamTheme
+import com.zstream.android.ui.navigation.rememberSafeNavigateBack
 
 /** Mirrors p-stream shouldShowProgress: watched>=20s AND not within 120s of end */
 private fun shouldShowProgress(p: com.zstream.android.data.local.entity.ProgressEntity): Boolean {
@@ -51,6 +52,8 @@ fun WatchHistoryScreen(nav: NavController) {
     val activity = LocalActivity.current as ComponentActivity
     val accountVm: AccountViewModel = hiltViewModel(activity)
     val theme = LocalZStreamTheme.current
+    val scope = rememberCoroutineScope()
+    val onBack = rememberSafeNavigateBack(nav, scope)
     val progressList by accountVm.progress.collectAsState()
 
     val items = remember(progressList) {
@@ -67,7 +70,7 @@ fun WatchHistoryScreen(nav: NavController) {
             Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 48.dp, bottom = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = { nav.popBackStack() }) {
+            IconButton(onClick = onBack) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = Color.White)
             }
             Spacer(Modifier.width(8.dp))

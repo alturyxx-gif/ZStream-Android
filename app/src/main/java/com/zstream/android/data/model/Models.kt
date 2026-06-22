@@ -2,6 +2,9 @@ package com.zstream.android.data.model
 
 import com.google.gson.annotations.SerializedName
 import com.zstream.android.Urls
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 data class Media(
     val id: Int,
@@ -123,6 +126,17 @@ data class Episode(
     val overview: String?,
     @SerializedName("air_date") val airDate: String?,
 )
+
+private fun todayIsoDate(): String =
+    SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+
+fun Episode.hasAired(todayIsoDate: String = todayIsoDate()): Boolean {
+    val date = airDate?.takeIf { it.isNotBlank() } ?: return true
+    return date <= todayIsoDate
+}
+
+fun List<Episode>.airedEpisodes(todayIsoDate: String = todayIsoDate()): List<Episode> =
+    filter { it.hasAired(todayIsoDate) }
 
 data class Credits(val cast: List<CastMember>?)
 

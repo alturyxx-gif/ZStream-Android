@@ -88,6 +88,7 @@ data class BookmarkInput(
 
 data class SettingsResponse(
     val applicationTheme: String? = null,
+    val customTheme: CustomThemeSettingsResponse? = null,
     val applicationLanguage: String? = null,
     val defaultSubtitleLanguage: String? = null,
     val proxyUrls: List<String>? = null,
@@ -122,6 +123,32 @@ data class SettingsResponse(
     val enableEmbedOrder: Boolean? = null,
     val proxyTmdb: Boolean? = null,
     val homeSectionOrder: List<String>? = null,
+)
+
+data class CustomThemeSettingsResponse(
+    val primary: String? = null,
+    val secondary: String? = null,
+    val tertiary: String? = null,
+    val activeTheme: ThemeTripletResponse? = null,
+    val savedCustomThemes: List<SavedCustomThemeResponse>? = null,
+    val hiddenDefaultThemes: List<String>? = null,
+)
+
+data class ThemeTripletResponse(
+    val primary: String,
+    val secondary: String,
+    val tertiary: String,
+)
+
+data class SavedCustomThemeResponse(
+    val id: String,
+    val name: String,
+    val primary: String,
+    val secondary: String,
+    val tertiary: String,
+    val customPrimaryHex: String? = null,
+    val customSecondaryHex: String? = null,
+    val customTertiaryHex: String? = null,
 )
 
 //  Retrofit service 

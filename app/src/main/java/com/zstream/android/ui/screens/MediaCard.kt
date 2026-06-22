@@ -25,24 +25,6 @@ import com.zstream.android.data.model.Media
 import com.zstream.android.theme.LocalZStreamTheme
 import androidx.compose.runtime.compositionLocalOf
 
-// Match p-stream bar colors
-private val ProgressTrack = Color(0xFF4A4A5A)
-private val ProgressFill = Color(0xFFA78BFA)
-private val BadgeBg = Color(0xFF2D2D3D)
-private val BadgeText = Color(0xFFC4C4D4)
-
-
-typealias MediaCardComponent = @Composable (
-    media: Media,
-    onClick: () -> Unit,
-    percentage: Float?,
-    seriesLabel: String?
-) -> Unit
-
-val LocalMediaCard = compositionLocalOf<MediaCardComponent> {
-    { m, o, p, s -> MediaCardStandard(m, o, p, s) }
-}
-
 @Composable
 fun MediaCard(
     media: Media,
@@ -100,7 +82,10 @@ fun MediaCardStandard(
                         .matchParentSize()
                         .background(
                             Brush.verticalGradient(
-                                colors = listOf(Color.Transparent, Color(0x80000000))
+                                colors = listOf(
+                                    Color.Transparent,
+                                    theme.colors.mediaCard.hoverShadow.copy(alpha = 0.5f),
+                                )
                             )
                         )
                 )
@@ -113,12 +98,12 @@ fun MediaCardStandard(
                         .align(Alignment.TopEnd)
                         .padding(6.dp)
                         .clip(RoundedCornerShape(4.dp))
-                        .background(BadgeBg)
+                        .background(theme.colors.mediaCard.badge)
                         .padding(horizontal = 6.dp, vertical = 0.dp),
                 ) {
                     Text(
                         text = seriesLabel,
-                        color = BadgeText,
+                        color = theme.colors.mediaCard.badgeText,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
                     )
@@ -138,13 +123,13 @@ fun MediaCardStandard(
                             .fillMaxWidth()
                             .height(3.dp) // Thickness of the progress bar
                             .clip(RoundedCornerShape(2.dp))
-                            .background(ProgressTrack)
+                            .background(theme.colors.progress.background)
                     ) {
                         Box(
                             modifier = Modifier
                                 .fillMaxHeight()
                                 .fillMaxWidth(percentage / 100f)
-                                .background(ProgressFill, RoundedCornerShape(1.dp))
+                                .background(theme.colors.progress.filled, RoundedCornerShape(1.dp))
                         )
                     }
                 }
