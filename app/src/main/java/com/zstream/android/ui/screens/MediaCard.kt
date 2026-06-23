@@ -25,6 +25,17 @@ import com.zstream.android.data.model.Media
 import com.zstream.android.theme.LocalZStreamTheme
 import androidx.compose.runtime.compositionLocalOf
 
+typealias MediaCardComponent = @Composable (
+    media: Media,
+    onClick: () -> Unit,
+percentage: Float?,
+seriesLabel: String?
+) -> Unit
+
+val LocalMediaCard = compositionLocalOf<MediaCardComponent> {
+    { m, o, p, s -> MediaCardStandard(m, o, p, s) }
+}
+
 @Composable
 fun MediaCard(
     media: Media,
@@ -238,12 +249,12 @@ fun MediaCardMinimal(
                         .align(Alignment.TopEnd)
                         .padding(6.dp)
                         .clip(RoundedCornerShape(4.dp))
-                        .background(BadgeBg)
+                        .background(theme.colors.mediaCard.badge)
                         .padding(horizontal = 6.dp, vertical = 0.dp),
                 ) {
                     Text(
                         text = seriesLabel,
-                        color = BadgeText,
+                        color = theme.colors.mediaCard.badgeText,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
                     )
@@ -263,13 +274,13 @@ fun MediaCardMinimal(
                             .fillMaxWidth()
                             .height(3.dp) // Thickness of the progress bar
                             .clip(RoundedCornerShape(2.dp))
-                            .background(ProgressTrack)
+                            .background(theme.colors.progress.background)
                     ) {
                         Box(
                             modifier = Modifier
                                 .fillMaxHeight()
                                 .fillMaxWidth(percentage / 100f)
-                                .background(ProgressFill, RoundedCornerShape(1.dp))
+                                .background(theme.colors.progress.filled, RoundedCornerShape(1.dp))
                         )
                     }
                 }

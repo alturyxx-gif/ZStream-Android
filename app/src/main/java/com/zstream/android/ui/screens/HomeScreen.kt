@@ -2020,7 +2020,7 @@ private fun FeaturedCarousel(
                                 )
                                 Text(
                                     String.format(Locale.US, "%.1f", current.voteAverage ?: 0.0),
-                                    color = theme.colors.type.emphasis,
+                                    color = Color.White,
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
                                     style = LocalTextStyle.current.copy(shadow = featuredCarouselTextShadow())
@@ -2028,20 +2028,20 @@ private fun FeaturedCarousel(
                             }
 
                             if (year.isNotEmpty()) {
-                                Text("•", color = theme.colors.type.secondary.copy(alpha = 0.7f))
+                                Text("•", color = Color.White.copy(alpha = 0.7f))
                                 Text(
                                     year,
-                                    color = theme.colors.type.secondary,
+                                    color = Color.White,
                                     fontSize = 11.sp,
                                     style = LocalTextStyle.current.copy(shadow = featuredCarouselTextShadow())
                                 )
                             }
 
                             val typeLabel = if (type == "tv") "TV Show" else "Movie"
-                            Text("•", color = theme.colors.type.secondary.copy(alpha = 0.7f))
+                            Text("•", color = Color.White.copy(alpha = 0.7f))
                             Text(
                                 typeLabel,
-                                color = theme.colors.type.secondary,
+                                color = Color.White,
                                 fontSize = 11.sp,
                                 style = LocalTextStyle.current.copy(shadow = featuredCarouselTextShadow())
                             )

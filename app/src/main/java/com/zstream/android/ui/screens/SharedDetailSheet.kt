@@ -99,7 +99,7 @@ internal fun SharedDetailSheetScaffold(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(vertical = 14.dp)
+                            .offset(y = (-20).dp)
                     ) {
                         content()
                         Spacer(Modifier.height(DETAIL_SHEET_BOTTOM_SPACER))
