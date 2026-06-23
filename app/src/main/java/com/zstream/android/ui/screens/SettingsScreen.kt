@@ -521,6 +521,25 @@ private fun AppearanceSection(settings: SettingsEntity, theme: ZStreamTheme, vm:
                 onCheckedChange = vm::setEnableCarouselView,
                 modifier = Modifier.padding(horizontal = 16.dp),
             )
+            AnimatedVisibility(
+                visible = !settings.enableCarouselView,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut()
+            ) {
+                Column {
+                    HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
+                    SliderRow(
+                        label = "Number of rows in the grid",
+                        value = settings.gridRows.toFloat(),
+                        rangeStart = 1f,
+                        rangeEnd = 8f,
+                        steps = 6,
+                        display = { it.toInt().toString() },
+                        onValueChange = { vm.setGridRows(it.toInt()) },
+                        theme = theme
+                    )
+                }
+            }
             HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
             ZsSwitchRow(
                 title = "Minimal Cards",
