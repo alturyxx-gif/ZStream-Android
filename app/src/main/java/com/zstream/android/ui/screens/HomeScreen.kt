@@ -25,6 +25,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.animation.AnimatedContent
@@ -97,6 +98,8 @@ import com.zstream.android.data.local.entity.ProgressEntity
 import com.zstream.android.data.local.preferences.UserPreferences
 import com.zstream.android.data.model.Media
 import com.zstream.android.theme.LocalZStreamTheme
+import com.zstream.android.ui.components.themed.ZsIconButton
+import com.zstream.android.ui.components.themed.ZsIconButtonVariant
 import kotlinx.coroutines.Dispatchers
 import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
@@ -116,6 +119,16 @@ import java.util.concurrent.TimeUnit
 private val rssDateFormat = SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss zzz", Locale.US)
 private val displayDateFormat = SimpleDateFormat("MMM d, yyyy, h:mm a", Locale.US)
 
+@Composable
+private fun featuredCarouselTextShadow(strong: Boolean = false): Shadow {
+    val theme = LocalZStreamTheme.current
+    return Shadow(
+        color = theme.colors.video.context.background.copy(alpha = if (strong) 0.6f else 0.5f),
+        offset = Offset(0f, if (strong) 4f else 2f),
+        blurRadius = if (strong) 8f else 4f,
+    )
+}
+
 private fun formatDate(pubDate: String): String {
     return try {
         val date = rssDateFormat.parse(pubDate) ?: return pubDate
@@ -133,6 +146,17 @@ private fun formatDate(pubDate: String): String {
     } catch (_: Exception) {
         pubDate
     }
+}
+
+private fun notificationCategoryColor(
+    theme: com.zstream.android.theme.ZStreamTheme,
+    category: String,
+): Color = when (category) {
+    "announcement" -> theme.colors.global.accentA
+    "feature" -> theme.colors.type.success
+    "update" -> theme.colors.dropdown.highlightHover
+    "bugfix" -> theme.colors.type.danger
+    else -> theme.colors.type.dimmed
 }
 
 private val defaultSectionOrder = listOf("continue_watching", "bookmarks")
@@ -399,7 +423,7 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
                                                     .padding(horizontal = 16.dp, vertical = 10.dp),
                                                 contentAlignment = Alignment.Center
                                             ) 
-                                            { Text("Load More", color = Color.White, fontSize = 18.sp) }
+                                            { Text("Load More", color = theme.colors.type.emphasis, fontSize = 18.sp) }
                                         } else {
                                             Box(
                                                 modifier = Modifier
@@ -408,7 +432,7 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
                                                     .padding(horizontal = 16.dp, vertical = 10.dp),
                                                 contentAlignment = Alignment.Center
                                             ) 
-                                            { Text("That's all we have...", color = Color.White, fontSize = 12.sp) }
+                                            { Text("That's all we have...", color = theme.colors.type.secondary, fontSize = 12.sp) }
                                         }
                                     }
                                 }
@@ -661,6 +685,7 @@ private data class Particle(val x: Float, val y: Float, val r: Float, val speed:
 
 @Composable
 private fun ParticleOverlay() {
+    val theme = LocalZStreamTheme.current
     val particles = remember {
         List(55) { Particle(Random.nextFloat(), Random.nextFloat(), Random.nextFloat() * 1.2f + 0.3f,
             Random.nextFloat() * 0.25f + 0.08f, Random.nextFloat() * 360f) }
@@ -686,7 +711,11 @@ private fun ParticleOverlay() {
             val cx = p.x * w + sin(p.phase + t).toFloat() * 6f
             val fadeStart = h * 0.7f
             val alpha = if (cy > fadeStart) 0.7f * (1f - (cy - fadeStart) / (h - fadeStart)) else 0.7f
-            drawCircle(Color.White.copy(alpha = alpha.coerceIn(0f, 1f)), p.r, Offset(cx, cy))
+            drawCircle(
+                theme.colors.type.emphasis.copy(alpha = alpha.coerceIn(0f, 1f)),
+                p.r,
+                Offset(cx, cy)
+            )
         }
     }
 }
@@ -786,14 +815,14 @@ private fun HeaderIconButton(
                 modifier = Modifier
                     .size(14.dp)
                     .clip(CircleShape)
-                    .background(Color(0xFFEF4444))
+                    .background(theme.colors.type.danger)
                     .align(Alignment.TopEnd)
                     .offset(x = 0.dp, y = (-5).dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
                     if (badgeCount > 99) "99+" else badgeCount.toString(),
-                    color = Color.White,
+                    color = theme.colors.type.emphasis,
                     fontSize = 7.sp,
                     fontWeight = FontWeight.Bold,
                 )
@@ -1119,14 +1148,20 @@ private fun LazyListScope.MediaGridPages(
             horizontalArrangement = Arrangement.spacedBy(24.dp, Alignment.CenterHorizontally),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = { if (clampedPage > 0) onPageChange(clampedPage - 1) }) {
-                Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, null, tint = Color.White, modifier = Modifier.size(32.dp))
-            }
+            ZsIconButton(
+                onClick = { if (clampedPage > 0) onPageChange(clampedPage - 1) },
+                icon = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                contentDescription = null,
+                variant = ZsIconButtonVariant.Ghost,
+                enabled = clampedPage > 0,
+                containerSize = 36.dp,
+                iconSize = 32.dp,
+            )
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .clip(RoundedCornerShape(8.dp))
-                    .background(Color.White.copy(alpha = 0.1f))
+                    .background(theme.colors.background.secondary.copy(alpha = 0.72f))
                     .padding(horizontal = 8.dp, vertical = 4.dp)
             ) {
                 BasicTextField(
@@ -1148,7 +1183,7 @@ private fun LazyListScope.MediaGridPages(
                         }
                     ),
                     textStyle = TextStyle(
-                        color = Color.White,
+                        color = theme.colors.type.emphasis,
                         textAlign = TextAlign.Center,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold
@@ -1158,14 +1193,20 @@ private fun LazyListScope.MediaGridPages(
                 )
                 Text(
                     text = " / $totalPages",
-                    color = Color.White,
+                    color = theme.colors.type.emphasis,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Bold
                 )
             }
-            IconButton(onClick = { if (clampedPage < totalPages - 1) onPageChange(clampedPage + 1) }) {
-                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = Color.White, modifier = Modifier.size(32.dp))
-            }
+            ZsIconButton(
+                onClick = { if (clampedPage < totalPages - 1) onPageChange(clampedPage + 1) },
+                icon = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = null,
+                variant = ZsIconButtonVariant.Ghost,
+                enabled = clampedPage < totalPages - 1,
+                containerSize = 36.dp,
+                iconSize = 32.dp,
+            )
         }
     }
 }
@@ -1233,9 +1274,14 @@ private fun LayoutMenuDialog(
             Column {
                 Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
                     Text("Edit Layout", color = theme.colors.type.emphasis, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                    IconButton(onClick = onDismiss, modifier = Modifier.size(24.dp)) {
-                        Icon(Icons.Default.Close, null, tint = theme.colors.type.dimmed, modifier = Modifier.size(16.dp))
-                    }
+                    ZsIconButton(
+                        onClick = onDismiss,
+                        icon = Icons.Default.Close,
+                        contentDescription = null,
+                        variant = ZsIconButtonVariant.Ghost,
+                        containerSize = 24.dp,
+                        iconSize = 16.dp,
+                    )
                 }
 
                 sections.forEachIndexed { index, section ->
@@ -1315,7 +1361,7 @@ private fun LayoutMenuDialog(
                                     onToggle(section.id, it)
                                 },
                                 colors = SwitchDefaults.colors(
-                                    checkedThumbColor = Color.White,
+                                    checkedThumbColor = theme.colors.type.emphasis,
                                     checkedTrackColor = theme.colors.global.accentA,
                                     uncheckedThumbColor = theme.colors.type.dimmed,
                                     uncheckedTrackColor = theme.colors.background.secondary,
@@ -1361,11 +1407,14 @@ private fun SandwichMenuDialog(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        Icon(Icons.Default.CheckCircle, null, tint = Color(0xFF4ADE80), modifier = Modifier.size(18.dp))
+                        Icon(Icons.Default.CheckCircle, null, tint = theme.colors.type.success, modifier = Modifier.size(18.dp))
                         Text("Synced: $displayName", color = theme.colors.type.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                     }
                 } else {
-                    SandwichItem(Icons.Default.Star, "Sync to Cloud", Color(0xFFD8C947), theme = theme) { nav.navigate("login"); onDismiss() }
+                    SandwichItem(Icons.Default.Star, "Sync to Cloud", theme = theme, tint = theme.colors.global.accentA) {
+                        nav.navigate("login")
+                        onDismiss()
+                    }
                 }
                 HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp), color = theme.colors.type.divider.copy(alpha = 0.15f))
                 SandwichItem(Icons.Default.Settings, "Settings", theme = theme) { nav.navigate("settings"); onDismiss() }
@@ -1503,20 +1552,14 @@ private fun NotificationsDialog(
                                 )
                             }
                         }
-                        Box(
-                            modifier = Modifier
-                                .size(32.dp)
-                                .clip(CircleShape)
-                                .background(Color.Black.copy(alpha = 0.75f))
-                                .border(1.dp, Color.White.copy(alpha = 0.15f), CircleShape)
-                                .clickable(onClick = onDismiss),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(
-                                Icons.Default.Close, null,
-                                tint = Color.White, modifier = Modifier.size(16.dp),
-                            )
-                        }
+                        ZsIconButton(
+                            onClick = onDismiss,
+                            icon = Icons.Default.Close,
+                            contentDescription = null,
+                            variant = ZsIconButtonVariant.Overlay,
+                            containerSize = 32.dp,
+                            iconSize = 16.dp,
+                        )
                     }
                     Spacer(Modifier.height(16.dp))
                     if (notifications.isEmpty()) {
@@ -1558,13 +1601,7 @@ private fun NotificationCard(
     onClick: () -> Unit,
     theme: com.zstream.android.theme.ZStreamTheme,
 ) {
-    val categoryColors = mapOf(
-        "announcement" to Color(0xFF3B82F6),
-        "feature" to Color(0xFF22C55E),
-        "update" to Color(0xFFEAB308),
-        "bugfix" to Color(0xFFEF4444),
-    )
-    val categoryColor = categoryColors[notif.category] ?: theme.colors.type.dimmed
+    val categoryColor = notificationCategoryColor(theme, notif.category)
 
     Column(
         modifier = Modifier
@@ -1628,40 +1665,29 @@ private fun NotificationDetailView(
     onDismiss: () -> Unit,
     theme: com.zstream.android.theme.ZStreamTheme,
 ) {
-    val categoryColors = mapOf(
-        "announcement" to Color(0xFF3B82F6),
-        "feature" to Color(0xFF22C55E),
-        "update" to Color(0xFFEAB308),
-        "bugfix" to Color(0xFFEF4444),
-    )
-    val categoryColor = categoryColors[notif.category] ?: theme.colors.type.dimmed
+    val categoryColor = notificationCategoryColor(theme, notif.category)
+    val uriHandler = LocalUriHandler.current
 
     Column(modifier = Modifier.padding(20.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                modifier = Modifier
-                    .size(32.dp)
-                    .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.75f))
-                    .border(1.dp, Color.White.copy(alpha = 0.15f), CircleShape)
-                    .clickable(onClick = onBack),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(Icons.Default.ArrowBack, null, tint = Color.White, modifier = Modifier.size(16.dp))
-            }
+            ZsIconButton(
+                onClick = onBack,
+                icon = Icons.AutoMirrored.Filled.ArrowBack,
+                contentDescription = null,
+                variant = ZsIconButtonVariant.Overlay,
+                containerSize = 32.dp,
+                iconSize = 16.dp,
+            )
             Spacer(Modifier.width(8.dp))
             Text("Notification", color = theme.colors.type.emphasis, fontWeight = FontWeight.Bold, fontSize = 15.sp, modifier = Modifier.weight(1f))
-            Box(
-                modifier = Modifier
-                    .size(32.dp)
-                    .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.75f))
-                    .border(1.dp, Color.White.copy(alpha = 0.15f), CircleShape)
-                    .clickable(onClick = onDismiss),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(Icons.Default.Close, null, tint = Color.White, modifier = Modifier.size(16.dp))
-            }
+            ZsIconButton(
+                onClick = onDismiss,
+                icon = Icons.Default.Close,
+                contentDescription = null,
+                variant = ZsIconButtonVariant.Overlay,
+                containerSize = 32.dp,
+                iconSize = 16.dp,
+            )
         }
         Spacer(Modifier.height(16.dp))
         Column(modifier = Modifier
@@ -1681,22 +1707,60 @@ private fun NotificationDetailView(
                         )
                     }
                 }
+                if (notif.category.isNotEmpty()) {
+                    Text("•", color = theme.colors.type.secondary)
+                }
+                Text(
+                    formatDate(notif.pubDate),
+                    color = theme.colors.type.secondary,
+                    fontSize = 11.sp,
+                )
             }
             Text(notif.title, color = theme.colors.type.emphasis, fontSize = 16.sp, fontWeight = FontWeight.Bold)
             Text(
                 notif.description,
                 color = theme.colors.type.text, fontSize = 13.sp, lineHeight = 20.sp,
             )
-            if (notif.link.isNotBlank()) {
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    "Open link →",
-                    color = theme.colors.global.accentA, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
-                )
+            Spacer(Modifier.height(4.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (!isRead) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(theme.colors.background.secondary.copy(alpha = 0.65f))
+                            .border(1.dp, theme.colors.type.divider.copy(alpha = 0.3f), RoundedCornerShape(10.dp))
+                            .clickable(onClick = onMarkRead)
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                    ) {
+                        Text(
+                            "Mark as read",
+                            color = theme.colors.type.secondary,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                }
+                if (notif.link.isNotBlank()) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(theme.colors.background.secondary.copy(alpha = 0.8f))
+                            .border(1.dp, theme.colors.type.divider.copy(alpha = 0.3f), RoundedCornerShape(10.dp))
+                            .clickable { uriHandler.openUri(notif.link) }
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                    ) {
+                        Text(
+                            "Open link",
+                            color = theme.colors.global.accentA,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                }
             }
             Spacer(Modifier.height(4.dp))
             Text(
-                formatDate(notif.pubDate),
+                if (isRead) "Read notification" else "Unread notification",
                 color = theme.colors.type.dimmed, fontSize = 10.sp,
             )
         }
@@ -1729,9 +1793,14 @@ private fun TipJarDialog(onDismiss: () -> Unit) {
             Column {
                 Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
                     Text("Tip Jar", color = theme.colors.type.emphasis, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                    IconButton(onClick = onDismiss, modifier = Modifier.size(24.dp)) {
-                        Icon(Icons.Default.Close, null, tint = theme.colors.type.dimmed, modifier = Modifier.size(16.dp))
-                    }
+                    ZsIconButton(
+                        onClick = onDismiss,
+                        icon = Icons.Default.Close,
+                        contentDescription = null,
+                        variant = ZsIconButtonVariant.Ghost,
+                        containerSize = 24.dp,
+                        iconSize = 16.dp,
+                    )
                 }
                 Spacer(Modifier.height(12.dp))
                 Text(
@@ -1764,7 +1833,7 @@ private fun TipJarDialog(onDismiss: () -> Unit) {
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(crypto.name, color = theme.colors.type.emphasis, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                                 Text(
-                                    crypto.address.take(20) + "...",
+                                    crypto.address,
                                     color = theme.colors.type.dimmed, fontSize = 10.sp,
                                     maxLines = 1, overflow = TextOverflow.Ellipsis,
                                 )
@@ -1857,7 +1926,11 @@ private fun FeaturedCarousel(
                             contentScale = ContentScale.Crop
                         )
                         // Global scrim for baseline contrast
-                        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.15f)))
+                        Box(
+                            Modifier
+                                .fillMaxSize()
+                                .background(theme.colors.video.context.background.copy(alpha = 0.15f))
+                        )
                     } else {
                         Box(Modifier.fillMaxSize().background(theme.colors.background.secondary))
                     }
@@ -1921,18 +1994,14 @@ private fun FeaturedCarousel(
                             }
                         } ?: Text(
                             title,
-                            color = Color.White,
+                            color = theme.colors.type.emphasis,
                             fontSize = 32.sp,
                             fontWeight = FontWeight.Bold,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.graphicsLayer { alpha = contentAlpha },
                             style = LocalTextStyle.current.copy(
-                                shadow = Shadow(
-                                    color = Color.Black.copy(alpha = 0.6f),
-                                    offset = Offset(0f, 4f),
-                                    blurRadius = 8f
-                                )
+                                shadow = featuredCarouselTextShadow(strong = true)
                             )
                         )
 
@@ -1954,66 +2023,42 @@ private fun FeaturedCarousel(
                                     color = Color.White,
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
-                                    style = LocalTextStyle.current.copy(
-                                        shadow = Shadow(
-                                            color = Color.Black.copy(alpha = 0.5f),
-                                            offset = Offset(0f, 2f),
-                                            blurRadius = 4f
-                                        )
-                                    )
+                                    style = LocalTextStyle.current.copy(shadow = featuredCarouselTextShadow())
                                 )
                             }
 
                             if (year.isNotEmpty()) {
-                                Text("•", color = Color.White.copy(alpha = 0.4f))
+                                Text("•", color = Color.White.copy(alpha = 0.7f))
                                 Text(
                                     year,
-                                    color = Color.White.copy(alpha = 0.8f),
+                                    color = Color.White,
                                     fontSize = 11.sp,
-                                    style = LocalTextStyle.current.copy(
-                                        shadow = Shadow(
-                                            color = Color.Black.copy(alpha = 0.5f),
-                                            offset = Offset(0f, 2f),
-                                            blurRadius = 4f
-                                        )
-                                    )
+                                    style = LocalTextStyle.current.copy(shadow = featuredCarouselTextShadow())
                                 )
                             }
 
                             val typeLabel = if (type == "tv") "TV Show" else "Movie"
-                            Text("•", color = Color.White.copy(alpha = 0.4f))
+                            Text("•", color = Color.White.copy(alpha = 0.7f))
                             Text(
                                 typeLabel,
-                                color = Color.White.copy(alpha = 0.8f),
+                                color = Color.White,
                                 fontSize = 11.sp,
-                                style = LocalTextStyle.current.copy(
-                                    shadow = Shadow(
-                                        color = Color.Black.copy(alpha = 0.5f),
-                                        offset = Offset(0f, 2f),
-                                        blurRadius = 4f
-                                    )
-                                )
+                                style = LocalTextStyle.current.copy(shadow = featuredCarouselTextShadow())
                             )
                         }
 
-                        // Overview
+                        // Overview or movie/show description
                         current.overview?.takeIf { it.isNotBlank() }?.let { overview ->
                             Spacer(Modifier.height(8.dp))
                             Text(
                                 overview,
-                                color = Color.White.copy(alpha = 0.8f),
+                                color = Color.White,
                                 fontSize = 14.sp,
                                 maxLines = 3,
                                 lineHeight = 20.sp,
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.graphicsLayer { alpha = contentAlpha },
-                                style = LocalTextStyle.current.copy(
-                                    shadow = Shadow(
-                                        color = Color.Black.copy(alpha = 0.5f),
-                                        offset = Offset(0f, 2f),
-                                        blurRadius = 4f
-                                    )
-                                )
+                                style = LocalTextStyle.current.copy(shadow = featuredCarouselTextShadow())
                             )
                         }
 
@@ -2106,7 +2151,7 @@ private fun FeaturedCarousel(
                         Modifier
                             .size(width = dotWidth, height = 8.dp)
                             .clip(CircleShape)
-                            .background(Color.White.copy(alpha = dotAlpha))
+                            .background(theme.colors.type.emphasis.copy(alpha = dotAlpha))
                     )
                 }
             }

@@ -6,9 +6,15 @@ import com.zstream.android.data.BookmarkRepository
 import com.zstream.android.data.ProgressRepository
 import com.zstream.android.data.AccountRepository
 import com.zstream.android.data.AccountSession
+import com.zstream.android.data.local.entity.CustomThemeSettings
+import com.zstream.android.data.local.entity.SavedCustomTheme
 import com.zstream.android.data.local.entity.SettingsEntity
+import com.zstream.android.data.local.entity.ThemeColors
 import com.zstream.android.data.local.preferences.SettingsPreferences
 import com.zstream.android.data.remote.BackendApi
+import com.zstream.android.data.remote.CustomThemeSettingsResponse
+import com.zstream.android.data.remote.SavedCustomThemeResponse
+import com.zstream.android.data.remote.ThemeTripletResponse
 import com.google.gson.Gson
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -369,6 +375,7 @@ class SettingsViewModel @Inject constructor(
 
     private fun SettingsEntity.toResponse() = com.zstream.android.data.remote.SettingsResponse(
         applicationTheme = applicationTheme,
+        customTheme = customTheme?.toResponse(),
         applicationLanguage = applicationLanguage,
         defaultSubtitleLanguage = defaultSubtitleLanguage,
         enableThumbnails = enableThumbnails,
@@ -393,6 +400,32 @@ class SettingsViewModel @Inject constructor(
         proxyTmdb = proxyTmdb,
         sourceOrder = sourceOrder,
         homeSectionOrder = homeSectionOrder,
+    )
+
+    private fun CustomThemeSettings.toResponse() = CustomThemeSettingsResponse(
+        primary = primary,
+        secondary = secondary,
+        tertiary = tertiary,
+        activeTheme = activeTheme?.let {
+            ThemeTripletResponse(
+                primary = it.primary,
+                secondary = it.secondary,
+                tertiary = it.tertiary,
+            )
+        },
+        savedCustomThemes = savedCustomThemes.map { it.toResponse() },
+        hiddenDefaultThemes = hiddenDefaultThemes,
+    )
+
+    private fun SavedCustomTheme.toResponse() = SavedCustomThemeResponse(
+        id = id,
+        name = name,
+        primary = primary,
+        secondary = secondary,
+        tertiary = tertiary,
+        customPrimaryHex = customPrimaryHex,
+        customSecondaryHex = customSecondaryHex,
+        customTertiaryHex = customTertiaryHex,
     )
 }
 

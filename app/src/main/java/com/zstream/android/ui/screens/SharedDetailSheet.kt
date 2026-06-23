@@ -17,6 +17,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -45,7 +46,11 @@ import com.zstream.android.data.model.MovieDetail
 import com.zstream.android.data.model.Season
 import com.zstream.android.data.model.TrailerData
 import com.zstream.android.data.model.TvDetail
+import com.zstream.android.data.model.airedEpisodes
 import com.zstream.android.theme.ZStreamTheme
+import com.zstream.android.ui.components.themed.ZsBottomSheetSectionHeader
+import com.zstream.android.ui.components.themed.ZsStatusBanner
+import com.zstream.android.ui.components.themed.ZsStatusBannerVariant
 
 internal val DETAIL_SHEET_CORNER_RADIUS = 28.dp
 internal val DETAIL_SHEET_BACKDROP_HEIGHT = 360.dp
@@ -94,7 +99,7 @@ internal fun SharedDetailSheetScaffold(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(vertical = 14.dp)
+                            .offset(y = (-20).dp)
                     ) {
                         content()
                         Spacer(Modifier.height(DETAIL_SHEET_BOTTOM_SPACER))
@@ -197,6 +202,7 @@ internal fun ColumnScope.SharedMovieDetailContent(
     context: android.content.Context,
     nav: NavController,
     theme: ZStreamTheme,
+    specActions: @Composable ColumnScope.() -> Unit = {},
     topActions: @Composable RowScope.() -> Unit,
 ) {
     val genres = detail.genres.orEmpty()
@@ -207,6 +213,7 @@ internal fun ColumnScope.SharedMovieDetailContent(
             .fillMaxWidth()
             .padding(horizontal = 32.dp, vertical = 14.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
         content = topActions
     )
 
@@ -223,14 +230,15 @@ internal fun ColumnScope.SharedMovieDetailContent(
             SharedDetailSpec("Language", "EN", theme)
             SharedDetailSpec("Release Date", detail.releaseDate ?: "-", theme)
             SharedDetailSpec("Rating", "PG-13", theme)
+            specActions()
         }
     }
 
-    SharedSectionHeader("Cast", theme)
+    ZsBottomSheetSectionHeader("Cast")
     SharedCastRow(cast, theme, context)
-    SharedSectionHeader("Trailers", theme)
+    ZsBottomSheetSectionHeader("Trailers")
     SharedTrailerGrid(detail.videos?.results?.filter { it.site == "YouTube" && it.type == "Trailer" }.orEmpty(), theme, context)
-    SharedSectionHeader("Similar", theme)
+    ZsBottomSheetSectionHeader("Similar")
     SharedSimilarGrid(detail.similar?.results.orEmpty(), theme, nav)
 }
 
@@ -244,6 +252,9 @@ internal fun ColumnScope.SharedTvDetailContent(
     nav: NavController,
     theme: ZStreamTheme,
     onSelectSeason: (Int) -> Unit,
+    onMarkEpisodeWatched: (Episode) -> Unit = {},
+    onClearEpisodeWatchHistory: (Episode) -> Unit = {},
+    specActions: @Composable ColumnScope.() -> Unit = {},
     topActions: @Composable RowScope.() -> Unit,
 ) {
     val seasons = detail.seasons.orEmpty().filter { it.seasonNumber > 0 }
@@ -253,6 +264,7 @@ internal fun ColumnScope.SharedTvDetailContent(
             .fillMaxWidth()
             .padding(horizontal = 32.dp, vertical = 14.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
         content = topActions
     )
 
@@ -269,26 +281,43 @@ internal fun ColumnScope.SharedTvDetailContent(
             SharedDetailSpec("Language", "EN", theme)
             SharedDetailSpec("Release Date", detail.firstAirDate ?: "—", theme)
             SharedDetailSpec("Rating", "TV-14", theme)
+            specActions()
         }
     }
 
-    SharedSectionHeader("Seasons", theme)
+    ZsBottomSheetSectionHeader("Seasons")
     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(horizontal = 32.dp)) {
         items(seasons) { season ->
             FilterChip(
                 selected = season.seasonNumber == selectedSeason?.seasonNumber,
                 onClick = { onSelectSeason(season.seasonNumber) },
-                label = { Text("S${season.seasonNumber}") }
+                label = { Text("S${season.seasonNumber}") },
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = theme.colors.background.secondaryHover.copy(alpha = 0.8f),
+                    selectedLabelColor = theme.colors.type.emphasis,
+                    containerColor = theme.colors.background.secondary.copy(alpha = 0.5f),
+                    labelColor = theme.colors.type.secondary,
+                ),
+                border = FilterChipDefaults.filterChipBorder(
+                    enabled = true,
+                    selected = season.seasonNumber == selectedSeason?.seasonNumber,
+                    borderColor = theme.colors.type.divider.copy(alpha = 0.22f),
+                    selectedBorderColor = theme.colors.global.accentA.copy(alpha = 0.45f),
+                    borderWidth = 1.dp,
+                    selectedBorderWidth = 1.dp,
+                ),
+                leadingIcon = null,
+                trailingIcon = null,
             )
         }
     }
     Spacer(Modifier.height(16.dp))
 
-    selectedSeason?.episodes?.let { episodes ->
+    selectedSeason?.episodes?.airedEpisodes()?.takeIf { it.isNotEmpty() }?.let { episodes ->
         val progressMap = allProgress
             .filter { it.seasonNumber == selectedSeason.seasonNumber }
             .associateBy { it.episodeNumber }
-        SharedSectionHeader("Episodes", theme)
+        ZsBottomSheetSectionHeader("Episodes")
         episodes.forEach { episode ->
             SharedEpisodeRow(
                 ep = episode,
@@ -297,16 +326,19 @@ internal fun ColumnScope.SharedTvDetailContent(
                 posterPath = detail.posterPath,
                 nav = nav,
                 theme = theme,
-                episodeProgress = progressMap[episode.episodeNumber]
+                episodeProgress = progressMap[episode.episodeNumber],
+                enableWatchActions = true,
+                onMarkWatched = { onMarkEpisodeWatched(episode) },
+                onClearHistory = { onClearEpisodeWatchHistory(episode) },
             )
         }
     }
 
-    SharedSectionHeader("Cast", theme)
+    ZsBottomSheetSectionHeader("Cast")
     SharedCastRow(detail.credits?.cast.orEmpty().take(8), theme, context)
-    SharedSectionHeader("Trailers", theme)
+    ZsBottomSheetSectionHeader("Trailers")
     SharedTrailerGrid(detail.videos?.results?.filter { it.site == "YouTube" && it.type == "Trailer" }.orEmpty(), theme, context)
-    SharedSectionHeader("Similar", theme)
+    ZsBottomSheetSectionHeader("Similar")
     SharedSimilarGrid(detail.similar?.results.orEmpty(), theme, nav)
 }
 
@@ -329,11 +361,6 @@ internal fun SharedActionPill(
 }
 
 @Composable
-internal fun SharedSectionHeader(title: String, theme: ZStreamTheme) {
-    Text(title, modifier = Modifier.padding(start = 32.dp, end = 32.dp, top = 18.dp), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = theme.colors.type.emphasis)
-}
-
-@Composable
 internal fun SharedDetailSpec(label: String, value: String, theme: ZStreamTheme) {
     Column {
         Text(label, style = MaterialTheme.typography.labelMedium, color = theme.colors.type.secondary)
@@ -348,7 +375,12 @@ internal fun SharedGenreChip(label: String, theme: ZStreamTheme) {
         shape = RoundedCornerShape(4.dp),
         border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.type.divider.copy(alpha = 0.15f))
     ) {
-        Text(label, modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp), style = MaterialTheme.typography.labelMedium, color = theme.colors.type.text)
+        Text(
+            label,
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+            style = MaterialTheme.typography.labelMedium,
+            color = theme.colors.type.text
+        )
     }
 }
 
@@ -376,7 +408,11 @@ internal fun SharedCastRow(cast: List<CastMember>, theme: ZStreamTheme, context:
 @Composable
 internal fun SharedTrailerGrid(trailers: List<TrailerData>, theme: ZStreamTheme, context: android.content.Context) {
     if (trailers.isEmpty()) {
-        Text("No trailers available", modifier = Modifier.padding(horizontal = 32.dp, vertical = 12.dp), color = theme.colors.type.secondary)
+        ZsStatusBanner(
+            message = "No trailers available",
+            variant = ZsStatusBannerVariant.Info,
+            modifier = Modifier.padding(horizontal = 32.dp, vertical = 12.dp),
+        )
         return
     }
 
@@ -407,7 +443,11 @@ internal fun SharedTrailerGrid(trailers: List<TrailerData>, theme: ZStreamTheme,
 @Composable
 internal fun SharedSimilarGrid(similar: List<Media>, theme: ZStreamTheme, nav: NavController) {
     if (similar.isEmpty()) {
-        Text("No similar movies available", modifier = Modifier.padding(horizontal = 32.dp, vertical = 12.dp), color = theme.colors.type.secondary)
+        ZsStatusBanner(
+            message = "No similar movies available",
+            variant = ZsStatusBannerVariant.Info,
+            modifier = Modifier.padding(horizontal = 32.dp, vertical = 12.dp),
+        )
         return
     }
 

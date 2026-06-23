@@ -45,8 +45,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Bookmark
-import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.ClosedCaption
@@ -68,6 +66,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -105,6 +104,7 @@ import com.zstream.android.provider.WebViewDataSource
 import androidx.media3.common.MediaItem.SubtitleConfiguration
 import android.net.Uri
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.res.vectorResource
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import dagger.hilt.android.EntryPointAccessors
@@ -112,13 +112,27 @@ import com.zstream.android.Urls
 import com.zstream.android.data.model.MovieDetail
 import com.zstream.android.data.model.Season
 import com.zstream.android.data.model.TvDetail
+import com.zstream.android.data.model.airedEpisodes
 import com.zstream.android.theme.LocalZStreamTheme
 import com.zstream.android.theme.ZStreamTheme
+import com.zstream.android.ui.components.themed.ZsButton
+import com.zstream.android.ui.components.themed.ZsButtonVariant
+import com.zstream.android.ui.components.themed.ZsBottomSheetSectionCard
+import com.zstream.android.ui.components.themed.ZsBottomSheetSectionHeader
+import com.zstream.android.ui.components.themed.ZsCard
+import com.zstream.android.ui.components.themed.ZsCardVariant
+import com.zstream.android.ui.components.themed.ZsChip
+import com.zstream.android.ui.components.themed.ZsChipVariant
+import com.zstream.android.ui.components.themed.ZsIconButton
+import com.zstream.android.ui.components.themed.ZsIconButtonVariant
+import com.zstream.android.ui.components.themed.ZsStatusBanner
+import com.zstream.android.ui.components.themed.ZsStatusBannerVariant
+import com.zstream.android.ui.components.themed.ZsTextField
+import com.zstream.android.ui.components.themed.ZsTextButton
+import com.zstream.android.ui.navigation.rememberSafeNavigateBack
 import coil.compose.AsyncImage
 
-private val RedProgress = Color(0xFFE53935)
-
-//  Layout constants 
+//  Layout constants
 private val SCRUBBER_SIDE_PADDING = 36.dp      // horizontal padding on progress bar
 private val SCRUBBER_SLIDER_OFFSET = (-6).dp   // how far invisible slider overlaps above bottom bar
 private val CENTER_ICON_SPACING = 40.dp        // gap between center play/skip buttons
@@ -142,11 +156,20 @@ private val BOTTOM_RIGHT_END_PADDING = 36.dp    // padding after last right icon
 private val BOTTOM_BAR_PADDING_V = 8.dp        // vertical padding in bottom controls row
 private const val NATIVE_SUBTITLE_BASE_OFFSET_DP = 20f
 private const val NATIVE_SUBTITLE_OVERLAY_MULTIPLIER = 5f
-private val PLAYER_MENU_SECTION_DIVIDER = Color.White.copy(alpha = 0.14f)
-private val PLAYER_MENU_MUTED_TEXT = Color.White.copy(alpha = 0.62f)
-private val PLAYER_MENU_DIM_TEXT = Color.White.copy(alpha = 0.48f)
-private val PLAYER_MENU_CARD_FILL = Color.White.copy(alpha = 0.08f)
-private val PLAYER_MENU_CARD_ACTIVE_FILL = Color.White.copy(alpha = 0.14f)
+@Composable
+private fun playerMenuSectionDivider(): Color = LocalZStreamTheme.current.colors.type.divider.copy(alpha = 0.25f)
+
+@Composable
+private fun playerMenuMutedText(): Color = LocalZStreamTheme.current.colors.type.secondary
+
+@Composable
+private fun playerMenuDimText(): Color = LocalZStreamTheme.current.colors.type.dimmed
+
+@Composable
+private fun playerMenuCardFill(): Color = LocalZStreamTheme.current.colors.background.secondary.copy(alpha = 0.45f)
+
+@Composable
+private fun playerMenuCardActiveFill(): Color = LocalZStreamTheme.current.colors.background.secondaryHover.copy(alpha = 0.7f)
 private val PLAYER_MENU_BOX_TILE_HEIGHT = 80.dp
 private val PLAYER_MENU_INNER_HORIZONTAL_PADDING = 24.dp
 private val PLAYER_MENU_INNER_BOTTOM_PADDING = 18.dp
@@ -170,10 +193,9 @@ private val PLAYER_DETAIL_SHEET_CONTENT_PADDING = 32.dp
 private val PLAYER_DETAIL_SHEET_BOTTOM_SPACER = 36.dp
 private val PLAYER_DETAIL_SHEET_MIN_SCROLL_EXTRA = 1.dp
 private val PLAYER_DETAIL_SHEET_SECTION_GAP = 18.dp
-private val PLAYER_DETAIL_SHEET_CARD_COLOR = Color(0xFF141414).copy(alpha = 0.98f)
-private val PLAYER_DETAIL_SHEET_OUTLINE = Color.White.copy(alpha = 0.08f)
 private const val PLAYBACK_SPEED_MIN = 0.25f
 private const val PLAYBACK_SPEED_MAX = 5f
+private const val RESUME_DIALOG_COMPLETION_THRESHOLD = 0.95f
 private val MANUAL_SOURCE_PANEL_WIDTH = 343.dp
 private val MANUAL_SOURCE_PANEL_HEIGHT = 431.dp
 private val SKIP_SEGMENT_BUTTON_WIDTH = 160.dp
@@ -183,6 +205,13 @@ private val SKIP_SEGMENT_BAR_COLORS = mapOf(
     "credits" to Color(0xBF22C55E),
     "preview" to Color(0xBFEC4899),
 )
+
+private fun sourceStatusColor(theme: ZStreamTheme, status: SourceStatus): Color = when (status) {
+    SourceStatus.IDLE -> theme.colors.type.dimmed
+    SourceStatus.SUCCESS -> theme.colors.type.success
+    SourceStatus.FAILED -> theme.colors.type.danger
+    SourceStatus.TRYING -> theme.colors.dropdown.highlightHover
+}
 
 private enum class PlayerMenuPage {
     Root, Captions, Playback, AdvancedColor, Sources, Quality, Audio, Download, WatchParty, SkipSegments
@@ -217,6 +246,8 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
     val state by vm.state.collectAsState()
     val context = LocalContext.current
     val activity = context as? Activity
+    val playerScope = rememberCoroutineScope()
+    val onBack = rememberSafeNavigateBack(nav, playerScope)
 
     DisposableEffect(Unit) {
         val prevOrientation = activity?.requestedOrientation
@@ -239,37 +270,40 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
         }
     }
 
-    Box(Modifier.fillMaxSize().background(Color.Black)) {
+    val theme = LocalZStreamTheme.current
+    Box(Modifier.fillMaxSize().background(Color.Black)) /* Color of the video background in the player */ {
         when (val s = state) {
             is PlayerState.Idle, is PlayerState.Scraping -> {
                 val sources = (s as? PlayerState.Scraping)?.sources ?: emptyList()
                 Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
-                    CircularProgressIndicator(color = Color.White, modifier = Modifier.size(36.dp))
+                    CircularProgressIndicator(color = theme.colors.type.emphasis, modifier = Modifier.size(36.dp))
                     Spacer(Modifier.height(16.dp))
-                    Text("Finding stream…", color = Color.White, fontSize = 14.sp)
+                    Text("Finding stream…", color = theme.colors.type.emphasis, fontSize = 14.sp)
                     sources.forEach { src ->
+                        val statusColor = sourceStatusColor(theme, src.status)
                         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 2.dp)) {
                             Text(when (src.status) { SourceStatus.IDLE -> "•"; SourceStatus.TRYING -> "⟳"; SourceStatus.SUCCESS -> "✓"; SourceStatus.FAILED -> "✕" },
-                                color = when (src.status) { SourceStatus.SUCCESS -> Color.Green; SourceStatus.FAILED -> Color.Red; SourceStatus.TRYING -> Color.Gray; SourceStatus.IDLE -> Color.Gray },
+                                color = statusColor,
                                 fontSize = 11.sp)
                             Spacer(Modifier.width(6.dp))
-                            Text(src.id, color = Color.Gray, fontSize = 11.sp)
+                            Text(src.id, color = theme.colors.type.dimmed, fontSize = 11.sp)
                         }
                     }
                 }
-                IconButton(onClick = { nav.popBackStack() }, modifier = Modifier.align(Alignment.TopStart).padding(4.dp)) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = Color.White)
+                IconButton(onClick = onBack, modifier = Modifier.align(Alignment.TopStart).padding(4.dp)) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = theme.colors.type.emphasis)
                 }
             }
             is PlayerState.ManualSourceSelection -> {
+                val theme = LocalZStreamTheme.current
                 Surface(
                     Modifier
                         .align(Alignment.Center)
                         .width(MANUAL_SOURCE_PANEL_WIDTH)
                         .heightIn(min = MANUAL_SOURCE_PANEL_HEIGHT),
-                    color = Color(0xFF141414).copy(alpha = 0.98f),
+                    color = theme.colors.modal.background.copy(alpha = 0.98f),
                     shape = RoundedCornerShape(24.dp),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.08f))
+                    border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.type.emphasis.copy(alpha = 0.08f))
                 ) {
                     Column(Modifier.fillMaxSize()) {
                         PlayerMenuHeader(title = "Sources", showBack = false, onBack = {})
@@ -297,29 +331,29 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                             }
                             s.message?.takeIf { it.isNotBlank() }?.let {
                                 Spacer(Modifier.height(16.dp))
-                                Text(it, color = PLAYER_MENU_MUTED_TEXT, fontSize = 12.sp)
+                                Text(it, color = playerMenuMutedText(), fontSize = 12.sp)
                             }
                         }
                     }
                 }
-                IconButton(onClick = { nav.popBackStack() }, modifier = Modifier.align(Alignment.TopStart).padding(4.dp)) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = Color.White)
+                IconButton(onClick = onBack, modifier = Modifier.align(Alignment.TopStart).padding(4.dp)) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = theme.colors.type.emphasis)
                 }
             }
             is PlayerState.Error -> {
                 Column(Modifier.align(Alignment.Center).padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(s.message, color = Color.White, fontSize = 14.sp)
+                    Text(s.message, color = theme.colors.type.emphasis, fontSize = 14.sp)
                     Spacer(Modifier.height(16.dp))
                     Button(
                         onClick = vm::load,
-                        border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.2f)),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.type.emphasis.copy(alpha = 0.2f)),
                         shape = RoundedCornerShape(8.dp)
                     ) {
                         Text("Retry")
                     }
                 }
-                IconButton(onClick = { nav.popBackStack() }, modifier = Modifier.align(Alignment.TopStart).padding(4.dp)) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = Color.White)
+                IconButton(onClick = onBack, modifier = Modifier.align(Alignment.TopStart).padding(4.dp)) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = theme.colors.type.emphasis)
                 }
             }
             is PlayerState.Ready -> {
@@ -348,7 +382,6 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     }
                 }
                 val tmdbRepo = appRepos.tmdbRepository()
-                val playerScope = rememberCoroutineScope()
                 var showInfoSheet by remember { mutableStateOf(false) }
                 var infoState by remember { mutableStateOf<PlayerInfoState?>(null) }
 
@@ -365,7 +398,6 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                 val resumeDuration = remember(existingProgress) {
                     existingProgress?.duration?.toLong() ?: 0L
                 }
-                var resumeHandled by remember { mutableStateOf(false) }
                 var showResumeDialog by remember { mutableStateOf(false) }
                 var pendingResumeMs by remember { mutableLongStateOf(-1L) }
 
@@ -379,8 +411,13 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     }
                     val w = found?.watched?.toLong() ?: 0L
                     val d = found?.duration?.toLong() ?: 0L
-                    if (w >= 20 && (d <= 0 || (d - w) >= 120)) {
-                        showResumeDialog = true
+                    if (w >= 20) {
+                        val completion = if (d > 0) w.toFloat() / d.toFloat() else 0f
+                        if (d > 0 && completion >= RESUME_DIALOG_COMPLETION_THRESHOLD) {
+                            showResumeDialog = true
+                        } else {
+                            pendingResumeMs = w * 1000
+                        }
                     }
                 }
 
@@ -746,7 +783,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                             }.getOrElse { PlayerInfoState.Error(it.message ?: "Failed to load details") }
                         }
                     },
-                    onBack = { nav.popBackStack() },
+                    onBack = onBack,
                     onPip = {
                         showInfoSheet = false
                         showResumeDialog = false
@@ -813,12 +850,13 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
 
                 // Resume dialog — mirrors p-stream ResumePart
                 if (showResumeDialog) {
+                    val theme = LocalZStreamTheme.current
                     val pct = if (resumeDuration > 0) ((resumeWatched * 100) / resumeDuration).toInt() else 0
                     AlertDialog(
                         onDismissRequest = {},
-                        containerColor = Color(0xFF1A1A2E),
-                        title = { Text("Continue Watching?", color = Color.White) },
-                        text = { Text("You're $pct% through. Resume from where you left off?", color = Color.White.copy(alpha = 0.7f)) },
+                        containerColor = theme.colors.modal.background,
+                        title = { Text("Continue Watching?", color = theme.colors.type.emphasis) },
+                        text = { Text("You're $pct% through. Resume from where you left off?", color = theme.colors.type.secondary) },
                         confirmButton = {
                             TextButton(
                                 onClick = {
@@ -829,21 +867,19 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                                         pendingResumeMs = resumeWatched * 1000
                                     }
                                     showResumeDialog = false
-                                    resumeHandled = true
                                 },
-                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF7C3AED).copy(alpha = 0.3f)),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.buttons.purple.copy(alpha = 0.3f)),
                                 shape = RoundedCornerShape(8.dp)
-                            ) { Text("Resume", color = Color(0xFF7C3AED)) }
+                            ) { Text("Resume", color = theme.colors.buttons.purple) }
                         },
                         dismissButton = {
                             TextButton(
                                 onClick = {
                                     showResumeDialog = false
-                                    resumeHandled = true
                                 },
-                                border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.15f)),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.type.emphasis.copy(alpha = 0.15f)),
                                 shape = RoundedCornerShape(8.dp)
-                            ) { Text("Restart", color = Color.White.copy(alpha = 0.6f)) }
+                            ) { Text("Restart", color = theme.colors.type.secondary) }
                         }
                     )
                 }
@@ -1157,34 +1193,53 @@ private fun PlayerControls(
 
                 Row(
                     modifier = Modifier.fillMaxWidth().align(Alignment.TopCenter)
-                        .background(Brush.verticalGradient(listOf(Color.Black.copy(0.78f), Color.Black.copy(0.34f), Color.Transparent)))
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(
+                                    theme.colors.video.context.background.copy(alpha = 0.9f),
+                                    theme.colors.video.context.background.copy(alpha = 0.42f),
+                                    Color.Transparent,
+                                )
+                            )
+                        )
                         .padding(start = TOP_BAR_LEFT_PADDING, end = TOP_BAR_RIGHT_PADDING, top = 12.dp, bottom = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = onBack, modifier = Modifier.size(TOP_BAR_BUTTON_SIZE)) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Color.White, modifier = Modifier.size(TOP_BAR_ICON_SIZE))
-                        }
-                        Text("Back to home", color = Color.White.copy(0.7f), fontSize = 13.sp, modifier = Modifier.clickable(onClick = onBack))
-                        Text("  /  ", color = Color.White.copy(0.35f), fontSize = 13.sp)
+                        ZsIconButton(
+                            onClick = onBack,
+                            icon = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back",
+                            variant = ZsIconButtonVariant.Ghost,
+                            containerSize = TOP_BAR_BUTTON_SIZE,
+                            iconSize = TOP_BAR_ICON_SIZE,
+                        )
+                        Text("Back to home", color = theme.colors.type.secondary, fontSize = 13.sp, modifier = Modifier.clickable(onClick = onBack))
+                        Text("  /  ", color = theme.colors.type.dimmed.copy(alpha = 0.6f), fontSize = 13.sp)
                         Column(modifier = Modifier.widthIn(max = 320.dp)) {
-                            Text(title, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(title, color = theme.colors.type.emphasis, fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             if (episodeLabel != null) {
-                                Text(episodeLabel, color = Color.White.copy(0.62f), fontSize = 11.sp)
+                                Text(episodeLabel, color = theme.colors.type.secondary, fontSize = 11.sp)
                             }
                         }
                         Spacer(Modifier.width(12.dp))
-                        IconButton(onClick = onInfo, modifier = Modifier.size(TOP_BAR_BUTTON_SIZE)) {
-                            Icon(Icons.Default.Info, "Info", tint = Color.White.copy(alpha = 0.85f), modifier = Modifier.size(TOP_BAR_ICON_SIZE))
-                        }
-                        IconButton(onClick = onToggleBookmark, modifier = Modifier.size(TOP_BAR_BUTTON_SIZE)) {
-                            Icon(
-                                if (isBookmarked) Icons.Filled.Check else Icons.Filled.BookmarkBorder,
-                                "Bookmark",
-                                tint = Color.White.copy(alpha = 0.85f),
-                                modifier = Modifier.size(TOP_BAR_ICON_SIZE)
-                            )
-                        }
+                        ZsIconButton(
+                            onClick = onInfo,
+                            icon = Icons.Default.Info,
+                            contentDescription = "Info",
+                            variant = ZsIconButtonVariant.Ghost,
+                            containerSize = TOP_BAR_BUTTON_SIZE,
+                            iconSize = TOP_BAR_ICON_SIZE,
+                        )
+                        ZsIconButton(
+                            onClick = onToggleBookmark,
+                            icon = if (isBookmarked) ImageVector.vectorResource(R.drawable.ic_player_bookmark_filled) else ImageVector.vectorResource(R.drawable.ic_player_bookmark_outline),
+                            contentDescription = "Bookmark",
+                            variant = ZsIconButtonVariant.Ghost,
+                            selected = isBookmarked,
+                            containerSize = TOP_BAR_BUTTON_SIZE,
+                            iconSize = TOP_BAR_ICON_SIZE,
+                        )
                     }
                 }
 
@@ -1193,18 +1248,18 @@ private fun PlayerControls(
                     horizontalArrangement = Arrangement.spacedBy(CENTER_ICON_SPACING)) {
                     IconButton(onClick = { player.seekTo((player.currentPosition - 10_000).coerceAtLeast(0)) },
                         modifier = Modifier.size(CENTER_BUTTON_SIZE)) {
-                        Icon(painterResource(R.drawable.ic_player_skip_back), null, tint = Color.White,
+                        Icon(painterResource(R.drawable.ic_player_skip_back), null, tint = theme.colors.type.emphasis,
                             modifier = Modifier.height(CENTER_ICON_HEIGHT).wrapContentWidth())
                     }
                     IconButton(onClick = { if (player.isPlaying) player.pause() else player.play() },
                         modifier = Modifier.size(CENTER_BUTTON_SIZE)) {
                         Icon(painterResource(if (isPlaying) R.drawable.ic_player_pause else R.drawable.ic_player_play),
-                            null, tint = Color.White,
+                            null, tint = theme.colors.type.emphasis,
                             modifier = Modifier.height(CENTER_ICON_HEIGHT).wrapContentWidth())
                     }
                     IconButton(onClick = { player.seekTo((player.currentPosition + 10_000).coerceAtMost(durationMs)) },
                         modifier = Modifier.size(CENTER_BUTTON_SIZE)) {
-                        Icon(painterResource(R.drawable.ic_player_skip_fwd), null, tint = Color.White,
+                        Icon(painterResource(R.drawable.ic_player_skip_fwd), null, tint = theme.colors.type.emphasis,
                             modifier = Modifier.height(CENTER_ICON_HEIGHT).wrapContentWidth())
                     }
                 }
@@ -1248,7 +1303,13 @@ private fun PlayerControls(
                             }
                     ) {
                         val scrubberWidth = maxWidth
-                        Box(Modifier.fillMaxWidth().height(3.dp).align(Alignment.Center).background(Color.White.copy(0.25f)))
+                        Box(
+                            Modifier
+                                .fillMaxWidth()
+                                .height(3.dp)
+                                .align(Alignment.Center)
+                                .background(theme.colors.progress.background.copy(alpha = 0.35f))
+                        )
                         if (durationMs > 0 && skipSegments.isNotEmpty()) {
                             skipSegments.forEach { segment ->
                                 val startFraction = ((segment.startMs ?: 0L).toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
@@ -1260,15 +1321,21 @@ private fun PlayerControls(
                                         .offset(x = scrubberWidth * startFraction)
                                         .width(scrubberWidth * widthFraction)
                                         .height(3.dp)
-                                        .background(SKIP_SEGMENT_BAR_COLORS[segment.type] ?: Color.White.copy(alpha = 0.35f))
+                                        .background(SKIP_SEGMENT_BAR_COLORS[segment.type] ?: theme.colors.type.dimmed.copy(alpha = 0.35f))
                                 )
                             }
                         }
-                        Box(Modifier.fillMaxWidth(if (isDragging) scrubPosition else progress).height(3.dp).align(Alignment.CenterStart).background(RedProgress))
+                        Box(
+                            Modifier
+                                .fillMaxWidth(if (isDragging) scrubPosition else progress)
+                                .height(3.dp)
+                                .align(Alignment.CenterStart)
+                                .background(theme.colors.progress.filled)
+                        )
                         if (isDragging) {
                             val thumbFraction = scrubPosition
                             Box(Modifier.align(Alignment.CenterStart).fillMaxWidth(thumbFraction).wrapContentWidth(Alignment.End)) {
-                                Box(Modifier.size(12.dp).background(Color.White, androidx.compose.foundation.shape.CircleShape))
+                                Box(Modifier.size(12.dp).background(theme.colors.type.emphasis, androidx.compose.foundation.shape.CircleShape))
                             }
                         }
                     }
@@ -1276,47 +1343,58 @@ private fun PlayerControls(
                         .background(
                             Brush.verticalGradient(
                                 0f to Color.Transparent,
-                                0.22f to Color.Black.copy(0.18f),
-                                0.58f to Color.Black.copy(0.48f),
-                                1f to Color.Black.copy(0.78f)
+                                0.22f to theme.colors.video.context.background.copy(alpha = 0.18f),
+                                0.58f to theme.colors.video.context.background.copy(alpha = 0.48f),
+                                1f to theme.colors.video.context.background.copy(alpha = 0.82f)
                             )
                         )
                         .padding(vertical = BOTTOM_BAR_PADDING_V),
                         verticalAlignment = Alignment.CenterVertically) {
                         Spacer(Modifier.width(BOTTOM_LEFT_START_PADDING))
-                        DrawableControlIcon(if (isPlaying) R.drawable.ic_player_pause else R.drawable.ic_player_play) {
+                        DrawableControlIcon(
+                            res = if (isPlaying) R.drawable.ic_player_pause else R.drawable.ic_player_play,
+                            theme = theme
+                        ) {
                             if (player.isPlaying) player.pause() else player.play()
                         }
-                        DrawableControlIcon(R.drawable.ic_player_skip_back) {
+                        DrawableControlIcon(R.drawable.ic_player_skip_back, theme) {
                             player.seekTo((player.currentPosition - 10_000).coerceAtLeast(0))
                         }
-                        DrawableControlIcon(R.drawable.ic_player_skip_fwd) {
+                        DrawableControlIcon(R.drawable.ic_player_skip_fwd, theme) {
                             player.seekTo((player.currentPosition + 10_000).coerceAtMost(durationMs))
                         }
-                        DrawableControlIcon(if (isMuted) R.drawable.ic_player_mute else R.drawable.ic_player_volume) {
+                        DrawableControlIcon(
+                            res = if (isMuted) R.drawable.ic_player_mute else R.drawable.ic_player_volume,
+                            theme = theme
+                        ) {
                             isMuted = !isMuted; player.volume = if (isMuted) 0f else 1f
                         }
                         Spacer(Modifier.width(4.dp))
-                        Text("${formatTime(positionMs)} / ${formatTime(durationMs)}", color = Color.White, fontSize = 12.sp)
+                        Text("${formatTime(positionMs)} / ${formatTime(durationMs)}", color = theme.colors.type.emphasis, fontSize = 12.sp)
                         Spacer(Modifier.weight(1f))
                         IconButton(onClick = {
                             onControlsVisibilityChanged(true)
                             menuPage = PlayerMenuPage.Captions
                         }, modifier = Modifier.size(BOTTOM_BAR_MENU_BUTTON_SIZE)) {
-                            Icon(Icons.Filled.ClosedCaption, null, tint = if (subtitlesEnabled) Color.White else Color.White.copy(alpha = 0.55f), modifier = Modifier.size(BOTTOM_BAR_MENU_ICON_SIZE))
+                            Icon(
+                                Icons.Filled.ClosedCaption,
+                                null,
+                                tint = if (subtitlesEnabled) theme.colors.type.emphasis else theme.colors.type.secondary,
+                                modifier = Modifier.size(BOTTOM_BAR_MENU_ICON_SIZE)
+                            )
                         }
                         IconButton(onClick = {
                             onControlsVisibilityChanged(true)
                             menuPage = PlayerMenuPage.Root
                         }, modifier = Modifier.size(BOTTOM_BAR_MENU_BUTTON_SIZE)) {
-                            Icon(Icons.Filled.Tune, null, tint = Color.White, modifier = Modifier.size(BOTTOM_BAR_MENU_ICON_SIZE))
+                            Icon(Icons.Filled.Tune, null, tint = theme.colors.type.emphasis, modifier = Modifier.size(BOTTOM_BAR_MENU_ICON_SIZE))
                         }
                         IconButton(onClick = {
                             menuPage = null
                             onControlsVisibilityChanged(false)
                             onPip()
                         }, modifier = Modifier.size(BOTTOM_BAR_MENU_BUTTON_SIZE)) {
-                            Icon(Icons.Filled.PictureInPictureAlt, null, tint = Color.White, modifier = Modifier.size(BOTTOM_BAR_MENU_ICON_SIZE))
+                            Icon(Icons.Filled.PictureInPictureAlt, null, tint = theme.colors.type.emphasis, modifier = Modifier.size(BOTTOM_BAR_MENU_ICON_SIZE))
                         }
                         Spacer(Modifier.width(BOTTOM_RIGHT_END_PADDING))
                     }
@@ -1330,6 +1408,7 @@ private fun PlayerControls(
             exit = fadeOut() + slideOutVertically(targetOffsetY = { it / 3 }),
             modifier = Modifier.fillMaxSize()
         ) {
+            val theme = LocalZStreamTheme.current
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -1339,7 +1418,7 @@ private fun PlayerControls(
                     ) { menuPage = null }
             ) {
                 Surface(
-                    color = Color(0xFF141414).copy(alpha = 0.96f),
+                    color = theme.colors.modal.background.copy(alpha = 0.96f),
                     shape = OVERLAY_PANEL_SHAPE,
                     tonalElevation = 0.dp,
                     shadowElevation = 18.dp,
@@ -1348,7 +1427,7 @@ private fun PlayerControls(
                         .padding(end = 28.dp, bottom = 86.dp)
                         .widthIn(max = MENU_PANEL_WIDTH)
                         .heightIn(max = MENU_PANEL_HEIGHT)
-                        .border(1.dp, Color.White.copy(alpha = 0.08f), OVERLAY_PANEL_SHAPE)
+                        .border(1.dp, theme.colors.type.emphasis.copy(alpha = 0.08f), OVERLAY_PANEL_SHAPE)
                         .clickable(
                             indication = null,
                             interactionSource = remember { MutableInteractionSource() }
@@ -1447,9 +1526,9 @@ private fun PlayerControls(
 }
 
 @Composable
-private fun DrawableControlIcon(@DrawableRes res: Int, onClick: () -> Unit) {
+private fun DrawableControlIcon(@DrawableRes res: Int, theme: ZStreamTheme, onClick: () -> Unit) {
     IconButton(onClick = onClick, modifier = Modifier.size(BOTTOM_BAR_BUTTON_SIZE)) {
-        Icon(painterResource(res), null, tint = Color.White, modifier = Modifier.size(BOTTOM_BAR_ICON_SIZE))
+        Icon(painterResource(res), null, tint = theme.colors.type.emphasis, modifier = Modifier.size(BOTTOM_BAR_ICON_SIZE))
     }
 }
 
@@ -1529,11 +1608,11 @@ private fun parseTimeToSeconds(timeStr: String): Double? {
 }
 
 @Composable
-private fun RowScope.GuideColumn(title: String, body: String) {
+private fun RowScope.GuideColumn(theme: ZStreamTheme, title: String, body: String) {
     Column(modifier = Modifier.weight(1f)) {
-        Text(title, color = Color.White.copy(alpha = 0.8f), fontSize = 12.sp, fontWeight = FontWeight.Medium)
+        Text(title, color = theme.colors.type.emphasis.copy(alpha = 0.85f), fontSize = 12.sp, fontWeight = FontWeight.Medium)
         Spacer(Modifier.height(2.dp))
-        Text(body, color = Color.White.copy(alpha = 0.56f), fontSize = 12.sp, lineHeight = 16.sp)
+        Text(body, color = theme.colors.type.secondary, fontSize = 12.sp, lineHeight = 16.sp)
     }
 }
 
@@ -1572,11 +1651,11 @@ private fun outlinedFieldColors(theme: ZStreamTheme): TextFieldColors {
         unfocusedTextColor = theme.colors.type.text,
         focusedBorderColor = theme.colors.buttons.purple,
         unfocusedBorderColor = theme.colors.background.secondary,
-        focusedLabelColor = Color.White.copy(alpha = 0.8f),
-        unfocusedLabelColor = Color.White.copy(alpha = 0.56f),
-        focusedPlaceholderColor = Color.White.copy(alpha = 0.32f),
-        unfocusedPlaceholderColor = Color.White.copy(alpha = 0.32f),
-        cursorColor = Color.White
+        focusedLabelColor = theme.colors.type.emphasis.copy(alpha = 0.85f),
+        unfocusedLabelColor = theme.colors.type.secondary,
+        focusedPlaceholderColor = theme.colors.type.dimmed.copy(alpha = 0.6f),
+        unfocusedPlaceholderColor = theme.colors.type.dimmed.copy(alpha = 0.6f),
+        cursorColor = theme.colors.type.emphasis
     )
 }
 
@@ -1641,7 +1720,7 @@ private fun SkipSegmentSubmissionDialog(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.6f))
+                .background(theme.colors.video.context.background.copy(alpha = 0.6f))
                 .padding(horizontal = 12.dp, vertical = 10.dp),
             contentAlignment = Alignment.Center
         ) {
@@ -1669,15 +1748,17 @@ private fun SkipSegmentSubmissionDialog(
                             )
                         )
                 ) {
-                    IconButton(
+                    ZsIconButton(
                         onClick = onDismiss,
+                        icon = Icons.Filled.Close,
+                        contentDescription = null,
+                        variant = ZsIconButtonVariant.Secondary,
+                        containerSize = 36.dp,
+                        iconSize = 18.dp,
                         modifier = Modifier
                             .align(Alignment.TopEnd)
-                            .padding(12.dp)
-                            .size(36.dp)
-                    ) {
-                        Icon(Icons.Filled.Close, null, tint = theme.colors.type.secondary)
-                    }
+                            .padding(12.dp),
+                    )
 
                     Column(
                         modifier = Modifier
@@ -1687,14 +1768,14 @@ private fun SkipSegmentSubmissionDialog(
                             .padding(top = 28.dp)
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Filled.Download, null, tint = Color.White, modifier = Modifier.size(20.dp))
+                            Icon(Icons.Filled.Download, null, tint = theme.colors.type.emphasis, modifier = Modifier.size(20.dp))
                             Spacer(Modifier.width(8.dp))
-                            Text("Submit Segment", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                            Text("Submit Segment", color = theme.colors.type.emphasis, fontSize = 22.sp, fontWeight = FontWeight.Bold)
                         }
                         Spacer(Modifier.height(8.dp))
                         Text(
                             "Submit skip segment timings to TheIntroDB.",
-                            color = Color.White.copy(alpha = 0.72f),
+                            color = theme.colors.type.secondary,
                             fontSize = 14.sp,
                             lineHeight = 20.sp
                         )
@@ -1711,71 +1792,56 @@ private fun SkipSegmentSubmissionDialog(
                                     .padding(18.dp),
                                 verticalArrangement = Arrangement.spacedBy(14.dp)
                             ) {
-                                Text("Segment Type", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                                Text("Segment Type", color = theme.colors.type.emphasis, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
                                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     listOf("intro", "recap", "credits", "preview").forEach { type ->
-                                        FilterChip(
+                                        ZsChip(
+                                            label = segmentTypeLabel(type),
                                             selected = segmentType == type,
                                             onClick = { segmentType = type },
-                                            label = { Text(segmentTypeLabel(type)) },
-                                            border = FilterChipDefaults.filterChipBorder(
-                                                enabled = true,
-                                                selected = segmentType == type,
-                                                borderColor = theme.colors.background.secondary,
-                                                selectedBorderColor = theme.colors.buttons.purple
-                                            ),
-                                            colors = FilterChipDefaults.filterChipColors(
-                                                containerColor = Color.Transparent,
-                                                selectedContainerColor = theme.colors.buttons.purple.copy(alpha = 0.2f),
-                                                labelColor = Color.White,
-                                                selectedLabelColor = Color.White
-                                            )
+                                            variant = ZsChipVariant.Selectable,
+                                            selectedContainerColor = theme.colors.buttons.purple.copy(alpha = 0.2f),
+                                            selectedContentColor = theme.colors.type.emphasis,
+                                            selectedBorderColor = theme.colors.buttons.purple,
                                         )
                                     }
                                 }
-                                Text("Choose the segment type and enter timestamps in `seconds`, `mm:ss`, or `hh:mm:ss`.", color = Color.White.copy(alpha = 0.56f), fontSize = 12.sp)
+                                Text("Choose the segment type and enter timestamps in `seconds`, `mm:ss`, or `hh:mm:ss`.", color = theme.colors.type.secondary, fontSize = 12.sp)
                                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
-                                    OutlinedTextField(
+                                    ZsTextField(
                                         value = startText,
                                         onValueChange = { startText = it },
-                                        label = { Text("Start time") },
-                                        placeholder = { Text(if (segmentType == "credits" || segmentType == "preview") "2:30 or 150" else "2:30 or 150 (optional)") },
+                                        label = "Start time",
+                                        placeholder = if (segmentType == "credits" || segmentType == "preview") "2:30 or 150" else "2:30 or 150 (optional)",
                                         singleLine = true,
                                         modifier = Modifier.weight(1f),
-                                        colors = outlinedFieldColors(theme)
                                     )
-                                    OutlinedTextField(
+                                    ZsTextField(
                                         value = endText,
                                         onValueChange = { endText = it },
-                                        label = { Text("End time") },
-                                        placeholder = { Text(if (segmentType == "intro" || segmentType == "recap") "3:30 or 210" else "3:30 or 210 (optional)") },
+                                        label = "End time",
+                                        placeholder = if (segmentType == "intro" || segmentType == "recap") "3:30 or 210" else "3:30 or 210 (optional)",
                                         singleLine = true,
                                         modifier = Modifier.weight(1f),
-                                        colors = outlinedFieldColors(theme)
                                     )
                                 }
-                                Surface(
-                                    color = theme.colors.modal.background,
-                                    shape = RoundedCornerShape(14.dp),
-                                    border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.background.secondary)
-                                ) {
-                                    Column(
-                                        modifier = Modifier.fillMaxWidth().padding(14.dp),
-                                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                                    ) {
-                                        Text("Timing Guide", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                                ZsBottomSheetSectionCard(title = "Timing Guide") {
+                                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                            GuideColumn("Start", guideStart(segmentType))
-                                            GuideColumn("End", guideEnd(segmentType))
+                                            GuideColumn(theme, "Start", guideStart(segmentType))
+                                            GuideColumn(theme, "End", guideEnd(segmentType))
                                         }
                                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                            GuideColumn("Duration", guideDuration(segmentType))
-                                            GuideColumn("Exclude", guideExclude(segmentType))
+                                            GuideColumn(theme, "Duration", guideDuration(segmentType))
+                                            GuideColumn(theme, "Exclude", guideExclude(segmentType))
                                         }
                                     }
                                 }
                                 if (errorText != null) {
-                                    Text(errorText!!, color = theme.colors.type.danger, fontSize = 12.sp)
+                                    ZsStatusBanner(
+                                        message = errorText!!,
+                                        variant = ZsStatusBannerVariant.Error,
+                                    )
                                 }
                             }
                         }
@@ -1797,9 +1863,9 @@ private fun SkipSegmentSubmissionDialog(
                                 enabled = !isSubmitting,
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = theme.colors.buttons.purple,
-                                    contentColor = Color.White,
+                                    contentColor = theme.colors.type.emphasis,
                                     disabledContainerColor = theme.colors.buttons.purple.copy(alpha = 0.45f),
-                                    disabledContentColor = Color.White.copy(alpha = 0.7f)
+                                    disabledContentColor = theme.colors.type.emphasis.copy(alpha = 0.7f)
                                 ),
                                 shape = RoundedCornerShape(12.dp)
                             ) {
@@ -1921,15 +1987,7 @@ private fun PlayerMenuContent(
     onSeekToMs: (Long) -> Unit,
     onPip: () -> Unit,
 ) {
-    val scrollState = rememberScrollState(menuScrollPositions[page] ?: 0)
-    DisposableEffect(page) {
-        onDispose {
-            menuScrollPositions[page] = scrollState.value
-        }
-    }
-    LaunchedEffect(page) {
-        scrollState.scrollTo(menuScrollPositions[page] ?: 0)
-    }
+    val theme = LocalZStreamTheme.current
 
     Column(
         modifier = Modifier
@@ -1962,9 +2020,15 @@ private fun PlayerMenuContent(
             },
             label = "playerMenuPage"
         ) { currentPage ->
+            val pageScrollState = rememberScrollState(menuScrollPositions[currentPage] ?: 0)
+            DisposableEffect(currentPage, pageScrollState) {
+                onDispose {
+                    menuScrollPositions[currentPage] = pageScrollState.value
+                }
+            }
             Column(
                 modifier = Modifier
-                    .verticalScroll(scrollState)
+                    .verticalScroll(pageScrollState)
                     .padding(
                         start = PLAYER_MENU_INNER_HORIZONTAL_PADDING,
                         end = PLAYER_MENU_INNER_HORIZONTAL_PADDING,
@@ -2126,7 +2190,7 @@ private fun PlayerMenuContent(
                             contentPadding = PaddingValues(0.dp),
                             modifier = Modifier.align(Alignment.CenterHorizontally)
                         ) {
-                            Text("Reset all", color = PLAYER_MENU_MUTED_TEXT)
+                            Text("Reset all", color = playerMenuMutedText())
                         }
                     }
                 }
@@ -2202,19 +2266,12 @@ private fun PlayerMenuContent(
                     PlayerMenuSection {
                         if (canSubmitSkipSegments) {
                             if (hasTidbKey) {
-                                Button(
-                                    onClick = {
-                                        onOpenSkipSubmission(null)
-                                    },
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = Color.White,
-                                        contentColor = Color.Black
-                                    ),
-                                    shape = RoundedCornerShape(12.dp),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Text("Submit Segment")
-                                }
+                                ZsButton(
+                                    text = "Submit Segment",
+                                    onClick = { onOpenSkipSubmission(null) },
+                                    variant = ZsButtonVariant.Purple,
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
                             } else {
                                 PlayerMenuStubCard("To submit new segments, enter your TheIntroDB API key in the connections settings.")
                             }
@@ -2223,16 +2280,37 @@ private fun PlayerMenuContent(
                             PlayerMenuStubCard("No skip segments available.")
                         } else {
                             skipSegments.forEach { segment ->
-                                PlayerMenuSelectableRow(
-                                    title = skipSegmentLabel(segment.type),
-                                    subtitle = "${formatTime(segment.startMs ?: 0L)} - ${segment.endMs?.let(::formatTime) ?: "End of video"}",
-                                    onClick = {
-                                        onSeekToMs(segment.startMs ?: 0L)
-                                        if (canSubmitSkipSegments && hasTidbKey) {
-                                            onOpenSkipSubmission(segment)
-                                        }
+                                ZsCard(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            onSeekToMs(segment.startMs ?: 0L)
+                                            if (canSubmitSkipSegments && hasTidbKey) {
+                                                onOpenSkipSubmission(segment)
+                                            }
+                                        },
+                                    variant = ZsCardVariant.Elevated,
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Text(
+                                            skipSegmentLabel(segment.type),
+                                            color = theme.colors.video.context.type.main,
+                                            fontWeight = FontWeight.Medium,
+                                        )
+                                        Text(
+                                            "${formatTime(segment.startMs ?: 0L)} - ${segment.endMs?.let(::formatTime) ?: "End of video"}",
+                                            color = theme.colors.video.context.type.secondary,
+                                            fontSize = 12.sp,
+                                        )
                                     }
-                                )
+                                }
+                                Spacer(Modifier.height(8.dp))
                             }
                         }
                     }
@@ -2245,6 +2323,7 @@ private fun PlayerMenuContent(
 
 @Composable
 private fun PlayerMenuHeader(title: String, showBack: Boolean, onBack: () -> Unit) {
+    val theme = LocalZStreamTheme.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -2261,14 +2340,19 @@ private fun PlayerMenuHeader(title: String, showBack: Boolean, onBack: () -> Uni
             verticalAlignment = Alignment.CenterVertically
         ) {
             if (showBack) {
-                IconButton(onClick = onBack, modifier = Modifier.size(32.dp)) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = Color.White, modifier = Modifier.size(18.dp))
-                }
+                ZsIconButton(
+                    onClick = onBack,
+                    icon = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = null,
+                    variant = ZsIconButtonVariant.Ghost,
+                    containerSize = 32.dp,
+                    iconSize = 18.dp,
+                )
                 Spacer(Modifier.width(4.dp))
             }
             Text(
                 text = title,
-                color = Color.White,
+                color = theme.colors.type.emphasis,
                 fontWeight = FontWeight.Bold,
                 fontSize = 18.sp,
                 maxLines = 1,
@@ -2281,7 +2365,7 @@ private fun PlayerMenuHeader(title: String, showBack: Boolean, onBack: () -> Uni
             .fillMaxWidth()
             .padding(horizontal = PLAYER_MENU_INNER_HORIZONTAL_PADDING)
             .height(1.dp)
-            .background(PLAYER_MENU_SECTION_DIVIDER)
+            .background(playerMenuSectionDivider())
     )
 }
 
@@ -2326,7 +2410,7 @@ private fun PlayerMenuGridSection(items: List<PlayerMenuTileItem>) {
 private fun PlayerMenuSectionTitle(text: String) {
     Text(
         text = text.uppercase(),
-        color = PLAYER_MENU_MUTED_TEXT,
+        color = playerMenuMutedText(),
         fontSize = 11.sp,
         fontWeight = FontWeight.Bold,
         modifier = Modifier.padding(start = 2.dp, top = 22.dp, bottom = 10.dp)
@@ -2335,21 +2419,23 @@ private fun PlayerMenuSectionTitle(text: String) {
 
 @Composable
 private fun PlayerMenuSummaryCard(title: String, value: String, subtitle: String) {
-    Surface(color = PLAYER_MENU_CARD_FILL, shape = RoundedCornerShape(18.dp)) {
+    val theme = LocalZStreamTheme.current
+    Surface(color = playerMenuCardFill(), shape = RoundedCornerShape(18.dp)) {
         Column(Modifier.fillMaxWidth().padding(14.dp)) {
-            Text(title, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+            Text(title, color = theme.colors.type.emphasis, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
             Spacer(Modifier.height(6.dp))
-            Text(value, color = PLAYER_MENU_MUTED_TEXT, fontSize = 12.sp)
+            Text(value, color = playerMenuMutedText(), fontSize = 12.sp)
             Spacer(Modifier.height(2.dp))
-            Text(subtitle, color = PLAYER_MENU_DIM_TEXT, fontSize = 12.sp)
+            Text(subtitle, color = playerMenuDimText(), fontSize = 12.sp)
         }
     }
 }
 
 @Composable
 private fun PlayerMenuBoxNavTile(title: String, value: String, onClick: () -> Unit) {
+    val theme = LocalZStreamTheme.current
     Surface(
-        color = PLAYER_MENU_CARD_FILL,
+        color = playerMenuCardFill(),
         shape = RoundedCornerShape(18.dp),
         modifier = Modifier
             .fillMaxWidth()
@@ -2363,11 +2449,11 @@ private fun PlayerMenuBoxNavTile(title: String, value: String, onClick: () -> Un
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            Text(title, color = Color.White, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center)
+            Text(title, color = theme.colors.type.emphasis, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center)
             Spacer(Modifier.height(4.dp))
             Text(
                 value,
-                color = PLAYER_MENU_MUTED_TEXT,
+                color = playerMenuMutedText(),
                 fontSize = 12.sp,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
@@ -2379,15 +2465,16 @@ private fun PlayerMenuBoxNavTile(title: String, value: String, onClick: () -> Un
 
 @Composable
 private fun PlayerMenuFieldTitle(text: String) {
-    Text(text, color = Color.White, fontWeight = FontWeight.Medium, fontSize = 14.sp)
+    Text(text, color = LocalZStreamTheme.current.colors.type.emphasis, fontWeight = FontWeight.Medium, fontSize = 14.sp)
 }
 
 @Composable
 private fun PlayerMenuSpeedOptions(playbackSpeed: Float, onSetPlaybackSpeed: (Float) -> Unit) {
+    val theme = LocalZStreamTheme.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Color.White.copy(alpha = 0.08f), RoundedCornerShape(14.dp))
+            .background(playerMenuCardFill(), RoundedCornerShape(14.dp))
             .padding(4.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
@@ -2396,13 +2483,13 @@ private fun PlayerMenuSpeedOptions(playbackSpeed: Float, onSetPlaybackSpeed: (Fl
             TextButton(
                 onClick = { onSetPlaybackSpeed(speed) },
                 colors = ButtonDefaults.textButtonColors(
-                    containerColor = if (selected) Color.White.copy(alpha = 0.12f) else Color.Transparent,
-                    contentColor = Color.White
+                    containerColor = if (selected) playerMenuCardActiveFill() else Color.Transparent,
+                    contentColor = theme.colors.type.emphasis
                 ),
                 contentPadding = PaddingValues(horizontal = 0.dp, vertical = 8.dp),
                 modifier = Modifier.weight(1f)
             ) {
-                Text("${speed}x", color = if (selected) Color.White else PLAYER_MENU_MUTED_TEXT)
+                Text("${speed}x", color = if (selected) theme.colors.type.emphasis else playerMenuMutedText())
             }
         }
     }
@@ -2414,10 +2501,11 @@ private fun PlayerMenuSegmentedOptions(
     selected: String,
     onSelect: (String) -> Unit,
 ) {
+    val theme = LocalZStreamTheme.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Color.White.copy(alpha = 0.08f), RoundedCornerShape(14.dp))
+            .background(playerMenuCardFill(), RoundedCornerShape(14.dp))
             .padding(4.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
@@ -2426,13 +2514,13 @@ private fun PlayerMenuSegmentedOptions(
             TextButton(
                 onClick = { onSelect(value) },
                 colors = ButtonDefaults.textButtonColors(
-                    containerColor = if (isSelected) Color.White.copy(alpha = 0.12f) else Color.Transparent,
-                    contentColor = Color.White
+                    containerColor = if (isSelected) playerMenuCardActiveFill() else Color.Transparent,
+                    contentColor = theme.colors.type.emphasis
                 ),
                 contentPadding = PaddingValues(horizontal = 0.dp, vertical = 8.dp),
                 modifier = Modifier.weight(1f)
             ) {
-                Text(label, color = if (isSelected) Color.White else PLAYER_MENU_MUTED_TEXT)
+                Text(label, color = if (isSelected) theme.colors.type.emphasis else playerMenuMutedText())
             }
         }
     }
@@ -2440,50 +2528,62 @@ private fun PlayerMenuSegmentedOptions(
 
 @Composable
 private fun PlayerMenuChevronRow(title: String, value: String? = null, onClick: () -> Unit) {
+    val theme = LocalZStreamTheme.current
     TextButton(
         onClick = onClick,
         contentPadding = PaddingValues(horizontal = 0.dp, vertical = 10.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            Text(title, color = Color.White, modifier = Modifier.weight(1f), textAlign = TextAlign.Start)
+            Text(title, color = theme.colors.type.emphasis, modifier = Modifier.weight(1f), textAlign = TextAlign.Start)
             if (!value.isNullOrBlank()) {
                 Text(
                     value,
-                    color = PLAYER_MENU_MUTED_TEXT,
+                    color = playerMenuMutedText(),
                     fontSize = 13.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
                 Spacer(Modifier.width(4.dp))
             }
-            Icon(Icons.Filled.ChevronRight, null, tint = Color.White, modifier = Modifier.size(20.dp))
+            Icon(Icons.Filled.ChevronRight, null, tint = theme.colors.type.emphasis, modifier = Modifier.size(20.dp))
         }
     }
 }
 
 @Composable
 private fun PlayerMenuLinkRow(title: String, rightIcon: androidx.compose.ui.graphics.vector.ImageVector, onClick: () -> Unit) {
+    val theme = LocalZStreamTheme.current
     TextButton(
         onClick = onClick,
         contentPadding = PaddingValues(horizontal = 0.dp, vertical = 10.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            Text(title, color = Color.White, modifier = Modifier.weight(1f), textAlign = TextAlign.Start)
-            Icon(rightIcon, null, tint = Color.White, modifier = Modifier.size(19.dp))
+            Text(title, color = theme.colors.type.emphasis, modifier = Modifier.weight(1f), textAlign = TextAlign.Start)
+            Icon(rightIcon, null, tint = theme.colors.type.emphasis, modifier = Modifier.size(19.dp))
         }
     }
 }
 
 @Composable
 private fun PlayerMenuToggleRow(title: String, checked: Boolean, onToggle: () -> Unit) {
+    val theme = LocalZStreamTheme.current
     Row(
         modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(title, color = Color.White, modifier = Modifier.weight(1f))
-        Switch(checked = checked, onCheckedChange = { onToggle() })
+        Text(title, color = theme.colors.type.emphasis, modifier = Modifier.weight(1f))
+        Switch(
+            checked = checked,
+            onCheckedChange = { onToggle() },
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = theme.colors.type.emphasis,
+                checkedTrackColor = theme.colors.global.accentA,
+                uncheckedThumbColor = theme.colors.type.dimmed,
+                uncheckedTrackColor = theme.colors.background.secondary,
+            )
+        )
     }
 }
 
@@ -2498,22 +2598,23 @@ private fun PlayerMenuSliderRow(
     onReset: () -> Unit,
     isDefault: Boolean,
 ) {
+    val theme = LocalZStreamTheme.current
     Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(label, color = PLAYER_MENU_MUTED_TEXT, fontSize = 13.sp, modifier = Modifier.weight(1f))
+            Text(label, color = playerMenuMutedText(), fontSize = 13.sp, modifier = Modifier.weight(1f))
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.height(24.dp)
             ) {
-                Text(valueText, color = Color.White, fontSize = 13.sp)
+                Text(valueText, color = theme.colors.type.emphasis, fontSize = 13.sp)
                 Box(
                     modifier = Modifier.size(18.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     if (!isDefault) {
                         TextButton(onClick = onReset, contentPadding = PaddingValues(0.dp)) {
-                            Icon(Icons.Filled.Close, null, tint = PLAYER_MENU_MUTED_TEXT, modifier = Modifier.size(14.dp))
+                            Icon(Icons.Filled.Close, null, tint = playerMenuMutedText(), modifier = Modifier.size(14.dp))
                         }
                     }
                 }
@@ -2525,9 +2626,9 @@ private fun PlayerMenuSliderRow(
             valueRange = range,
             steps = steps,
             colors = SliderDefaults.colors(
-                thumbColor = Color.White,
-                activeTrackColor = Color.White,
-                inactiveTrackColor = Color.White.copy(alpha = 0.18f)
+                thumbColor = theme.colors.type.emphasis,
+                activeTrackColor = theme.colors.type.emphasis,
+                inactiveTrackColor = theme.colors.progress.background.copy(alpha = 0.35f)
             )
         )
     }
@@ -2541,10 +2642,11 @@ private fun PlayerMenuSelectableRow(
     onClick: () -> Unit,
     rightContent: (@Composable RowScope.() -> Unit)? = null,
 ) {
+    val theme = LocalZStreamTheme.current
     Surface(
-        color = if (selected) PLAYER_MENU_CARD_ACTIVE_FILL else Color.Transparent,
+        color = if (selected) playerMenuCardActiveFill() else Color.Transparent,
         shape = RoundedCornerShape(14.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.15f)),
+        border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.type.emphasis.copy(alpha = 0.15f)),
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)
     ) {
         Row(
@@ -2552,16 +2654,16 @@ private fun PlayerMenuSelectableRow(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(Modifier.weight(1f)) {
-                Text(title, color = if (selected) Color.White else Color.White.copy(alpha = 0.96f))
+                Text(title, color = if (selected) theme.colors.type.emphasis else theme.colors.type.emphasis.copy(alpha = 0.96f))
                 if (subtitle != null) {
                     Spacer(Modifier.height(2.dp))
-                    Text(subtitle, color = PLAYER_MENU_DIM_TEXT, fontSize = 12.sp)
+                    Text(subtitle, color = playerMenuDimText(), fontSize = 12.sp)
                 }
             }
             if (rightContent != null) {
                 Row(verticalAlignment = Alignment.CenterVertically, content = rightContent)
             } else if (selected) {
-                Icon(Icons.Filled.Check, null, tint = Color(0xFF86EFAC), modifier = Modifier.size(18.dp))
+                Icon(Icons.Filled.Check, null, tint = theme.colors.type.success, modifier = Modifier.size(18.dp))
             }
         }
     }
@@ -2569,12 +2671,14 @@ private fun PlayerMenuSelectableRow(
 
 @Composable
 private fun ManualSourceStatusContent(source: SourceResult, onUse: () -> Unit) {
+    val theme = LocalZStreamTheme.current
+    val statusColor = sourceStatusColor(theme, source.status)
     when (source.status) {
         SourceStatus.IDLE -> Unit
         SourceStatus.TRYING -> {
             CircularProgressIndicator(
                 modifier = Modifier.size(16.dp),
-                color = Color.White,
+                color = theme.colors.type.emphasis,
                 strokeWidth = 2.dp
             )
         }
@@ -2582,25 +2686,25 @@ private fun ManualSourceStatusContent(source: SourceResult, onUse: () -> Unit) {
             Box(
                 modifier = Modifier
                     .size(16.dp)
-                    .border(2.dp, Color(0xFFF87171), CircleShape),
+                    .border(2.dp, statusColor, CircleShape),
                 contentAlignment = Alignment.Center
             ) {
                 Box(
                     modifier = Modifier
                         .width(8.dp)
                         .height(2.dp)
-                        .background(Color(0xFFF87171), RoundedCornerShape(999.dp))
+                        .background(statusColor, RoundedCornerShape(999.dp))
                 )
             }
         }
         SourceStatus.SUCCESS -> {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Icon(Icons.Filled.Check, null, tint = Color(0xFF86EFAC), modifier = Modifier.size(18.dp))
+                Icon(Icons.Filled.Check, null, tint = statusColor, modifier = Modifier.size(18.dp))
                 TextButton(
                     onClick = onUse,
-                    colors = ButtonDefaults.textButtonColors(contentColor = Color.White),
+                    colors = ButtonDefaults.textButtonColors(contentColor = theme.colors.type.emphasis),
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.15f)),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.type.emphasis.copy(alpha = 0.15f)),
                     modifier = Modifier.height(28.dp)
                 ) {
                     Text("Use", fontSize = 12.sp)
@@ -2619,25 +2723,30 @@ private fun sourceDisplayName(id: String): String = when (id.lowercase()) {
 
 @Composable
 private fun PlayerMenuStubCard(message: String) {
-    Surface(color = Color.White.copy(alpha = 0.04f), shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth().padding(top = 10.dp)) {
-        Text(message, color = PLAYER_MENU_MUTED_TEXT, fontSize = 12.sp, modifier = Modifier.padding(14.dp))
+    val theme = LocalZStreamTheme.current
+    Surface(
+        color = theme.colors.background.secondary.copy(alpha = 0.45f),
+        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier.fillMaxWidth().padding(top = 10.dp)
+    ) {
+        Text(message, color = playerMenuMutedText(), fontSize = 12.sp, modifier = Modifier.padding(14.dp))
     }
 }
 
 @Composable
 private fun PlayerMenuSourceRow(source: SourceResult) {
-    val color = when (source.status) {
-        SourceStatus.IDLE -> Color.Gray
-        SourceStatus.SUCCESS -> Color(0xFF4ADE80)
-        SourceStatus.FAILED -> Color(0xFFF87171)
-        SourceStatus.TRYING -> Color(0xFFFBBF24)
-    }
-    Surface(color = Color.White.copy(alpha = 0.04f), shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
+    val theme = LocalZStreamTheme.current
+    val color = sourceStatusColor(theme, source.status)
+    Surface(
+        color = theme.colors.background.secondary.copy(alpha = 0.45f),
+        shape = RoundedCornerShape(14.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(8.dp).background(color, CircleShape))
             Spacer(Modifier.width(10.dp))
-            Text(source.id, color = Color.White, modifier = Modifier.weight(1f))
-            Text(source.status.name.lowercase().replaceFirstChar { it.uppercase() }, color = PLAYER_MENU_MUTED_TEXT, fontSize = 12.sp)
+            Text(source.id, color = theme.colors.type.emphasis, modifier = Modifier.weight(1f))
+            Text(source.status.name.lowercase().replaceFirstChar { it.uppercase() }, color = playerMenuMutedText(), fontSize = 12.sp)
         }
     }
 }
@@ -2646,7 +2755,7 @@ private fun PlayerMenuSourceRow(source: SourceResult) {
 private fun PlayerMenuHintText(text: String) {
     Text(
         text = text,
-        color = PLAYER_MENU_MUTED_TEXT,
+        color = playerMenuMutedText(),
         fontSize = 12.sp,
         modifier = Modifier.padding(top = 18.dp)
     )
@@ -2666,11 +2775,11 @@ private fun PlayerInfoSheet(
     val theme = LocalZStreamTheme.current
     when (state) {
         null, PlayerInfoState.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator(color = Color.White)
+            CircularProgressIndicator(color = theme.colors.type.emphasis)
         }
         is PlayerInfoState.Error -> Box(Modifier.fillMaxSize().padding(PLAYER_DETAIL_SHEET_CONTENT_PADDING), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(state.message, color = Color.White)
+                Text(state.message, color = theme.colors.type.emphasis)
                 Spacer(Modifier.height(12.dp))
                 TextButton(onClick = onClose) { Text("Close") }
             }
@@ -2695,7 +2804,7 @@ private fun PlayerInfoSheet(
                     SharedActionPill(Icons.Filled.Share, theme) {
                         openPlayerInfoShareSheet(context, state.detail.title, state.detail.id, "movie")
                     }
-                    SharedActionPill(if (isBookmarked) Icons.Filled.Bookmark else Icons.Filled.BookmarkBorder, theme) {
+                    SharedActionPill(if (isBookmarked) ImageVector.vectorResource(R.drawable.ic_player_bookmark_filled) else ImageVector.vectorResource(R.drawable.ic_player_bookmark_outline), theme) {
                         onToggleBookmark()
                     }
                 }
@@ -2724,7 +2833,7 @@ private fun PlayerInfoSheet(
                     SharedActionPill(Icons.Filled.Share, theme) {
                         openPlayerInfoShareSheet(context, state.detail.name, state.detail.id, "tv")
                     }
-                    SharedActionPill(if (isBookmarked) Icons.Filled.Bookmark else Icons.Filled.BookmarkBorder, theme) {
+                    SharedActionPill(if (isBookmarked) ImageVector.vectorResource(R.drawable.ic_player_bookmark_filled) else ImageVector.vectorResource(R.drawable.ic_player_bookmark_outline), theme) {
                         onToggleBookmark()
                     }
                 }
@@ -2778,24 +2887,21 @@ private fun PlayerInfoSheetScaffold(
                                     Brush.verticalGradient(
                                         listOf(
                                             Color.Transparent,
-                                            Color.Black.copy(alpha = 0.18f),
+                                            theme.colors.video.context.background.copy(alpha = 0.18f),
                                             theme.colors.background.main
                                         )
                                     )
                                 )
                         )
-                        IconButton(
+                        ZsIconButton(
                             onClick = onClose,
+                            icon = Icons.Filled.Close,
+                            contentDescription = null,
+                            variant = ZsIconButtonVariant.Overlay,
                             modifier = Modifier
                                 .align(Alignment.TopEnd)
-                                .padding(start = 24.dp, end = 24.dp, top = 48.dp)
-                                .size(40.dp)
-                                .clip(CircleShape)
-                                .background(Color.Black.copy(alpha = 0.75f))
-                                .border(1.dp, Color.White.copy(alpha = 0.15f), CircleShape)
-                        ) {
-                            Icon(Icons.Filled.Close, null, tint = Color.White)
-                        }
+                                .padding(start = 24.dp, end = 24.dp, top = 48.dp),
+                        )
                         Column(
                             modifier = Modifier
                                 .align(Alignment.BottomStart)
@@ -2823,7 +2929,7 @@ private fun PlayerInfoSheetScaffold(
                             MetadataRow(
                                 content = listOfNotNull(
                                     rating?.toDoubleOrNull()?.let { numericRating -> { TmdbRating(numericRating, theme) } },
-                                    year?.let { { Text(it, fontSize = 12.sp, color = Color.White) } }
+                                    year?.let { { Text(it, fontSize = 12.sp, color = theme.colors.type.emphasis) } }
                                 ),
                                 theme = theme,
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -2868,7 +2974,7 @@ private fun ColumnScope.PlayerMovieInfoContent(
         PlayerSheetActionPill(Icons.Filled.Share, theme) {
             openPlayerInfoShareSheet(context, detail.title, detail.id, "movie")
         }
-        PlayerSheetActionPill(if (isBookmarked) Icons.Filled.Bookmark else Icons.Filled.BookmarkBorder, theme) {
+        PlayerSheetActionPill(if (isBookmarked) ImageVector.vectorResource(R.drawable.ic_player_bookmark_filled) else ImageVector.vectorResource(R.drawable.ic_player_bookmark_outline), theme) {
             onToggleBookmark()
         }
     }
@@ -2878,7 +2984,7 @@ private fun ColumnScope.PlayerMovieInfoContent(
             detail.overview?.takeIf { it.isNotBlank() }?.let { Text(it, color = theme.colors.type.text, fontSize = 14.sp) }
             Spacer(Modifier.height(18.dp))
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                genres.forEach { PlayerSheetGenreChip(it.name, theme) }
+                genres.forEach { ZsChip(label = it.name, variant = ZsChipVariant.Subtle) }
             }
         }
         Column(Modifier.widthIn(max = 240.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -2889,11 +2995,11 @@ private fun ColumnScope.PlayerMovieInfoContent(
         }
     }
 
-    PlayerSheetSectionHeader("Cast", theme)
+    ZsBottomSheetSectionHeader("Cast")
     PlayerSheetCastRow(cast, theme, context)
-    PlayerSheetSectionHeader("Trailers", theme)
+    ZsBottomSheetSectionHeader("Trailers")
     PlayerSheetTrailerGrid(detail.videos?.results?.filter { it.site == "YouTube" && it.type == "Trailer" }.orEmpty(), theme, context)
-    PlayerSheetSectionHeader("Similar", theme)
+    ZsBottomSheetSectionHeader("Similar")
     PlayerSheetSimilarGrid(detail.similar?.results.orEmpty(), theme, nav)
 }
 
@@ -2916,7 +3022,7 @@ private fun ColumnScope.PlayerTvInfoContent(
         PlayerSheetActionPill(Icons.Filled.Share, theme) {
             openPlayerInfoShareSheet(context, detail.name, detail.id, "tv")
         }
-        PlayerSheetActionPill(if (isBookmarked) Icons.Filled.Bookmark else Icons.Filled.BookmarkBorder, theme) {
+        PlayerSheetActionPill(if (isBookmarked) ImageVector.vectorResource(R.drawable.ic_player_bookmark_filled) else ImageVector.vectorResource(R.drawable.ic_player_bookmark_outline), theme) {
             onToggleBookmark()
         }
     }
@@ -2926,7 +3032,7 @@ private fun ColumnScope.PlayerTvInfoContent(
             detail.overview?.takeIf { it.isNotBlank() }?.let { Text(it, color = theme.colors.type.text, fontSize = 14.sp) }
             Spacer(Modifier.height(18.dp))
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                detail.genres.orEmpty().forEach { PlayerSheetGenreChip(it.name, theme) }
+                detail.genres.orEmpty().forEach { ZsChip(label = it.name, variant = ZsChipVariant.Subtle) }
             }
         }
         Column(Modifier.widthIn(max = 240.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -2937,23 +3043,24 @@ private fun ColumnScope.PlayerTvInfoContent(
         }
     }
 
-    PlayerSheetSectionHeader("Seasons", theme)
+    ZsBottomSheetSectionHeader("Seasons")
     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(horizontal = 32.dp)) {
         items(seasons) { season ->
-            FilterChip(
+            ZsChip(
+                label = "S${season.seasonNumber}",
                 selected = season.seasonNumber == selectedSeason?.seasonNumber,
                 onClick = { onSelectSeason(season.seasonNumber) },
-                label = { Text("S${season.seasonNumber}") }
+                variant = ZsChipVariant.Selectable,
             )
         }
     }
     Spacer(Modifier.height(16.dp))
 
-    selectedSeason?.episodes?.let { episodes ->
+    selectedSeason?.episodes?.airedEpisodes()?.takeIf { it.isNotEmpty() }?.let { episodes ->
         val progressMap = allProgress
             .filter { it.seasonNumber == selectedSeason.seasonNumber }
             .associateBy { it.episodeNumber }
-        PlayerSheetSectionHeader("Episodes", theme)
+        ZsBottomSheetSectionHeader("Episodes")
         episodes.forEach { episode ->
             SharedEpisodeRow(
                 ep = episode,
@@ -2967,11 +3074,11 @@ private fun ColumnScope.PlayerTvInfoContent(
         }
     }
 
-    PlayerSheetSectionHeader("Cast", theme)
+    ZsBottomSheetSectionHeader("Cast")
     PlayerSheetCastRow(detail.credits?.cast.orEmpty().take(8), theme, context)
-    PlayerSheetSectionHeader("Trailers", theme)
+    ZsBottomSheetSectionHeader("Trailers")
     PlayerSheetTrailerGrid(detail.videos?.results?.filter { it.site == "YouTube" && it.type == "Trailer" }.orEmpty(), theme, context)
-    PlayerSheetSectionHeader("Similar", theme)
+    ZsBottomSheetSectionHeader("Similar")
     PlayerSheetSimilarGrid(detail.similar?.results.orEmpty(), theme, nav)
 }
 
@@ -2997,26 +3104,10 @@ private fun PlayerSheetCastRow(cast: List<com.zstream.android.data.model.CastMem
 }
 
 @Composable
-private fun PlayerSheetSectionHeader(title: String, theme: ZStreamTheme) {
-    Text(title, modifier = Modifier.padding(start = 32.dp, end = 32.dp, top = 18.dp, bottom = 0.dp), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = theme.colors.type.emphasis)
-}
-
-@Composable
 private fun PlayerSheetDetailSpec(label: String, value: String, theme: ZStreamTheme) {
     Column {
         Text(label, style = MaterialTheme.typography.labelMedium, color = theme.colors.type.secondary)
         Text(value, style = MaterialTheme.typography.bodyMedium, color = theme.colors.type.emphasis)
-    }
-}
-
-@Composable
-private fun PlayerSheetGenreChip(label: String, theme: ZStreamTheme) {
-    Surface(
-        color = theme.colors.type.text.copy(alpha = 0.08f),
-        shape = RoundedCornerShape(4.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.type.divider.copy(alpha = 0.15f))
-    ) {
-        Text(label, modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp), style = MaterialTheme.typography.labelMedium, color = theme.colors.type.text)
     }
 }
 
@@ -3029,7 +3120,14 @@ private fun MetadataRow(
 ) {
     Row(horizontalArrangement = horizontalArrangement, verticalAlignment = verticalArrangement) {
         content.forEachIndexed { index, contentItem ->
-            if (index > 0) Text("•", fontSize = 12.sp, color = Color.White, modifier = Modifier.padding(horizontal = 4.dp))
+            if (index > 0) {
+                Text(
+                    "•",
+                    fontSize = 12.sp,
+                    color = theme.colors.type.secondary,
+                    modifier = Modifier.padding(horizontal = 4.dp)
+                )
+            }
             contentItem()
         }
     }
@@ -3069,7 +3167,11 @@ private fun PlayerSheetActionPill(
 @Composable
 private fun PlayerSheetTrailerGrid(trailers: List<com.zstream.android.data.model.TrailerData>, theme: ZStreamTheme, context: android.content.Context) {
     if (trailers.isEmpty()) {
-        Text("No trailers available", modifier = Modifier.padding(horizontal = 32.dp, vertical = 12.dp), color = theme.colors.type.secondary)
+        ZsStatusBanner(
+            message = "No trailers available",
+            variant = ZsStatusBannerVariant.Info,
+            modifier = Modifier.padding(horizontal = 32.dp, vertical = 12.dp),
+        )
         return
     }
 
@@ -3090,7 +3192,12 @@ private fun PlayerSheetTrailerGrid(trailers: List<com.zstream.android.data.model
                         contentScale = androidx.compose.ui.layout.ContentScale.Crop,
                         modifier = Modifier.fillMaxSize()
                     )
-                    Text(trailer.name, color = Color.White, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(8.dp))
+                    Text(
+                        trailer.name,
+                        color = theme.colors.type.emphasis,
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.padding(8.dp)
+                    )
                 }
             }
         }
@@ -3100,7 +3207,11 @@ private fun PlayerSheetTrailerGrid(trailers: List<com.zstream.android.data.model
 @Composable
 private fun PlayerSheetSimilarGrid(similar: List<com.zstream.android.data.model.Media>, theme: ZStreamTheme, nav: NavController) {
     if (similar.isEmpty()) {
-        Text("No similar movies available", modifier = Modifier.padding(horizontal = 32.dp, vertical = 12.dp), color = theme.colors.type.secondary)
+        ZsStatusBanner(
+            message = "No similar movies available",
+            variant = ZsStatusBannerVariant.Info,
+            modifier = Modifier.padding(horizontal = 32.dp, vertical = 12.dp),
+        )
         return
     }
 
@@ -3161,12 +3272,12 @@ private fun PlayerSheetEpisodeRow(episode: com.zstream.android.data.model.Episod
                         .align(Alignment.TopStart)
                         .padding(6.dp)
                         .clip(RoundedCornerShape(4.dp))
-                        .background(Color(0xFF2D2D3D))
+                        .background(theme.colors.mediaCard.badge)
                         .padding(horizontal = 6.dp, vertical = 1.dp)
                 ) {
                     Text(
                         "E${episode.episodeNumber}",
-                        color = Color(0xFFC4C4D4),
+                        color = theme.colors.mediaCard.badgeText,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold
                     )

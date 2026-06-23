@@ -14,6 +14,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.zstream.android.R
 import com.zstream.android.theme.LocalZStreamTheme
 import com.zstream.android.theme.ThemeViewModel
+import com.zstream.android.theme.ZStreamTheme
 
 private val Lato = FontFamily(
     Font(R.font.lato_light, weight = FontWeight.Light),
@@ -24,15 +25,22 @@ private val Lato = FontFamily(
     Font(R.font.lato_black, weight = FontWeight.Black),
 )
 
-private val ColorScheme = darkColorScheme(
-    primary = Color(0xFFE50914),
-    onPrimary = Color.White,
-    background = Color(0xFF0A0A0A),
-    onBackground = Color.White,
-    surface = Color(0xFF141414),
-    onSurface = Color.White,
-    surfaceVariant = Color(0xFF1F1F1F),
-    onSurfaceVariant = Color(0xFFAAAAAA),
+private fun colorSchemeFor(theme: ZStreamTheme) = darkColorScheme(
+    primary = theme.colors.global.accentA,
+    onPrimary = theme.colors.buttons.primaryText,
+    background = theme.colors.background.main,
+    onBackground = theme.colors.type.emphasis,
+    surface = theme.colors.settings.card.background,
+    onSurface = theme.colors.type.emphasis,
+    surfaceVariant = theme.colors.background.secondary,
+    onSurfaceVariant = theme.colors.type.secondary,
+    secondary = theme.colors.buttons.purple,
+    onSecondary = Color.White,
+    tertiary = theme.colors.type.link,
+    onTertiary = theme.colors.type.emphasis,
+    error = theme.colors.type.danger,
+    onError = Color.White,
+    outline = theme.colors.type.divider,
 )
 
 private val AppTypography = with(Typography()) {
@@ -64,7 +72,7 @@ fun ZStreamTheme(content: @Composable () -> Unit) {
         LocalZStreamTheme provides currentTheme
     ) {
         MaterialTheme(
-            colorScheme = ColorScheme,
+            colorScheme = colorSchemeFor(currentTheme),
             typography = AppTypography,
             content = content,
         )

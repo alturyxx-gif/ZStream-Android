@@ -13,7 +13,7 @@ import org.json.JSONObject
  */
 data class SettingsEntity(
     // UI/Display Settings
-    val applicationTheme: String = "dark",
+    val applicationTheme: String = "default",
     val applicationLanguage: String = "en",
     val enableThumbnails: Boolean = true,
     val enableImageLogos: Boolean = true,
@@ -103,6 +103,9 @@ data class SettingsEntity(
     fun toSyncableJsonString(): String {
         val json = JSONObject()
         json.put("applicationTheme", applicationTheme)
+        customTheme?.let { theme ->
+            json.put("customTheme", theme.toJson())
+        }
         json.put("applicationLanguage", applicationLanguage)
         defaultSubtitleLanguage?.let { json.put("defaultSubtitleLanguage", it) }
         json.put("enableThumbnails", enableThumbnails)
@@ -156,6 +159,21 @@ data class CustomThemeSettings(
     val hiddenDefaultThemes: List<String> = emptyList()
 )
 
+private fun CustomThemeSettings.toJson(): JSONObject = JSONObject().apply {
+    primary?.let { put("primary", it) }
+    secondary?.let { put("secondary", it) }
+    tertiary?.let { put("tertiary", it) }
+    activeTheme?.let { active ->
+        put("activeTheme", JSONObject().apply {
+            put("primary", active.primary)
+            put("secondary", active.secondary)
+            put("tertiary", active.tertiary)
+        })
+    }
+    put("savedCustomThemes", JSONArray(savedCustomThemes.map { it.toJson() }))
+    put("hiddenDefaultThemes", JSONArray(hiddenDefaultThemes))
+}
+
 data class ThemeColors(
     val primary: String,
     val secondary: String,
@@ -167,5 +185,19 @@ data class SavedCustomTheme(
     val name: String,
     val primary: String,
     val secondary: String,
-    val tertiary: String
+    val tertiary: String,
+    val customPrimaryHex: String? = null,
+    val customSecondaryHex: String? = null,
+    val customTertiaryHex: String? = null
 )
+
+private fun SavedCustomTheme.toJson(): JSONObject = JSONObject().apply {
+    put("id", id)
+    put("name", name)
+    put("primary", primary)
+    put("secondary", secondary)
+    put("tertiary", tertiary)
+    customPrimaryHex?.let { put("customPrimaryHex", it) }
+    customSecondaryHex?.let { put("customSecondaryHex", it) }
+    customTertiaryHex?.let { put("customTertiaryHex", it) }
+}

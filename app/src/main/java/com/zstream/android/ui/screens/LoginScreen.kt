@@ -7,7 +7,6 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -19,12 +18,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusDirection
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -34,6 +30,15 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import com.zstream.android.theme.LocalZStreamTheme
+import com.zstream.android.ui.components.themed.ZsButton
+import com.zstream.android.ui.components.themed.ZsButtonVariant
+import com.zstream.android.ui.components.themed.ZsIconButton
+import com.zstream.android.ui.components.themed.ZsIconButtonVariant
+import com.zstream.android.ui.components.themed.ZsStatusBanner
+import com.zstream.android.ui.components.themed.ZsStatusBannerVariant
+import com.zstream.android.ui.components.themed.ZsTextButton
+import com.zstream.android.ui.components.themed.ZsTextField
+import com.zstream.android.ui.navigation.rememberSafeNavigateBack
 
 private val BIP39_WORDLIST = listOf(
     "abandon","ability","able","about","above","absent","absorb","abstract","absurd","abuse",
@@ -54,24 +59,30 @@ fun LoginScreen(nav: NavController, vm: AccountViewModel = hiltViewModel()) {
     val authState by vm.authState.collectAsState()
     val bg = theme.colors.background
     val txt = theme.colors.type
+    val scope = rememberCoroutineScope()
+    val onBack = rememberSafeNavigateBack(nav, scope)
 
     // Screens: "login" | "register_show" | "register_confirm"
     var screen by remember { mutableStateOf("login") }
     var generatedMnemonic by remember { mutableStateOf("") }
 
     LaunchedEffect(authState) {
-        if (authState is AuthState.Success) nav.popBackStack()
+        if (authState is AuthState.Success) onBack()
     }
 
     Box(Modifier.fillMaxSize().background(bg.main)) {
-        IconButton(onClick = {
-            when (screen) {
-                "login" -> nav.popBackStack()
-                else -> { screen = "login"; vm.clearError() }
-            }
-        }, Modifier.align(Alignment.TopStart).padding(8.dp)) {
-            Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = txt.text)
-        }
+        ZsIconButton(
+            onClick = {
+                when (screen) {
+                    "login" -> onBack()
+                    else -> { screen = "login"; vm.clearError() }
+                }
+            },
+            icon = Icons.AutoMirrored.Filled.ArrowBack,
+            contentDescription = "Back",
+            variant = ZsIconButtonVariant.Ghost,
+            modifier = Modifier.align(Alignment.TopStart).padding(8.dp),
+        )
 
         when (screen) {
             "login" -> LoginPanel(
@@ -108,7 +119,6 @@ private fun BoxScope.LoginPanel(
     authState: AuthState,
     onRegister: () -> Unit,
 ) {
-    val accent = LocalZStreamTheme.current.colors.global.accentA
     var passphrase by remember { mutableStateOf("") }
     var deviceName by remember { mutableStateOf("Android") }
     var showPassphrase by remember { mutableStateOf(false) }
@@ -123,32 +133,48 @@ private fun BoxScope.LoginPanel(
         Text("Enter your passphrase to sync your data.", color = txt.dimmed, fontSize = 13.sp)
         Spacer(Modifier.height(4.dp))
 
-        AuthField("Device name", deviceName, { deviceName = it }, ImeAction.Next,
-            { focusManager.moveFocus(FocusDirection.Down) }, bg = bg.secondary, txt = txt)
-        AuthField("Passphrase", passphrase, { passphrase = it }, ImeAction.Done,
-            { focusManager.clearFocus(); if (passphrase.isNotBlank()) vm.login(passphrase, deviceName) },
+        ZsTextField(
+            label = "Device name",
+            value = deviceName,
+            onValueChange = { deviceName = it },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+            keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) }),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        ZsTextField(
+            label = "Passphrase",
+            value = passphrase,
+            onValueChange = { passphrase = it },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = {
+                focusManager.clearFocus()
+                if (passphrase.isNotBlank()) vm.login(passphrase, deviceName)
+            }),
             visualTransformation = if (showPassphrase) VisualTransformation.None else PasswordVisualTransformation(),
             trailingIcon = {
                 IconButton(onClick = { showPassphrase = !showPassphrase }) {
                     Icon(if (showPassphrase) Icons.Default.VisibilityOff else Icons.Default.Visibility, null, tint = txt.dimmed)
                 }
-            }, bg = bg.secondary, txt = txt)
+            },
+            modifier = Modifier.fillMaxWidth(),
+        )
 
-        if (authState is AuthState.Error)
-            Text((authState as AuthState.Error).message, color = txt.danger, fontSize = 13.sp)
+        if (authState is AuthState.Error) {
+            ZsStatusBanner(
+                message = (authState as AuthState.Error).message,
+                variant = ZsStatusBannerVariant.Error,
+            )
+        }
 
-        Button(
+        ZsButton(
+            text = "Sign In",
             onClick = { vm.login(passphrase, deviceName) },
             enabled = authState !is AuthState.Loading && passphrase.isNotBlank() && deviceName.isNotBlank(),
+            loading = authState is AuthState.Loading,
             modifier = Modifier.fillMaxWidth().height(48.dp),
-            shape = RoundedCornerShape(12.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = accent),
-            border = androidx.compose.foundation.BorderStroke(1.dp, txt.dimmed.copy(0.3f)),
-        ) {
-            if (authState is AuthState.Loading)
-                CircularProgressIndicator(Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
-            else Text("Sign In", fontWeight = FontWeight.SemiBold)
-        }
+        )
 
         Row(verticalAlignment = Alignment.CenterVertically) {
             HorizontalDivider(Modifier.weight(1f), color = txt.dimmed.copy(0.3f))
@@ -156,35 +182,28 @@ private fun BoxScope.LoginPanel(
             HorizontalDivider(Modifier.weight(1f), color = txt.dimmed.copy(0.3f))
         }
 
-        OutlinedButton(
+        ZsButton(
+            text = "Sign in with Passkey",
             onClick = { vm.loginWithPasskey(deviceName.ifBlank { "Android" }) },
             enabled = authState !is AuthState.Loading,
             modifier = Modifier.fillMaxWidth().height(48.dp),
-            shape = RoundedCornerShape(12.dp),
-            colors = ButtonDefaults.outlinedButtonColors(contentColor = txt.text),
-            border = androidx.compose.foundation.BorderStroke(1.dp, txt.dimmed.copy(0.4f)),
-        ) {
-            Icon(Icons.Default.Lock, null, Modifier.size(18.dp))
-            Spacer(Modifier.width(8.dp))
-            Text("Sign in with Passkey")
-        }
+            variant = ZsButtonVariant.Secondary,
+            leadingIcon = Icons.Default.Lock,
+        )
 
-        OutlinedButton(
+        ZsButton(
+            text = "Create account with Passkey",
             onClick = { vm.registerWithPasskey(deviceName.ifBlank { "Android" }) },
             enabled = authState !is AuthState.Loading && deviceName.isNotBlank(),
             modifier = Modifier.fillMaxWidth().height(48.dp),
-            shape = RoundedCornerShape(12.dp),
-            colors = ButtonDefaults.outlinedButtonColors(contentColor = txt.text),
-            border = androidx.compose.foundation.BorderStroke(1.dp, txt.dimmed.copy(0.4f)),
-        ) {
-            Icon(Icons.Default.Lock, null, Modifier.size(18.dp))
-            Spacer(Modifier.width(8.dp))
-            Text("Create account with Passkey")
-        }
+            variant = ZsButtonVariant.Secondary,
+            leadingIcon = Icons.Default.Lock,
+        )
 
-        TextButton(onClick = onRegister) {
-            Text("Don't have an account? Create one", color = accent, fontSize = 13.sp)
-        }
+        ZsTextButton(
+            text = "Don't have an account? Create one",
+            onClick = onRegister,
+        )
     }
 }
 
@@ -197,7 +216,6 @@ private fun BoxScope.ShowPassphrasePanel(
     bg: com.zstream.android.theme.Background,
     onNext: () -> Unit,
 ) {
-    val accent = LocalZStreamTheme.current.colors.global.accentA
     val clipboard = LocalClipboardManager.current
     val words = mnemonic.split(" ")
     var copied by remember { mutableStateOf(false) }
@@ -233,27 +251,19 @@ private fun BoxScope.ShowPassphrasePanel(
             }
         }
 
-        OutlinedButton(
+        ZsButton(
+            text = if (copied) "Copied!" else "Copy to clipboard",
             onClick = { clipboard.setText(AnnotatedString(mnemonic)); copied = true },
             modifier = Modifier.fillMaxWidth().height(44.dp),
-            shape = RoundedCornerShape(12.dp),
-            colors = ButtonDefaults.outlinedButtonColors(contentColor = if (copied) txt.success else txt.text),
-            border = androidx.compose.foundation.BorderStroke(1.dp, if (copied) txt.success.copy(0.6f) else txt.dimmed.copy(0.4f)),
-        ) {
-            Icon(if (copied) Icons.Default.Check else Icons.Default.ContentCopy, null, Modifier.size(16.dp))
-            Spacer(Modifier.width(6.dp))
-            Text(if (copied) "Copied!" else "Copy to clipboard")
-        }
+            variant = if (copied) ZsButtonVariant.Primary else ZsButtonVariant.Secondary,
+            leadingIcon = if (copied) Icons.Default.Check else Icons.Default.ContentCopy,
+        )
 
-        Button(
+        ZsButton(
+            text = "I've saved it — continue",
             onClick = onNext,
             modifier = Modifier.fillMaxWidth().height(48.dp),
-            shape = RoundedCornerShape(12.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = accent),
-            border = androidx.compose.foundation.BorderStroke(1.dp, txt.dimmed.copy(0.3f)),
-        ) {
-            Text("I've saved it — continue", fontWeight = FontWeight.SemiBold)
-        }
+        )
     }
 }
 
@@ -267,7 +277,6 @@ private fun BoxScope.ConfirmRegisterPanel(
     bg: com.zstream.android.theme.Background,
     authState: AuthState,
 ) {
-    val accent = LocalZStreamTheme.current.colors.global.accentA
     var deviceName by remember { mutableStateOf("Android") }
     val focusManager = LocalFocusManager.current
 
@@ -280,76 +289,42 @@ private fun BoxScope.ConfirmRegisterPanel(
         Text("Give this device a name, then create your account.", color = txt.dimmed, fontSize = 13.sp)
         Spacer(Modifier.height(4.dp))
 
-        AuthField("Device name", deviceName, { deviceName = it }, ImeAction.Done,
-            { focusManager.clearFocus(); vm.register(mnemonic, deviceName) },
-            bg = bg.secondary, txt = txt)
+        ZsTextField(
+            label = "Device name",
+            value = deviceName,
+            onValueChange = { deviceName = it },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = {
+                focusManager.clearFocus()
+                vm.register(mnemonic, deviceName)
+            }),
+            modifier = Modifier.fillMaxWidth(),
+        )
 
-        if (authState is AuthState.Error)
-            Text((authState as AuthState.Error).message, color = txt.danger, fontSize = 13.sp)
-
-        Button(
-            onClick = { vm.register(mnemonic, deviceName) },
-            enabled = authState !is AuthState.Loading && deviceName.isNotBlank(),
-            modifier = Modifier.fillMaxWidth().height(48.dp),
-            shape = RoundedCornerShape(12.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = accent),
-            border = androidx.compose.foundation.BorderStroke(1.dp, txt.dimmed.copy(0.3f)),
-        ) {
-            if (authState is AuthState.Loading)
-                CircularProgressIndicator(Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
-            else Text("Create Account", fontWeight = FontWeight.SemiBold)
+        if (authState is AuthState.Error) {
+            ZsStatusBanner(
+                message = (authState as AuthState.Error).message,
+                variant = ZsStatusBannerVariant.Error,
+            )
         }
 
-        OutlinedButton(
+        ZsButton(
+            text = "Create Account",
+            onClick = { vm.register(mnemonic, deviceName) },
+            enabled = authState !is AuthState.Loading && deviceName.isNotBlank(),
+            loading = authState is AuthState.Loading,
+            modifier = Modifier.fillMaxWidth().height(48.dp),
+        )
+
+        ZsButton(
+            text = "Create with Passkey",
             onClick = { vm.registerWithPasskey(deviceName.ifBlank { "Android" }) },
             enabled = authState !is AuthState.Loading && deviceName.isNotBlank(),
             modifier = Modifier.fillMaxWidth().height(48.dp),
-            shape = RoundedCornerShape(12.dp),
-            colors = ButtonDefaults.outlinedButtonColors(contentColor = txt.text),
-            border = androidx.compose.foundation.BorderStroke(1.dp, txt.dimmed.copy(0.4f)),
-        ) {
-            Icon(Icons.Default.Lock, null, Modifier.size(18.dp))
-            Spacer(Modifier.width(8.dp))
-            Text("Create with Passkey")
-        }
-    }
-}
-
-//  Shared field 
-
-@Composable
-private fun AuthField(
-    placeholder: String,
-    value: String,
-    onValueChange: (String) -> Unit,
-    imeAction: ImeAction,
-    onImeAction: () -> Unit,
-    visualTransformation: VisualTransformation = VisualTransformation.None,
-    trailingIcon: @Composable (() -> Unit)? = null,
-    bg: Color,
-    txt: com.zstream.android.theme.Type,
-) {
-    Box(
-        Modifier.fillMaxWidth().height(52.dp)
-            .clip(RoundedCornerShape(12.dp)).background(bg.copy(0.6f))
-            .border(1.dp, txt.dimmed.copy(0.3f), RoundedCornerShape(12.dp))
-            .padding(horizontal = 16.dp),
-        contentAlignment = Alignment.CenterStart,
-    ) {
-        BasicTextField(
-            value = value, onValueChange = onValueChange,
-            modifier = Modifier.fillMaxWidth().padding(end = if (trailingIcon != null) 40.dp else 0.dp),
-            singleLine = true, visualTransformation = visualTransformation,
-            textStyle = TextStyle(color = txt.text, fontSize = 15.sp),
-            cursorBrush = SolidColor(txt.text),
-            keyboardOptions = KeyboardOptions(imeAction = imeAction),
-            keyboardActions = KeyboardActions(onNext = { onImeAction() }, onDone = { onImeAction() }),
-            decorationBox = { inner ->
-                if (value.isEmpty()) Text(placeholder, color = txt.dimmed, fontSize = 15.sp)
-                inner()
-            }
+            variant = ZsButtonVariant.Secondary,
+            leadingIcon = Icons.Default.Lock,
         )
-        if (trailingIcon != null) Box(Modifier.align(Alignment.CenterEnd)) { trailingIcon() }
     }
 }
 
