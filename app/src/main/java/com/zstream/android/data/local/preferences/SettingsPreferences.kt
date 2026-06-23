@@ -40,6 +40,7 @@ class SettingsPreferences @Inject constructor(
     private val KEY_ENABLE_THUMBNAILS = booleanPreferencesKey("enable_thumbnails")
     private val KEY_ENABLE_IMAGE_LOGOS = booleanPreferencesKey("enable_image_logos")
     private val KEY_ENABLE_CAROUSEL_VIEW = booleanPreferencesKey("enable_carousel_view")
+    private val KEY_GRID_ROWS = intPreferencesKey("grid_rows")
     private val KEY_ENABLE_MINIMAL_CARDS = booleanPreferencesKey("enable_minimal_cards")
     private val KEY_ENABLE_LOW_PERFORMANCE_MODE = booleanPreferencesKey("enable_low_performance_mode")
     private val KEY_ENABLE_PAUSE_OVERLAY = booleanPreferencesKey("enable_pause_overlay")
@@ -64,7 +65,6 @@ class SettingsPreferences @Inject constructor(
     // Discover/Home Settings
     private val KEY_ENABLE_DISCOVER = booleanPreferencesKey("enable_discover")
     private val KEY_ENABLE_FEATURED = booleanPreferencesKey("enable_featured")
-    private val KEY_ENABLE_DETAILS_MODAL = booleanPreferencesKey("enable_details_modal")
 
     // Source Settings
     private val KEY_LAST_SUCCESSFUL_SOURCE = stringPreferencesKey("last_successful_source")
@@ -116,6 +116,7 @@ class SettingsPreferences @Inject constructor(
             enableThumbnails = prefs[KEY_ENABLE_THUMBNAILS] ?: true,
             enableImageLogos = prefs[KEY_ENABLE_IMAGE_LOGOS] ?: true,
             enableCarouselView = prefs[KEY_ENABLE_CAROUSEL_VIEW] ?: true,
+            gridRows = prefs[KEY_GRID_ROWS] ?: 2,
             enableMinimalCards = prefs[KEY_ENABLE_MINIMAL_CARDS] ?: false,
             enableLowPerformanceMode = prefs[KEY_ENABLE_LOW_PERFORMANCE_MODE] ?: false,
             enablePauseOverlay = prefs[KEY_ENABLE_PAUSE_OVERLAY] ?: true,
@@ -135,7 +136,6 @@ class SettingsPreferences @Inject constructor(
             videoScaleMode = prefs[KEY_VIDEO_SCALE_MODE] ?: "fit",
             enableDiscover = prefs[KEY_ENABLE_DISCOVER] ?: true,
             enableFeatured = prefs[KEY_ENABLE_FEATURED] ?: true,
-            enableDetailsModal = prefs[KEY_ENABLE_DETAILS_MODAL] ?: true,
             lastSuccessfulSource = prefs[KEY_LAST_SUCCESSFUL_SOURCE],
             enableLastSuccessfulSource = prefs[KEY_ENABLE_LAST_SUCCESSFUL_SOURCE] ?: false,
             manualSourceSelection = prefs[KEY_MANUAL_SOURCE_SELECTION] ?: false,
@@ -188,6 +188,7 @@ class SettingsPreferences @Inject constructor(
             prefs[KEY_ENABLE_THUMBNAILS] = entity.enableThumbnails
             prefs[KEY_ENABLE_IMAGE_LOGOS] = entity.enableImageLogos
             prefs[KEY_ENABLE_CAROUSEL_VIEW] = entity.enableCarouselView
+            prefs[KEY_GRID_ROWS] = entity.gridRows
             prefs[KEY_ENABLE_MINIMAL_CARDS] = entity.enableMinimalCards
             prefs[KEY_ENABLE_LOW_PERFORMANCE_MODE] = entity.enableLowPerformanceMode
             prefs[KEY_ENABLE_PAUSE_OVERLAY] = entity.enablePauseOverlay
@@ -207,7 +208,6 @@ class SettingsPreferences @Inject constructor(
             prefs[KEY_VIDEO_SCALE_MODE] = entity.videoScaleMode
             prefs[KEY_ENABLE_DISCOVER] = entity.enableDiscover
             prefs[KEY_ENABLE_FEATURED] = entity.enableFeatured
-            prefs[KEY_ENABLE_DETAILS_MODAL] = entity.enableDetailsModal
             if (entity.lastSuccessfulSource != null) {
                 prefs[KEY_LAST_SUCCESSFUL_SOURCE] = entity.lastSuccessfulSource
             } else {
@@ -282,6 +282,7 @@ class SettingsPreferences @Inject constructor(
             val currentVideoHueRotate = current[KEY_VIDEO_HUE_ROTATE] ?: 0
             val currentVolumeBoost = current[KEY_VOLUME_BOOST] ?: 100
             val currentVideoScaleMode = current[KEY_VIDEO_SCALE_MODE] ?: "fit"
+            val currentGridRows = current[KEY_GRID_ROWS] ?: 2
 
             val mappedHomeSectionOrder = remote.homeSectionOrder?.map { section ->
                 when (section) {
@@ -298,6 +299,7 @@ class SettingsPreferences @Inject constructor(
                 enableThumbnails = remote.enableThumbnails ?: true,
                 enableImageLogos = remote.enableImageLogos ?: true,
                 enableCarouselView = remote.enableCarouselView ?: true,
+                gridRows = currentGridRows,
                 enableMinimalCards = remote.enableMinimalCards ?: false,
                 enableLowPerformanceMode = remote.enableLowPerformanceMode ?: false,
                 enablePauseOverlay = remote.enablePauseOverlay ?: true,
@@ -317,7 +319,6 @@ class SettingsPreferences @Inject constructor(
                 videoScaleMode = currentVideoScaleMode,
                 enableDiscover = remote.enableDiscover ?: true,
                 enableFeatured = remote.enableFeatured ?: true,
-                enableDetailsModal = remote.enableDetailsModal ?: true,
                 lastSuccessfulSource = remote.lastSuccessfulSource,
                 enableLastSuccessfulSource = remote.enableLastSuccessfulSource ?: false,
                 manualSourceSelection = remote.manualSourceSelection ?: false,
@@ -514,12 +515,6 @@ class SettingsPreferences @Inject constructor(
     suspend fun setEnableFeatured(enabled: Boolean) {
         context.settingsStore.edit { prefs ->
             prefs[KEY_ENABLE_FEATURED] = enabled
-        }
-    }
-
-    suspend fun setEnableDetailsModal(enabled: Boolean) {
-        context.settingsStore.edit { prefs ->
-            prefs[KEY_ENABLE_DETAILS_MODAL] = enabled
         }
     }
 

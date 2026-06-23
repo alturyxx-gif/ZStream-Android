@@ -18,6 +18,7 @@ data class SettingsEntity(
     val enableThumbnails: Boolean = true,
     val enableImageLogos: Boolean = true,
     val enableCarouselView: Boolean = true,
+    val gridRows: Int = 2,
     val enableMinimalCards: Boolean = false,
     val enableLowPerformanceMode: Boolean = false,
     val enablePauseOverlay: Boolean = true,
@@ -42,7 +43,6 @@ data class SettingsEntity(
     // Discover/Home Settings
     val enableDiscover: Boolean = true,
     val enableFeatured: Boolean = true,
-    val enableDetailsModal: Boolean = true,
 
     // Source Settings
     val lastSuccessfulSource: String? = null,
@@ -118,7 +118,6 @@ data class SettingsEntity(
         json.put("enableHoldToBoost", enableHoldToBoost)
         json.put("enableDiscover", enableDiscover)
         json.put("enableFeatured", enableFeatured)
-        json.put("enableDetailsModal", enableDetailsModal)
         lastSuccessfulSource?.let { json.put("lastSuccessfulSource", it) }
         json.put("enableLastSuccessfulSource", enableLastSuccessfulSource)
         json.put("manualSourceSelection", manualSourceSelection)

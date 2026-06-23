@@ -109,16 +109,16 @@ class SettingsViewModel @Inject constructor(
         update { copy(enableFeatured = v) }
     }
 
-    fun setEnableDetailsModal(v: Boolean) {
-        update { copy(enableDetailsModal = v) }
-    }
-
     fun setEnableImageLogos(v: Boolean) {
         update { copy(enableImageLogos = v) }
     }
 
     fun setEnableCarouselView(v: Boolean) {
         update { copy(enableCarouselView = v) }
+    }
+
+    fun setGridRows(v: Int) {
+        update { copy(gridRows = v) }
     }
 
     fun setEnableMinimalCards(v: Boolean) {
@@ -383,7 +383,6 @@ class SettingsViewModel @Inject constructor(
         enableSkipCredits = enableSkipCredits,
         enableDiscover = enableDiscover,
         enableFeatured = enableFeatured,
-        enableDetailsModal = enableDetailsModal,
         enableImageLogos = enableImageLogos,
         enableCarouselView = enableCarouselView,
         enableMinimalCards = enableMinimalCards,

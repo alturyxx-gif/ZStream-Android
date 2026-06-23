@@ -80,6 +80,10 @@ import com.zstream.android.ui.navigation.rememberSafeNavigateBack
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 
 private sealed interface TidbValidationState {
     data object Idle : TidbValidationState
@@ -493,15 +497,6 @@ private fun AppearanceSection(settings: SettingsEntity, theme: ZStreamTheme, vm:
             }
             HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
             ZsSwitchRow(
-                title = "Details Modal",
-                subtitle = "Show details in a modal instead of full page",
-                checked = settings.enableDetailsModal,
-                onCheckedChange = vm::setEnableDetailsModal,
-                enabled = !settings.enableLowPerformanceMode,
-                modifier = Modifier.padding(horizontal = 16.dp),
-            )
-            HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
-            ZsSwitchRow(
                 title = "Image Logos",
                 subtitle = "Show logo images for media",
                 checked = settings.enableImageLogos,
@@ -517,6 +512,25 @@ private fun AppearanceSection(settings: SettingsEntity, theme: ZStreamTheme, vm:
                 onCheckedChange = vm::setEnableCarouselView,
                 modifier = Modifier.padding(horizontal = 16.dp),
             )
+            AnimatedVisibility(
+                visible = !settings.enableCarouselView,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut()
+            ) {
+                Column {
+                    HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
+                    SliderRow(
+                        label = "Number of rows in the grid",
+                        value = settings.gridRows.toFloat(),
+                        rangeStart = 1f,
+                        rangeEnd = 8f,
+                        steps = 6,
+                        display = { it.toInt().toString() },
+                        onValueChange = { vm.setGridRows(it.toInt()) },
+                        theme = theme
+                    )
+                }
+            }
             HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
             ZsSwitchRow(
                 title = "Minimal Cards",
@@ -1034,7 +1048,15 @@ private fun SubtitleColorPickerDialog(
 }
 
 @Composable
-private fun SliderRow(label: String, value: Float, rangeStart: Float, rangeEnd: Float, display: (Float) -> String, onValueChange: (Float) -> Unit, theme: ZStreamTheme) {
+private fun SliderRow(
+    label: String,
+    value: Float,
+    rangeStart: Float,
+    rangeEnd: Float,
+    display: (Float) -> String,
+    onValueChange: (Float) -> Unit,
+    theme: ZStreamTheme,
+    steps: Int = 0) {
     var sliderValue by remember { mutableFloatStateOf(value) }
     LaunchedEffect(value) { sliderValue = value }
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
@@ -1044,11 +1066,13 @@ private fun SliderRow(label: String, value: Float, rangeStart: Float, rangeEnd: 
         }
         Spacer(Modifier.height(4.dp))
         // Real‑time slider updates – call vm.setSubtitleVerticalPosition directly on value change
+        // also reused for gridRows
         Slider(
             value = sliderValue,
             onValueChange = { sliderValue = it; onValueChange(it) },
             onValueChangeFinished = { /* no‑op */ },
             valueRange = rangeStart..rangeEnd,
+            steps = steps,
             modifier = Modifier.fillMaxWidth().height(24.dp),
             colors = SliderDefaults.colors(
                 thumbColor = Color.White,
