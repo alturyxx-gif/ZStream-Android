@@ -33,22 +33,31 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Bookmark
-import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.RemoveRedEye
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxState
+import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -61,6 +70,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.TextLayoutResult
@@ -87,6 +97,9 @@ import com.zstream.android.ui.components.themed.ZsStatusBannerVariant
 import com.zstream.android.ui.navigation.rememberSafeNavigateBack
 
 private fun String.encode() = java.net.URLEncoder.encode(this, "UTF-8").replace("+", "%20")
+
+private enum class WatchBulkTarget { Movie, Season }
+private enum class WatchBulkAction { MarkWatched, ClearHistory }
 
 @Composable
 fun DetailScreen(nav: NavController, vm: DetailViewModel = hiltViewModel()) {
@@ -120,7 +133,17 @@ fun DetailScreen(nav: NavController, vm: DetailViewModel = hiltViewModel()) {
             }
         }
         is DetailState.Movie -> {
-            MovieDetailModal(s, nav, context, theme, bookmarkRepo, hasProgress, onBack)
+            MovieDetailModal(
+                state = s,
+                nav = nav,
+                context = context,
+                theme = theme,
+                bookmarkRepo = bookmarkRepo,
+                hasProgress = hasProgress,
+                onBack = onBack,
+                onMarkMovieWatched = vm::markMovieWatched,
+                onClearMovieWatchHistory = vm::clearMovieWatchHistory,
+            )
         }
         is DetailState.Tv -> {
             TvDetailModal(s, vm, nav, context, theme, bookmarkRepo, hasProgress, progress, allProgress, onBack)
@@ -138,8 +161,12 @@ fun MovieDetailModal(
     bookmarkRepo: com.zstream.android.data.BookmarkRepository,
     hasProgress: Boolean,
     onBack: () -> Unit,
+    onMarkMovieWatched: () -> Unit,
+    onClearMovieWatchHistory: () -> Unit,
 ) {
     val d = state.detail
+    var pendingBulkTarget by remember { mutableStateOf<WatchBulkTarget?>(null) }
+    var pendingBulkAction by remember { mutableStateOf<WatchBulkAction?>(null) }
     SharedDetailSheetScaffold(
         title = d.title,
         backdropUrl = d.backdropUrl(),
@@ -156,6 +183,15 @@ fun MovieDetailModal(
             context = context,
             nav = nav,
             theme = theme,
+            specActions = {
+                ActionPill(
+                    icon = Icons.Filled.RemoveRedEye,
+                    label = "",
+                    theme = theme,
+                    cornerRadius = 50.dp,
+                    onClick = { pendingBulkTarget = WatchBulkTarget.Movie },
+                )
+            },
         ) {
             Button(
                 onClick = { nav.navigate("player/movie/${d.id}?title=${d.title.encode()}&year=${d.releaseDate?.take(4)?.toIntOrNull() ?: 0}&poster=${d.posterPath?.encode() ?: ""}") },
@@ -181,6 +217,25 @@ fun MovieDetailModal(
             )
         }
     }
+
+    WatchBulkDialogs(
+        target = pendingBulkTarget,
+        pendingAction = pendingBulkAction,
+        theme = theme,
+        onDismiss = {
+            pendingBulkTarget = null
+            pendingBulkAction = null
+        },
+        onChooseAction = { pendingBulkAction = it },
+        onConfirm = { action ->
+            when (action) {
+                WatchBulkAction.MarkWatched -> onMarkMovieWatched()
+                WatchBulkAction.ClearHistory -> onClearMovieWatchHistory()
+            }
+            pendingBulkTarget = null
+            pendingBulkAction = null
+        },
+    )
 }
 
 
@@ -199,6 +254,8 @@ private fun TvDetailModal(
     onBack: () -> Unit,
 ) {
     val d = state.detail
+    var pendingBulkTarget by remember { mutableStateOf<WatchBulkTarget?>(null) }
+    var pendingBulkAction by remember { mutableStateOf<WatchBulkAction?>(null) }
     SharedDetailSheetScaffold(
         title = d.name,
         backdropUrl = d.backdropUrl(),
@@ -219,6 +276,17 @@ private fun TvDetailModal(
             theme = theme,
             onSelectSeason = { seasonNumber ->
                 vm.selectSeason(seasonNumber)
+            },
+            onMarkEpisodeWatched = vm::markEpisodeWatched,
+            onClearEpisodeWatchHistory = vm::clearEpisodeWatchHistory,
+            specActions = {
+                ActionPill(
+                    icon = Icons.Filled.RemoveRedEye,
+                    label = "",
+                    theme = theme,
+                    cornerRadius = 50.dp,
+                    onClick = { pendingBulkTarget = WatchBulkTarget.Season },
+                )
             },
         ) {
             val label = if (hasProgress && progress != null) {
@@ -261,6 +329,25 @@ private fun TvDetailModal(
             )
         }
     }
+
+    WatchBulkDialogs(
+        target = pendingBulkTarget,
+        pendingAction = pendingBulkAction,
+        theme = theme,
+        onDismiss = {
+            pendingBulkTarget = null
+            pendingBulkAction = null
+        },
+        onChooseAction = { pendingBulkAction = it },
+        onConfirm = { action ->
+            when (action) {
+                WatchBulkAction.MarkWatched -> vm.markSeasonWatched()
+                WatchBulkAction.ClearHistory -> vm.clearSeasonWatchHistory()
+            }
+            pendingBulkTarget = null
+            pendingBulkAction = null
+        },
+    )
 }
 
 @Composable
@@ -272,120 +359,312 @@ internal fun SharedEpisodeRow(
     nav: NavController,
     theme: com.zstream.android.theme.ZStreamTheme,
     episodeProgress: com.zstream.android.data.local.entity.ProgressEntity?,
+    enableWatchActions: Boolean = false,
+    onMarkWatched: () -> Unit = {},
+    onClearHistory: () -> Unit = {},
 ) {
     val pct = if (episodeProgress != null && episodeProgress.duration > 0) {
         ((episodeProgress.watched.toFloat() / episodeProgress.duration) * 100f).coerceIn(0f, 100f)
     } else 0f
+    val isWatched = episodeProgress?.let { it.duration > 0 && it.watched >= (it.duration * 0.95f) } == true
+    val dismissState = rememberEpisodeDismissState()
+    val scope = rememberCoroutineScope()
 
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 32.dp, vertical = 4.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .background(theme.colors.modal.background)
-            .clickable {
-                nav.navigate("player/tv/$showId?season=${ep.seasonNumber}&episode=${ep.episodeNumber}&title=${title.encode()}&year=${ep.airDate?.take(4)?.toIntOrNull() ?: 0}&poster=${posterPath?.encode() ?: ""}")
-            }
-    ) {
-        Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
-            Box(
-                Modifier
-                    .width(120.dp)
-                    .fillMaxHeight()
-                    .animateContentSize(animationSpec = tween(300))
-            ) {
-                AsyncImage(
-                    model = ep.stillPath?.let { "${Urls.TMDB_IMAGE}w780$it" },
-                    contentDescription = null,
-                    modifier = Modifier
-                        .matchParentSize()
-                        .clip(RoundedCornerShape(topStart = 12.dp, bottomStart = 12.dp)),
-                    contentScale = ContentScale.Crop
-                )
-
-                // Episode number badge
+    val rowContent: @Composable () -> Unit = {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(theme.colors.modal.background)
+                .clickable {
+                    nav.navigate("player/tv/$showId?season=${ep.seasonNumber}&episode=${ep.episodeNumber}&title=${title.encode()}&year=${ep.airDate?.take(4)?.toIntOrNull() ?: 0}&poster=${posterPath?.encode() ?: ""}")
+                }
+        ) {
+            Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
                 Box(
                     Modifier
-                        .align(Alignment.TopStart)
-                        .padding(6.dp)
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(theme.colors.mediaCard.badge)
-                        .padding(horizontal = 6.dp, vertical = 1.dp)
+                        .width(120.dp)
+                        .fillMaxHeight()
+                        .animateContentSize(animationSpec = tween(300))
                 ) {
+                    AsyncImage(
+                        model = ep.stillPath?.let { "${Urls.TMDB_IMAGE}w780$it" },
+                        contentDescription = null,
+                        modifier = Modifier
+                            .matchParentSize()
+                            .clip(RoundedCornerShape(topStart = 12.dp, bottomStart = 12.dp)),
+                        contentScale = ContentScale.Crop
+                    )
+
+                    Box(
+                        Modifier
+                            .align(Alignment.TopStart)
+                            .padding(6.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(theme.colors.mediaCard.badge)
+                            .padding(horizontal = 6.dp, vertical = 1.dp)
+                    ) {
+                        Text(
+                            "E${ep.episodeNumber}",
+                            color = theme.colors.mediaCard.badgeText,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                Column(Modifier.weight(1f).padding(12.dp).animateContentSize()) {
                     Text(
-                        "E${ep.episodeNumber}",
-                        color = theme.colors.mediaCard.badgeText,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold
+                        ep.name.orEmpty(),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        color = theme.colors.type.emphasis,
+                        fontWeight = FontWeight.Medium
+                    )
+
+                    ep.overview?.takeIf { it.isNotBlank() }?.let { desc ->
+                        Spacer(Modifier.height(4.dp))
+                        var expanded by remember { mutableStateOf(false) }
+                        var canExpand by remember(desc) { mutableStateOf(false) }
+                        val collapsedLines = 3
+                        Box(
+                            Modifier
+                                .fillMaxWidth()
+                                .let { modifier ->
+                                    if (canExpand) {
+                                        modifier.clickable(
+                                            interactionSource = remember { MutableInteractionSource() },
+                                            indication = null
+                                        ) { expanded = !expanded }
+                                    } else {
+                                        modifier
+                                    }
+                                }
+                        ) {
+                            Text(
+                                desc,
+                                maxLines = if (expanded) Int.MAX_VALUE else collapsedLines,
+                                overflow = TextOverflow.Ellipsis,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = theme.colors.type.text,
+                                onTextLayout = { layoutResult: TextLayoutResult ->
+                                    if (!expanded) {
+                                        canExpand = layoutResult.hasVisualOverflow
+                                    }
+                                }
+                            )
+                        }
+                        Spacer(Modifier.height(4.dp))
+                    }
+                }
+            }
+
+            if (pct > 0f) {
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(4.dp)
+                        .align(Alignment.BottomCenter)
+                        .background(theme.colors.progress.background.copy(alpha = 0.25f))
+                ) {
+                    Box(
+                        Modifier
+                            .fillMaxWidth(fraction = pct / 100f)
+                            .height(4.dp)
+                            .align(Alignment.CenterStart)
+                            .background(theme.colors.progress.filled)
                     )
                 }
             }
+        }
+    }
 
-            Column(Modifier.weight(1f).padding(12.dp).animateContentSize()) {
-                // Episode title
-                Text(
-                    ep.name.orEmpty(),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    color = theme.colors.type.emphasis,
-                    fontWeight = FontWeight.Medium
+    if (enableWatchActions) {
+        SwipeToDismissBox(
+            state = dismissState,
+            enableDismissFromStartToEnd = true,
+            enableDismissFromEndToStart = true,
+            backgroundContent = {
+                EpisodeSwipeBackground(
+                    theme = theme,
+                    isWatched = isWatched,
+                    dismissState = dismissState,
+                    onMarkWatched = {
+                        onMarkWatched()
+                        scope.launch { dismissState.snapTo(SwipeToDismissBoxValue.Settled) }
+                    },
+                    onClearHistory = {
+                        onClearHistory()
+                        scope.launch { dismissState.snapTo(SwipeToDismissBoxValue.Settled) }
+                    },
+                    onCancelSwipe = {
+                        scope.launch { dismissState.snapTo(SwipeToDismissBoxValue.Settled) }
+                    },
                 )
+            },
+            modifier = Modifier.padding(horizontal = 32.dp, vertical = 4.dp),
+            content = { rowContent() },
+        )
+    } else {
+        Box(modifier = Modifier.padding(horizontal = 32.dp, vertical = 4.dp)) {
+            rowContent()
+        }
+    }
+}
 
-                // Episode description — tap to expand/collapse
-                ep.overview?.takeIf { it.isNotBlank() }?.let { desc ->
-                    Spacer(Modifier.height(4.dp))
-                    var expanded by remember { mutableStateOf(false) }
-                    var canExpand by remember(desc) { mutableStateOf(false) }
-                    val collapsedLines = 3
-                    Box(
-                        Modifier
-                            .fillMaxWidth()
-                            .let { modifier ->
-                                if (canExpand) {
-                                    modifier.clickable(
-                                        interactionSource = remember { MutableInteractionSource() },
-                                        indication = null
-                                    ) { expanded = !expanded }
-                                } else {
-                                    modifier
-                                }
-                            }
-                    ) {
-                        Text(
-                            desc,
-                            maxLines = if (expanded) Int.MAX_VALUE else collapsedLines,
-                            overflow = TextOverflow.Ellipsis,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = theme.colors.type.text,
-                            onTextLayout = { layoutResult: TextLayoutResult ->
-                                if (!expanded) {
-                                    canExpand = layoutResult.hasVisualOverflow
-                                }
-                            }
-                        )
-                    }
-                    Spacer(Modifier.height(4.dp))
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun rememberEpisodeDismissState(): SwipeToDismissBoxState = rememberSwipeToDismissBoxState(
+    positionalThreshold = { it * 0.35f },
+    confirmValueChange = { true }
+)
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun EpisodeSwipeBackground(
+    theme: ZStreamTheme,
+    isWatched: Boolean,
+    dismissState: SwipeToDismissBoxState,
+    onMarkWatched: () -> Unit,
+    onClearHistory: () -> Unit,
+    onCancelSwipe: () -> Unit,
+) {
+    val activeMark = dismissState.dismissDirection == SwipeToDismissBoxValue.StartToEnd ||
+        dismissState.targetValue == SwipeToDismissBoxValue.StartToEnd ||
+        dismissState.currentValue == SwipeToDismissBoxValue.StartToEnd
+    val activeClear = dismissState.dismissDirection == SwipeToDismissBoxValue.EndToStart ||
+        dismissState.targetValue == SwipeToDismissBoxValue.EndToStart ||
+        dismissState.currentValue == SwipeToDismissBoxValue.EndToStart
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .clip(RoundedCornerShape(12.dp))
+            .background(theme.colors.background.secondary.copy(alpha = 0.35f))
+            .padding(horizontal = 12.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxSize(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Surface(
+                shape = CircleShape,
+                color = theme.colors.background.secondaryHover.copy(alpha = 0.55f),
+                border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.type.secondary.copy(alpha = 0.3f)),
+                modifier = Modifier.clickable(onClick = onCancelSwipe),
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.ArrowBack,
+                    contentDescription = "Cancel swipe",
+                    tint = theme.colors.type.secondary,
+                    modifier = Modifier.padding(8.dp),
+                )
+            }
+            Surface(
+                shape = RoundedCornerShape(999.dp),
+                color = if (activeMark) theme.colors.type.success.copy(alpha = 0.22f) else theme.colors.background.secondaryHover.copy(alpha = 0.55f),
+                border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.type.success.copy(alpha = 0.28f)),
+                modifier = Modifier.clickable(onClick = onMarkWatched).padding(start = 5.dp)
+            ) {
+                Row(Modifier.padding(horizontal = 8.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(
+                        imageVector = Icons.Filled.Done,
+                        contentDescription = null,
+                        tint = if (isWatched) theme.colors.type.secondary else theme.colors.type.success,
+                    )
+                    Text(
+                        text = if (isWatched) "Watched" else "Mark watched",
+                        color = if (isWatched) theme.colors.type.secondary else theme.colors.type.success,
+                        fontWeight = FontWeight.Normal,
+                    )
+                }
+            }
+            Surface(
+                shape = RoundedCornerShape(999.dp),
+                color = if (activeClear) theme.colors.buttons.danger.copy(alpha = 0.2f) else theme.colors.background.secondaryHover.copy(alpha = 0.55f),
+                border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.buttons.danger.copy(alpha = 0.3f)),
+                modifier = Modifier.clickable(onClick = onClearHistory).padding(start = 5.dp)
+            ) {
+                Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(
+                        imageVector = Icons.Filled.Close,
+                        contentDescription = null,
+                        tint = theme.colors.buttons.danger,
+                    )
+                    Text(
+                        text = "Clear history",
+                        color = theme.colors.buttons.danger,
+                        overflow = TextOverflow.Ellipsis,
+                        maxLines = 1,
+                        fontWeight = FontWeight.Normal,
+                    )
                 }
             }
         }
+    }
+}
 
-        if (pct > 0f) {
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .height(4.dp)
-                    .align(Alignment.BottomCenter)
-                    .background(theme.colors.progress.background.copy(alpha = 0.25f))
-            ) {
-                Box(
-                    Modifier
-                        .fillMaxWidth(fraction = pct / 100f)
-                        .height(4.dp)
-                        .align(Alignment.CenterStart)
-                        .background(theme.colors.progress.filled)
-                )
+// For the dedicated show/movie watch history button
+@Composable
+private fun WatchBulkDialogs(
+    target: WatchBulkTarget?,
+    pendingAction: WatchBulkAction?,
+    theme: ZStreamTheme,
+    onDismiss: () -> Unit,
+    onChooseAction: (WatchBulkAction) -> Unit,
+    onConfirm: (WatchBulkAction) -> Unit,
+) {
+    val subject = when (target) {
+        WatchBulkTarget.Movie -> "movie"
+        WatchBulkTarget.Season -> "season"
+        null -> null
+    }
+
+    if (target != null && pendingAction == null) {
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            containerColor = theme.colors.modal.background,
+            title = { Text("Update watch history", color = theme.colors.type.emphasis) },
+            text = { Text("Choose what to do with this $subject.", color = theme.colors.type.text) },
+            confirmButton = {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(onClick = { onChooseAction(WatchBulkAction.MarkWatched) }) {
+                        Text("Set watched", color = theme.colors.global.accentA)
+                    }
+                    TextButton(onClick = { onChooseAction(WatchBulkAction.ClearHistory) }) {
+                        Text("Clear history", color = theme.colors.buttons.danger)
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = onDismiss) {
+                    Text("Cancel", color = theme.colors.type.secondary)
+                }
             }
-        }
+        )
+    }
+
+    if (target != null && pendingAction != null) {
+        val actionLabel = if (pendingAction == WatchBulkAction.MarkWatched) "set watched" else "clear watch history"
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            containerColor = theme.colors.modal.background,
+            title = { Text("Confirm action", color = theme.colors.type.emphasis) },
+            text = { Text("Are you sure you want to $actionLabel for this $subject?", color = theme.colors.type.text) },
+            confirmButton = {
+                TextButton(onClick = { onConfirm(pendingAction) }) {
+                    Text(
+                        "Confirm",
+                        color = if (pendingAction == WatchBulkAction.ClearHistory) theme.colors.buttons.danger else theme.colors.global.accentA
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = onDismiss) {
+                    Text("Cancel", color = theme.colors.type.secondary)
+                }
+            }
+        )
     }
 }
 
@@ -462,9 +741,10 @@ private fun BookmarkButton(
 ) {
     val isBookmarked by bookmarkRepo.observeBookmark(tmdbId).collectAsState(initial = false)
     val scope = rememberCoroutineScope()
+    val bookmarkIcon = if (isBookmarked != null) ImageVector.vectorResource(com.zstream.android.R.drawable.ic_player_bookmark_filled) else ImageVector.vectorResource(com.zstream.android.R.drawable.ic_player_bookmark_outline)
     
     ActionPill(
-        icon = if (isBookmarked != null) androidx.compose.material.icons.Icons.Filled.Bookmark else androidx.compose.material.icons.Icons.Filled.BookmarkBorder,
+        icon = bookmarkIcon,
         label = "",
         theme = theme,
         cornerRadius = 50.dp,

@@ -202,6 +202,7 @@ internal fun ColumnScope.SharedMovieDetailContent(
     context: android.content.Context,
     nav: NavController,
     theme: ZStreamTheme,
+    specActions: @Composable ColumnScope.() -> Unit = {},
     topActions: @Composable RowScope.() -> Unit,
 ) {
     val genres = detail.genres.orEmpty()
@@ -229,6 +230,7 @@ internal fun ColumnScope.SharedMovieDetailContent(
             SharedDetailSpec("Language", "EN", theme)
             SharedDetailSpec("Release Date", detail.releaseDate ?: "-", theme)
             SharedDetailSpec("Rating", "PG-13", theme)
+            specActions()
         }
     }
 
@@ -250,6 +252,9 @@ internal fun ColumnScope.SharedTvDetailContent(
     nav: NavController,
     theme: ZStreamTheme,
     onSelectSeason: (Int) -> Unit,
+    onMarkEpisodeWatched: (Episode) -> Unit = {},
+    onClearEpisodeWatchHistory: (Episode) -> Unit = {},
+    specActions: @Composable ColumnScope.() -> Unit = {},
     topActions: @Composable RowScope.() -> Unit,
 ) {
     val seasons = detail.seasons.orEmpty().filter { it.seasonNumber > 0 }
@@ -276,6 +281,7 @@ internal fun ColumnScope.SharedTvDetailContent(
             SharedDetailSpec("Language", "EN", theme)
             SharedDetailSpec("Release Date", detail.firstAirDate ?: "—", theme)
             SharedDetailSpec("Rating", "TV-14", theme)
+            specActions()
         }
     }
 
@@ -320,7 +326,10 @@ internal fun ColumnScope.SharedTvDetailContent(
                 posterPath = detail.posterPath,
                 nav = nav,
                 theme = theme,
-                episodeProgress = progressMap[episode.episodeNumber]
+                episodeProgress = progressMap[episode.episodeNumber],
+                enableWatchActions = true,
+                onMarkWatched = { onMarkEpisodeWatched(episode) },
+                onClearHistory = { onClearEpisodeWatchHistory(episode) },
             )
         }
     }

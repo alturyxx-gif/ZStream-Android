@@ -4,9 +4,11 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.zstream.android.data.TmdbRepository
+import com.zstream.android.data.local.entity.ProgressEntity
 import com.zstream.android.data.model.MovieDetail
 import com.zstream.android.data.model.Season
 import com.zstream.android.data.model.TvDetail
+import com.zstream.android.data.model.airedEpisodes
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -117,6 +119,122 @@ class DetailViewModel @Inject constructor(
         viewModelScope.launch {
             runCatching { repo.season(id, seasonNumber) }
                 .onSuccess { _state.value = current.copy(selectedSeason = it) }
+        }
+    }
+
+    fun markMovieWatched() {
+        val current = _state.value as? DetailState.Movie ?: return
+        viewModelScope.launch {
+            val durationSeconds = current.detail.runtime?.times(60)
+                ?: progress.value?.duration
+                ?: 1
+            progressRepo.updateProgress(
+                tmdbId = id.toString(),
+                title = current.detail.title,
+                type = "movie",
+                watched = durationSeconds,
+                duration = durationSeconds,
+                year = current.detail.releaseDate?.take(4)?.toIntOrNull(),
+                posterPath = current.detail.posterPath,
+            )
+        }
+    }
+
+    fun clearMovieWatchHistory() {
+        viewModelScope.launch {
+            progressRepo.removeProgressItem(tmdbId = id.toString())
+        }
+    }
+
+    fun markEpisodeWatched(episode: com.zstream.android.data.model.Episode) {
+        val current = _state.value as? DetailState.Tv ?: return
+        val season = current.selectedSeason
+        viewModelScope.launch {
+            val existing = allProgress.value.firstOrNull {
+                it.seasonNumber == episode.seasonNumber && it.episodeNumber == episode.episodeNumber
+            }
+            val durationSeconds = existing?.duration ?: 1
+            progressRepo.updateProgress(
+                tmdbId = id.toString(),
+                title = current.detail.name,
+                type = "show",
+                watched = durationSeconds,
+                duration = durationSeconds,
+                year = current.detail.firstAirDate?.take(4)?.toIntOrNull(),
+                posterPath = current.detail.posterPath,
+                episodeNumber = episode.episodeNumber,
+                seasonNumber = episode.seasonNumber,
+                episodeId = existing?.episodeId ?: episode.id.toString(),
+                seasonId = existing?.seasonId ?: season?.id?.toString(),
+            )
+        }
+    }
+
+    fun clearEpisodeWatchHistory(episode: com.zstream.android.data.model.Episode) {
+        val current = _state.value as? DetailState.Tv ?: return
+        val season = current.selectedSeason
+        viewModelScope.launch {
+            val existing = allProgress.value.firstOrNull {
+                it.seasonNumber == episode.seasonNumber && it.episodeNumber == episode.episodeNumber
+            }
+            progressRepo.removeProgressItem(
+                tmdbId = id.toString(),
+                seasonNumber = episode.seasonNumber,
+                episodeNumber = episode.episodeNumber,
+                seasonId = existing?.seasonId ?: season?.id?.toString(),
+                episodeId = existing?.episodeId ?: episode.id.toString(),
+            )
+        }
+    }
+
+    fun markSeasonWatched() {
+        val current = _state.value as? DetailState.Tv ?: return
+        val season = current.selectedSeason ?: return
+        viewModelScope.launch {
+            val year = current.detail.firstAirDate?.take(4)?.toIntOrNull()
+            val posterPath = current.detail.posterPath
+            val existingByEpisode = allProgress.value
+                .filter { it.seasonNumber == season.seasonNumber }
+                .associateBy { it.episodeNumber }
+
+            season.episodes.orEmpty().airedEpisodes().forEach { episode ->
+                val existing = existingByEpisode[episode.episodeNumber]
+                val durationSeconds = existing?.duration ?: 1
+                progressRepo.updateProgress(
+                    tmdbId = id.toString(),
+                    title = current.detail.name,
+                    type = "show",
+                    watched = durationSeconds,
+                    duration = durationSeconds,
+                    year = year,
+                    posterPath = posterPath,
+                    episodeNumber = episode.episodeNumber,
+                    seasonNumber = episode.seasonNumber,
+                    episodeId = existing?.episodeId ?: episode.id.toString(),
+                    seasonId = existing?.seasonId ?: season.id.toString(),
+                )
+            }
+        }
+    }
+
+    fun clearSeasonWatchHistory() {
+        val current = _state.value as? DetailState.Tv ?: return
+        val season = current.selectedSeason ?: return
+        viewModelScope.launch {
+            val existingByEpisode = allProgress.value
+                .filter { it.seasonNumber == season.seasonNumber }
+                .associateBy { it.episodeNumber }
+
+            season.episodes.orEmpty().airedEpisodes().forEach { episode ->
+                val existing = existingByEpisode[episode.episodeNumber]
+                progressRepo.removeProgressItem(
+                    tmdbId = id.toString(),
+                    seasonNumber = episode.seasonNumber,
+                    episodeNumber = episode.episodeNumber,
+                    seasonId = existing?.seasonId ?: season.id.toString(),
+                    episodeId = existing?.episodeId ?: episode.id.toString(),
+                )
+            }
         }
     }
 

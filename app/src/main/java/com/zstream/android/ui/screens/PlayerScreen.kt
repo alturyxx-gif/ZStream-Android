@@ -45,8 +45,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Bookmark
-import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.ClosedCaption
@@ -68,6 +66,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -105,6 +104,7 @@ import com.zstream.android.provider.WebViewDataSource
 import androidx.media3.common.MediaItem.SubtitleConfiguration
 import android.net.Uri
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.res.vectorResource
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import dagger.hilt.android.EntryPointAccessors
@@ -132,7 +132,7 @@ import com.zstream.android.ui.components.themed.ZsTextButton
 import com.zstream.android.ui.navigation.rememberSafeNavigateBack
 import coil.compose.AsyncImage
 
-//  Layout constants 
+//  Layout constants
 private val SCRUBBER_SIDE_PADDING = 36.dp      // horizontal padding on progress bar
 private val SCRUBBER_SLIDER_OFFSET = (-6).dp   // how far invisible slider overlaps above bottom bar
 private val CENTER_ICON_SPACING = 40.dp        // gap between center play/skip buttons
@@ -1233,7 +1233,7 @@ private fun PlayerControls(
                         )
                         ZsIconButton(
                             onClick = onToggleBookmark,
-                            icon = if (isBookmarked) Icons.Filled.Check else Icons.Filled.BookmarkBorder,
+                            icon = if (isBookmarked) ImageVector.vectorResource(R.drawable.ic_player_bookmark_filled) else ImageVector.vectorResource(R.drawable.ic_player_bookmark_outline),
                             contentDescription = "Bookmark",
                             variant = ZsIconButtonVariant.Ghost,
                             selected = isBookmarked,
@@ -2804,7 +2804,7 @@ private fun PlayerInfoSheet(
                     SharedActionPill(Icons.Filled.Share, theme) {
                         openPlayerInfoShareSheet(context, state.detail.title, state.detail.id, "movie")
                     }
-                    SharedActionPill(if (isBookmarked) Icons.Filled.Bookmark else Icons.Filled.BookmarkBorder, theme) {
+                    SharedActionPill(if (isBookmarked) ImageVector.vectorResource(R.drawable.ic_player_bookmark_filled) else ImageVector.vectorResource(R.drawable.ic_player_bookmark_outline), theme) {
                         onToggleBookmark()
                     }
                 }
@@ -2833,7 +2833,7 @@ private fun PlayerInfoSheet(
                     SharedActionPill(Icons.Filled.Share, theme) {
                         openPlayerInfoShareSheet(context, state.detail.name, state.detail.id, "tv")
                     }
-                    SharedActionPill(if (isBookmarked) Icons.Filled.Bookmark else Icons.Filled.BookmarkBorder, theme) {
+                    SharedActionPill(if (isBookmarked) ImageVector.vectorResource(R.drawable.ic_player_bookmark_filled) else ImageVector.vectorResource(R.drawable.ic_player_bookmark_outline), theme) {
                         onToggleBookmark()
                     }
                 }
@@ -2974,7 +2974,7 @@ private fun ColumnScope.PlayerMovieInfoContent(
         PlayerSheetActionPill(Icons.Filled.Share, theme) {
             openPlayerInfoShareSheet(context, detail.title, detail.id, "movie")
         }
-        PlayerSheetActionPill(if (isBookmarked) Icons.Filled.Bookmark else Icons.Filled.BookmarkBorder, theme) {
+        PlayerSheetActionPill(if (isBookmarked) ImageVector.vectorResource(R.drawable.ic_player_bookmark_filled) else ImageVector.vectorResource(R.drawable.ic_player_bookmark_outline), theme) {
             onToggleBookmark()
         }
     }
@@ -3022,7 +3022,7 @@ private fun ColumnScope.PlayerTvInfoContent(
         PlayerSheetActionPill(Icons.Filled.Share, theme) {
             openPlayerInfoShareSheet(context, detail.name, detail.id, "tv")
         }
-        PlayerSheetActionPill(if (isBookmarked) Icons.Filled.Bookmark else Icons.Filled.BookmarkBorder, theme) {
+        PlayerSheetActionPill(if (isBookmarked) ImageVector.vectorResource(R.drawable.ic_player_bookmark_filled) else ImageVector.vectorResource(R.drawable.ic_player_bookmark_outline), theme) {
             onToggleBookmark()
         }
     }

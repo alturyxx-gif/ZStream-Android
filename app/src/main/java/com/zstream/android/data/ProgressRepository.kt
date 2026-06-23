@@ -184,6 +184,36 @@ class ProgressRepository @Inject constructor(
         }
     }
 
+    suspend fun removeProgressItem(
+        tmdbId: String,
+        seasonNumber: Int? = null,
+        episodeNumber: Int? = null,
+        seasonId: String? = null,
+        episodeId: String? = null,
+    ) {
+        progressDao.deleteById(ProgressEntity.computeId(tmdbId, seasonNumber, episodeNumber))
+
+        try {
+            val session = accountRepo.currentSession ?: return
+            if (seasonId != null || episodeId != null) {
+                api.removeProgressDetailed(
+                    session.userId,
+                    tmdbId,
+                    "Bearer ${session.token}",
+                    com.zstream.android.data.remote.RemoveProgressBody(
+                        seasonId = seasonId,
+                        episodeId = episodeId,
+                    )
+                )
+            } else {
+                api.removeProgress(session.userId, tmdbId, "Bearer ${session.token}")
+            }
+            Log.d(TAG, "Successfully removed progress item for $tmdbId")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to remove progress item from backend", e)
+        }
+    }
+
     /**
      * Get all progress items for sync (direct query, not Flow)
      */
