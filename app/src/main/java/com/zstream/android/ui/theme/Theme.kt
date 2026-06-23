@@ -59,7 +59,7 @@ private val AppTypography = with(Typography()) {
 fun ZStreamTheme(content: @Composable () -> Unit) {
     val themeVm: ThemeViewModel = viewModel()
     val currentTheme = themeVm.currentTheme.value
-    
+
     androidx.compose.runtime.CompositionLocalProvider(
         LocalZStreamTheme provides currentTheme
     ) {
