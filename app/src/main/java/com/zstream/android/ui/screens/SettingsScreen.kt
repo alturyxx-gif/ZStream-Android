@@ -67,6 +67,10 @@ import com.zstream.android.theme.ZStreamTheme
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 
 private sealed interface TidbValidationState {
     data object Idle : TidbValidationState
@@ -459,7 +463,34 @@ private fun AppearanceSection(settings: SettingsEntity, theme: ZStreamTheme, vm:
             HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
             ToggleRow("Image Logos", "Show logo images for media", settings.enableImageLogos, vm::setEnableImageLogos, theme = theme, disabled = settings.enableLowPerformanceMode)
             HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
-            ToggleRow("Carousel View", "Switch between a carousel and grid view for continue watching and bookmarks", settings.enableCarouselView, vm::setEnableCarouselView, theme = theme)
+            ToggleRow(
+                title = "Carousel View",
+                description = "Switch between using Carousel and Grid view for Cotinue watching and Bookmarks",
+                enabled = settings.enableCarouselView,
+                onToggle = vm::setEnableCarouselView,
+                theme = theme
+            )
+
+            AnimatedVisibility(
+                visible = !settings.enableCarouselView,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut()
+            ) {
+                Column {
+
+                    SliderRow(
+                        label = "Number of rows in the grid",
+                        value = settings.gridRows.toFloat(),
+                        rangeStart = 1f,
+                        rangeEnd = 5f,
+                        steps = 3,
+                        display = { it.toInt().toString() },
+                        onValueChange = { vm.setGridRows(it.toInt()) },
+                        theme = theme
+                    )
+                }
+            }
+
             HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
             ToggleRow("Minimal Cards", "Compact card display", settings.enableMinimalCards, vm::setEnableMinimalCards, theme = theme)
         }
@@ -916,7 +947,15 @@ private fun SubtitleColorPickerDialog(
 }
 
 @Composable
-private fun SliderRow(label: String, value: Float, rangeStart: Float, rangeEnd: Float, display: (Float) -> String, onValueChange: (Float) -> Unit, theme: ZStreamTheme) {
+private fun SliderRow(
+    label: String,
+    value: Float,
+    rangeStart: Float,
+    rangeEnd: Float,
+    display: (Float) -> String,
+    onValueChange: (Float) -> Unit,
+    theme: ZStreamTheme,
+    steps: Int = 0) {
     var sliderValue by remember { mutableFloatStateOf(value) }
     LaunchedEffect(value) { sliderValue = value }
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
@@ -926,11 +965,13 @@ private fun SliderRow(label: String, value: Float, rangeStart: Float, rangeEnd: 
         }
         Spacer(Modifier.height(4.dp))
         // Real‑time slider updates – call vm.setSubtitleVerticalPosition directly on value change
+        // also reused for gridRows
         Slider(
             value = sliderValue,
             onValueChange = { sliderValue = it; onValueChange(it) },
             onValueChangeFinished = { /* no‑op */ },
             valueRange = rangeStart..rangeEnd,
+            steps = steps,
             modifier = Modifier.fillMaxWidth().height(24.dp),
             colors = SliderDefaults.colors(
                 thumbColor = Color.White,

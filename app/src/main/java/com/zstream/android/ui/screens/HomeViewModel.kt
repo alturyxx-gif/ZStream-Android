@@ -39,6 +39,7 @@ data class HomeState(
     val loading: Boolean = true,
     val error: String? = null,
     val enableCarouselView: Boolean = true,
+    val gridRows: Int = 2,
     val canLoadMore: Boolean = false
 ) {
     val userSections: List<MediaSection> get() {
@@ -89,6 +90,7 @@ class HomeViewModel @Inject constructor(
                     enableFeatured = s.enableFeatured,
                     enableLowPerformanceMode = s.enableLowPerformanceMode,
                     enableCarouselView = s.enableCarouselView,
+                    gridRows = s.gridRows,
                 ) }
             }
         }

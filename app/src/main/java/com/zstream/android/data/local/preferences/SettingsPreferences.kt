@@ -32,6 +32,7 @@ class SettingsPreferences @Inject constructor(
     private val KEY_ENABLE_THUMBNAILS = booleanPreferencesKey("enable_thumbnails")
     private val KEY_ENABLE_IMAGE_LOGOS = booleanPreferencesKey("enable_image_logos")
     private val KEY_ENABLE_CAROUSEL_VIEW = booleanPreferencesKey("enable_carousel_view")
+    private val KEY_GRID_ROWS = intPreferencesKey("grid_rows")
     private val KEY_ENABLE_MINIMAL_CARDS = booleanPreferencesKey("enable_minimal_cards")
     private val KEY_ENABLE_LOW_PERFORMANCE_MODE = booleanPreferencesKey("enable_low_performance_mode")
     private val KEY_ENABLE_PAUSE_OVERLAY = booleanPreferencesKey("enable_pause_overlay")
@@ -107,6 +108,7 @@ class SettingsPreferences @Inject constructor(
             enableThumbnails = prefs[KEY_ENABLE_THUMBNAILS] ?: true,
             enableImageLogos = prefs[KEY_ENABLE_IMAGE_LOGOS] ?: true,
             enableCarouselView = prefs[KEY_ENABLE_CAROUSEL_VIEW] ?: true,
+            gridRows = prefs[KEY_GRID_ROWS] ?: 2,
             enableMinimalCards = prefs[KEY_ENABLE_MINIMAL_CARDS] ?: false,
             enableLowPerformanceMode = prefs[KEY_ENABLE_LOW_PERFORMANCE_MODE] ?: false,
             enablePauseOverlay = prefs[KEY_ENABLE_PAUSE_OVERLAY] ?: true,
@@ -174,6 +176,7 @@ class SettingsPreferences @Inject constructor(
             prefs[KEY_ENABLE_THUMBNAILS] = entity.enableThumbnails
             prefs[KEY_ENABLE_IMAGE_LOGOS] = entity.enableImageLogos
             prefs[KEY_ENABLE_CAROUSEL_VIEW] = entity.enableCarouselView
+            prefs[KEY_GRID_ROWS] = entity.gridRows
             prefs[KEY_ENABLE_MINIMAL_CARDS] = entity.enableMinimalCards
             prefs[KEY_ENABLE_LOW_PERFORMANCE_MODE] = entity.enableLowPerformanceMode
             prefs[KEY_ENABLE_PAUSE_OVERLAY] = entity.enablePauseOverlay
@@ -268,6 +271,7 @@ class SettingsPreferences @Inject constructor(
             val currentVideoHueRotate = current[KEY_VIDEO_HUE_ROTATE] ?: 0
             val currentVolumeBoost = current[KEY_VOLUME_BOOST] ?: 100
             val currentVideoScaleMode = current[KEY_VIDEO_SCALE_MODE] ?: "fit"
+            val currentGridRows = current[KEY_GRID_ROWS] ?: 2
 
             val mappedHomeSectionOrder = remote.homeSectionOrder?.map { section ->
                 when (section) {
@@ -283,6 +287,7 @@ class SettingsPreferences @Inject constructor(
                 enableThumbnails = remote.enableThumbnails ?: true,
                 enableImageLogos = remote.enableImageLogos ?: true,
                 enableCarouselView = remote.enableCarouselView ?: true,
+                gridRows = currentGridRows,
                 enableMinimalCards = remote.enableMinimalCards ?: false,
                 enableLowPerformanceMode = remote.enableLowPerformanceMode ?: false,
                 enablePauseOverlay = remote.enablePauseOverlay ?: true,
