@@ -23,6 +23,9 @@ interface ProgressDao {
     @Delete
     suspend fun delete(progress: ProgressEntity)
 
+    @Query("DELETE FROM progress WHERE id = :id")
+    suspend fun deleteById(id: String)
+
     @Query("DELETE FROM progress WHERE tmdbId = :tmdbId")
     suspend fun deleteByTmdbId(tmdbId: String)
 

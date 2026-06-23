@@ -79,6 +79,11 @@ data class ProgressInput(
     val episodeNumber: Int? = null,
 )
 
+data class RemoveProgressBody(
+    val seasonId: String? = null,
+    val episodeId: String? = null,
+)
+
 data class BookmarkInput(
     val tmdbId: String,
     val meta: BookmarkMeta,
@@ -189,6 +194,10 @@ interface BackendApi {
     @DELETE("users/{id}/progress/{tmdbId}")
     suspend fun removeProgress(@Path("id") userId: String, @Path("tmdbId") tmdbId: String,
                                @Header("Authorization") auth: String)
+
+    @HTTP(method = "DELETE", path = "users/{id}/progress/{tmdbId}", hasBody = true)
+    suspend fun removeProgressDetailed(@Path("id") userId: String, @Path("tmdbId") tmdbId: String,
+                                       @Header("Authorization") auth: String, @Body body: RemoveProgressBody)
 
     @GET("users/{id}/bookmarks")
     suspend fun getBookmarks(@Path("id") userId: String, @Header("Authorization") auth: String): List<BookmarkResponse>
