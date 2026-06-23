@@ -43,7 +43,6 @@ data class SettingsEntity(
     // Discover/Home Settings
     val enableDiscover: Boolean = true,
     val enableFeatured: Boolean = true,
-    val enableDetailsModal: Boolean = true,
 
     // Source Settings
     val lastSuccessfulSource: String? = null,
@@ -119,7 +118,6 @@ data class SettingsEntity(
         json.put("enableHoldToBoost", enableHoldToBoost)
         json.put("enableDiscover", enableDiscover)
         json.put("enableFeatured", enableFeatured)
-        json.put("enableDetailsModal", enableDetailsModal)
         lastSuccessfulSource?.let { json.put("lastSuccessfulSource", it) }
         json.put("enableLastSuccessfulSource", enableLastSuccessfulSource)
         json.put("manualSourceSelection", manualSourceSelection)

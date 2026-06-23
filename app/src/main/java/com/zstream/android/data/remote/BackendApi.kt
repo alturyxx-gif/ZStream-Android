@@ -107,7 +107,6 @@ data class SettingsResponse(
     val enableAutoSkipSegments: Boolean? = null,
     val enableDiscover: Boolean? = null,
     val enableFeatured: Boolean? = null,
-    val enableDetailsModal: Boolean? = null,
     val enableImageLogos: Boolean? = null,
     val enableCarouselView: Boolean? = null,
     val enableMinimalCards: Boolean? = null,

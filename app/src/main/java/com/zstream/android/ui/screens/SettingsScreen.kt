@@ -497,15 +497,6 @@ private fun AppearanceSection(settings: SettingsEntity, theme: ZStreamTheme, vm:
             }
             HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
             ZsSwitchRow(
-                title = "Details Modal",
-                subtitle = "Show details in a modal instead of full page",
-                checked = settings.enableDetailsModal,
-                onCheckedChange = vm::setEnableDetailsModal,
-                enabled = !settings.enableLowPerformanceMode,
-                modifier = Modifier.padding(horizontal = 16.dp),
-            )
-            HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
-            ZsSwitchRow(
                 title = "Image Logos",
                 subtitle = "Show logo images for media",
                 checked = settings.enableImageLogos,

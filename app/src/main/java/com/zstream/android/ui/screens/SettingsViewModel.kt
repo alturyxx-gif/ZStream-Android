@@ -109,10 +109,6 @@ class SettingsViewModel @Inject constructor(
         update { copy(enableFeatured = v) }
     }
 
-    fun setEnableDetailsModal(v: Boolean) {
-        update { copy(enableDetailsModal = v) }
-    }
-
     fun setEnableImageLogos(v: Boolean) {
         update { copy(enableImageLogos = v) }
     }
@@ -387,7 +383,6 @@ class SettingsViewModel @Inject constructor(
         enableSkipCredits = enableSkipCredits,
         enableDiscover = enableDiscover,
         enableFeatured = enableFeatured,
-        enableDetailsModal = enableDetailsModal,
         enableImageLogos = enableImageLogos,
         enableCarouselView = enableCarouselView,
         enableMinimalCards = enableMinimalCards,

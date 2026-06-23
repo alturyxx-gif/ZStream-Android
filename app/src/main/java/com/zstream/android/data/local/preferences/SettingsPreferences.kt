@@ -65,7 +65,6 @@ class SettingsPreferences @Inject constructor(
     // Discover/Home Settings
     private val KEY_ENABLE_DISCOVER = booleanPreferencesKey("enable_discover")
     private val KEY_ENABLE_FEATURED = booleanPreferencesKey("enable_featured")
-    private val KEY_ENABLE_DETAILS_MODAL = booleanPreferencesKey("enable_details_modal")
 
     // Source Settings
     private val KEY_LAST_SUCCESSFUL_SOURCE = stringPreferencesKey("last_successful_source")
@@ -137,7 +136,6 @@ class SettingsPreferences @Inject constructor(
             videoScaleMode = prefs[KEY_VIDEO_SCALE_MODE] ?: "fit",
             enableDiscover = prefs[KEY_ENABLE_DISCOVER] ?: true,
             enableFeatured = prefs[KEY_ENABLE_FEATURED] ?: true,
-            enableDetailsModal = prefs[KEY_ENABLE_DETAILS_MODAL] ?: true,
             lastSuccessfulSource = prefs[KEY_LAST_SUCCESSFUL_SOURCE],
             enableLastSuccessfulSource = prefs[KEY_ENABLE_LAST_SUCCESSFUL_SOURCE] ?: false,
             manualSourceSelection = prefs[KEY_MANUAL_SOURCE_SELECTION] ?: false,
@@ -210,7 +208,6 @@ class SettingsPreferences @Inject constructor(
             prefs[KEY_VIDEO_SCALE_MODE] = entity.videoScaleMode
             prefs[KEY_ENABLE_DISCOVER] = entity.enableDiscover
             prefs[KEY_ENABLE_FEATURED] = entity.enableFeatured
-            prefs[KEY_ENABLE_DETAILS_MODAL] = entity.enableDetailsModal
             if (entity.lastSuccessfulSource != null) {
                 prefs[KEY_LAST_SUCCESSFUL_SOURCE] = entity.lastSuccessfulSource
             } else {
@@ -322,7 +319,6 @@ class SettingsPreferences @Inject constructor(
                 videoScaleMode = currentVideoScaleMode,
                 enableDiscover = remote.enableDiscover ?: true,
                 enableFeatured = remote.enableFeatured ?: true,
-                enableDetailsModal = remote.enableDetailsModal ?: true,
                 lastSuccessfulSource = remote.lastSuccessfulSource,
                 enableLastSuccessfulSource = remote.enableLastSuccessfulSource ?: false,
                 manualSourceSelection = remote.manualSourceSelection ?: false,
@@ -519,12 +515,6 @@ class SettingsPreferences @Inject constructor(
     suspend fun setEnableFeatured(enabled: Boolean) {
         context.settingsStore.edit { prefs ->
             prefs[KEY_ENABLE_FEATURED] = enabled
-        }
-    }
-
-    suspend fun setEnableDetailsModal(enabled: Boolean) {
-        context.settingsStore.edit { prefs ->
-            prefs[KEY_ENABLE_DETAILS_MODAL] = enabled
         }
     }
 
