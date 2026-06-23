@@ -121,6 +121,10 @@ class SettingsViewModel @Inject constructor(
         update { copy(enableCarouselView = v) }
     }
 
+    fun setGridRows(v: Int) {
+        update { copy(gridRows = v) }
+    }
+
     fun setEnableMinimalCards(v: Boolean) {
         update { copy(enableMinimalCards = v) }
     }

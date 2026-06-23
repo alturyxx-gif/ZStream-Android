@@ -18,6 +18,7 @@ data class SettingsEntity(
     val enableThumbnails: Boolean = true,
     val enableImageLogos: Boolean = true,
     val enableCarouselView: Boolean = true,
+    val gridRows: Int = 2,
     val enableMinimalCards: Boolean = false,
     val enableLowPerformanceMode: Boolean = false,
     val enablePauseOverlay: Boolean = true,

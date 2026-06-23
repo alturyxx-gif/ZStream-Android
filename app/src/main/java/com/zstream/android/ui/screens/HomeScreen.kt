@@ -258,7 +258,7 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
     val configuration = LocalConfiguration.current
     val screenWidth = configuration.screenWidthDp
     val numOfColumns = (screenWidth / 125).coerceAtLeast(2)
-    val numOfRows = (2)
+    val numOfRows = state.gridRows
     val accountVm: AccountViewModel = hiltViewModel()
     val session by accountVm.session.collectAsState()
     var showLayoutMenu by remember { mutableStateOf(false) }
@@ -1113,7 +1113,7 @@ private fun LazyListScope.MediaGridPages(
         }
         var editValue by remember { mutableStateOf((clampedPage + 1).toString()) }
 
-        LaunchedEffect(clampedPage) {
+        LaunchedEffect(clampedPage, pageSize) {
             editValue = (clampedPage + 1).toString()
         }
 
