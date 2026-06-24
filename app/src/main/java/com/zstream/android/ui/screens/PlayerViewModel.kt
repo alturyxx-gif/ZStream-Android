@@ -27,6 +27,13 @@ import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import com.zstream.android.data.local.preferences.SettingsPreferences
 import com.zstream.android.data.local.entity.SettingsEntity
+import com.zstream.android.data.WatchPartyManager
+import com.zstream.android.data.WatchPartyAction
+import com.zstream.android.data.remote.WatchPartyContentDto
+import com.zstream.android.data.remote.WatchPartyPlayerDto
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.collect
 
 enum class SourceStatus { IDLE, TRYING, SUCCESS, FAILED }
 data class SourceResult(val id: String, val status: SourceStatus)
@@ -72,6 +79,7 @@ class PlayerViewModel @Inject constructor(
     private val settingsPrefs: SettingsPreferences,
     private val bookmarkRepo: BookmarkRepository,
     private val tmdbRepo: TmdbRepository,
+    val watchPartyManager: WatchPartyManager,
     savedState: SavedStateHandle,
 ) : ViewModel() {
     val settings = settingsPrefs.settings
@@ -111,7 +119,56 @@ class PlayerViewModel @Inject constructor(
         .readTimeout(15, TimeUnit.SECONDS)
         .build()
 
-    init { load() }
+    // --- Watch Party Actions ---
+    private val _watchPartyEvent = MutableSharedFlow<WatchPartyAction>(replay = 0)
+    val watchPartyEvent = _watchPartyEvent.asSharedFlow()
+
+    init {
+        load()
+        observeWatchParty()
+    }
+
+    private fun observeWatchParty() {
+        viewModelScope.launch {
+            watchPartyManager.actions.collect { action ->
+                _watchPartyEvent.emit(action)
+            }
+        }
+    }
+
+    fun reportPlayerState(
+        isPlaying: Boolean,
+        isPaused: Boolean,
+        isLoading: Boolean,
+        hasPlayedOnce: Boolean,
+        timeMs: Long,
+        durationMs: Long,
+        playbackRate: Float,
+        bufferedMs: Long
+    ) {
+        val content = WatchPartyContentDto(
+            title = title,
+            type = if (mediaType == "movie") "Movie" else "TV Show",
+            tmdbId = id,
+            seasonId = season,
+            episodeId = episode,
+            seasonNumber = season,
+            episodeNumber = episode
+        )
+
+        val player = WatchPartyPlayerDto(
+            isPlaying = isPlaying,
+            isPaused = isPaused,
+            isLoading = isLoading,
+            hasPlayedOnce = hasPlayedOnce,
+            time = timeMs / 1000.0,
+            duration = durationMs / 1000.0,
+            playbackRate = playbackRate.toDouble(),
+            buffered = bufferedMs / 1000.0
+        )
+
+        watchPartyManager.updateLocalState(content, player)
+    }
 
     fun getProxyPort() = engine.proxy.port
 
