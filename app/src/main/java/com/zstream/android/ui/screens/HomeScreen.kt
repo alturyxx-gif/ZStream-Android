@@ -394,6 +394,58 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
     val unreadCount = notifications.count { it.guid !in readGuids }
     val scope = rememberCoroutineScope()
 
+    @Composable
+    fun HomeDialogs()
+    {
+        if (showLayoutMenu) {
+            LayoutMenuDialog(
+                sectionOrder = sectionOrder,
+                showContinueWatching = showContinueWatching,
+                showBookmarks = showBookmarks,
+                onToggle = { id, visible ->
+                    when (id) {
+                        "continue_watching" -> showContinueWatching = visible
+                        "bookmarks" -> showBookmarks = visible
+                    }
+                },
+                onReorder = { newOrder ->
+                    sectionOrder = newOrder
+                    scope.launch { vm.userPrefs.saveSectionOrder(newOrder) }
+                },
+                onDismiss = { showLayoutMenu = false },
+            )
+        }
+        if (showSandwichMenu) {
+            SandwichMenuDialog(
+                nav = nav,
+                session = session,
+                accountVm = accountVm,
+                showHeaderActions = state.enableFeatured,
+                unreadCount = unreadCount,
+                onDiscord = { uriHandler.openUri(Urls.DISCORD_LINK) },
+                onNotifications = { showNotifications = true },
+                onTipJar = { showTipJar = true },
+                onDismiss = { showSandwichMenu = false },
+            )
+        }
+        if (showNotifications) {
+            NotificationsDialog(
+                notifications = notifications,
+                readGuids = readGuids,
+                onMarkRead = { guid ->
+                    scope.launch { vm.userPrefs.markNotificationRead(guid) }
+                },
+                onMarkAllRead = {
+                    scope.launch { vm.userPrefs.markAllNotificationsRead(notifications.map { it.guid }) }
+                },
+                onDismiss = { showNotifications = false },
+            )
+        }
+        if (showTipJar) {
+            TipJarDialog(onDismiss = { showTipJar = false })
+        }
+    }
+
     Box(modifier = Modifier
         .fillMaxSize()
         .background(theme.colors.background.main)
@@ -453,6 +505,8 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
                         onShowLayout = { showLayoutMenu = true },
                         onShowMenu = { showSandwichMenu = true },
                     )
+
+                    HomeDialogs()
                     return
                 }
                 val isSearching = isSearchFocused || state.searchQuery.isNotBlank()
@@ -659,53 +713,7 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
             }
         }
 
-        if (showLayoutMenu) {
-            LayoutMenuDialog(
-                sectionOrder = sectionOrder,
-                showContinueWatching = showContinueWatching,
-                showBookmarks = showBookmarks,
-                onToggle = { id, visible ->
-                    when (id) {
-                        "continue_watching" -> showContinueWatching = visible
-                        "bookmarks" -> showBookmarks = visible
-                    }
-                },
-                onReorder = { newOrder ->
-                    sectionOrder = newOrder
-                    scope.launch { vm.userPrefs.saveSectionOrder(newOrder) }
-                },
-                onDismiss = { showLayoutMenu = false },
-            )
-        }
-        if (showSandwichMenu) {
-            SandwichMenuDialog(
-                nav = nav,
-                session = session,
-                accountVm = accountVm,
-                showHeaderActions = state.enableFeatured,
-                unreadCount = unreadCount,
-                onDiscord = { uriHandler.openUri(Urls.DISCORD_LINK) },
-                onNotifications = { showNotifications = true },
-                onTipJar = { showTipJar = true },
-                onDismiss = { showSandwichMenu = false },
-            )
-        }
-        if (showNotifications) {
-            NotificationsDialog(
-                notifications = notifications,
-                readGuids = readGuids,
-                onMarkRead = { guid ->
-                    scope.launch { vm.userPrefs.markNotificationRead(guid) }
-                },
-                onMarkAllRead = {
-                    scope.launch { vm.userPrefs.markAllNotificationsRead(notifications.map { it.guid }) }
-                },
-                onDismiss = { showNotifications = false },
-            )
-        }
-        if (showTipJar) {
-            TipJarDialog(onDismiss = { showTipJar = false })
-        }
+        HomeDialogs()
     }
 }
 
@@ -2831,29 +2839,29 @@ private fun TvTopBar(
             TvHeaderButton(Icons.Default.Notifications, if (unreadCount > 0) "$unreadCount" else null, onClick = onNotifications)
             TvHeaderButton(Icons.Default.AttachMoney, null, onClick = onTipJar)
             TvHeaderButton(Icons.Default.GridView, null, onClick = onLayout)
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(50))
-                    .background(theme.colors.background.secondary.copy(alpha = 0.8f))
-                    .border(
-                        1.dp,
-                        theme.colors.type.divider.copy(alpha = 0.3f),
-                        RoundedCornerShape(50)
-                    )
-                    .onFocusChanged { focusedMenu = it.isFocused }
-                    .then(
-                        if (LocalIsTv.current) Modifier.border(
-                            focusMenuWidth,
-                            if (focusedMenu) Color.White else Color.Transparent,
-                            RoundedCornerShape(50)
-                        ) else Modifier
-                    )
-                    .clickable(onClick = onMenu)
-                    .padding(horizontal = 14.dp, vertical = 10.dp)
+            ZsOutlinedWrapper(
+                visible = focusedMenu && LocalIsTv.current,
+                shape = RoundedCornerShape(50),
+                outlineColor = Color.White,
+                gap = 4.dp
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Icon(Icons.Default.Menu, null, tint = theme.colors.type.secondary, modifier = Modifier.size(24.dp))
-                    Icon(Icons.Default.KeyboardArrowDown, null, tint = theme.colors.type.dimmed, modifier = Modifier.size(24.dp))
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(theme.colors.background.secondary.copy(alpha = 0.8f))
+                        .border(
+                            1.dp,
+                            theme.colors.type.divider.copy(alpha = 0.3f),
+                            RoundedCornerShape(50)
+                        )
+                        .onFocusChanged { focusedMenu = it.isFocused }
+                        .clickable(onClick = onMenu)
+                        .padding(horizontal = 14.dp, vertical = 10.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Icon(Icons.Default.Menu, null, tint = theme.colors.type.secondary, modifier = Modifier.size(24.dp))
+                        Icon(Icons.Default.KeyboardArrowDown, null, tint = theme.colors.type.dimmed, modifier = Modifier.size(24.dp))
+                    }
                 }
             }
         }
@@ -2867,46 +2875,43 @@ private fun TvHeaderButton(
     onClick: () -> Unit,
 ) {
     val theme = LocalZStreamTheme.current
-    var focusedMenu by remember { mutableStateOf(false) }
-    val focusMenuWidth by animateDpAsState(if (focusedMenu) 3.dp else 0.dp)
     var focused by remember { mutableStateOf(false) }
-    val focusBorderWidth by animateDpAsState(if (focused) 3.dp else 0.dp)
 
-    Box(
-        modifier = Modifier
-            .clip(RoundedCornerShape(50))
-            .background(theme.colors.background.secondary.copy(alpha = 0.8f))
-            .border(1.dp, theme.colors.type.divider.copy(alpha = 0.3f), RoundedCornerShape(50))
-            .onFocusChanged { focused = it.isFocused }
-            .then(
-                Modifier.border(
-                    focusBorderWidth,
-                    if (focused) Color.White else Color.Transparent,
-                    RoundedCornerShape(50)
-                )
-            )
-            .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 10.dp),
-        contentAlignment = Alignment.Center,
+    ZsOutlinedWrapper(
+        visible = focused && LocalIsTv.current,
+        shape = RoundedCornerShape(50),
+        outlineColor = Color.White,
+        gap = 4.dp
     ) {
-        Box {
-            Icon(icon, null, tint = theme.colors.type.secondary, modifier = Modifier.size(24.dp))
-            if (badge != null) {
-                Box(
-                    modifier = Modifier
-                        .size(18.dp)
-                        .clip(CircleShape)
-                        .background(theme.colors.type.danger)
-                        .align(Alignment.TopEnd)
-                        .offset(x = 4.dp, y = (-6).dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        badge,
-                        color = theme.colors.type.emphasis,
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(50))
+                .background(theme.colors.background.secondary.copy(alpha = 0.8f))
+                .border(1.dp, theme.colors.type.divider.copy(alpha = 0.3f), RoundedCornerShape(50))
+                .onFocusChanged { focused = it.isFocused }
+                .clickable(onClick = onClick)
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Box {
+                Icon(icon, null, tint = theme.colors.type.secondary, modifier = Modifier.size(24.dp))
+                if (badge != null) {
+                    Box(
+                        modifier = Modifier
+                            .size(18.dp)
+                            .clip(CircleShape)
+                            .background(theme.colors.type.danger)
+                            .align(Alignment.TopEnd)
+                            .offset(x = 4.dp, y = (-6).dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            badge,
+                            color = theme.colors.type.emphasis,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
                 }
             }
         }
