@@ -1,14 +1,21 @@
 package com.zstream.android.ui.components.themed
 
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.painter.Painter
@@ -16,6 +23,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.zstream.android.theme.LocalZStreamTheme
+import com.zstream.android.ui.LocalIsTv
 
 enum class ZsIconButtonVariant {
     Ghost,
@@ -41,6 +49,10 @@ fun ZsIconButton(
     require(icon != null || painter != null) { "ZsIconButton requires either an icon or painter." }
 
     val theme = LocalZStreamTheme.current
+    val isTv = LocalIsTv.current
+    var isFocused by remember { mutableStateOf(false) }
+    val focusBorderWidth by animateDpAsState(if (isFocused && isTv) 3.dp else 0.dp)
+
     val (containerColor, contentColor, borderColor) = when (variant) {
         ZsIconButtonVariant.Ghost -> Triple(Color.Transparent, theme.colors.type.emphasis, Color.Transparent)
         ZsIconButtonVariant.Secondary -> Triple(
@@ -63,7 +75,13 @@ fun ZsIconButton(
     Surface(
         onClick = onClick,
         enabled = enabled,
-        modifier = modifier.size(containerSize),
+        modifier = modifier
+            .size(containerSize)
+            .onFocusChanged { isFocused = it.isFocused }
+            .then(
+                if (isTv) Modifier.border(focusBorderWidth, if (isFocused) Color.White else Color.Transparent, shape)
+                else Modifier
+            ),
         color = if (enabled) containerColor else containerColor.copy(alpha = 0.45f),
         contentColor = if (enabled) contentColor else contentColor.copy(alpha = 0.65f),
         shape = shape,

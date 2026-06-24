@@ -23,6 +23,8 @@ junit = "4.13.2"
 junitVersion = "1.2.1"
 espressoCore = "3.6.1"
 ui = "1.11.3"
+tvFoundation = "1.0.0"
+tvMaterial = "1.1.0"
 
 [libraries]
 # Core
@@ -80,6 +82,8 @@ bouncycastle = { group = "org.bouncycastle", name = "bcprov-jdk15to18", version.
 
 # Webkit (for provider engine WebView)
 androidx-webkit = { group = "androidx.webkit", name = "webkit", version = "1.14.0" }
+androidx-tv-foundation = { group = "androidx.tv", name = "tv-foundation", version.ref = "tvFoundation" }
+androidx-tv-material = { group = "androidx.tv", name = "tv-material", version.ref = "tvMaterial" }
 haze = { group = "dev.chrisbanes.haze", name = "haze", version.ref = "haze" }
 
 # Test

@@ -1,10 +1,13 @@
 package com.zstream.android.ui.screens
 
 import android.content.Context
+import android.util.Log
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
+import androidx.compose.foundation.gestures.BringIntoViewSpec
+import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.WindowInsets
@@ -53,6 +56,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.requestFocus
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -98,6 +102,7 @@ import com.zstream.android.data.local.entity.ProgressEntity
 import com.zstream.android.data.local.preferences.UserPreferences
 import com.zstream.android.data.model.Media
 import com.zstream.android.theme.LocalZStreamTheme
+import com.zstream.android.ui.LocalIsTv
 import com.zstream.android.ui.components.themed.ZsIconButton
 import com.zstream.android.ui.components.themed.ZsIconButtonVariant
 import kotlinx.coroutines.Dispatchers
@@ -115,6 +120,74 @@ import java.net.URL
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.concurrent.TimeUnit
+
+private const val HOME_FOCUS_DEBUG_TAG = "HomeFocusDebug"
+
+private fun calculateDefaultBringIntoViewScrollDistance(
+    offset: Float,
+    size: Float,
+    containerSize: Float,
+): Float {
+    val trailingEdge = offset + size
+    return when {
+        offset < 0f -> offset
+        trailingEdge > containerSize -> trailingEdge - containerSize
+        else -> 0f
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun rememberHomeBringIntoViewSpec(
+    label: String,
+    disableAutoScroll: Boolean,
+): BringIntoViewSpec {
+    val disableAutoScrollState = rememberUpdatedState(disableAutoScroll)
+    return remember(label) {
+        object : BringIntoViewSpec {
+            override fun calculateScrollDistance(
+                offset: Float,
+                size: Float,
+                containerSize: Float,
+            ): Float {
+                val distance = calculateDefaultBringIntoViewScrollDistance(
+                    offset = offset,
+                    size = size,
+                    containerSize = containerSize,
+                )
+
+                if (disableAutoScrollState.value) {
+                    if (distance != 0f) {
+                        Log.d(
+                            HOME_FOCUS_DEBUG_TAG,
+                            "$label bringIntoView blocked distance=$distance offset=$offset size=$size containerSize=$containerSize"
+                        )
+                    }
+                    return 0f
+                }
+
+                return distance
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun HomeBringIntoViewProvider(
+    label: String,
+    disableAutoScroll: Boolean,
+    content: @Composable () -> Unit,
+) {
+    val spec = rememberHomeBringIntoViewSpec(
+        label = label,
+        disableAutoScroll = disableAutoScroll,
+    )
+    CompositionLocalProvider(LocalBringIntoViewSpec provides spec) {
+        content()
+    }
+}
+
 
 private val rssDateFormat = SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss zzz", Locale.US)
 private val displayDateFormat = SimpleDateFormat("MMM d, yyyy, h:mm a", Locale.US)
@@ -255,6 +328,7 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
     val state by vm.state.collectAsState()
     val searchResults by vm.searchResults.collectAsState()
     val theme = LocalZStreamTheme.current
+    val isTv = LocalIsTv.current
     val configuration = LocalConfiguration.current
     val screenWidth = configuration.screenWidthDp
     val numOfColumns = (screenWidth / 125).coerceAtLeast(2)
@@ -344,6 +418,28 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
                 }
             }
             else -> {
+                if (isTv) {
+                    TvHomeScreenContent(
+                        state = state,
+                        nav = nav,
+                        vm = vm,
+                        theme = theme,
+                        accountVm = accountVm,
+                        session = session,
+                        notifications = notifications,
+                        readGuids = readGuids,
+                        unreadCount = unreadCount,
+                        sectionOrder = sectionOrder,
+                        showContinueWatching = showContinueWatching,
+                        showBookmarks = showBookmarks,
+                        searchResults = searchResults,
+                        onShowNotifications = { showNotifications = true },
+                        onShowTipJar = { showTipJar = true },
+                        onShowLayout = { showLayoutMenu = true },
+                        onShowMenu = { showSandwichMenu = true },
+                    )
+                    return
+                }
                 val isSearching = isSearchFocused || state.searchQuery.isNotBlank()
                 val isFeaturedActive = state.enableFeatured && state.featuredMedia.isNotEmpty()
                 val shouldHeaderBeSticky = isSearching && isFeaturedActive
@@ -381,16 +477,16 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
                         contentPadding = PaddingValues(bottom = 32.dp)
                     ) {
                         item {
-                            if (state.enableFeatured && state.featuredMedia.isNotEmpty()) {
+                            if (isFeaturedActive) {
                                 FeaturedCarousel(
                                     media = state.featuredMedia,
                                     nav = nav,
                                     progressMap = state.progressMap,
                                     isSearching = isSearching,
-                                    modifier = Modifier.fillMaxWidth(),
+                                    modifier = Modifier.fillMaxWidth()
                                 )
                             } else {
-                                Spacer(Modifier.height(160.dp)) // Placeholder height for header
+                                Spacer(Modifier.height(160.dp)) // Height for header
                             }
                         }
 
@@ -638,6 +734,8 @@ private fun rememberFlickerAlpha(): State<Float> {
 @Composable
 private fun CosmicBackground() {
     val theme = LocalZStreamTheme.current
+    var focusedMenu by remember { mutableStateOf(false) }
+    val focusMenuWidth by animateDpAsState(if (focusedMenu) 3.dp else 0.dp)
     val flickerAlpha by rememberFlickerAlpha()
     val accent = theme.colors.global.accentA
     Box(
@@ -686,6 +784,8 @@ private data class Particle(val x: Float, val y: Float, val r: Float, val speed:
 @Composable
 private fun ParticleOverlay() {
     val theme = LocalZStreamTheme.current
+    var focusedMenu by remember { mutableStateOf(false) }
+    val focusMenuWidth by animateDpAsState(if (focusedMenu) 3.dp else 0.dp)
     val particles = remember {
         List(55) { Particle(Random.nextFloat(), Random.nextFloat(), Random.nextFloat() * 1.2f + 0.3f,
             Random.nextFloat() * 0.25f + 0.08f, Random.nextFloat() * 360f) }
@@ -731,6 +831,8 @@ private fun TopNavBar(
     unreadCount: Int = 0,
 ) {
     val theme = LocalZStreamTheme.current
+    var focusedMenu by remember { mutableStateOf(false) }
+    val focusMenuWidth by animateDpAsState(if (focusedMenu) 3.dp else 0.dp)
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -800,6 +902,8 @@ private fun HeaderIconButton(
     badgeCount: Int = 0,
 ) {
     val theme = LocalZStreamTheme.current
+    var focusedMenu by remember { mutableStateOf(false) }
+    val focusMenuWidth by animateDpAsState(if (focusedMenu) 3.dp else 0.dp)
     Box(
         modifier = Modifier
             .clip(RoundedCornerShape(50))
@@ -834,6 +938,8 @@ private fun HeaderIconButton(
 @Composable
 private fun HeroSection(searchQuery: String, onSearch: (String) -> Unit, nav: NavController, placeholder: String) {
     val theme = LocalZStreamTheme.current
+    var focusedMenu by remember { mutableStateOf(false) }
+    val focusMenuWidth by animateDpAsState(if (focusedMenu) 3.dp else 0.dp)
     // Animated gradient offset for discover button border
     val infiniteTransition = rememberInfiniteTransition(label = "rainbow")
     val gradientOffset by infiniteTransition.animateFloat(
@@ -931,6 +1037,8 @@ private fun HeroSection(searchQuery: String, onSearch: (String) -> Unit, nav: Na
 @Composable
 private fun GenrePills(selectedGenreId: Int?, onSelect: (Int?) -> Unit) {
     val theme = LocalZStreamTheme.current
+    var focusedMenu by remember { mutableStateOf(false) }
+    val focusMenuWidth by animateDpAsState(if (focusedMenu) 3.dp else 0.dp)
     LazyRow(
         contentPadding = PaddingValues(horizontal = 16.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -964,6 +1072,8 @@ private fun GenrePills(selectedGenreId: Int?, onSelect: (Int?) -> Unit) {
 @Composable
 private fun HomeTabs(activeTab: HomeTab, onTab: (HomeTab) -> Unit) {
     val theme = LocalZStreamTheme.current
+    var focusedMenu by remember { mutableStateOf(false) }
+    val focusMenuWidth by animateDpAsState(if (focusedMenu) 3.dp else 0.dp)
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -999,6 +1109,8 @@ private fun HomeTabs(activeTab: HomeTab, onTab: (HomeTab) -> Unit) {
 @Composable
 private fun SyncedSectionTitle(title: String) {
     val theme = LocalZStreamTheme.current
+    var focusedMenu by remember { mutableStateOf(false) }
+    val focusMenuWidth by animateDpAsState(if (focusedMenu) 3.dp else 0.dp)
     Text(
         text = title,
         color = theme.colors.type.emphasis,
@@ -1014,6 +1126,8 @@ private fun MediaCarouselSection(
     progressMap: Map<String, ProgressEntity> = emptyMap(),
 ) {
     val theme = LocalZStreamTheme.current
+    var focusedMenu by remember { mutableStateOf(false) }
+    val focusMenuWidth by animateDpAsState(if (focusedMenu) 3.dp else 0.dp)
     Column {
         SyncedSectionTitle(section.title)
 //      Text("View more →", color = theme.colors.type.dimmed, fontSize = 11.sp) // TODO: add ability to click this
@@ -1235,6 +1349,8 @@ private fun LayoutMenuDialog(
     onDismiss: () -> Unit,
 ) {
     val theme = LocalZStreamTheme.current
+    var focusedMenu by remember { mutableStateOf(false) }
+    val focusMenuWidth by animateDpAsState(if (focusedMenu) 3.dp else 0.dp)
 
     data class LayoutItem(val id: String, val label: String, val visible: Boolean)
 
@@ -1388,6 +1504,8 @@ private fun SandwichMenuDialog(
     onDismiss: () -> Unit,
 ) {
     val theme = LocalZStreamTheme.current
+    var focusedMenu by remember { mutableStateOf(false) }
+    val focusMenuWidth by animateDpAsState(if (focusedMenu) 3.dp else 0.dp)
     val uriHandler = LocalUriHandler.current
 
     Dialog(onDismissRequest = onDismiss) {
@@ -1501,6 +1619,8 @@ private fun NotificationsDialog(
     onDismiss: () -> Unit,
 ) {
     val theme = LocalZStreamTheme.current
+    var focusedMenu by remember { mutableStateOf(false) }
+    val focusMenuWidth by animateDpAsState(if (focusedMenu) 3.dp else 0.dp)
     var selectedNotif by remember { mutableStateOf<NotificationItem?>(null) }
 
     Dialog(
@@ -1770,6 +1890,8 @@ private fun NotificationDetailView(
 @Composable
 private fun TipJarDialog(onDismiss: () -> Unit) {
     val theme = LocalZStreamTheme.current
+    var focusedMenu by remember { mutableStateOf(false) }
+    val focusMenuWidth by animateDpAsState(if (focusedMenu) 3.dp else 0.dp)
     val clipboard = LocalClipboardManager.current
 
     data class CryptoAddress(val symbol: String, val name: String, val address: String, val color: Color)
@@ -1859,24 +1981,39 @@ private fun FeaturedCarousel(
     nav: NavController,
     progressMap: Map<String, ProgressEntity> = emptyMap(),
     isSearching: Boolean = false,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onFocused: () -> Unit = {}
 ) {
     val theme = LocalZStreamTheme.current
+    var focusedMenu by remember { mutableStateOf(false) }
+    val focusMenuWidth by animateDpAsState(if (focusedMenu) 3.dp else 0.dp)
     val pagerState = rememberPagerState(pageCount = { media.size })
     var autoScrollEnabled by remember { mutableStateOf(true) }
     val scope = rememberCoroutineScope()
 
     val isDragged by pagerState.interactionSource.collectIsDraggedAsState()
     LaunchedEffect(isDragged) {
+        Log.d(HOME_FOCUS_DEBUG_TAG, "FEATURED pager dragged changed isDragged=$isDragged autoScrollEnabled=$autoScrollEnabled")
         if (isDragged) autoScrollEnabled = false
     }
 
-    LaunchedEffect(autoScrollEnabled, media, isSearching) {
-        if (autoScrollEnabled && media.isNotEmpty() && !isSearching) {
+    var isFocused by remember { mutableStateOf(false) }
+    var playButtonFocused by remember { mutableStateOf(false) }
+    var moreInfoButtonFocused by remember { mutableStateOf(false) }
+    val playButtonBorderWidth by animateDpAsState(if (playButtonFocused) 3.dp else 1.dp, label = "playButtonBorderWidth")
+    val moreInfoButtonBorderWidth by animateDpAsState(if (moreInfoButtonFocused) 3.dp else 1.dp, label = "moreInfoButtonBorderWidth")
+
+    LaunchedEffect(autoScrollEnabled, media, isSearching, isFocused) {
+        Log.d(
+            HOME_FOCUS_DEBUG_TAG,
+            "FEATURED autoScroll effect auto=$autoScrollEnabled media=${media.size} searching=$isSearching rootFocused=$isFocused page=${pagerState.currentPage}"
+        )
+        if (autoScrollEnabled && media.isNotEmpty() && !isSearching && !isFocused) {
             while (true) {
                 delay(6000)
                 if (media.isNotEmpty()) {
                     val next = (pagerState.currentPage + 1) % media.size
+                    Log.d(HOME_FOCUS_DEBUG_TAG, "FEATURED autoScroll animate page ${pagerState.currentPage} -> $next")
                     pagerState.animateScrollToPage(next)
                 }
             }
@@ -1900,7 +2037,17 @@ private fun FeaturedCarousel(
         label = "carouselBlur"
     )
 
-    Box(modifier = modifier.height(height)) {
+    Box(
+        modifier = modifier
+            .height(height)
+            .onFocusChanged {
+                Log.d(
+                    HOME_FOCUS_DEBUG_TAG,
+                    "FEATURED root focus hasFocus=${it.hasFocus} isFocused=${it.isFocused} before rootFocused=$isFocused play=$playButtonFocused more=$moreInfoButtonFocused page=${pagerState.currentPage}"
+                )
+                isFocused = it.hasFocus
+            }
+    ) {
         HorizontalPager(
             state = pagerState,
             modifier = Modifier.fillMaxSize().graphicsLayer {
@@ -1937,18 +2084,20 @@ private fun FeaturedCarousel(
                 }
 
                 // Per-item gradients for smooth transitions
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .height(50.dp) // Top gradient ends earlier
-                        .align(Alignment.TopCenter)
-                        .graphicsLayer { alpha = contentAlpha }
-                        .background(
-                            Brush.verticalGradient(
-                                listOf(theme.colors.background.main, Color.Transparent),
+                if (!LocalIsTv.current) {
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .height(50.dp) // Top gradient ends earlier
+                            .align(Alignment.TopCenter)
+                            .graphicsLayer { alpha = contentAlpha }
+                            .background(
+                                Brush.verticalGradient(
+                                    listOf(theme.colors.background.main, Color.Transparent),
+                                )
                             )
-                        )
-                )
+                    )
+                }
 
                 Box(
                     Modifier
@@ -2087,9 +2236,25 @@ private fun FeaturedCarousel(
                                     containerColor = theme.colors.buttons.primary,
                                     contentColor = theme.colors.buttons.primaryText,
                                 ),
-                                border = BorderStroke(1.dp, theme.colors.type.divider.copy(alpha = 0.3f)),
+                                border = BorderStroke(
+                                    playButtonBorderWidth,
+                                    if (playButtonFocused) Color.White else theme.colors.type.divider.copy(alpha = 0.3f)
+                                ),
                                 shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.height(48.dp).weight(1f),
+                                modifier = Modifier
+                                    .height(48.dp)
+                                    .weight(1f)
+                                    .onFocusChanged {
+                                        Log.d(
+                                            HOME_FOCUS_DEBUG_TAG,
+                                            "FEATURED Play button focus isFocused=${it.isFocused} hasFocus=${it.hasFocus} before play=$playButtonFocused more=$moreInfoButtonFocused page=${pagerState.currentPage}"
+                                        )
+                                        playButtonFocused = it.isFocused
+                                        if (it.isFocused) {
+                                            Log.d(HOME_FOCUS_DEBUG_TAG, "FEATURED Play button -> onFocused callback")
+                                            onFocused()
+                                        }
+                                    },
                                 contentPadding = PaddingValues(horizontal = 16.dp)
                             ) {
                                 Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(20.dp), tint = theme.colors.buttons.primaryText)
@@ -2104,9 +2269,25 @@ private fun FeaturedCarousel(
                                     containerColor = theme.colors.buttons.secondary,
                                     contentColor = theme.colors.buttons.secondaryText,
                                 ),
-                                border = BorderStroke(1.dp, theme.colors.type.divider.copy(alpha = 0.3f)),
+                                border = BorderStroke(
+                                    moreInfoButtonBorderWidth,
+                                    if (moreInfoButtonFocused) Color.White else theme.colors.type.divider.copy(alpha = 0.3f)
+                                ),
                                 shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.height(48.dp).weight(1f),
+                                modifier = Modifier
+                                    .height(48.dp)
+                                    .weight(1f)
+                                    .onFocusChanged {
+                                        Log.d(
+                                            HOME_FOCUS_DEBUG_TAG,
+                                            "FEATURED More Info button focus isFocused=${it.isFocused} hasFocus=${it.hasFocus} before play=$playButtonFocused more=$moreInfoButtonFocused page=${pagerState.currentPage}"
+                                        )
+                                        moreInfoButtonFocused = it.isFocused
+                                        if (it.isFocused) {
+                                            Log.d(HOME_FOCUS_DEBUG_TAG, "FEATURED More Info button -> onFocused callback")
+                                            onFocused()
+                                        }
+                                    },
                                 contentPadding = PaddingValues(horizontal = 16.dp)
                             ) {
                                 Icon(Icons.Default.Info, contentDescription = null, modifier = Modifier.size(20.dp), tint = theme.colors.buttons.secondaryText)
@@ -2135,10 +2316,12 @@ private fun FeaturedCarousel(
 
                 Box(
                     modifier = Modifier
+                        .focusProperties { canFocus = false }
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null
                         ) {
+                            Log.d(HOME_FOCUS_DEBUG_TAG, "FEATURED dot clicked index=$i currentPage=${pagerState.currentPage}")
                             autoScrollEnabled = false
                             scope.launch {
                                 pagerState.animateScrollToPage(i)
@@ -2171,6 +2354,8 @@ private fun SearchOverlay(
     modifier: Modifier = Modifier
 ) {
     val theme = LocalZStreamTheme.current
+    var focusedMenu by remember { mutableStateOf(false) }
+    val focusMenuWidth by animateDpAsState(if (focusedMenu) 3.dp else 0.dp)
     Row(
         modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
@@ -2219,6 +2404,292 @@ private fun SearchOverlay(
                                 },
                         )
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TvHomeScreenContent(
+    state: HomeState,
+    nav: NavController,
+    vm: HomeViewModel,
+    theme: com.zstream.android.theme.ZStreamTheme,
+    accountVm: AccountViewModel,
+    session: com.zstream.android.data.AccountSession?,
+    notifications: List<NotificationItem>,
+    readGuids: Set<String>,
+    unreadCount: Int,
+    sectionOrder: List<String>,
+    showContinueWatching: Boolean,
+    showBookmarks: Boolean,
+    searchResults: List<Media>,
+    onShowNotifications: () -> Unit,
+    onShowTipJar: () -> Unit,
+    onShowLayout: () -> Unit,
+    onShowMenu: () -> Unit,
+) {
+    val allSections = remember(state.continueWatching, state.bookmarks, state.activeTab, state.movieSections, state.tvSections, state.editorSections, showContinueWatching, showBookmarks) {
+        buildList {
+            val seenIds = mutableSetOf<Int>()
+            if (showContinueWatching) {
+                state.continueWatching.filter { it.items.isNotEmpty() }.forEach { s ->
+                    add(s)
+                    s.items.forEach { m -> seenIds.add(m.id) }
+                }
+            }
+            if (showBookmarks) {
+                state.bookmarks.filter { it.items.isNotEmpty() }.forEach { s ->
+                    add(s)
+                    s.items.forEach { m -> seenIds.add(m.id) }
+                }
+            }
+            val base = when (state.activeTab) {
+                HomeTab.MOVIES -> state.movieSections
+                HomeTab.TV -> state.tvSections
+                HomeTab.EDITOR -> state.editorSections
+            }
+            base.forEach { section ->
+                val unique = section.items.filter { it.id !in seenIds }
+                if (unique.isNotEmpty()) {
+                    add(section.copy(items = unique))
+                    unique.forEach { seenIds.add(it.id) }
+                }
+            }
+        }
+    }
+
+    val listState = rememberLazyListState()
+    var isCarouselFocused by remember { mutableStateOf(false) }
+    var listHasFocus by remember { mutableStateOf(false) }
+    val isFeaturedActive = state.enableFeatured && state.featuredMedia.isNotEmpty()
+    val density = LocalDensity.current
+    val topPaddingPx = remember(density) { with(density) { 80.dp.roundToPx() } }
+
+    var wasCarouselFocused by remember { mutableStateOf(false) }
+    val carouselFocusRequester = remember { FocusRequester() }
+    val topBarFocusRequester = remember { FocusRequester() }
+    val scope = rememberCoroutineScope()
+
+    LaunchedEffect(isCarouselFocused, listHasFocus, isFeaturedActive) {
+        Log.d(
+            HOME_FOCUS_DEBUG_TAG,
+            "TV focusEffect start featured=$isFeaturedActive carousel=$isCarouselFocused list=$listHasFocus was=$wasCarouselFocused index=${listState.firstVisibleItemIndex} offset=${listState.firstVisibleItemScrollOffset} topPaddingPx=$topPaddingPx"
+        )
+        if (!isFeaturedActive) {
+            Log.d(HOME_FOCUS_DEBUG_TAG, "TV focusEffect exit: featured inactive")
+            return@LaunchedEffect
+        }
+        if (isCarouselFocused) {
+            Log.d(HOME_FOCUS_DEBUG_TAG, "TV focusEffect branch: carousel focused -> animate item 0")
+            listState.animateScrollToItem(0, 0)
+            wasCarouselFocused = true
+            Log.d(HOME_FOCUS_DEBUG_TAG, "TV focusEffect branch done: wasCarouselFocused=true")
+        } else if (listHasFocus && wasCarouselFocused) {
+            Log.d(
+                HOME_FOCUS_DEBUG_TAG,
+                "TV focusEffect branch: carousel lost while list has focus and wasCarouselFocused=true -> maybe scroll down"
+            )
+            if (listState.firstVisibleItemIndex == 0) {
+                Log.d(HOME_FOCUS_DEBUG_TAG, "TV focusEffect action: animate item 1 offset=${-topPaddingPx}")
+                listState.animateScrollToItem(1, -topPaddingPx)
+            } else {
+                Log.d(HOME_FOCUS_DEBUG_TAG, "TV focusEffect skip scroll: already index=${listState.firstVisibleItemIndex}")
+            }
+            wasCarouselFocused = false
+            Log.d(HOME_FOCUS_DEBUG_TAG, "TV focusEffect branch done: wasCarouselFocused=false")
+        } else if (!listHasFocus) {
+            Log.d(HOME_FOCUS_DEBUG_TAG, "TV focusEffect branch: list lost focus -> wasCarouselFocused=false")
+            wasCarouselFocused = false
+        } else {
+            Log.d(HOME_FOCUS_DEBUG_TAG, "TV focusEffect branch: no-op")
+        }
+    }
+
+    Box(Modifier.fillMaxSize()) {
+        HomeBringIntoViewProvider(
+            label = "TV",
+            disableAutoScroll = isCarouselFocused,
+        ) {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .onFocusChanged {
+                        Log.d(
+                            HOME_FOCUS_DEBUG_TAG,
+                            "TV LazyColumn focus hasFocus=${it.hasFocus} isFocused=${it.isFocused} before listHasFocus=$listHasFocus carousel=$isCarouselFocused was=$wasCarouselFocused index=${listState.firstVisibleItemIndex} offset=${listState.firstVisibleItemScrollOffset}"
+                        )
+                        listHasFocus = it.hasFocus
+                    },
+                contentPadding = PaddingValues(bottom = 48.dp)
+            ) {
+                if (isFeaturedActive) {
+                    item {
+                        FeaturedCarousel(
+                            media = state.featuredMedia,
+                            nav = nav,
+                            progressMap = state.progressMap,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .focusRequester(carouselFocusRequester)
+                                .focusProperties { up = topBarFocusRequester }
+                                .onFocusChanged {
+                                    Log.d(
+                                        HOME_FOCUS_DEBUG_TAG,
+                                        "TV FeaturedCarousel wrapper focus hasFocus=${it.hasFocus} isFocused=${it.isFocused} before carousel=$isCarouselFocused list=$listHasFocus was=$wasCarouselFocused index=${listState.firstVisibleItemIndex} offset=${listState.firstVisibleItemScrollOffset}"
+                                    )
+                                    isCarouselFocused = it.hasFocus
+                                },
+                            onFocused = {
+                                Log.d(
+                                    HOME_FOCUS_DEBUG_TAG,
+                                    "TV FeaturedCarousel onFocused callback -> animate item 0 index=${listState.firstVisibleItemIndex} offset=${listState.firstVisibleItemScrollOffset}"
+                                )
+                                scope.launch {
+                                    listState.animateScrollToItem(0, 0)
+                                }
+                            }
+                        )
+                    }
+                } else {
+                    item {
+                        Spacer(Modifier.height(80.dp))
+                    }
+                }
+
+                allSections.forEach { section ->
+                    item(key = section.title) {
+                        MediaCarouselSection(section, nav, state.progressMap)
+                    }
+                    item { Spacer(Modifier.height(24.dp)) }
+                }
+            }
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .focusRequester(topBarFocusRequester)
+                .then(
+                    if (isFeaturedActive) {
+                        Modifier.focusProperties { down = carouselFocusRequester }
+                    } else {
+                        Modifier
+                    }
+                )
+        ) {
+            TvTopBar(
+                unreadCount = unreadCount,
+                onNotifications = onShowNotifications,
+                onTipJar = onShowTipJar,
+                onLayout = onShowLayout,
+                onMenu = onShowMenu,
+            )
+        }
+    }
+}
+
+@Composable
+private fun TvTopBar(
+    unreadCount: Int,
+    onNotifications: () -> Unit,
+    onTipJar: () -> Unit,
+    onLayout: () -> Unit,
+    onMenu: () -> Unit,
+) {
+    val theme = LocalZStreamTheme.current
+    var focusedMenu by remember { mutableStateOf(false) }
+    val focusMenuWidth by animateDpAsState(if (focusedMenu) 3.dp else 0.dp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 32.dp, vertical = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(50))
+                    .background(theme.colors.background.secondary.copy(alpha = 0.8f))
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                AsyncImage(
+                    model = com.zstream.android.R.mipmap.ic_launcher,
+                    contentDescription = null,
+                    modifier = Modifier.size(32.dp).clip(CircleShape)
+                )
+                Text("Z-Stream", color = theme.colors.type.emphasis, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            TvHeaderButton(Icons.Default.Notifications, if (unreadCount > 0) "$unreadCount" else null, onClick = onNotifications)
+            TvHeaderButton(Icons.Default.AttachMoney, null, onClick = onTipJar)
+            TvHeaderButton(Icons.Default.GridView, null, onClick = onLayout)
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(50))
+                    .background(theme.colors.background.secondary.copy(alpha = 0.8f))
+                    .border(1.dp, theme.colors.type.divider.copy(alpha = 0.3f), RoundedCornerShape(50))
+                    .onFocusChanged { focusedMenu = it.isFocused }
+                    .then(if (LocalIsTv.current) Modifier.border(focusMenuWidth, if (focusedMenu) Color.White else Color.Transparent, RoundedCornerShape(50)) else Modifier)
+                    .clickable(onClick = onMenu)
+                    .padding(horizontal = 14.dp, vertical = 10.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Icon(Icons.Default.Menu, null, tint = theme.colors.type.secondary, modifier = Modifier.size(24.dp))
+                    Icon(Icons.Default.KeyboardArrowDown, null, tint = theme.colors.type.dimmed, modifier = Modifier.size(24.dp))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TvHeaderButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    badge: String?,
+    onClick: () -> Unit,
+) {
+    val theme = LocalZStreamTheme.current
+    var focusedMenu by remember { mutableStateOf(false) }
+    val focusMenuWidth by animateDpAsState(if (focusedMenu) 3.dp else 0.dp)
+    var focused by remember { mutableStateOf(false) }
+    val focusBorderWidth by animateDpAsState(if (focused) 3.dp else 0.dp)
+
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .background(theme.colors.background.secondary.copy(alpha = 0.8f))
+            .border(1.dp, theme.colors.type.divider.copy(alpha = 0.3f), RoundedCornerShape(50))
+            .onFocusChanged { focused = it.isFocused }
+            .then(Modifier.border(focusBorderWidth, if (focused) Color.White else Color.Transparent, RoundedCornerShape(50)))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box {
+            Icon(icon, null, tint = theme.colors.type.secondary, modifier = Modifier.size(24.dp))
+            if (badge != null) {
+                Box(
+                    modifier = Modifier
+                        .size(18.dp)
+                        .clip(CircleShape)
+                        .background(theme.colors.type.danger)
+                        .align(Alignment.TopEnd)
+                        .offset(x = 4.dp, y = (-6).dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        badge,
+                        color = theme.colors.type.emphasis,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
                 }
             }
         }
