@@ -74,43 +74,46 @@ fun ZsButton(
         )
     }
 
-    Button(
-        onClick = onClick,
-        modifier = modifier
-            .onFocusChanged { isFocused = it.isFocused }
-            .then(
-                if (isTv) Modifier.border(focusBorderWidth, if (isFocused) Color.White else Color.Transparent, RoundedCornerShape(12.dp))
-                else Modifier
-            ),
-        enabled = enabled && !loading,
+    ZsOutlinedWrapper(
+        visible = isFocused,
         shape = RoundedCornerShape(12.dp),
-        contentPadding = contentPadding,
-        border = BorderStroke(1.dp, borderColor),
-        colors = ButtonDefaults.buttonColors(
-            containerColor = containerColor,
-            contentColor = contentColor,
-            disabledContainerColor = containerColor.copy(alpha = 0.45f),
-            disabledContentColor = contentColor.copy(alpha = 0.7f),
-        ),
+        outlineColor = if (isTv) Color.White else theme.colors.global.accentA.copy(alpha = 0.6f),
+        gap = 4.dp,
+        modifier = modifier
     ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            when {
-                loading -> {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(18.dp),
-                        color = contentColor,
-                        strokeWidth = 2.dp,
-                    )
+        Button(
+            onClick = onClick,
+            modifier = Modifier.onFocusChanged { isFocused = it.isFocused },
+            enabled = enabled && !loading,
+            shape = RoundedCornerShape(12.dp),
+            contentPadding = contentPadding,
+            border = BorderStroke(1.dp, borderColor),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = containerColor,
+                contentColor = contentColor,
+                disabledContainerColor = containerColor.copy(alpha = 0.45f),
+                disabledContentColor = contentColor.copy(alpha = 0.7f),
+            ),
+        ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                when {
+                    loading -> {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            color = contentColor,
+                            strokeWidth = 2.dp,
+                        )
+                    }
+                    leadingIcon != null -> {
+                        Icon(
+                            imageVector = leadingIcon,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
                 }
-                leadingIcon != null -> {
-                    Icon(
-                        imageVector = leadingIcon,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                    )
-                }
+                Text(text = text, fontWeight = FontWeight.SemiBold)
             }
-            Text(text = text, fontWeight = FontWeight.SemiBold)
         }
     }
 }

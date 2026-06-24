@@ -65,6 +65,11 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -105,6 +110,7 @@ import com.zstream.android.theme.LocalZStreamTheme
 import com.zstream.android.ui.LocalIsTv
 import com.zstream.android.ui.components.themed.ZsIconButton
 import com.zstream.android.ui.components.themed.ZsIconButtonVariant
+import com.zstream.android.ui.components.themed.ZsOutlinedWrapper
 import kotlinx.coroutines.Dispatchers
 import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
@@ -404,16 +410,25 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
                 CircularProgressIndicator(color = theme.colors.global.accentA)
             }
             state.error != null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                var retryFocused by remember { mutableStateOf(false) }
                 Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
                     Text(state.error!!, color = theme.colors.type.danger, textAlign = TextAlign.Center)
                     Spacer(Modifier.height(12.dp))
-                    Button(
-                        onClick = vm::load,
-                        colors = ButtonDefaults.buttonColors(containerColor = theme.colors.global.accentA),
-                        border = BorderStroke(1.dp, theme.colors.type.divider.copy(alpha = 0.3f)),
-                        shape = RoundedCornerShape(12.dp)
+                    ZsOutlinedWrapper(
+                        visible = retryFocused,
+                        shape = RoundedCornerShape(12.dp),
+                        outlineColor = theme.colors.global.accentA.copy(alpha = 0.6f),
+                        gap = 4.dp
                     ) {
-                        Text("Retry")
+                        Button(
+                            onClick = vm::load,
+                            colors = ButtonDefaults.buttonColors(containerColor = theme.colors.global.accentA),
+                            border = BorderStroke(1.dp, theme.colors.type.divider.copy(alpha = 0.3f)),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.onFocusChanged { retryFocused = it.isFocused }
+                        ) {
+                            Text("Retry")
+                        }
                     }
                 }
             }
@@ -509,7 +524,11 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
                                             Box(
                                                 modifier = Modifier
                                                     .clip(RoundedCornerShape(35))
-                                                    .background(theme.colors.background.secondary.copy(alpha = 1f))
+                                                    .background(
+                                                        theme.colors.background.secondary.copy(
+                                                            alpha = 1f
+                                                        )
+                                                    )
                                                     .border(
                                                         1.dp,
                                                         theme.colors.type.divider.copy(alpha = 1f),
@@ -524,7 +543,11 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
                                             Box(
                                                 modifier = Modifier
                                                     .clip(RoundedCornerShape(35))
-                                                    .background(theme.colors.background.secondary.copy(alpha = 1f))
+                                                    .background(
+                                                        theme.colors.background.secondary.copy(
+                                                            alpha = 1f
+                                                        )
+                                                    )
                                                     .padding(horizontal = 16.dp, vertical = 10.dp),
                                                 contentAlignment = Alignment.Center
                                             ) 
@@ -842,27 +865,37 @@ private fun TopNavBar(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             // Logo pill: icon + "Z-Stream" text
-            Row(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(50))
-                    .background(theme.colors.background.secondary.copy(alpha = 0.8f))
-                    .padding(horizontal = 12.dp, vertical = 7.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            var logoFocused by remember { mutableStateOf(false) }
+            ZsOutlinedWrapper(
+                visible = logoFocused,
+                shape = RoundedCornerShape(50),
+                outlineColor = theme.colors.global.accentA.copy(alpha = 0.6f),
+                gap = 4.dp
             ) {
-                AsyncImage(
-                    model = R.mipmap.ic_launcher,
-                    contentDescription = null,
+                Row(
                     modifier = Modifier
-                        .size(22.dp)
-                        .clip(CircleShape),
-                )
-                Text(
-                    "Z-Stream",
-                    color = theme.colors.type.emphasis,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold,
-                )
+                        .onFocusChanged { logoFocused = it.isFocused }
+                        .focusable()
+                        .clip(RoundedCornerShape(50))
+                        .background(theme.colors.background.secondary.copy(alpha = 0.8f))
+                        .padding(horizontal = 12.dp, vertical = 7.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    AsyncImage(
+                        model = R.mipmap.ic_launcher,
+                        contentDescription = null,
+                        modifier = Modifier
+                            .size(22.dp)
+                            .clip(CircleShape),
+                    )
+                    Text(
+                        "Z-Stream",
+                        color = theme.colors.type.emphasis,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
             }
             if (!collapseActionsIntoMenu) {
                 HeaderIconButton(icon = ImageVector.vectorResource(R.drawable.ic_discord), onClick = onDiscord)
@@ -874,21 +907,30 @@ private fun TopNavBar(
             // Layout button — dark pill matching sandwich (just grid icon, no text)
             HeaderIconButton(icon = Icons.Default.GridView, onClick = onLayout)
             // Sandwich menu
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(50))
-                    .background(theme.colors.background.secondary.copy(alpha = 0.8f))
-                    .border(
-                        1.dp,
-                        theme.colors.type.divider.copy(alpha = 0.3f),
-                        RoundedCornerShape(50)
-                    )
-                    .clickable(onClick = onMenu)
-                    .padding(horizontal = 10.dp, vertical = 7.dp),
+            var menuFocused by remember { mutableStateOf(false) }
+            ZsOutlinedWrapper(
+                visible = menuFocused,
+                shape = RoundedCornerShape(50),
+                outlineColor = theme.colors.global.accentA.copy(alpha = 0.6f),
+                gap = 4.dp
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Icon(Icons.Default.Menu, null, tint = theme.colors.type.secondary, modifier = Modifier.size(22.dp))
-                    Icon(Icons.Default.KeyboardArrowDown, null, tint = theme.colors.type.dimmed, modifier = Modifier.size(22.dp))
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(theme.colors.background.secondary.copy(alpha = 0.8f))
+                        .border(
+                            1.dp,
+                            theme.colors.type.divider.copy(alpha = 0.3f),
+                            RoundedCornerShape(50)
+                        )
+                        .onFocusChanged { menuFocused = it.isFocused }
+                        .clickable(onClick = onMenu)
+                        .padding(horizontal = 10.dp, vertical = 7.dp),
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Icon(Icons.Default.Menu, null, tint = theme.colors.type.secondary, modifier = Modifier.size(22.dp))
+                        Icon(Icons.Default.KeyboardArrowDown, null, tint = theme.colors.type.dimmed, modifier = Modifier.size(22.dp))
+                    }
                 }
             }
         }
@@ -903,33 +945,40 @@ private fun HeaderIconButton(
 ) {
     val theme = LocalZStreamTheme.current
     var focusedMenu by remember { mutableStateOf(false) }
-    val focusMenuWidth by animateDpAsState(if (focusedMenu) 3.dp else 0.dp)
-    Box(
-        modifier = Modifier
-            .clip(RoundedCornerShape(50))
-            .background(theme.colors.background.secondary.copy(alpha = 0.8f))
-            .border(1.dp, theme.colors.type.divider.copy(alpha = 0.3f), RoundedCornerShape(50))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 7.dp),
-        contentAlignment = Alignment.Center,
+    ZsOutlinedWrapper(
+        visible = focusedMenu,
+        shape = RoundedCornerShape(50),
+        outlineColor = theme.colors.global.accentA.copy(alpha = 0.6f),
+        gap = 4.dp
     ) {
-        Icon(icon, null, tint = theme.colors.type.secondary, modifier = Modifier.size(22.dp))
-        if (badgeCount > 0) {
-            Box(
-                modifier = Modifier
-                    .size(14.dp)
-                    .clip(CircleShape)
-                    .background(theme.colors.type.danger)
-                    .align(Alignment.TopEnd)
-                    .offset(x = 0.dp, y = (-5).dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    if (badgeCount > 99) "99+" else badgeCount.toString(),
-                    color = theme.colors.type.emphasis,
-                    fontSize = 7.sp,
-                    fontWeight = FontWeight.Bold,
-                )
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(50))
+                .background(theme.colors.background.secondary.copy(alpha = 0.8f))
+                .border(1.dp, theme.colors.type.divider.copy(alpha = 0.3f), RoundedCornerShape(50))
+                .onFocusChanged { focusedMenu = it.isFocused }
+                .clickable(onClick = onClick)
+                .padding(horizontal = 10.dp, vertical = 7.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(icon, null, tint = theme.colors.type.secondary, modifier = Modifier.size(22.dp))
+            if (badgeCount > 0) {
+                Box(
+                    modifier = Modifier
+                        .size(14.dp)
+                        .clip(CircleShape)
+                        .background(theme.colors.type.danger)
+                        .align(Alignment.TopEnd)
+                        .offset(x = 0.dp, y = (-5).dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        if (badgeCount > 99) "99+" else badgeCount.toString(),
+                        color = theme.colors.type.emphasis,
+                        fontSize = 7.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
             }
         }
     }
@@ -972,7 +1021,11 @@ private fun HeroSection(searchQuery: String, onSearch: (String) -> Unit, nav: Na
                     .height(48.dp)
                     .clip(RoundedCornerShape(48.dp))
                     .background(theme.colors.search.background)
-                    .border(1.dp, theme.colors.type.divider.copy(alpha = 0.3f), RoundedCornerShape(48.dp)),
+                    .border(
+                        1.dp,
+                        theme.colors.type.divider.copy(alpha = 0.3f),
+                        RoundedCornerShape(48.dp)
+                    ),
                 contentAlignment = Alignment.CenterStart,
             ) {
                 Row(
@@ -1124,11 +1177,12 @@ private fun MediaCarouselSection(
     section: MediaSection,
     nav: NavController,
     progressMap: Map<String, ProgressEntity> = emptyMap(),
+    modifier: Modifier = Modifier,
 ) {
     val theme = LocalZStreamTheme.current
     var focusedMenu by remember { mutableStateOf(false) }
     val focusMenuWidth by animateDpAsState(if (focusedMenu) 3.dp else 0.dp)
-    Column {
+    Column(modifier = modifier) {
         SyncedSectionTitle(section.title)
 //      Text("View more →", color = theme.colors.type.dimmed, fontSize = 11.sp) // TODO: add ability to click this
 
@@ -1565,7 +1619,11 @@ private fun SandwichMenuDialog(
                                 .size(40.dp)
                                 .clip(CircleShape)
                                 .background(theme.colors.background.secondary)
-                                .border(1.dp, theme.colors.type.divider.copy(alpha = 0.3f), CircleShape)
+                                .border(
+                                    1.dp,
+                                    theme.colors.type.divider.copy(alpha = 0.3f),
+                                    CircleShape
+                                )
                                 .clickable {
                                     uriHandler.openUri(url)
                                 },
@@ -1848,7 +1906,11 @@ private fun NotificationDetailView(
                         modifier = Modifier
                             .clip(RoundedCornerShape(10.dp))
                             .background(theme.colors.background.secondary.copy(alpha = 0.65f))
-                            .border(1.dp, theme.colors.type.divider.copy(alpha = 0.3f), RoundedCornerShape(10.dp))
+                            .border(
+                                1.dp,
+                                theme.colors.type.divider.copy(alpha = 0.3f),
+                                RoundedCornerShape(10.dp)
+                            )
                             .clickable(onClick = onMarkRead)
                             .padding(horizontal = 12.dp, vertical = 8.dp),
                     ) {
@@ -1865,7 +1927,11 @@ private fun NotificationDetailView(
                         modifier = Modifier
                             .clip(RoundedCornerShape(10.dp))
                             .background(theme.colors.background.secondary.copy(alpha = 0.8f))
-                            .border(1.dp, theme.colors.type.divider.copy(alpha = 0.3f), RoundedCornerShape(10.dp))
+                            .border(
+                                1.dp,
+                                theme.colors.type.divider.copy(alpha = 0.3f),
+                                RoundedCornerShape(10.dp)
+                            )
                             .clickable { uriHandler.openUri(notif.link) }
                             .padding(horizontal = 12.dp, vertical = 8.dp),
                     ) {
@@ -1937,7 +2003,11 @@ private fun TipJarDialog(onDismiss: () -> Unit) {
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(12.dp))
                                 .background(theme.colors.background.secondary.copy(alpha = 0.5f))
-                                .border(1.dp, theme.colors.type.divider.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
+                                .border(
+                                    1.dp,
+                                    theme.colors.type.divider.copy(alpha = 0.3f),
+                                    RoundedCornerShape(12.dp)
+                                )
                                 .clickable { clipboard.setText(AnnotatedString(crypto.address)) }
                                 .padding(12.dp),
                             verticalAlignment = Alignment.CenterVertically,
@@ -1975,6 +2045,23 @@ private fun TipJarDialog(onDismiss: () -> Unit) {
     }
 }
 
+private enum class FeaturedCarouselButtonFocus {
+    Play,
+    MoreInfo,
+}
+
+private data class PendingFeaturedCarouselFocus(
+    val page: Int,
+    val button: FeaturedCarouselButtonFocus,
+)
+
+private data class TvHomeScrollTarget(
+    val requestId: Int,
+    val itemIndex: Int,
+    val scrollOffset: Int,
+    val reason: String,
+)
+
 @Composable
 private fun FeaturedCarousel(
     media: List<Media>,
@@ -2002,6 +2089,26 @@ private fun FeaturedCarousel(
     var moreInfoButtonFocused by remember { mutableStateOf(false) }
     val playButtonBorderWidth by animateDpAsState(if (playButtonFocused) 3.dp else 1.dp, label = "playButtonBorderWidth")
     val moreInfoButtonBorderWidth by animateDpAsState(if (moreInfoButtonFocused) 3.dp else 1.dp, label = "moreInfoButtonBorderWidth")
+    var pendingButtonFocus by remember { mutableStateOf<PendingFeaturedCarouselFocus?>(null) }
+
+    fun moveFeaturedPage(targetPage: Int, focusTarget: FeaturedCarouselButtonFocus) {
+        if (targetPage !in media.indices) return
+        autoScrollEnabled = false
+        pendingButtonFocus = PendingFeaturedCarouselFocus(
+            page = targetPage,
+            button = focusTarget,
+        )
+        Log.d(
+            HOME_FOCUS_DEBUG_TAG,
+            "FEATURED manual page move ${pagerState.currentPage} -> $targetPage focusTarget=$focusTarget"
+        )
+        scope.launch {
+            pagerState.animateScrollToPage(targetPage)
+            if (pendingButtonFocus?.page == targetPage) {
+                pendingButtonFocus = null
+            }
+        }
+    }
 
     LaunchedEffect(autoScrollEnabled, media, isSearching, isFocused) {
         Log.d(
@@ -2050,10 +2157,13 @@ private fun FeaturedCarousel(
     ) {
         HorizontalPager(
             state = pagerState,
-            modifier = Modifier.fillMaxSize().graphicsLayer {
-                alpha = contentAlpha
-                translationY = carouselOffset.toPx()
-            }.blur(blurRadius),
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    alpha = contentAlpha
+                    translationY = carouselOffset.toPx()
+                }
+                .blur(blurRadius),
             key = { media[it].id }
         ) { page ->
             val current = media[page]
@@ -2061,6 +2171,20 @@ private fun FeaturedCarousel(
             val title = current.displayTitle
             val year = current.displayDate.take(4)
             val type = current.type
+            val playButtonFocusRequester = remember(page) { FocusRequester() }
+            val moreInfoButtonFocusRequester = remember(page) { FocusRequester() }
+
+            LaunchedEffect(pagerState.currentPage, pendingButtonFocus, page) {
+                val pendingFocus = pendingButtonFocus ?: return@LaunchedEffect
+                if (pendingFocus.page != page || pagerState.currentPage != page) return@LaunchedEffect
+
+                withFrameMillis { }
+                when (pendingFocus.button) {
+                    FeaturedCarouselButtonFocus.Play -> playButtonFocusRequester.requestFocus()
+                    FeaturedCarouselButtonFocus.MoreInfo -> moreInfoButtonFocusRequester.requestFocus()
+                }
+                pendingButtonFocus = null
+            }
 
             Box(Modifier.fillMaxSize()) {
                 // Background image
@@ -2069,7 +2193,10 @@ private fun FeaturedCarousel(
                         AsyncImage(
                             model = backdropUrl,
                             contentDescription = null,
-                            modifier = Modifier.align(Alignment.TopCenter).fillMaxSize().scale(1.0f),
+                            modifier = Modifier
+                                .align(Alignment.TopCenter)
+                                .fillMaxSize()
+                                .scale(1.0f),
                             contentScale = ContentScale.Crop
                         )
                         // Global scrim for baseline contrast
@@ -2079,7 +2206,9 @@ private fun FeaturedCarousel(
                                 .background(theme.colors.video.context.background.copy(alpha = 0.15f))
                         )
                     } else {
-                        Box(Modifier.fillMaxSize().background(theme.colors.background.secondary))
+                        Box(Modifier
+                            .fillMaxSize()
+                            .background(theme.colors.background.secondary))
                     }
                 }
 
@@ -2219,80 +2348,130 @@ private fun FeaturedCarousel(
                             modifier = Modifier.graphicsLayer { alpha = contentAlpha }
                         ) {
                             // Play Now button
-                            Button(
-                                onClick = {
-                                    val progress = progressMap[current.id.toString()]
-                                    val sParam = if (type == "tv") {
-                                        val sNum = progress?.seasonNumber ?: 1
-                                        val eNum = progress?.episodeNumber ?: 1
-                                        "&season=$sNum&episode=$eNum"
-                                    } else ""
-
-                                    val encodedTitle = java.net.URLEncoder.encode(title, "UTF-8")
-                                    val poster = java.net.URLEncoder.encode(current.posterPath ?: "", "UTF-8")
-                                    nav.navigate("player/$type/${current.id}?title=$encodedTitle&year=${year.toIntOrNull() ?: 0}&poster=$poster$sParam")
-                                },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = theme.colors.buttons.primary,
-                                    contentColor = theme.colors.buttons.primaryText,
-                                ),
-                                border = BorderStroke(
-                                    playButtonBorderWidth,
-                                    if (playButtonFocused) Color.White else theme.colors.type.divider.copy(alpha = 0.3f)
-                                ),
+                            ZsOutlinedWrapper(
+                                visible = playButtonFocused,
                                 shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier
-                                    .height(48.dp)
-                                    .weight(1f)
-                                    .onFocusChanged {
-                                        Log.d(
-                                            HOME_FOCUS_DEBUG_TAG,
-                                            "FEATURED Play button focus isFocused=${it.isFocused} hasFocus=${it.hasFocus} before play=$playButtonFocused more=$moreInfoButtonFocused page=${pagerState.currentPage}"
-                                        )
-                                        playButtonFocused = it.isFocused
-                                        if (it.isFocused) {
-                                            Log.d(HOME_FOCUS_DEBUG_TAG, "FEATURED Play button -> onFocused callback")
-                                            onFocused()
-                                        }
-                                    },
-                                contentPadding = PaddingValues(horizontal = 16.dp)
+                                outlineColor = Color.White,
+                                gap = 4.dp,
+                                modifier = Modifier.weight(1f)
                             ) {
-                                Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(20.dp), tint = theme.colors.buttons.primaryText)
-                                Spacer(Modifier.width(8.dp))
-                                Text("Play Now", fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                                Button(
+                                    onClick = {
+                                        val progress = progressMap[current.id.toString()]
+                                        val sParam = if (type == "tv") {
+                                            val sNum = progress?.seasonNumber ?: 1
+                                            val eNum = progress?.episodeNumber ?: 1
+                                            "&season=$sNum&episode=$eNum"
+                                        } else ""
+
+                                        val encodedTitle = java.net.URLEncoder.encode(title, "UTF-8")
+                                        val poster = java.net.URLEncoder.encode(current.posterPath ?: "", "UTF-8")
+                                        nav.navigate("player/$type/${current.id}?title=$encodedTitle&year=${year.toIntOrNull() ?: 0}&poster=$poster$sParam")
+                                    },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = theme.colors.buttons.primary,
+                                        contentColor = theme.colors.buttons.primaryText,
+                                    ),
+                                    border = BorderStroke(
+                                        1.dp,
+                                        theme.colors.type.divider.copy(alpha = 0.3f)
+                                    ),
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier
+                                        .height(48.dp)
+                                        .fillMaxWidth()
+                                        .focusRequester(playButtonFocusRequester)
+                                        .onPreviewKeyEvent { event ->
+                                            if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionLeft) {
+                                                if (pagerState.currentPage > 0) {
+                                                    moveFeaturedPage(
+                                                        targetPage = pagerState.currentPage - 1,
+                                                        focusTarget = FeaturedCarouselButtonFocus.MoreInfo,
+                                                    )
+                                                }
+                                                true
+                                            } else {
+                                                false
+                                            }
+                                        }
+                                        .onFocusChanged {
+                                            Log.d(
+                                                HOME_FOCUS_DEBUG_TAG,
+                                                "FEATURED Play button focus isFocused=${it.isFocused} hasFocus=${it.hasFocus} before play=$playButtonFocused more=$moreInfoButtonFocused page=${pagerState.currentPage}"
+                                            )
+                                            playButtonFocused = it.isFocused
+                                            if (it.isFocused) {
+                                                Log.d(
+                                                    HOME_FOCUS_DEBUG_TAG,
+                                                    "FEATURED Play button -> onFocused callback"
+                                                )
+                                                onFocused()
+                                            }
+                                        },
+                                    contentPadding = PaddingValues(horizontal = 16.dp)
+                                ) {
+                                    Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(20.dp), tint = theme.colors.buttons.primaryText)
+                                    Spacer(Modifier.width(8.dp))
+                                    Text("Play Now", fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                                }
                             }
 
                             // More Info button
-                            Button(
-                                onClick = { nav.navigate("detail/$type/${current.id}") },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = theme.colors.buttons.secondary,
-                                    contentColor = theme.colors.buttons.secondaryText,
-                                ),
-                                border = BorderStroke(
-                                    moreInfoButtonBorderWidth,
-                                    if (moreInfoButtonFocused) Color.White else theme.colors.type.divider.copy(alpha = 0.3f)
-                                ),
+                            ZsOutlinedWrapper(
+                                visible = moreInfoButtonFocused,
                                 shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier
-                                    .height(48.dp)
-                                    .weight(1f)
-                                    .onFocusChanged {
-                                        Log.d(
-                                            HOME_FOCUS_DEBUG_TAG,
-                                            "FEATURED More Info button focus isFocused=${it.isFocused} hasFocus=${it.hasFocus} before play=$playButtonFocused more=$moreInfoButtonFocused page=${pagerState.currentPage}"
-                                        )
-                                        moreInfoButtonFocused = it.isFocused
-                                        if (it.isFocused) {
-                                            Log.d(HOME_FOCUS_DEBUG_TAG, "FEATURED More Info button -> onFocused callback")
-                                            onFocused()
-                                        }
-                                    },
-                                contentPadding = PaddingValues(horizontal = 16.dp)
+                                outlineColor = Color.White,
+                                gap = 4.dp,
+                                modifier = Modifier.weight(1f)
                             ) {
-                                Icon(Icons.Default.Info, contentDescription = null, modifier = Modifier.size(20.dp), tint = theme.colors.buttons.secondaryText)
-                                Spacer(Modifier.width(8.dp))
-                                Text("More Info", fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                                Button(
+                                    onClick = { nav.navigate("detail/$type/${current.id}") },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = theme.colors.buttons.secondary,
+                                        contentColor = theme.colors.buttons.secondaryText,
+                                    ),
+                                    border = BorderStroke(
+                                        1.dp,
+                                        theme.colors.type.divider.copy(alpha = 0.3f)
+                                    ),
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier
+                                        .height(48.dp)
+                                        .fillMaxWidth()
+                                        .focusRequester(moreInfoButtonFocusRequester)
+                                        .onPreviewKeyEvent { event ->
+                                            if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionRight) {
+                                                if (pagerState.currentPage < media.lastIndex) {
+                                                    moveFeaturedPage(
+                                                        targetPage = pagerState.currentPage + 1,
+                                                        focusTarget = FeaturedCarouselButtonFocus.Play,
+                                                    )
+                                                }
+                                                true
+                                            } else {
+                                                false
+                                            }
+                                        }
+                                        .onFocusChanged {
+                                            Log.d(
+                                                HOME_FOCUS_DEBUG_TAG,
+                                                "FEATURED More Info button focus isFocused=${it.isFocused} hasFocus=${it.hasFocus} before play=$playButtonFocused more=$moreInfoButtonFocused page=${pagerState.currentPage}"
+                                            )
+                                            moreInfoButtonFocused = it.isFocused
+                                            if (it.isFocused) {
+                                                Log.d(
+                                                    HOME_FOCUS_DEBUG_TAG,
+                                                    "FEATURED More Info button -> onFocused callback"
+                                                )
+                                                onFocused()
+                                            }
+                                        },
+                                    contentPadding = PaddingValues(horizontal = 16.dp)
+                                ) {
+                                    Icon(Icons.Default.Info, contentDescription = null, modifier = Modifier.size(20.dp), tint = theme.colors.buttons.secondaryText)
+                                    Spacer(Modifier.width(8.dp))
+                                    Text("More Info", fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                                }
                             }
                         }
                     }
@@ -2321,7 +2500,10 @@ private fun FeaturedCarousel(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null
                         ) {
-                            Log.d(HOME_FOCUS_DEBUG_TAG, "FEATURED dot clicked index=$i currentPage=${pagerState.currentPage}")
+                            Log.d(
+                                HOME_FOCUS_DEBUG_TAG,
+                                "FEATURED dot clicked index=$i currentPage=${pagerState.currentPage}"
+                            )
                             autoScrollEnabled = false
                             scope.launch {
                                 pagerState.animateScrollToPage(i)
@@ -2368,7 +2550,11 @@ private fun SearchOverlay(
                 .height(44.dp)
                 .clip(RoundedCornerShape(44.dp))
                 .background(theme.colors.background.secondary.copy(alpha = 0.8f))
-                .border(1.dp, theme.colors.type.divider.copy(alpha = 0.3f), RoundedCornerShape(44.dp))
+                .border(
+                    1.dp,
+                    theme.colors.type.divider.copy(alpha = 0.3f),
+                    RoundedCornerShape(44.dp)
+                )
                 .clickable(!isSearching) { onSearchFocusedChange(true) },
             contentAlignment = Alignment.CenterStart,
         ) {
@@ -2467,44 +2653,42 @@ private fun TvHomeScreenContent(
     val density = LocalDensity.current
     val topPaddingPx = remember(density) { with(density) { 80.dp.roundToPx() } }
 
-    var wasCarouselFocused by remember { mutableStateOf(false) }
     val carouselFocusRequester = remember { FocusRequester() }
     val topBarFocusRequester = remember { FocusRequester() }
-    val scope = rememberCoroutineScope()
 
-    LaunchedEffect(isCarouselFocused, listHasFocus, isFeaturedActive) {
+    var tvScrollRequestId by remember { mutableStateOf(0) }
+    var tvScrollTarget by remember { mutableStateOf<TvHomeScrollTarget?>(null) }
+
+    fun requestTvHomeScroll(
+        itemIndex: Int,
+        scrollOffset: Int,
+        reason: String,
+    ) {
+        tvScrollRequestId += 1
+        tvScrollTarget = TvHomeScrollTarget(
+            requestId = tvScrollRequestId,
+            itemIndex = itemIndex,
+            scrollOffset = scrollOffset,
+            reason = reason,
+        )
+
         Log.d(
             HOME_FOCUS_DEBUG_TAG,
-            "TV focusEffect start featured=$isFeaturedActive carousel=$isCarouselFocused list=$listHasFocus was=$wasCarouselFocused index=${listState.firstVisibleItemIndex} offset=${listState.firstVisibleItemScrollOffset} topPaddingPx=$topPaddingPx"
+            "TV scroll request id=$tvScrollRequestId item=$itemIndex offset=$scrollOffset reason=$reason currentIndex=${listState.firstVisibleItemIndex} currentOffset=${listState.firstVisibleItemScrollOffset}"
         )
-        if (!isFeaturedActive) {
-            Log.d(HOME_FOCUS_DEBUG_TAG, "TV focusEffect exit: featured inactive")
-            return@LaunchedEffect
-        }
-        if (isCarouselFocused) {
-            Log.d(HOME_FOCUS_DEBUG_TAG, "TV focusEffect branch: carousel focused -> animate item 0")
-            listState.animateScrollToItem(0, 0)
-            wasCarouselFocused = true
-            Log.d(HOME_FOCUS_DEBUG_TAG, "TV focusEffect branch done: wasCarouselFocused=true")
-        } else if (listHasFocus && wasCarouselFocused) {
-            Log.d(
-                HOME_FOCUS_DEBUG_TAG,
-                "TV focusEffect branch: carousel lost while list has focus and wasCarouselFocused=true -> maybe scroll down"
-            )
-            if (listState.firstVisibleItemIndex == 0) {
-                Log.d(HOME_FOCUS_DEBUG_TAG, "TV focusEffect action: animate item 1 offset=${-topPaddingPx}")
-                listState.animateScrollToItem(1, -topPaddingPx)
-            } else {
-                Log.d(HOME_FOCUS_DEBUG_TAG, "TV focusEffect skip scroll: already index=${listState.firstVisibleItemIndex}")
-            }
-            wasCarouselFocused = false
-            Log.d(HOME_FOCUS_DEBUG_TAG, "TV focusEffect branch done: wasCarouselFocused=false")
-        } else if (!listHasFocus) {
-            Log.d(HOME_FOCUS_DEBUG_TAG, "TV focusEffect branch: list lost focus -> wasCarouselFocused=false")
-            wasCarouselFocused = false
-        } else {
-            Log.d(HOME_FOCUS_DEBUG_TAG, "TV focusEffect branch: no-op")
-        }
+    }
+
+    LaunchedEffect(tvScrollTarget) {
+        val target = tvScrollTarget ?: return@LaunchedEffect
+        Log.d(
+            HOME_FOCUS_DEBUG_TAG,
+            "TV scroll start id=${target.requestId} item=${target.itemIndex} offset=${target.scrollOffset} reason=${target.reason}"
+        )
+        listState.animateScrollToItem(target.itemIndex, target.scrollOffset)
+        Log.d(
+            HOME_FOCUS_DEBUG_TAG,
+            "TV scroll done id=${target.requestId} item=${target.itemIndex} offset=${target.scrollOffset} reason=${target.reason} finalIndex=${listState.firstVisibleItemIndex} finalOffset=${listState.firstVisibleItemScrollOffset}"
+        )
     }
 
     Box(Modifier.fillMaxSize()) {
@@ -2519,7 +2703,7 @@ private fun TvHomeScreenContent(
                     .onFocusChanged {
                         Log.d(
                             HOME_FOCUS_DEBUG_TAG,
-                            "TV LazyColumn focus hasFocus=${it.hasFocus} isFocused=${it.isFocused} before listHasFocus=$listHasFocus carousel=$isCarouselFocused was=$wasCarouselFocused index=${listState.firstVisibleItemIndex} offset=${listState.firstVisibleItemScrollOffset}"
+                            "TV LazyColumn focus hasFocus=${it.hasFocus} isFocused=${it.isFocused} before listHasFocus=$listHasFocus carousel=$isCarouselFocused index=${listState.firstVisibleItemIndex} offset=${listState.firstVisibleItemScrollOffset}"
                         )
                         listHasFocus = it.hasFocus
                     },
@@ -2538,18 +2722,19 @@ private fun TvHomeScreenContent(
                                 .onFocusChanged {
                                     Log.d(
                                         HOME_FOCUS_DEBUG_TAG,
-                                        "TV FeaturedCarousel wrapper focus hasFocus=${it.hasFocus} isFocused=${it.isFocused} before carousel=$isCarouselFocused list=$listHasFocus was=$wasCarouselFocused index=${listState.firstVisibleItemIndex} offset=${listState.firstVisibleItemScrollOffset}"
+                                        "TV FeaturedCarousel wrapper focus hasFocus=${it.hasFocus} isFocused=${it.isFocused} before carousel=$isCarouselFocused list=$listHasFocus index=${listState.firstVisibleItemIndex} offset=${listState.firstVisibleItemScrollOffset}"
                                     )
                                     isCarouselFocused = it.hasFocus
+                                    if (it.hasFocus) {
+                                        requestTvHomeScroll(0, 0, "featured-wrapper-focus")
+                                    }
                                 },
                             onFocused = {
                                 Log.d(
                                     HOME_FOCUS_DEBUG_TAG,
-                                    "TV FeaturedCarousel onFocused callback -> animate item 0 index=${listState.firstVisibleItemIndex} offset=${listState.firstVisibleItemScrollOffset}"
+                                    "TV FeaturedCarousel onFocused callback -> request item 0 index=${listState.firstVisibleItemIndex} offset=${listState.firstVisibleItemScrollOffset}"
                                 )
-                                scope.launch {
-                                    listState.animateScrollToItem(0, 0)
-                                }
+                                requestTvHomeScroll(0, 0, "featured-button-focus")
                             }
                         )
                     }
@@ -2559,9 +2744,23 @@ private fun TvHomeScreenContent(
                     }
                 }
 
-                allSections.forEach { section ->
+                allSections.forEachIndexed { sectionIndex, section ->
+                    val sectionItemIndex = 1 + sectionIndex * 2
                     item(key = section.title) {
-                        MediaCarouselSection(section, nav, state.progressMap)
+                        MediaCarouselSection(
+                            section,
+                            nav,
+                            state.progressMap,
+                            modifier = Modifier.onFocusChanged {
+                                if (it.hasFocus) {
+                                    requestTvHomeScroll(
+                                        itemIndex = sectionItemIndex,
+                                        scrollOffset = -topPaddingPx,
+                                        reason = "section-focus:${section.title}",
+                                    )
+                                }
+                            }
+                        )
                     }
                     item { Spacer(Modifier.height(24.dp)) }
                 }
@@ -2621,7 +2820,9 @@ private fun TvTopBar(
                 AsyncImage(
                     model = com.zstream.android.R.mipmap.ic_launcher,
                     contentDescription = null,
-                    modifier = Modifier.size(32.dp).clip(CircleShape)
+                    modifier = Modifier
+                        .size(32.dp)
+                        .clip(CircleShape)
                 )
                 Text("Z-Stream", color = theme.colors.type.emphasis, fontSize = 20.sp, fontWeight = FontWeight.Bold)
             }
@@ -2634,9 +2835,19 @@ private fun TvTopBar(
                 modifier = Modifier
                     .clip(RoundedCornerShape(50))
                     .background(theme.colors.background.secondary.copy(alpha = 0.8f))
-                    .border(1.dp, theme.colors.type.divider.copy(alpha = 0.3f), RoundedCornerShape(50))
+                    .border(
+                        1.dp,
+                        theme.colors.type.divider.copy(alpha = 0.3f),
+                        RoundedCornerShape(50)
+                    )
                     .onFocusChanged { focusedMenu = it.isFocused }
-                    .then(if (LocalIsTv.current) Modifier.border(focusMenuWidth, if (focusedMenu) Color.White else Color.Transparent, RoundedCornerShape(50)) else Modifier)
+                    .then(
+                        if (LocalIsTv.current) Modifier.border(
+                            focusMenuWidth,
+                            if (focusedMenu) Color.White else Color.Transparent,
+                            RoundedCornerShape(50)
+                        ) else Modifier
+                    )
                     .clickable(onClick = onMenu)
                     .padding(horizontal = 14.dp, vertical = 10.dp)
             ) {
@@ -2667,7 +2878,13 @@ private fun TvHeaderButton(
             .background(theme.colors.background.secondary.copy(alpha = 0.8f))
             .border(1.dp, theme.colors.type.divider.copy(alpha = 0.3f), RoundedCornerShape(50))
             .onFocusChanged { focused = it.isFocused }
-            .then(Modifier.border(focusBorderWidth, if (focused) Color.White else Color.Transparent, RoundedCornerShape(50)))
+            .then(
+                Modifier.border(
+                    focusBorderWidth,
+                    if (focused) Color.White else Color.Transparent,
+                    RoundedCornerShape(50)
+                )
+            )
             .clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 10.dp),
         contentAlignment = Alignment.Center,
