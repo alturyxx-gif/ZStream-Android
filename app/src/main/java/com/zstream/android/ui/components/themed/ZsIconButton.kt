@@ -72,34 +72,38 @@ fun ZsIconButton(
         )
     }
 
-    Surface(
-        onClick = onClick,
-        enabled = enabled,
-        modifier = modifier
-            .size(containerSize)
-            .onFocusChanged { isFocused = it.isFocused }
-            .then(
-                if (isTv) Modifier.border(focusBorderWidth, if (isFocused) Color.White else Color.Transparent, shape)
-                else Modifier
-            ),
-        color = if (enabled) containerColor else containerColor.copy(alpha = 0.45f),
-        contentColor = if (enabled) contentColor else contentColor.copy(alpha = 0.65f),
+    ZsOutlinedWrapper(
+        visible = isFocused,
         shape = shape,
-        border = if (borderColor.alpha > 0f) BorderStroke(1.dp, borderColor) else null,
+        outlineColor = if (isTv) Color.White else theme.colors.global.accentA.copy(alpha = 0.6f),
+        gap = 4.dp,
+        modifier = modifier
     ) {
-        Box(contentAlignment = Alignment.Center) {
-            if (icon != null) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = contentDescription,
-                    modifier = Modifier.size(iconSize),
-                )
-            } else if (painter != null) {
-                Icon(
-                    painter = painter,
-                    contentDescription = contentDescription,
-                    modifier = Modifier.size(iconSize),
-                )
+        Surface(
+            onClick = onClick,
+            enabled = enabled,
+            modifier = Modifier
+                .size(containerSize)
+                .onFocusChanged { isFocused = it.isFocused },
+            color = if (enabled) containerColor else containerColor.copy(alpha = 0.45f),
+            contentColor = if (enabled) contentColor else contentColor.copy(alpha = 0.65f),
+            shape = shape,
+            border = if (borderColor.alpha > 0f) BorderStroke(1.dp, borderColor) else null,
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                if (icon != null) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = contentDescription,
+                        modifier = Modifier.size(iconSize),
+                    )
+                } else if (painter != null) {
+                    Icon(
+                        painter = painter,
+                        contentDescription = contentDescription,
+                        modifier = Modifier.size(iconSize),
+                    )
+                }
             }
         }
     }
