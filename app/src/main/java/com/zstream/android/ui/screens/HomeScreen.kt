@@ -1414,6 +1414,16 @@ private fun LayoutMenuDialog(
     var focusedMenu by remember { mutableStateOf(false) }
     val focusMenuWidth by animateDpAsState(if (focusedMenu) 3.dp else 0.dp)
 
+    val isTv = LocalIsTv.current
+    val closeFocusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) {
+        if (isTv) {
+            try {
+                closeFocusRequester.requestFocus()
+            } catch (_: Exception) {}
+        }
+    }
+
     data class LayoutItem(val id: String, val label: String, val visible: Boolean)
 
     val sections = remember {
@@ -1459,92 +1469,119 @@ private fun LayoutMenuDialog(
                         variant = ZsIconButtonVariant.Ghost,
                         containerSize = 24.dp,
                         iconSize = 16.dp,
+                        modifier = Modifier.focusRequester(closeFocusRequester)
                     )
                 }
 
                 sections.forEachIndexed { index, section ->
                     val isDragging = draggedIndex == index
+                    var isRowFocused by remember { mutableStateOf(false) }
 
-                    Box(
-                        modifier = Modifier
-                            .onGloballyPositioned { itemHeights[index] = it.size.height }
-                            .offset {
-                                IntOffset(
-                                    0,
-                                    if (isDragging) draggedOffset.roundToInt() else 0
+                    ZsOutlinedWrapper(
+                        visible = isRowFocused && LocalIsTv.current,
+                        shape = RoundedCornerShape(12.dp),
+                        outlineColor = theme.colors.global.accentA.copy(alpha = 0.6f),
+                        gap = 2.dp
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .onGloballyPositioned { itemHeights[index] = it.size.height }
+                                .offset {
+                                    IntOffset(
+                                        0,
+                                        if (isDragging) draggedOffset.roundToInt() else 0
+                                    )
+                                }
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(if (isRowFocused && LocalIsTv.current) theme.colors.background.secondary.copy(alpha = 0.4f) else Color.Transparent)
+                                .onFocusChanged { isRowFocused = it.isFocused }
+                                .then(
+                                    if (LocalIsTv.current) {
+                                        Modifier.clickable {
+                                            val nextVal = !section.visible
+                                            sections[index] = section.copy(visible = nextVal)
+                                            onToggle(section.id, nextVal)
+                                        }
+                                    } else Modifier
+                                )
+                                .padding(horizontal = 8.dp, vertical = 6.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(
+                                    Icons.Default.DragHandle, "Drag to reorder",
+                                    tint = theme.colors.type.dimmed,
+                                    modifier = Modifier
+                                        .size(24.dp)
+                                        .then(
+                                            if (!LocalIsTv.current) {
+                                                Modifier.pointerInput(Unit) {
+                                                    detectDragGesturesAfterLongPress(
+                                                        onDragStart = {
+                                                            draggedIndex = index
+                                                            draggedOffset = 0f
+                                                        },
+                                                        onDrag = { change, dragAmount ->
+                                                            change.consume()
+                                                            val idx = draggedIndex
+                                                            if (idx != null) {
+                                                                draggedOffset += dragAmount.y
+                                                                val h = (itemHeights[idx] ?: 0).toFloat()
+
+                                                                if (draggedOffset > h / 2 && idx < sections.size - 1) {
+                                                                    val temp = sections[idx]
+                                                                    sections[idx] = sections[idx + 1]
+                                                                    sections[idx + 1] = temp
+                                                                    draggedIndex = idx + 1
+                                                                    draggedOffset -= h
+                                                                } else if (draggedOffset < -(h / 2) && idx > 0) {
+                                                                    val temp = sections[idx]
+                                                                    sections[idx] = sections[idx - 1]
+                                                                    sections[idx - 1] = temp
+                                                                    draggedIndex = idx - 1
+                                                                    draggedOffset += h
+                                                                }
+                                                            }
+                                                        },
+                                                        onDragEnd = {
+                                                            onReorder(sections.map { it.id })
+                                                            draggedIndex = null
+                                                            draggedOffset = 0f
+                                                        },
+                                                        onDragCancel = {
+                                                            draggedIndex = null
+                                                            draggedOffset = 0f
+                                                        },
+                                                    )
+                                                }
+                                            } else Modifier
+                                        ),
+                                )
+                                Text(
+                                    section.label,
+                                    color = theme.colors.type.text, fontSize = 13.sp,
+                                    fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f),
+                                )
+                                Switch(
+                                    checked = section.visible,
+                                    onCheckedChange = if (LocalIsTv.current) null else {
+                                        {
+                                            sections[index] = section.copy(visible = it)
+                                            onToggle(section.id, it)
+                                        }
+                                    },
+                                    colors = SwitchDefaults.colors(
+                                        checkedThumbColor = theme.colors.type.emphasis,
+                                        checkedTrackColor = theme.colors.global.accentA,
+                                        uncheckedThumbColor = theme.colors.type.dimmed,
+                                        uncheckedTrackColor = theme.colors.background.secondary,
+                                    ),
                                 )
                             }
-                    ) {
-                        Row(
-                            Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp),
-                            Arrangement.spacedBy(8.dp),
-                            Alignment.CenterVertically,
-                        ) {
-                            Icon(
-                                Icons.Default.DragHandle, "Drag to reorder",
-                                tint = theme.colors.type.dimmed,
-                                modifier = Modifier
-                                    .size(24.dp)
-                                    .pointerInput(Unit) {
-                                        detectDragGesturesAfterLongPress(
-                                            onDragStart = {
-                                                draggedIndex = index
-                                                draggedOffset = 0f
-                                            },
-                                            onDrag = { change, dragAmount ->
-                                                change.consume()
-                                                val idx = draggedIndex
-                                                if (idx != null) {
-                                                    draggedOffset += dragAmount.y
-                                                    val h = (itemHeights[idx] ?: 0).toFloat()
-
-                                                    if (draggedOffset > h / 2 && idx < sections.size - 1) {
-                                                        val temp = sections[idx]
-                                                        sections[idx] = sections[idx + 1]
-                                                        sections[idx + 1] = temp
-                                                        draggedIndex = idx + 1
-                                                        draggedOffset -= h
-                                                    } else if (draggedOffset < -(h / 2) && idx > 0) {
-                                                        val temp = sections[idx]
-                                                        sections[idx] = sections[idx - 1]
-                                                        sections[idx - 1] = temp
-                                                        draggedIndex = idx - 1
-                                                        draggedOffset += h
-                                                    }
-                                                }
-                                            },
-                                            onDragEnd = {
-                                                onReorder(sections.map { it.id })
-                                                draggedIndex = null
-                                                draggedOffset = 0f
-                                            },
-                                            onDragCancel = {
-                                                draggedIndex = null
-                                                draggedOffset = 0f
-                                            },
-                                        )
-                                    },
-                            )
-                            Text(
-                                section.label,
-                                color = theme.colors.type.text, fontSize = 13.sp,
-                                fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f),
-                            )
-                            Switch(
-                                checked = section.visible,
-                                onCheckedChange = {
-                                    sections[index] = section.copy(visible = it)
-                                    onToggle(section.id, it)
-                                },
-                                colors = SwitchDefaults.colors(
-                                    checkedThumbColor = theme.colors.type.emphasis,
-                                    checkedTrackColor = theme.colors.global.accentA,
-                                    uncheckedThumbColor = theme.colors.type.dimmed,
-                                    uncheckedTrackColor = theme.colors.background.secondary,
-                                ),
-                            )
                         }
                     }
                 }
@@ -1570,6 +1607,16 @@ private fun SandwichMenuDialog(
     val focusMenuWidth by animateDpAsState(if (focusedMenu) 3.dp else 0.dp)
     val uriHandler = LocalUriHandler.current
 
+    val isTv = LocalIsTv.current
+    val firstItemFocusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) {
+        if (isTv) {
+            try {
+                firstItemFocusRequester.requestFocus()
+            } catch (_: Exception) {}
+        }
+    }
+
     Dialog(onDismissRequest = onDismiss) {
         Box(Modifier
             .width(384.dp)
@@ -1591,13 +1638,18 @@ private fun SandwichMenuDialog(
                         Text("Synced: $displayName", color = theme.colors.type.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                     }
                 } else {
-                    SandwichItem(Icons.Default.Star, "Sync to Cloud", theme = theme, tint = theme.colors.global.accentA) {
+                    SandwichItem(
+                        Icons.Default.Star, "Sync to Cloud", theme = theme, tint = theme.colors.global.accentA,
+                        modifier = Modifier.focusRequester(firstItemFocusRequester)
+                    ) {
                         nav.navigate("login")
                         onDismiss()
                     }
                 }
                 HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp), color = theme.colors.type.divider.copy(alpha = 0.15f))
-                SandwichItem(Icons.Default.Settings, "Settings", theme = theme) { nav.navigate("settings"); onDismiss() }
+                
+                val settingsModifier = if (session != null) Modifier.focusRequester(firstItemFocusRequester) else Modifier
+                SandwichItem(Icons.Default.Settings, "Settings", theme = theme, modifier = settingsModifier) { nav.navigate("settings"); onDismiss() }
                 SandwichItem(Icons.Default.History, "Watch History", theme = theme) { nav.navigate("watchHistory"); onDismiss() }
                 if (showHeaderActions) {
                     SandwichItem(ImageVector.vectorResource(R.drawable.ic_discord), "Discord", theme = theme) { onDiscord(); onDismiss() }
@@ -1622,27 +1674,36 @@ private fun SandwichMenuDialog(
                     horizontalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     links.forEach { (icon, url) ->
-                        Box(
-                            modifier = Modifier
-                                .size(40.dp)
-                                .clip(CircleShape)
-                                .background(theme.colors.background.secondary)
-                                .border(
-                                    1.dp,
-                                    theme.colors.type.divider.copy(alpha = 0.3f),
-                                    CircleShape
-                                )
-                                .clickable {
-                                    uriHandler.openUri(url)
-                                },
-                            contentAlignment = Alignment.Center
+                        var isLinkFocused by remember { mutableStateOf(false) }
+                        ZsOutlinedWrapper(
+                            visible = isLinkFocused && LocalIsTv.current,
+                            shape = CircleShape,
+                            outlineColor = theme.colors.global.accentA.copy(alpha = 0.6f),
+                            gap = 2.dp
                         ) {
-                            Icon(
-                                imageVector = icon,
-                                contentDescription = null,
-                                tint = theme.colors.type.secondary,
-                                modifier = Modifier.size(18.dp)
-                            )
+                            Box(
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(CircleShape)
+                                    .background(theme.colors.background.secondary)
+                                    .border(
+                                        1.dp,
+                                        theme.colors.type.divider.copy(alpha = 0.3f),
+                                        CircleShape
+                                    )
+                                    .onFocusChanged { isLinkFocused = it.isFocused }
+                                    .clickable {
+                                        uriHandler.openUri(url)
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = icon,
+                                    contentDescription = null,
+                                    tint = theme.colors.type.secondary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
                         }
                     }
                 }
@@ -1658,21 +1719,34 @@ private fun SandwichItem(
     label: String,
     tint: Color? = null,
     theme: com.zstream.android.theme.ZStreamTheme,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 8.dp, vertical = 2.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    var isFocused by remember { mutableStateOf(false) }
+    val isTv = LocalIsTv.current
+
+    ZsOutlinedWrapper(
+        visible = isFocused && isTv,
+        shape = RoundedCornerShape(8.dp),
+        outlineColor = theme.colors.global.accentA.copy(alpha = 0.6f),
+        gap = 2.dp,
+        modifier = modifier
     ) {
-        Icon(icon, null, tint = tint ?: theme.colors.type.secondary, modifier = Modifier.size(18.dp))
-        Text(label, color = tint ?: theme.colors.type.text, fontSize = 14.sp,
-            fontWeight = if (tint != null) FontWeight.SemiBold else FontWeight.Normal)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 2.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .onFocusChanged { isFocused = it.isFocused }
+                .clickable(onClick = onClick)
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Icon(icon, null, tint = tint ?: theme.colors.type.secondary, modifier = Modifier.size(18.dp))
+            Text(label, color = tint ?: theme.colors.type.text, fontSize = 14.sp,
+                fontWeight = if (tint != null) FontWeight.SemiBold else FontWeight.Normal)
+        }
     }
 }
 
@@ -1688,6 +1762,16 @@ private fun NotificationsDialog(
     var focusedMenu by remember { mutableStateOf(false) }
     val focusMenuWidth by animateDpAsState(if (focusedMenu) 3.dp else 0.dp)
     var selectedNotif by remember { mutableStateOf<NotificationItem?>(null) }
+
+    val isTv = LocalIsTv.current
+    val closeFocusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) {
+        if (isTv) {
+            try {
+                closeFocusRequester.requestFocus()
+            } catch (_: Exception) {}
+        }
+    }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -1725,17 +1809,26 @@ private fun NotificationsDialog(
                             modifier = Modifier.weight(1f),
                         )
                         if (notifications.any { it.guid !in readGuids }) {
-                            Box(
-                                modifier = Modifier
-                                    .clickable(onClick = onMarkAllRead)
-                                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                            var isMarkAllFocused by remember { mutableStateOf(false) }
+                            ZsOutlinedWrapper(
+                                visible = isMarkAllFocused && LocalIsTv.current,
+                                shape = RoundedCornerShape(4.dp),
+                                outlineColor = theme.colors.global.accentA.copy(alpha = 0.6f),
+                                gap = 2.dp
                             ) {
-                                Text(
-                                    "Mark all read",
-                                    color = theme.colors.global.accentA,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                )
+                                Box(
+                                    modifier = Modifier
+                                        .onFocusChanged { isMarkAllFocused = it.isFocused }
+                                        .clickable(onClick = onMarkAllRead)
+                                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                                ) {
+                                    Text(
+                                        "Mark all read",
+                                        color = theme.colors.global.accentA,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                    )
+                                }
                             }
                         }
                         ZsIconButton(
@@ -1745,6 +1838,7 @@ private fun NotificationsDialog(
                             variant = ZsIconButtonVariant.Overlay,
                             containerSize = 32.dp,
                             iconSize = 16.dp,
+                            modifier = Modifier.focusRequester(closeFocusRequester)
                         )
                     }
                     Spacer(Modifier.height(16.dp))
@@ -1786,59 +1880,70 @@ private fun NotificationCard(
     isRead: Boolean,
     onClick: () -> Unit,
     theme: com.zstream.android.theme.ZStreamTheme,
+    modifier: Modifier = Modifier,
 ) {
     val categoryColor = notificationCategoryColor(theme, notif.category)
+    var isFocused by remember { mutableStateOf(false) }
 
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(theme.colors.background.secondary.copy(alpha = 0.4f))
-            .border(1.dp, theme.colors.type.divider.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
-            .clickable(onClick = onClick)
-            .padding(12.dp),
+    ZsOutlinedWrapper(
+        visible = isFocused && LocalIsTv.current,
+        shape = RoundedCornerShape(12.dp),
+        outlineColor = theme.colors.global.accentA.copy(alpha = 0.6f),
+        gap = 2.dp,
+        modifier = modifier
     ) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            if (!isRead) {
-                Box(Modifier
-                    .size(8.dp)
-                    .clip(CircleShape)
-                    .background(categoryColor))
-                Spacer(Modifier.width(6.dp))
-            }
-            if (notif.category.isNotEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(categoryColor.copy(alpha = 0.2f))
-                        .padding(horizontal = 6.dp, vertical = 2.dp),
-                ) {
-                    Text(
-                        notif.category.replaceFirstChar { it.uppercase() },
-                        color = categoryColor, fontSize = 10.sp, fontWeight = FontWeight.SemiBold,
-                    )
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(theme.colors.background.secondary.copy(alpha = 0.4f))
+                .border(1.dp, theme.colors.type.divider.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
+                .onFocusChanged { isFocused = it.isFocused }
+                .clickable(onClick = onClick)
+                .padding(12.dp),
+        ) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                if (!isRead) {
+                    Box(Modifier
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(categoryColor))
+                    Spacer(Modifier.width(6.dp))
+                }
+                if (notif.category.isNotEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(categoryColor.copy(alpha = 0.2f))
+                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                    ) {
+                        Text(
+                            notif.category.replaceFirstChar { it.uppercase() },
+                            color = categoryColor, fontSize = 10.sp, fontWeight = FontWeight.SemiBold,
+                        )
+                    }
                 }
             }
-        }
-        Spacer(Modifier.height(6.dp))
-        Text(
-            notif.title,
-            color = if (isRead) theme.colors.type.dimmed else theme.colors.type.emphasis,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.Bold,
-        )
-        if (notif.description.isNotEmpty()) {
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(6.dp))
             Text(
-                notif.description, color = theme.colors.type.text, fontSize = 12.sp,
-                maxLines = 2, overflow = TextOverflow.Ellipsis,
+                notif.title,
+                color = if (isRead) theme.colors.type.dimmed else theme.colors.type.emphasis,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+            )
+            if (notif.description.isNotEmpty()) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    notif.description, color = theme.colors.type.text, fontSize = 12.sp,
+                    maxLines = 2, overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                formatDate(notif.pubDate),
+                color = theme.colors.type.dimmed, fontSize = 10.sp,
             )
         }
-        Spacer(Modifier.height(8.dp))
-        Text(
-            formatDate(notif.pubDate),
-            color = theme.colors.type.dimmed, fontSize = 10.sp,
-        )
     }
 }
 
@@ -1854,6 +1959,16 @@ private fun NotificationDetailView(
     val categoryColor = notificationCategoryColor(theme, notif.category)
     val uriHandler = LocalUriHandler.current
 
+    val isTv = LocalIsTv.current
+    val backFocusRequester = remember { FocusRequester() }
+    LaunchedEffect(notif) {
+        if (isTv) {
+            try {
+                backFocusRequester.requestFocus()
+            } catch (_: Exception) {}
+        }
+    }
+
     Column(modifier = Modifier.padding(20.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             ZsIconButton(
@@ -1863,6 +1978,7 @@ private fun NotificationDetailView(
                 variant = ZsIconButtonVariant.Overlay,
                 containerSize = 32.dp,
                 iconSize = 16.dp,
+                modifier = Modifier.focusRequester(backFocusRequester)
             )
             Spacer(Modifier.width(8.dp))
             Text("Notification", color = theme.colors.type.emphasis, fontWeight = FontWeight.Bold, fontSize = 15.sp, modifier = Modifier.weight(1f))
@@ -1910,45 +2026,63 @@ private fun NotificationDetailView(
             Spacer(Modifier.height(4.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
                 if (!isRead) {
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(theme.colors.background.secondary.copy(alpha = 0.65f))
-                            .border(
-                                1.dp,
-                                theme.colors.type.divider.copy(alpha = 0.3f),
-                                RoundedCornerShape(10.dp)
-                            )
-                            .clickable(onClick = onMarkRead)
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                    var isMarkReadFocused by remember { mutableStateOf(false) }
+                    ZsOutlinedWrapper(
+                        visible = isMarkReadFocused && LocalIsTv.current,
+                        shape = RoundedCornerShape(10.dp),
+                        outlineColor = theme.colors.global.accentA.copy(alpha = 0.6f),
+                        gap = 2.dp
                     ) {
-                        Text(
-                            "Mark as read",
-                            color = theme.colors.type.secondary,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold,
-                        )
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(theme.colors.background.secondary.copy(alpha = 0.65f))
+                                .border(
+                                    1.dp,
+                                    theme.colors.type.divider.copy(alpha = 0.3f),
+                                    RoundedCornerShape(10.dp)
+                                )
+                                .onFocusChanged { isMarkReadFocused = it.isFocused }
+                                .clickable(onClick = onMarkRead)
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                        ) {
+                            Text(
+                                "Mark as read",
+                                color = theme.colors.type.secondary,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
                     }
                 }
                 if (notif.link.isNotBlank()) {
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(theme.colors.background.secondary.copy(alpha = 0.8f))
-                            .border(
-                                1.dp,
-                                theme.colors.type.divider.copy(alpha = 0.3f),
-                                RoundedCornerShape(10.dp)
-                            )
-                            .clickable { uriHandler.openUri(notif.link) }
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                    var isOpenLinkFocused by remember { mutableStateOf(false) }
+                    ZsOutlinedWrapper(
+                        visible = isOpenLinkFocused && LocalIsTv.current,
+                        shape = RoundedCornerShape(10.dp),
+                        outlineColor = theme.colors.global.accentA.copy(alpha = 0.6f),
+                        gap = 2.dp
                     ) {
-                        Text(
-                            "Open link",
-                            color = theme.colors.global.accentA,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold,
-                        )
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(theme.colors.background.secondary.copy(alpha = 0.8f))
+                                .border(
+                                    1.dp,
+                                    theme.colors.type.divider.copy(alpha = 0.3f),
+                                    RoundedCornerShape(10.dp)
+                                )
+                                .onFocusChanged { isOpenLinkFocused = it.isFocused }
+                                .clickable { uriHandler.openUri(notif.link) }
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                        ) {
+                            Text(
+                                "Open link",
+                                color = theme.colors.global.accentA,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
                     }
                 }
             }
@@ -1967,6 +2101,16 @@ private fun TipJarDialog(onDismiss: () -> Unit) {
     var focusedMenu by remember { mutableStateOf(false) }
     val focusMenuWidth by animateDpAsState(if (focusedMenu) 3.dp else 0.dp)
     val clipboard = LocalClipboardManager.current
+
+    val isTv = LocalIsTv.current
+    val closeFocusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) {
+        if (isTv) {
+            try {
+                closeFocusRequester.requestFocus()
+            } catch (_: Exception) {}
+        }
+    }
 
     data class CryptoAddress(val symbol: String, val name: String, val address: String, val color: Color)
 
@@ -1996,6 +2140,7 @@ private fun TipJarDialog(onDismiss: () -> Unit) {
                         variant = ZsIconButtonVariant.Ghost,
                         containerSize = 24.dp,
                         iconSize = 16.dp,
+                        modifier = Modifier.focusRequester(closeFocusRequester)
                     )
                 }
                 Spacer(Modifier.height(12.dp))
@@ -2006,39 +2151,48 @@ private fun TipJarDialog(onDismiss: () -> Unit) {
                 Spacer(Modifier.height(16.dp))
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     addresses.forEach { crypto ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(theme.colors.background.secondary.copy(alpha = 0.5f))
-                                .border(
-                                    1.dp,
-                                    theme.colors.type.divider.copy(alpha = 0.3f),
-                                    RoundedCornerShape(12.dp)
-                                )
-                                .clickable { clipboard.setText(AnnotatedString(crypto.address)) }
-                                .padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        var isAddressFocused by remember { mutableStateOf(false) }
+                        ZsOutlinedWrapper(
+                            visible = isAddressFocused && LocalIsTv.current,
+                            shape = RoundedCornerShape(12.dp),
+                            outlineColor = theme.colors.global.accentA.copy(alpha = 0.6f),
+                            gap = 2.dp
                         ) {
-                            Box(
+                            Row(
                                 modifier = Modifier
-                                    .size(36.dp)
-                                    .clip(CircleShape)
-                                    .background(crypto.color.copy(alpha = 0.2f)),
-                                contentAlignment = Alignment.Center,
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(theme.colors.background.secondary.copy(alpha = 0.5f))
+                                    .border(
+                                        1.dp,
+                                        theme.colors.type.divider.copy(alpha = 0.3f),
+                                        RoundedCornerShape(12.dp)
+                                    )
+                                    .onFocusChanged { isAddressFocused = it.isFocused }
+                                    .clickable { clipboard.setText(AnnotatedString(crypto.address)) }
+                                    .padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
                             ) {
-                                Text(crypto.symbol, color = crypto.color, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(CircleShape)
+                                        .background(crypto.color.copy(alpha = 0.2f)),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Text(crypto.symbol, color = crypto.color, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                }
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(crypto.name, color = theme.colors.type.emphasis, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                    Text(
+                                        crypto.address,
+                                        color = theme.colors.type.dimmed, fontSize = 10.sp,
+                                        maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                                Text("Copy", color = theme.colors.global.accentA, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                             }
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(crypto.name, color = theme.colors.type.emphasis, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                                Text(
-                                    crypto.address,
-                                    color = theme.colors.type.dimmed, fontSize = 10.sp,
-                                    maxLines = 1, overflow = TextOverflow.Ellipsis,
-                                )
-                            }
-                            Text("Copy", color = theme.colors.global.accentA, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                         }
                     }
                 }
