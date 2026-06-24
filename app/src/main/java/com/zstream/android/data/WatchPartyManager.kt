@@ -51,6 +51,9 @@ class WatchPartyManager @Inject constructor(
     private val _actions = MutableSharedFlow<WatchPartyAction>(replay = 0)
     val actions: SharedFlow<WatchPartyAction> = _actions.asSharedFlow()
 
+    private val _contentMismatch = MutableStateFlow(false)
+    val contentMismatch: StateFlow<Boolean> = _contentMismatch.asStateFlow()
+
     // Local Player Data
     private var lastLocalState: WatchPartyPlayerDto? = null
     private var lastLocalContent: WatchPartyContentDto? = null
