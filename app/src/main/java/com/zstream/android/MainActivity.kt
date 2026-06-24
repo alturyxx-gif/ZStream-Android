@@ -1,5 +1,7 @@
 package com.zstream.android
 
+import android.app.UiModeManager
+import android.content.res.Configuration
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -23,7 +25,9 @@ import androidx.lifecycle.viewModelScope
 import androidx.compose.runtime.getValue
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.zstream.android.ui.screens.LocalMediaCard
+import com.zstream.android.ui.LocalIsTv
 import dagger.hilt.android.lifecycle.HiltViewModel
+
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     @Inject lateinit var providerEngine: ProviderEngine
@@ -34,11 +38,17 @@ class MainActivity : ComponentActivity() {
         window.statusBarColor = android.graphics.Color.BLACK
         providerEngine.init(this)
 
+        val uiModeManager = getSystemService(UI_MODE_SERVICE) as UiModeManager
+        val isTv = uiModeManager.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
+
         setContent {
             val chromeVm: AppChromeViewModel = hiltViewModel()
             val useMinimalCards by chromeVm.useMinimalCards.collectAsStateWithLifecycle()
             val mediaCard = if (useMinimalCards) ::MediaCardMinimal else ::MediaCardStandard
-            CompositionLocalProvider(LocalMediaCard provides mediaCard) {
+            CompositionLocalProvider(
+                LocalMediaCard provides mediaCard,
+                LocalIsTv provides isTv
+            ) {
                 ZStreamTheme {
                     NavGraph()
                 }

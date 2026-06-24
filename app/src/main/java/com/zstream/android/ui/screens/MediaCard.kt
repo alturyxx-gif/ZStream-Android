@@ -1,35 +1,43 @@
 package com.zstream.android.ui.screens
 
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.zstream.android.data.model.Media
 import com.zstream.android.theme.LocalZStreamTheme
-import androidx.compose.runtime.compositionLocalOf
+import com.zstream.android.ui.LocalIsTv
+import com.zstream.android.ui.components.themed.ZsOutlinedWrapper
 
 typealias MediaCardComponent = @Composable (
     media: Media,
     onClick: () -> Unit,
-percentage: Float?,
-seriesLabel: String?
+    percentage: Float?,
+    seriesLabel: String?
 ) -> Unit
 
 val LocalMediaCard = compositionLocalOf<MediaCardComponent> {
@@ -45,6 +53,7 @@ fun MediaCard(
 ) {
     LocalMediaCard.current(media, onClick, percentage, seriesLabel)
 }
+
 @Composable
 fun MediaCardStandard(
     media: Media,
@@ -54,135 +63,164 @@ fun MediaCardStandard(
 ) {
     val theme = LocalZStreamTheme.current
     val posterUrl = media.posterUrl("w342")
+    val isTv = LocalIsTv.current
+    var isFocused by remember { mutableStateOf(false) }
+    val cardWidth: Dp = if (isTv) 180.dp else 110.dp
+    val cardHeight: Dp = if (isTv) 270.dp else 165.dp
 
-    Column(
-        modifier = Modifier
-            .width(110.dp)
-            .clickable(onClick = onClick)
+    ZsOutlinedWrapper(
+        visible = isFocused && isTv,
+        shape = RoundedCornerShape(10.dp),
+        outlineColor = Color.White,
+        gap = 4.dp
     ) {
-        Box(
+        Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .height(165.dp)
-                .clip(RoundedCornerShape(10.dp))
-                .background(theme.colors.background.secondary),
+                .width(cardWidth)
+                .onFocusChanged { isFocused = it.isFocused }
+                .graphicsLayer {
+                    shadowElevation = if (isFocused && isTv) 12.dp.toPx() else 0f
+                    clip = false
+                }
+                .clickable(onClick = onClick)
         ) {
-            if (posterUrl != null) {
-                AsyncImage(
-                    model = posterUrl,
-                    contentDescription = media.displayTitle,
-                    contentScale = ContentScale.Crop,
-                    onError = { state ->
-                        android.util.Log.e("MediaCard", "Failed to load image for ${media.displayTitle} (${media.id}): $posterUrl", state.result.throwable)
-                    },
-                    modifier = Modifier.fillMaxSize()
-                )
-            } else {
-                Icon(
-                    imageVector = if (media.type == "tv") Icons.Filled.Tv else Icons.Filled.Movie,
-                    contentDescription = null,
-                    tint = theme.colors.type.dimmed.copy(alpha = 0.5f),
-                    modifier = Modifier.size(40.dp).align(Alignment.Center)
-                )
-            }
-
-            // Gradient overlay at bottom (matching p-stream's from-mediaCard-shadow)
-            if (percentage != null) {
-                Box(
-                    modifier = Modifier
-                        .matchParentSize()
-                        .background(
-                            Brush.verticalGradient(
-                                colors = listOf(
-                                    Color.Transparent,
-                                    theme.colors.mediaCard.hoverShadow.copy(alpha = 0.5f),
-                                )
-                            )
-                        )
-                )
-            }
-
-            // SE badge (top-right)
-            if (seriesLabel != null) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(6.dp)
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(theme.colors.mediaCard.badge)
-                        .padding(horizontal = 6.dp, vertical = 0.dp),
-                ) {
-                    Text(
-                        text = seriesLabel,
-                        color = theme.colors.mediaCard.badgeText,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(cardHeight)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(theme.colors.background.secondary),
+            ) {
+                if (posterUrl != null) {
+                    AsyncImage(
+                        model = posterUrl,
+                        contentDescription = media.displayTitle,
+                        contentScale = ContentScale.Crop,
+                        onError = { state ->
+                            android.util.Log.e("MediaCard", "Failed to load image for ${media.displayTitle} (${media.id}): $posterUrl", state.result.throwable)
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    Icon(
+                        imageVector = if (media.type == "tv") Icons.Filled.Tv else Icons.Filled.Movie,
+                        contentDescription = null,
+                        tint = theme.colors.type.dimmed.copy(alpha = 0.5f),
+                        modifier = Modifier.size(if (isTv) 60.dp else 40.dp).align(Alignment.Center)
                     )
                 }
-            }
 
-            // Progress bar at bottom
-            if (percentage != null) {
-                Column(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .fillMaxWidth()
-                        .padding(10.dp),
-                ) {
+                if (percentage != null) {
                     Box(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .height(3.dp) // Thickness of the progress bar
-                            .clip(RoundedCornerShape(2.dp))
-                            .background(theme.colors.progress.background)
+                            .matchParentSize()
+                            .background(
+                                Brush.verticalGradient(
+                                    colors = listOf(
+                                        Color.Transparent,
+                                        theme.colors.mediaCard.hoverShadow.copy(alpha = 0.5f),
+                                    )
+                                )
+                            )
+                    )
+                }
+
+                if (seriesLabel != null) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(if (isTv) 8.dp else 6.dp)
+                            .clip(RoundedCornerShape(if (isTv) 6.dp else 4.dp))
+                            .background(theme.colors.mediaCard.badge)
+                            .padding(horizontal = if (isTv) 8.dp else 6.dp, vertical = if (isTv) 4.dp else 0.dp),
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxHeight()
-                                .fillMaxWidth(percentage / 100f)
-                                .background(theme.colors.progress.filled, RoundedCornerShape(1.dp))
+                        Text(
+                            text = seriesLabel,
+                            color = theme.colors.mediaCard.badgeText,
+                            fontSize = if (isTv) 12.sp else 10.sp,
+                            fontWeight = FontWeight.Bold,
                         )
                     }
                 }
+
+                if (percentage != null) {
+                    Column(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth()
+                            .padding(if (isTv) 12.dp else 10.dp),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(if (isTv) 4.dp else 3.dp)
+                                .clip(RoundedCornerShape(2.dp))
+                                .background(theme.colors.progress.background)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxHeight()
+                                    .fillMaxWidth(percentage / 100f)
+                                    .background(theme.colors.progress.filled, RoundedCornerShape(1.dp))
+                            )
+                        }
+                    }
+                }
+
+                if (isFocused && isTv) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Black.copy(alpha = 0.25f))
+                    )
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .size(48.dp)
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = 0.9f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Default.PlayArrow, "Play", tint = Color.Black, modifier = Modifier.size(28.dp))
+                    }
+                }
             }
-        }
-        Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(if (isTv) 10.dp else 6.dp))
 
-        // Title
-        Text(
-            text = media.displayTitle,
-            color = theme.colors.type.emphasis,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Bold,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-
-        // Metadata Row
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.offset(y = (-10).dp)
-        ) {
-            val typeLabel = if (media.type == "tv") "Show" else "Movie"
-            val year = (media.displayDate).take(4).takeIf { it.length == 4 } ?: ""
             Text(
-                text = typeLabel,
-                color = theme.colors.type.dimmed,
-                fontSize = 10.sp,
+                text = media.displayTitle,
+                color = theme.colors.type.emphasis,
+                fontSize = if (isTv) 15.sp else 12.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
-            if (year.isNotEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .padding(horizontal = 4.dp)
-                        .size(3.dp)
-                        .clip(RoundedCornerShape(50))
-                        .background(theme.colors.global.accentA)
-                )
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.offset(y = if (isTv) (-6).dp else (-10).dp)
+            ) {
+                val typeLabel = if (media.type == "tv") "Show" else "Movie"
+                val year = (media.displayDate).take(4).takeIf { it.length == 4 } ?: ""
                 Text(
-                    text = year,
+                    text = typeLabel,
                     color = theme.colors.type.dimmed,
-                    fontSize = 10.sp,
+                    fontSize = if (isTv) 13.sp else 10.sp,
                 )
+                if (year.isNotEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .padding(horizontal = 4.dp)
+                            .size(3.dp)
+                            .clip(RoundedCornerShape(50))
+                            .background(theme.colors.global.accentA)
+                    )
+                    Text(
+                        text = year,
+                        color = theme.colors.type.dimmed,
+                        fontSize = if (isTv) 13.sp else 10.sp,
+                    )
+                }
             }
         }
     }
@@ -197,95 +235,126 @@ fun MediaCardMinimal(
 ) {
     val theme = LocalZStreamTheme.current
     val posterUrl = media.posterUrl("w342")
+    val isTv = LocalIsTv.current
+    var isFocused by remember { mutableStateOf(false) }
+    val cardWidth: Dp = if (isTv) 180.dp else 110.dp
+    val cardHeight: Dp = if (isTv) 270.dp else 165.dp
 
-    Column(
-        modifier = Modifier
-            .width(110.dp)
-            .clickable(onClick = onClick)
+    ZsOutlinedWrapper(
+        visible = isFocused && isTv,
+        shape = RoundedCornerShape(10.dp),
+        outlineColor = Color.White,
+        gap = 4.dp
     ) {
-        Box(
+        Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .height(165.dp)
-                .clip(RoundedCornerShape(10.dp))
-                .background(theme.colors.background.secondary),
+                .width(cardWidth)
+                .onFocusChanged { isFocused = it.isFocused }
+                .graphicsLayer {
+                    shadowElevation = if (isFocused && isTv) 12.dp.toPx() else 0f
+                    clip = false
+                }
+                .clickable(onClick = onClick)
         ) {
-            if (posterUrl != null) {
-                AsyncImage(
-                    model = posterUrl,
-                    contentDescription = media.displayTitle,
-                    contentScale = ContentScale.Crop,
-                    onError = { state ->
-                        android.util.Log.e("MediaCard", "Failed to load image for ${media.displayTitle} (${media.id}): $posterUrl", state.result.throwable)
-                    },
-                    modifier = Modifier.fillMaxSize()
-                )
-            } else {
-                Icon(
-                    imageVector = if (media.type == "tv") Icons.Filled.Tv else Icons.Filled.Movie,
-                    contentDescription = null,
-                    tint = theme.colors.type.dimmed.copy(alpha = 0.5f),
-                    modifier = Modifier.size(40.dp).align(Alignment.Center)
-                )
-            }
-
-            // Gradient overlay at bottom (matching p-stream's from-mediaCard-shadow)
-            if (percentage != null) {
-                Box(
-                    modifier = Modifier
-                        .matchParentSize()
-                        .background(
-                            Brush.verticalGradient(
-                                colors = listOf(Color.Transparent, Color(0x80000000))
-                            )
-                        )
-                )
-            }
-
-            // SE badge (top-right)
-            if (seriesLabel != null) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(6.dp)
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(theme.colors.mediaCard.badge)
-                        .padding(horizontal = 6.dp, vertical = 0.dp),
-                ) {
-                    Text(
-                        text = seriesLabel,
-                        color = theme.colors.mediaCard.badgeText,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(cardHeight)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(theme.colors.background.secondary),
+            ) {
+                if (posterUrl != null) {
+                    AsyncImage(
+                        model = posterUrl,
+                        contentDescription = media.displayTitle,
+                        contentScale = ContentScale.Crop,
+                        onError = { state ->
+                            android.util.Log.e("MediaCard", "Failed to load image for ${media.displayTitle} (${media.id}): $posterUrl", state.result.throwable)
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    Icon(
+                        imageVector = if (media.type == "tv") Icons.Filled.Tv else Icons.Filled.Movie,
+                        contentDescription = null,
+                        tint = theme.colors.type.dimmed.copy(alpha = 0.5f),
+                        modifier = Modifier.size(if (isTv) 60.dp else 40.dp).align(Alignment.Center)
                     )
                 }
-            }
 
-            // Progress bar at bottom
-            if (percentage != null) {
-                Column(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .fillMaxWidth()
-                        .padding(10.dp),
-                ) {
+                if (percentage != null) {
                     Box(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .height(3.dp) // Thickness of the progress bar
-                            .clip(RoundedCornerShape(2.dp))
-                            .background(theme.colors.progress.background)
+                            .matchParentSize()
+                            .background(
+                                Brush.verticalGradient(
+                                    colors = listOf(Color.Transparent, Color(0x80000000))
+                                )
+                            )
+                    )
+                }
+
+                if (seriesLabel != null) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(if (isTv) 8.dp else 6.dp)
+                            .clip(RoundedCornerShape(if (isTv) 6.dp else 4.dp))
+                            .background(theme.colors.mediaCard.badge)
+                            .padding(horizontal = if (isTv) 8.dp else 6.dp, vertical = if (isTv) 4.dp else 0.dp),
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxHeight()
-                                .fillMaxWidth(percentage / 100f)
-                                .background(theme.colors.progress.filled, RoundedCornerShape(1.dp))
+                        Text(
+                            text = seriesLabel,
+                            color = theme.colors.mediaCard.badgeText,
+                            fontSize = if (isTv) 12.sp else 10.sp,
+                            fontWeight = FontWeight.Bold,
                         )
                     }
                 }
+
+                if (percentage != null) {
+                    Column(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth()
+                            .padding(if (isTv) 12.dp else 10.dp),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(if (isTv) 4.dp else 3.dp)
+                                .clip(RoundedCornerShape(2.dp))
+                                .background(theme.colors.progress.background)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxHeight()
+                                    .fillMaxWidth(percentage / 100f)
+                                    .background(theme.colors.progress.filled, RoundedCornerShape(1.dp))
+                            )
+                        }
+                    }
+                }
+
+                if (isFocused && isTv) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Black.copy(alpha = 0.25f))
+                    )
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .size(48.dp)
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = 0.9f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Default.PlayArrow, "Play", tint = Color.Black, modifier = Modifier.size(28.dp))
+                    }
+                }
             }
+            Spacer(Modifier.height(if (isTv) 10.dp else 6.dp))
         }
-        Spacer(Modifier.height(6.dp))
     }
 }

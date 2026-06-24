@@ -11,6 +11,7 @@ import com.zstream.android.ui.screens.*
 @Composable
 fun NavGraph() {
     val nav = rememberNavController()
+
     NavHost(nav, startDestination = "home") {
         composable("home") { HomeScreen(nav) }
         composable("search") { SearchScreen(nav) }

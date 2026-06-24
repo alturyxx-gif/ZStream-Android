@@ -1,6 +1,8 @@
 package com.zstream.android.ui.components.themed
 
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -13,12 +15,18 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.zstream.android.theme.LocalZStreamTheme
+import com.zstream.android.ui.LocalIsTv
 
 enum class ZsButtonVariant {
     Primary,
@@ -39,6 +47,10 @@ fun ZsButton(
     loading: Boolean = false,
 ) {
     val theme = LocalZStreamTheme.current
+    val isTv = LocalIsTv.current
+    var isFocused by remember { mutableStateOf(false) }
+    val focusBorderWidth by animateDpAsState(if (isFocused && isTv) 3.dp else 0.dp)
+
     val (containerColor, contentColor, borderColor) = when (variant) {
         ZsButtonVariant.Primary -> Triple(
             theme.colors.buttons.primary,
@@ -62,38 +74,46 @@ fun ZsButton(
         )
     }
 
-    Button(
-        onClick = onClick,
-        modifier = modifier,
-        enabled = enabled && !loading,
+    ZsOutlinedWrapper(
+        visible = isFocused,
         shape = RoundedCornerShape(12.dp),
-        contentPadding = contentPadding,
-        border = BorderStroke(1.dp, borderColor),
-        colors = ButtonDefaults.buttonColors(
-            containerColor = containerColor,
-            contentColor = contentColor,
-            disabledContainerColor = containerColor.copy(alpha = 0.45f),
-            disabledContentColor = contentColor.copy(alpha = 0.7f),
-        ),
+        outlineColor = if (isTv) Color.White else theme.colors.global.accentA.copy(alpha = 0.6f),
+        gap = 4.dp,
+        modifier = modifier
     ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            when {
-                loading -> {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(18.dp),
-                        color = contentColor,
-                        strokeWidth = 2.dp,
-                    )
+        Button(
+            onClick = onClick,
+            modifier = Modifier.onFocusChanged { isFocused = it.isFocused },
+            enabled = enabled && !loading,
+            shape = RoundedCornerShape(12.dp),
+            contentPadding = contentPadding,
+            border = BorderStroke(1.dp, borderColor),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = containerColor,
+                contentColor = contentColor,
+                disabledContainerColor = containerColor.copy(alpha = 0.45f),
+                disabledContentColor = contentColor.copy(alpha = 0.7f),
+            ),
+        ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                when {
+                    loading -> {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            color = contentColor,
+                            strokeWidth = 2.dp,
+                        )
+                    }
+                    leadingIcon != null -> {
+                        Icon(
+                            imageVector = leadingIcon,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
                 }
-                leadingIcon != null -> {
-                    Icon(
-                        imageVector = leadingIcon,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                    )
-                }
+                Text(text = text, fontWeight = FontWeight.SemiBold)
             }
-            Text(text = text, fontWeight = FontWeight.SemiBold)
         }
     }
 }
