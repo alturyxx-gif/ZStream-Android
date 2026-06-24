@@ -1,6 +1,8 @@
 package com.zstream.android.ui.components.themed
 
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -13,12 +15,18 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.zstream.android.theme.LocalZStreamTheme
+import com.zstream.android.ui.LocalIsTv
 
 enum class ZsButtonVariant {
     Primary,
@@ -39,6 +47,10 @@ fun ZsButton(
     loading: Boolean = false,
 ) {
     val theme = LocalZStreamTheme.current
+    val isTv = LocalIsTv.current
+    var isFocused by remember { mutableStateOf(false) }
+    val focusBorderWidth by animateDpAsState(if (isFocused && isTv) 3.dp else 0.dp)
+
     val (containerColor, contentColor, borderColor) = when (variant) {
         ZsButtonVariant.Primary -> Triple(
             theme.colors.buttons.primary,
@@ -64,7 +76,12 @@ fun ZsButton(
 
     Button(
         onClick = onClick,
-        modifier = modifier,
+        modifier = modifier
+            .onFocusChanged { isFocused = it.isFocused }
+            .then(
+                if (isTv) Modifier.border(focusBorderWidth, if (isFocused) Color.White else Color.Transparent, RoundedCornerShape(12.dp))
+                else Modifier
+            ),
         enabled = enabled && !loading,
         shape = RoundedCornerShape(12.dp),
         contentPadding = contentPadding,

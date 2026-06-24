@@ -102,6 +102,8 @@ dependencies {
     implementation(libs.bouncycastle)
     implementation(libs.datastore)
     implementation(libs.androidx.webkit)
+    implementation(libs.androidx.tv.foundation)
+    implementation(libs.androidx.tv.material)
     implementation(libs.haze)
 
     testImplementation(libs.junit)

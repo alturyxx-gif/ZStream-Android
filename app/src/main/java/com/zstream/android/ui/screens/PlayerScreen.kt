@@ -25,6 +25,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.animation.*
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
@@ -105,6 +106,10 @@ import androidx.media3.common.MediaItem.SubtitleConfiguration
 import android.net.Uri
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.vectorResource
+import androidx.compose.ui.input.key.*
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import com.zstream.android.ui.LocalIsTv
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import dagger.hilt.android.EntryPointAccessors
@@ -271,6 +276,9 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
     }
 
     val theme = LocalZStreamTheme.current
+    val isTv = LocalIsTv.current
+    val playerFocusRequester = remember { FocusRequester() }
+
     Box(Modifier.fillMaxSize().background(Color.Black)) /* Color of the video background in the player */ {
         when (val s = state) {
             is PlayerState.Idle, is PlayerState.Scraping -> {
@@ -557,38 +565,79 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                 var controlsVisible by remember { mutableStateOf(true) }
                 var audioSessionId by remember(player) { mutableIntStateOf(player.audioSessionId) }
 
-                DisposableEffect(player) {
-                    val listener = object : Player.Listener {
-                        override fun onAudioSessionIdChanged(audioSessionIdValue: Int) {
-                            audioSessionId = audioSessionIdValue
+                if (isTv) {
+                    LaunchedEffect(Unit) {
+                        playerFocusRequester.requestFocus()
+                    }
+                }
+
+                Box(modifier = Modifier
+                    .fillMaxSize()
+                    .onKeyEvent { keyEvent ->
+                        if (isTv && keyEvent.type == KeyEventType.KeyDown) {
+                            when (keyEvent.nativeKeyEvent.keyCode) {
+                                android.view.KeyEvent.KEYCODE_DPAD_CENTER,
+                                android.view.KeyEvent.KEYCODE_ENTER,
+                                android.view.KeyEvent.KEYCODE_BUTTON_A -> {
+                                    if (!controlsVisible) {
+                                        controlsVisible = true
+                                        true
+                                    } else false
+                                }
+                                android.view.KeyEvent.KEYCODE_DPAD_LEFT -> {
+                                    player.seekTo((player.currentPosition - 10_000).coerceAtLeast(0))
+                                    controlsVisible = true
+                                    true
+                                }
+                                android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                                    player.seekTo((player.currentPosition + 10_000).coerceAtMost(player.duration))
+                                    controlsVisible = true
+                                    true
+                                }
+                                android.view.KeyEvent.KEYCODE_BACK -> {
+                                    if (controlsVisible) {
+                                        controlsVisible = false
+                                        true
+                                    } else false
+                                }
+                                else -> false
+                            }
+                        } else false
+                    }
+                    .focusRequester(playerFocusRequester)
+                    .focusable()
+                ) {
+                    DisposableEffect(player) {
+                        val listener = object : Player.Listener {
+                            override fun onAudioSessionIdChanged(audioSessionIdValue: Int) {
+                                audioSessionId = audioSessionIdValue
+                            }
+                        }
+                        player.addListener(listener)
+                        onDispose { player.removeListener(listener) }
+                    }
+
+                    DisposableEffect(player, audioSessionId, settings.volumeBoost) {
+                        if (audioSessionId == androidx.media3.common.C.AUDIO_SESSION_ID_UNSET || audioSessionId == 0) {
+                            return@DisposableEffect onDispose {}
+                        }
+
+                        val enhancer = runCatching { LoudnessEnhancer(audioSessionId) }.getOrNull()
+                        if (enhancer == null) {
+                            return@DisposableEffect onDispose {}
+                        }
+
+                        val enabled = settings.volumeBoost > 100
+                        enhancer.setEnabled(enabled)
+                        if (enabled) {
+                            enhancer.setTargetGain(volumeBoostToMillibels(settings.volumeBoost))
+                        }
+
+                        onDispose {
+                            runCatching { enhancer.release() }
                         }
                     }
-                    player.addListener(listener)
-                    onDispose { player.removeListener(listener) }
-                }
 
-                DisposableEffect(player, audioSessionId, settings.volumeBoost) {
-                    if (audioSessionId == androidx.media3.common.C.AUDIO_SESSION_ID_UNSET || audioSessionId == 0) {
-                        return@DisposableEffect onDispose {}
-                    }
-
-                    val enhancer = runCatching { LoudnessEnhancer(audioSessionId) }.getOrNull()
-                    if (enhancer == null) {
-                        return@DisposableEffect onDispose {}
-                    }
-
-                    val enabled = settings.volumeBoost > 100
-                    enhancer.setEnabled(enabled)
-                    if (enabled) {
-                        enhancer.setTargetGain(volumeBoostToMillibels(settings.volumeBoost))
-                    }
-
-                    onDispose {
-                        runCatching { enhancer.release() }
-                    }
-                }
-
-                Box(modifier = Modifier.fillMaxSize()) {
                     AndroidView(
                         factory = { ctx ->
                             PlayerView(ctx).apply {
@@ -620,7 +669,6 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                         },
                         modifier = Modifier.fillMaxSize()
                     )
-                }
 
                 // Custom Subtitle Overlay — using downloaded + parsed cues with timing
                 val vmCues by vm.subtitleCues.collectAsState()
@@ -886,6 +934,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
             }
         }
     }
+}
 }
 
 @OptIn(UnstableApi::class)
