@@ -500,6 +500,7 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
                         showContinueWatching = showContinueWatching,
                         showBookmarks = showBookmarks,
                         searchResults = searchResults,
+                        placeholder = placeholder,
                         onShowNotifications = { showNotifications = true },
                         onShowTipJar = { showTipJar = true },
                         onShowLayout = { showLayoutMenu = true },
@@ -993,7 +994,14 @@ private fun HeaderIconButton(
 }
 
 @Composable
-private fun HeroSection(searchQuery: String, onSearch: (String) -> Unit, nav: NavController, placeholder: String) {
+private fun HeroSection(
+    searchQuery: String,
+    onSearch: (String) -> Unit,
+    nav: NavController,
+    placeholder: String,
+    focusRequester: FocusRequester? = null,
+    modifier: Modifier = Modifier,
+) {
     val theme = LocalZStreamTheme.current
     var focusedMenu by remember { mutableStateOf(false) }
     val focusMenuWidth by animateDpAsState(if (focusedMenu) 3.dp else 0.dp)
@@ -1006,7 +1014,7 @@ private fun HeroSection(searchQuery: String, onSearch: (String) -> Unit, nav: Na
     )
 
     Column(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -1023,72 +1031,117 @@ private fun HeroSection(searchQuery: String, onSearch: (String) -> Unit, nav: Na
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             // Search field — no border, background only, cursor visible
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .height(48.dp)
-                    .clip(RoundedCornerShape(48.dp))
-                    .background(theme.colors.search.background)
-                    .border(
-                        1.dp,
-                        theme.colors.type.divider.copy(alpha = 0.3f),
-                        RoundedCornerShape(48.dp)
-                    ),
-                contentAlignment = Alignment.CenterStart,
+            var isSearchFocused by remember { mutableStateOf(false) }
+            val isTv = LocalIsTv.current
+            var isEditing by remember { mutableStateOf(false) }
+            val innerFocusRequester = remember { FocusRequester() }
+
+            ZsOutlinedWrapper(
+                visible = isSearchFocused && isTv,
+                shape = RoundedCornerShape(48.dp),
+                outlineColor = theme.colors.global.accentA.copy(alpha = 0.6f),
+                gap = 2.dp,
+                modifier = Modifier.weight(1f)
             ) {
-                Row(
+                Box(
                     modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Icon(Icons.Default.Search, null, tint = theme.colors.search.icon, modifier = Modifier.size(18.dp))
-                    Box(modifier = Modifier.weight(1f)) {
-                        if (searchQuery.isEmpty()) {
-                            Text(placeholder, color = theme.colors.search.placeholder, fontSize = 13.sp)
-                        }
-                        BasicTextField(
-                            value = searchQuery,
-                            onValueChange = onSearch,
-                            singleLine = true,
-                            textStyle = TextStyle(color = theme.colors.search.text, fontSize = 13.sp),
-                            cursorBrush = SolidColor(theme.colors.global.accentA),
-                            modifier = Modifier.fillMaxWidth(),
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .clip(RoundedCornerShape(48.dp))
+                        .background(theme.colors.search.background)
+                        .border(
+                            1.dp,
+                            theme.colors.type.divider.copy(alpha = 0.3f),
+                            RoundedCornerShape(48.dp)
                         )
+                        .onFocusChanged { isSearchFocused = it.isFocused }
+                        .then(
+                            if (isTv) {
+                                Modifier
+                                    .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
+                                    .focusable()
+                                    .clickable {
+                                        isEditing = true
+                                        try {
+                                            innerFocusRequester.requestFocus()
+                                        } catch (_: Exception) {}
+                                    }
+                            } else Modifier
+                        ),
+                    contentAlignment = Alignment.CenterStart,
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Icon(Icons.Default.Search, null, tint = theme.colors.search.icon, modifier = Modifier.size(18.dp))
+                        Box(modifier = Modifier.weight(1f)) {
+                            if (searchQuery.isEmpty()) {
+                                Text(placeholder, color = theme.colors.search.placeholder, fontSize = 13.sp)
+                            }
+                            BasicTextField(
+                                value = searchQuery,
+                                onValueChange = onSearch,
+                                singleLine = true,
+                                textStyle = TextStyle(color = theme.colors.search.text, fontSize = 13.sp),
+                                cursorBrush = SolidColor(theme.colors.global.accentA),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .focusRequester(innerFocusRequester)
+                                    .focusable(enabled = !isTv || isEditing)
+                                    .onFocusChanged {
+                                        if (!it.isFocused) {
+                                            isEditing = false
+                                        }
+                                    }
+                                    .then(if (!isTv && focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier),
+                            )
+                        }
                     }
                 }
             }
 
             // Discover button — rainbow animated border, dark fill, wand icon
-            val DISCOVER_BUTTON_CORNER_RADIUS = 48.dp;
-            Box(
-                modifier = Modifier
-                    .size(48.dp)
-                    .clip(RoundedCornerShape(DISCOVER_BUTTON_CORNER_RADIUS))
-                    .drawBehind {
-                        // Smooth right-to-left moving rainbow — shift start X by animated offset
-                        val w = size.width * 3f  // wide gradient so colors flow smoothly
-                        val shift = gradientOffset * w
-                        val brush = Brush.linearGradient(
-                            colors = rainbowColors + rainbowColors, // double for seamless loop
-                            start = Offset(w - shift, 0f),
-                            end = Offset(w * 2 - shift, size.height),
-                        )
-                        drawRoundRect(
-                            brush = brush,
-                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(
-                                DISCOVER_BUTTON_CORNER_RADIUS.toPx()
-                            )
-                        )
-                    }
-                    .padding(2.dp)
-                    .clip(RoundedCornerShape(DISCOVER_BUTTON_CORNER_RADIUS))
-                    .background(theme.colors.search.background)
-                    .clickable { nav.navigate("search") },
-                contentAlignment = Alignment.Center,
+            val DISCOVER_BUTTON_CORNER_RADIUS = 48.dp
+            var isDiscoverFocused by remember { mutableStateOf(false) }
+            ZsOutlinedWrapper(
+                visible = isDiscoverFocused && LocalIsTv.current,
+                shape = RoundedCornerShape(DISCOVER_BUTTON_CORNER_RADIUS),
+                outlineColor = theme.colors.global.accentA.copy(alpha = 0.6f),
+                gap = 2.dp
             ) {
-                Icon(Icons.Default.AutoAwesome, null, tint = theme.colors.type.secondary, modifier = Modifier.size(18.dp))
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(RoundedCornerShape(DISCOVER_BUTTON_CORNER_RADIUS))
+                        .drawBehind {
+                            // Smooth right-to-left moving rainbow — shift start X by animated offset
+                            val w = size.width * 3f  // wide gradient so colors flow smoothly
+                            val shift = gradientOffset * w
+                            val brush = Brush.linearGradient(
+                                colors = rainbowColors + rainbowColors, // double for seamless loop
+                                start = Offset(w - shift, 0f),
+                                end = Offset(w * 2 - shift, size.height),
+                            )
+                            drawRoundRect(
+                                brush = brush,
+                                cornerRadius = androidx.compose.ui.geometry.CornerRadius(
+                                    DISCOVER_BUTTON_CORNER_RADIUS.toPx()
+                                )
+                            )
+                        }
+                        .padding(2.dp)
+                        .clip(RoundedCornerShape(DISCOVER_BUTTON_CORNER_RADIUS))
+                        .background(theme.colors.search.background)
+                        .onFocusChanged { isDiscoverFocused = it.isFocused }
+                        .clickable { nav.navigate("search") },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(Icons.Default.AutoAwesome, null, tint = theme.colors.type.secondary, modifier = Modifier.size(18.dp))
+                }
             }
         }
         Spacer(Modifier.height(16.dp))
@@ -1096,36 +1149,44 @@ private fun HeroSection(searchQuery: String, onSearch: (String) -> Unit, nav: Na
 }
 
 @Composable
-private fun GenrePills(selectedGenreId: Int?, onSelect: (Int?) -> Unit) {
+private fun GenrePills(
+    selectedGenreId: Int?,
+    onSelect: (Int?) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val theme = LocalZStreamTheme.current
-    var focusedMenu by remember { mutableStateOf(false) }
-    val focusMenuWidth by animateDpAsState(if (focusedMenu) 3.dp else 0.dp)
+    val isTv = LocalIsTv.current
     LazyRow(
+        modifier = modifier,
         contentPadding = PaddingValues(horizontal = 16.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         items(tmdbGenres.entries.toList()) { (id, name) ->
             val selected = selectedGenreId == id
-            Text(
-                text = name,
-                color = if (selected) theme.colors.type.emphasis else theme.colors.type.dimmed,
-                fontSize = 12.sp,
-                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(50))
-                    .background(
-                        if (selected) theme.colors.global.accentA else theme.colors.background.secondary.copy(
-                            alpha = 0.5f
+            var isFocused by remember { mutableStateOf(false) }
+            ZsOutlinedWrapper(
+                visible = isFocused && isTv,
+                shape = RoundedCornerShape(50),
+                outlineColor = theme.colors.global.accentA.copy(alpha = 0.6f),
+                gap = 2.dp
+            ) {
+                Text(
+                    text = name,
+                    color = if (selected) theme.colors.type.emphasis else theme.colors.type.dimmed,
+                    fontSize = 12.sp,
+                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(
+                            if (selected) theme.colors.global.accentA else theme.colors.background.secondary.copy(
+                                alpha = 0.5f
+                            )
                         )
-                    )
-                    .border(
-                        1.dp,
-                        if (selected) Color.Transparent else theme.colors.type.divider.copy(alpha = 0.3f),
-                        RoundedCornerShape(50)
-                    )
-                    .clickable { onSelect(if (selected) null else id) }
-                    .padding(horizontal = 12.dp, vertical = 6.dp)
-            )
+                        .onFocusChanged { isFocused = it.isFocused }
+                        .clickable { onSelect(if (selected) null else id) }
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+            }
         }
     }
 }
@@ -2773,6 +2834,7 @@ private fun TvHomeScreenContent(
     showContinueWatching: Boolean,
     showBookmarks: Boolean,
     searchResults: List<Media>,
+    placeholder: String,
     onShowNotifications: () -> Unit,
     onShowTipJar: () -> Unit,
     onShowLayout: () -> Unit,
@@ -2812,10 +2874,18 @@ private fun TvHomeScreenContent(
     var isCarouselFocused by remember { mutableStateOf(false) }
     var listHasFocus by remember { mutableStateOf(false) }
     val isFeaturedActive = state.enableFeatured && state.featuredMedia.isNotEmpty()
+    val startIndexOffset = if (isFeaturedActive) {
+        1
+    } else if (!state.enableFeatured || state.featuredMedia.isEmpty()) {
+        4 // Spacer(80.dp) + HeroSection + GenrePills + Spacer(16.dp)
+    } else {
+        1
+    }
     val density = LocalDensity.current
     val topPaddingPx = remember(density) { with(density) { 80.dp.roundToPx() } }
 
     val carouselFocusRequester = remember { FocusRequester() }
+    val searchBarFocusRequester = remember { FocusRequester() }
     val topBarFocusRequester = remember { FocusRequester() }
 
     var tvScrollRequestId by remember { mutableStateOf(0) }
@@ -2906,8 +2976,45 @@ private fun TvHomeScreenContent(
                     }
                 }
 
+                if (!state.enableFeatured || state.featuredMedia.isEmpty()) {
+                    item {
+                        HeroSection(
+                            searchQuery = state.searchQuery,
+                            onSearch = vm::onSearchChange,
+                            nav = nav,
+                            placeholder = placeholder,
+                            focusRequester = searchBarFocusRequester,
+                            modifier = Modifier.onFocusChanged {
+                                if (it.hasFocus) {
+                                    requestTvHomeScroll(
+                                        itemIndex = 1,
+                                        scrollOffset = -topPaddingPx,
+                                        reason = "hero-section-focus"
+                                    )
+                                }
+                            }
+                        )
+                    }
+                    item {
+                        GenrePills(
+                            selectedGenreId = state.selectedGenreId,
+                            onSelect = vm::setGenre,
+                            modifier = Modifier.onFocusChanged {
+                                if (it.hasFocus) {
+                                    requestTvHomeScroll(
+                                        itemIndex = 2,
+                                        scrollOffset = -topPaddingPx,
+                                        reason = "genre-pills-focus"
+                                    )
+                                }
+                            }
+                        )
+                    }
+                    item { Spacer(Modifier.height(16.dp)) }
+                }
+
                 allSections.forEachIndexed { sectionIndex, section ->
-                    val sectionItemIndex = 1 + sectionIndex * 2
+                    val sectionItemIndex = startIndexOffset + sectionIndex * 2
                     item(key = section.title) {
                         MediaCarouselSection(
                             section,
@@ -2933,20 +3040,27 @@ private fun TvHomeScreenContent(
             modifier = Modifier
                 .fillMaxWidth()
                 .focusRequester(topBarFocusRequester)
+                .onFocusChanged {
+                    if (it.hasFocus) {
+                        requestTvHomeScroll(0, 0, "top-bar-focus")
+                    }
+                }
                 .then(
                     if (isFeaturedActive) {
                         Modifier.focusProperties { down = carouselFocusRequester }
                     } else {
-                        Modifier
+                        Modifier.focusProperties { down = searchBarFocusRequester }
                     }
                 )
         ) {
             TvTopBar(
                 unreadCount = unreadCount,
+                collapseActionsIntoMenu = state.enableFeatured,
                 onNotifications = onShowNotifications,
                 onTipJar = onShowTipJar,
                 onLayout = onShowLayout,
                 onMenu = onShowMenu,
+                onSearch = { nav.navigate("search") },
             )
         }
     }
@@ -2955,10 +3069,12 @@ private fun TvHomeScreenContent(
 @Composable
 private fun TvTopBar(
     unreadCount: Int,
+    collapseActionsIntoMenu: Boolean,
     onNotifications: () -> Unit,
     onTipJar: () -> Unit,
     onLayout: () -> Unit,
     onMenu: () -> Unit,
+    onSearch: () -> Unit,
 ) {
     val theme = LocalZStreamTheme.current
     var focusedMenu by remember { mutableStateOf(false) }
@@ -2990,8 +3106,12 @@ private fun TvTopBar(
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            TvHeaderButton(Icons.Default.Notifications, if (unreadCount > 0) "$unreadCount" else null, onClick = onNotifications)
-            TvHeaderButton(Icons.Default.AttachMoney, null, onClick = onTipJar)
+            if (collapseActionsIntoMenu) {
+                TvHeaderButton(Icons.Default.Search, null, onClick = onSearch)
+            } else {
+                TvHeaderButton(Icons.Default.Notifications, if (unreadCount > 0) "$unreadCount" else null, onClick = onNotifications)
+                TvHeaderButton(Icons.Default.AttachMoney, null, onClick = onTipJar)
+            }
             TvHeaderButton(Icons.Default.GridView, null, onClick = onLayout)
             ZsOutlinedWrapper(
                 visible = focusedMenu && LocalIsTv.current,
