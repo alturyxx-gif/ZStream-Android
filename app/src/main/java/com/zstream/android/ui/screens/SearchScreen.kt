@@ -85,10 +85,10 @@ fun SearchScreen(nav: NavController, vm: SearchViewModel = hiltViewModel()) {
                         .padding(horizontal = 20.dp),
                 )
                 else -> LazyVerticalGrid(
-                    columns = GridCells.Fixed(3),
-                    contentPadding = PaddingValues(8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    columns = GridCells.Adaptive(140.dp),
+                    contentPadding = PaddingValues(0.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     items(results) { media ->
                         MediaCard(media = media, onClick = { nav.navigate("detail/${media.type}/${media.id}") })

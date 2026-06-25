@@ -65,8 +65,8 @@ fun MediaCardStandard(
     val posterUrl = media.posterUrl("w342")
     val isTv = LocalIsTv.current
     var isFocused by remember { mutableStateOf(false) }
-    val cardWidth: Dp = if (isTv) 180.dp else 110.dp
-    val cardHeight: Dp = if (isTv) 270.dp else 165.dp
+    val cardWidth: Dp = if (isTv) 140.dp else 110.dp
+    val cardHeight: Dp = if (isTv) 210.dp else 165.dp
 
     ZsOutlinedWrapper(
         visible = isFocused && isTv,
@@ -106,7 +106,7 @@ fun MediaCardStandard(
                         imageVector = if (media.type == "tv") Icons.Filled.Tv else Icons.Filled.Movie,
                         contentDescription = null,
                         tint = theme.colors.type.dimmed.copy(alpha = 0.5f),
-                        modifier = Modifier.size(if (isTv) 60.dp else 40.dp).align(Alignment.Center)
+                        modifier = Modifier.size(if (isTv) 48.dp else 40.dp).align(Alignment.Center)
                     )
                 }
 
@@ -129,15 +129,15 @@ fun MediaCardStandard(
                     Box(
                         modifier = Modifier
                             .align(Alignment.TopEnd)
-                            .padding(if (isTv) 8.dp else 6.dp)
-                            .clip(RoundedCornerShape(if (isTv) 6.dp else 4.dp))
+                            .padding(if (isTv) 6.dp else 6.dp)
+                            .clip(RoundedCornerShape(if (isTv) 4.dp else 4.dp))
                             .background(theme.colors.mediaCard.badge)
-                            .padding(horizontal = if (isTv) 8.dp else 6.dp, vertical = if (isTv) 4.dp else 0.dp),
+                            .padding(horizontal = if (isTv) 6.dp else 6.dp, vertical = if (isTv) 2.dp else 0.dp),
                     ) {
                         Text(
                             text = seriesLabel,
                             color = theme.colors.mediaCard.badgeText,
-                            fontSize = if (isTv) 12.sp else 10.sp,
+                            fontSize = if (isTv) 11.sp else 10.sp,
                             fontWeight = FontWeight.Bold,
                         )
                     }
@@ -148,12 +148,12 @@ fun MediaCardStandard(
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
                             .fillMaxWidth()
-                            .padding(if (isTv) 12.dp else 10.dp),
+                            .padding(if (isTv) 8.dp else 10.dp),
                     ) {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(if (isTv) 4.dp else 3.dp)
+                                .height(if (isTv) 3.dp else 3.dp)
                                 .clip(RoundedCornerShape(2.dp))
                                 .background(theme.colors.progress.background)
                         ) {
@@ -176,21 +176,21 @@ fun MediaCardStandard(
                     Box(
                         modifier = Modifier
                             .align(Alignment.Center)
-                            .size(48.dp)
+                            .size(40.dp)
                             .clip(CircleShape)
                             .background(Color.White.copy(alpha = 0.9f)),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(Icons.Default.PlayArrow, "Play", tint = Color.Black, modifier = Modifier.size(28.dp))
+                        Icon(Icons.Default.PlayArrow, "Play", tint = Color.Black, modifier = Modifier.size(24.dp))
                     }
                 }
             }
-            Spacer(Modifier.height(if (isTv) 10.dp else 6.dp))
+            Spacer(Modifier.height(if (isTv) 8.dp else 6.dp))
 
             Text(
                 text = media.displayTitle,
                 color = theme.colors.type.emphasis,
-                fontSize = if (isTv) 15.sp else 12.sp,
+                fontSize = if (isTv) 13.sp else 12.sp,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -198,14 +198,14 @@ fun MediaCardStandard(
 
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.offset(y = if (isTv) (-6).dp else (-10).dp)
+                modifier = Modifier.offset(y = if (isTv) (-4).dp else (-10).dp)
             ) {
                 val typeLabel = if (media.type == "tv") "Show" else "Movie"
                 val year = (media.displayDate).take(4).takeIf { it.length == 4 } ?: ""
                 Text(
                     text = typeLabel,
                     color = theme.colors.type.dimmed,
-                    fontSize = if (isTv) 13.sp else 10.sp,
+                    fontSize = if (isTv) 11.sp else 10.sp,
                 )
                 if (year.isNotEmpty()) {
                     Box(
@@ -218,7 +218,7 @@ fun MediaCardStandard(
                     Text(
                         text = year,
                         color = theme.colors.type.dimmed,
-                        fontSize = if (isTv) 13.sp else 10.sp,
+                        fontSize = if (isTv) 11.sp else 10.sp,
                     )
                 }
             }
@@ -237,8 +237,8 @@ fun MediaCardMinimal(
     val posterUrl = media.posterUrl("w342")
     val isTv = LocalIsTv.current
     var isFocused by remember { mutableStateOf(false) }
-    val cardWidth: Dp = if (isTv) 180.dp else 110.dp
-    val cardHeight: Dp = if (isTv) 270.dp else 165.dp
+    val cardWidth: Dp = if (isTv) 140.dp else 110.dp
+    val cardHeight: Dp = if (isTv) 210.dp else 165.dp
 
     ZsOutlinedWrapper(
         visible = isFocused && isTv,
@@ -278,7 +278,7 @@ fun MediaCardMinimal(
                         imageVector = if (media.type == "tv") Icons.Filled.Tv else Icons.Filled.Movie,
                         contentDescription = null,
                         tint = theme.colors.type.dimmed.copy(alpha = 0.5f),
-                        modifier = Modifier.size(if (isTv) 60.dp else 40.dp).align(Alignment.Center)
+                        modifier = Modifier.size(if (isTv) 48.dp else 40.dp).align(Alignment.Center)
                     )
                 }
 
@@ -298,15 +298,15 @@ fun MediaCardMinimal(
                     Box(
                         modifier = Modifier
                             .align(Alignment.TopEnd)
-                            .padding(if (isTv) 8.dp else 6.dp)
-                            .clip(RoundedCornerShape(if (isTv) 6.dp else 4.dp))
+                            .padding(if (isTv) 6.dp else 6.dp)
+                            .clip(RoundedCornerShape(if (isTv) 4.dp else 4.dp))
                             .background(theme.colors.mediaCard.badge)
-                            .padding(horizontal = if (isTv) 8.dp else 6.dp, vertical = if (isTv) 4.dp else 0.dp),
+                            .padding(horizontal = if (isTv) 6.dp else 6.dp, vertical = if (isTv) 2.dp else 0.dp),
                     ) {
                         Text(
                             text = seriesLabel,
                             color = theme.colors.mediaCard.badgeText,
-                            fontSize = if (isTv) 12.sp else 10.sp,
+                            fontSize = if (isTv) 11.sp else 10.sp,
                             fontWeight = FontWeight.Bold,
                         )
                     }
@@ -317,12 +317,12 @@ fun MediaCardMinimal(
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
                             .fillMaxWidth()
-                            .padding(if (isTv) 12.dp else 10.dp),
+                            .padding(if (isTv) 8.dp else 10.dp),
                     ) {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(if (isTv) 4.dp else 3.dp)
+                                .height(if (isTv) 3.dp else 3.dp)
                                 .clip(RoundedCornerShape(2.dp))
                                 .background(theme.colors.progress.background)
                         ) {
@@ -345,16 +345,16 @@ fun MediaCardMinimal(
                     Box(
                         modifier = Modifier
                             .align(Alignment.Center)
-                            .size(48.dp)
+                            .size(40.dp)
                             .clip(CircleShape)
                             .background(Color.White.copy(alpha = 0.9f)),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(Icons.Default.PlayArrow, "Play", tint = Color.Black, modifier = Modifier.size(28.dp))
+                        Icon(Icons.Default.PlayArrow, "Play", tint = Color.Black, modifier = Modifier.size(24.dp))
                     }
                 }
             }
-            Spacer(Modifier.height(if (isTv) 10.dp else 6.dp))
+            Spacer(Modifier.height(if (isTv) 8.dp else 6.dp))
         }
     }
 }
