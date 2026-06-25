@@ -729,7 +729,7 @@ internal fun SharedMetadataRow(
 }
 
 @Composable
-internal fun SharedTmdbRating(rating: Double, theme: ZStreamTheme) {
+fun SharedTmdbRating(rating: Double, theme: ZStreamTheme) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Image(
             painter = androidx.compose.ui.res.painterResource(id = R.drawable.tmdb_logo),
