@@ -5,27 +5,9 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxScope
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.IntrinsicSize
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -34,41 +16,20 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RemoveRedEye
 import androidx.compose.material.icons.filled.Share
-import androidx.compose.runtime.rememberCoroutineScope
-import kotlinx.coroutines.launch
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
-import androidx.compose.material3.SwipeToDismissBox
-import androidx.compose.material3.SwipeToDismissBoxState
-import androidx.compose.material3.SwipeToDismissBoxValue
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberSwipeToDismissBoxState
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.text.font.FontWeight
@@ -89,12 +50,15 @@ import com.zstream.android.data.model.TvDetail
 import com.zstream.android.data.model.airedEpisodes
 import com.zstream.android.theme.LocalZStreamTheme
 import com.zstream.android.theme.ZStreamTheme
+import com.zstream.android.ui.LocalIsTv
 import com.zstream.android.ui.components.themed.ZsBottomSheetSectionHeader
 import com.zstream.android.ui.components.themed.ZsChip
 import com.zstream.android.ui.components.themed.ZsChipVariant
+import com.zstream.android.ui.components.themed.ZsOutlinedWrapper
 import com.zstream.android.ui.components.themed.ZsStatusBanner
 import com.zstream.android.ui.components.themed.ZsStatusBannerVariant
 import com.zstream.android.ui.navigation.rememberSafeNavigateBack
+import kotlinx.coroutines.launch
 
 private fun String.encode() = java.net.URLEncoder.encode(this, "UTF-8").replace("+", "%20")
 
@@ -167,6 +131,16 @@ fun MovieDetailModal(
     val d = state.detail
     var pendingBulkTarget by remember { mutableStateOf<WatchBulkTarget?>(null) }
     var pendingBulkAction by remember { mutableStateOf<WatchBulkAction?>(null) }
+    val isTv = LocalIsTv.current
+    val scrollState = rememberScrollState()
+    
+    var scrollRequestId by remember { mutableStateOf(0) }
+    LaunchedEffect(scrollRequestId) {
+        if (scrollRequestId > 0) {
+            scrollState.animateScrollTo(0)
+        }
+    }
+
     SharedDetailSheetScaffold(
         title = d.title,
         backdropUrl = d.backdropUrl(),
@@ -176,44 +150,73 @@ fun MovieDetailModal(
         rating = d.voteAverage?.let { String.format("%.1f", it) },
         theme = theme,
         onClose = onBack,
-        modifier = Modifier.background(theme.colors.background.main)
+        modifier = Modifier.background(if (isTv) Color.Black.copy(alpha = 0.5f) else theme.colors.background.main),
+        scrollState = scrollState
     ) {
         SharedMovieDetailContent(
             detail = d,
             context = context,
             nav = nav,
             theme = theme,
-            specActions = {
-                ActionPill(
-                    icon = Icons.Filled.RemoveRedEye,
-                    label = "",
-                    theme = theme,
-                    cornerRadius = 50.dp,
-                    onClick = { pendingBulkTarget = WatchBulkTarget.Movie },
-                )
-            },
+            specActions = { },
         ) {
-            Button(
-                onClick = { nav.navigate("player/movie/${d.id}?title=${d.title.encode()}&year=${d.releaseDate?.take(4)?.toIntOrNull() ?: 0}&poster=${d.posterPath?.encode() ?: ""}") },
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = theme.colors.buttons.purple,
-                    contentColor = theme.colors.type.emphasis,
-                ),
-                border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.type.divider.copy(alpha = 0.3f)),
+            var playFocused by remember { mutableStateOf(false) }
+            
+            ZsOutlinedWrapper(
                 shape = RoundedCornerShape(6.dp),
-                modifier = Modifier.widthIn(min = 120.dp)
+                visible = playFocused && isTv,
+                outlineColor = Color.White,
+                outlineWidth = 2.dp,
+                gap = 2.dp,
             ) {
-                Icon(Icons.Filled.PlayArrow, null, tint = theme.colors.type.emphasis)
-                Spacer(Modifier.width(6.dp))
-                Text(if (hasProgress) "Resume" else "Play", color = theme.colors.type.emphasis)
+                Button(
+                    onClick = { nav.navigate("player/movie/${d.id}?title=${d.title.encode()}&year=${d.releaseDate?.take(4)?.toIntOrNull() ?: 0}&poster=${d.posterPath?.encode() ?: ""}") },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = theme.colors.buttons.purple,
+                        contentColor = theme.colors.type.emphasis,
+                    ),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.type.divider.copy(alpha = 0.3f)),
+                    shape = RoundedCornerShape(6.dp),
+                    modifier = Modifier
+                        .widthIn(min = 120.dp)
+                        .onFocusChanged { 
+                            playFocused = it.isFocused 
+                            if (it.isFocused && isTv) {
+                                scrollRequestId++
+                            }
+                        }
+                ) {
+                    Icon(Icons.Filled.PlayArrow, null, tint = theme.colors.type.emphasis)
+                    Spacer(Modifier.width(6.dp))
+                    Text(if (hasProgress) "Resume" else "Play", color = theme.colors.type.emphasis)
+                }
             }
-            SharedActionPill(Icons.Filled.Share, theme) {
-                openShareSheet(context, d.title, d.id, "movie")
+            if (!isTv) {
+                SharedActionPill(Icons.Filled.Share, theme) {
+                    openShareSheet(context, d.title, d.id, "movie")
+                }
             }
             BookmarkButton(
                 d.id.toString(), d.title, "movie",
                 d.releaseDate?.take(4)?.toIntOrNull(), d.posterPath,
-                bookmarkRepo, theme
+                bookmarkRepo, theme,
+                onFocused = {
+                    if (isTv) {
+                        scrollRequestId++
+                    }
+                }
+            )
+            ActionPill(
+                icon = Icons.Filled.RemoveRedEye,
+                label = "",
+                theme = theme,
+                cornerRadius = 50.dp,
+                onFocused = {
+                    if (isTv) {
+                        scrollRequestId++
+                    }
+                },
+                onClick = { pendingBulkTarget = WatchBulkTarget.Movie },
             )
         }
     }
@@ -256,6 +259,16 @@ private fun TvDetailModal(
     val d = state.detail
     var pendingBulkTarget by remember { mutableStateOf<WatchBulkTarget?>(null) }
     var pendingBulkAction by remember { mutableStateOf<WatchBulkAction?>(null) }
+    val isTv = LocalIsTv.current
+    val scrollState = rememberScrollState()
+
+    var scrollRequestId by remember { mutableStateOf(0) }
+    LaunchedEffect(scrollRequestId) {
+        if (scrollRequestId > 0) {
+            scrollState.animateScrollTo(0)
+        }
+    }
+
     SharedDetailSheetScaffold(
         title = d.name,
         backdropUrl = d.backdropUrl(),
@@ -265,7 +278,8 @@ private fun TvDetailModal(
         rating = d.voteAverage?.let { String.format("%.1f", it) },
         theme = theme,
         onClose = onBack,
-        modifier = Modifier.background(theme.colors.background.main)
+        modifier = Modifier.background(if (isTv) Color.Black.copy(alpha = 0.5f) else theme.colors.background.main),
+        scrollState = scrollState
     ) {
         SharedTvDetailContent(
             detail = d,
@@ -279,53 +293,82 @@ private fun TvDetailModal(
             },
             onMarkEpisodeWatched = vm::markEpisodeWatched,
             onClearEpisodeWatchHistory = vm::clearEpisodeWatchHistory,
-            specActions = {
-                ActionPill(
-                    icon = Icons.Filled.RemoveRedEye,
-                    label = "",
-                    theme = theme,
-                    cornerRadius = 50.dp,
-                    onClick = { pendingBulkTarget = WatchBulkTarget.Season },
-                )
-            },
+            specActions = { },
         ) {
+            var playFocused by remember { mutableStateOf(false) }
+
             val label = if (hasProgress && progress != null) {
                 val sNum = progress.seasonNumber
                 val eNum = progress.episodeNumber
                 if (sNum != null && eNum != null) "Resume S${sNum}:E${eNum}" else "Resume"
             } else "Play"
-            Button(
-                onClick = {
-                    if (hasProgress && progress != null) {
-                        val sNum = progress.seasonNumber ?: state.selectedSeason?.seasonNumber ?: 1
-                        val eNum = progress.episodeNumber ?: 1
-                        nav.navigate("player/tv/${d.id}?season=$sNum&episode=$eNum&title=${d.name.encode()}&year=${d.firstAirDate?.take(4)?.toIntOrNull() ?: 0}&poster=${d.posterPath?.encode() ?: ""}")
-                    } else {
-                        val firstEp = state.selectedSeason?.episodes?.airedEpisodes()?.firstOrNull()
-                        if (firstEp != null) {
-                            nav.navigate("player/tv/${d.id}?season=${firstEp.seasonNumber}&episode=${firstEp.episodeNumber}&title=${d.name.encode()}&year=${d.firstAirDate?.take(4)?.toIntOrNull() ?: 0}&poster=${d.posterPath?.encode() ?: ""}")
-                        }
-                    }
-                },
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = theme.colors.buttons.purple,
-                    contentColor = theme.colors.type.emphasis,
-                ),
-                border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.type.divider.copy(alpha = 0.3f)),
+            
+            ZsOutlinedWrapper(
                 shape = RoundedCornerShape(6.dp),
-                modifier = Modifier.widthIn(min = 120.dp)
+                visible = playFocused && isTv,
+                outlineColor = Color.White,
+                outlineWidth = 2.dp,
+                gap = 2.dp,
             ) {
-                Icon(Icons.Filled.PlayArrow, null, tint = theme.colors.type.emphasis)
-                Spacer(Modifier.width(6.dp))
-                Text(label, color = theme.colors.type.emphasis)
+                Button(
+                    onClick = {
+                        if (hasProgress && progress != null) {
+                            val sNum = progress.seasonNumber ?: state.selectedSeason?.seasonNumber ?: 1
+                            val eNum = progress.episodeNumber ?: 1
+                            nav.navigate("player/tv/${d.id}?season=$sNum&episode=$eNum&title=${d.name.encode()}&year=${d.firstAirDate?.take(4)?.toIntOrNull() ?: 0}&poster=${d.posterPath?.encode() ?: ""}")
+                        } else {
+                            val firstEp = state.selectedSeason?.episodes?.airedEpisodes()?.firstOrNull()
+                            if (firstEp != null) {
+                                nav.navigate("player/tv/${d.id}?season=${firstEp.seasonNumber}&episode=${firstEp.episodeNumber}&title=${d.name.encode()}&year=${d.firstAirDate?.take(4)?.toIntOrNull() ?: 0}&poster=${d.posterPath?.encode() ?: ""}")
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = theme.colors.buttons.purple,
+                        contentColor = theme.colors.type.emphasis,
+                    ),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.type.divider.copy(alpha = 0.3f)),
+                    shape = RoundedCornerShape(6.dp),
+                    modifier = Modifier
+                        .widthIn(min = 120.dp)
+                        .onFocusChanged { 
+                            playFocused = it.isFocused 
+                            if (it.isFocused && isTv) {
+                                scrollRequestId++
+                            }
+                        }
+                ) {
+                    Icon(Icons.Filled.PlayArrow, null, tint = theme.colors.type.emphasis)
+                    Spacer(Modifier.width(6.dp))
+                    Text(label, color = theme.colors.type.emphasis)
+                }
             }
-            SharedActionPill(Icons.Filled.Share, theme) {
-                openShareSheet(context, d.name, d.id, "tv")
+            if (!isTv) {
+                SharedActionPill(Icons.Filled.Share, theme) {
+                    openShareSheet(context, d.name, d.id, "tv")
+                }
             }
             BookmarkButton(
                 d.id.toString(), d.name, "tv",
                 d.firstAirDate?.take(4)?.toIntOrNull(), d.posterPath,
-                bookmarkRepo, theme
+                bookmarkRepo, theme,
+                onFocused = {
+                    if (isTv) {
+                        scrollRequestId++
+                    }
+                }
+            )
+            ActionPill(
+                icon = Icons.Filled.RemoveRedEye,
+                label = "",
+                theme = theme,
+                cornerRadius = 50.dp,
+                onFocused = {
+                    if (isTv) {
+                        scrollRequestId++
+                    }
+                },
+                onClick = { pendingBulkTarget = WatchBulkTarget.Season },
             )
         }
     }
@@ -362,6 +405,7 @@ internal fun SharedEpisodeRow(
     enableWatchActions: Boolean = false,
     onMarkWatched: () -> Unit = {},
     onClearHistory: () -> Unit = {},
+    modifier: Modifier = Modifier
 ) {
     val pct = if (episodeProgress != null && episodeProgress.duration > 0) {
         ((episodeProgress.watched.toFloat() / episodeProgress.duration) * 100f).coerceIn(0f, 100f)
@@ -371,109 +415,123 @@ internal fun SharedEpisodeRow(
     val scope = rememberCoroutineScope()
 
     val rowContent: @Composable () -> Unit = {
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
-                .background(theme.colors.modal.background)
-                .clickable {
-                    nav.navigate("player/tv/$showId?season=${ep.seasonNumber}&episode=${ep.episodeNumber}&title=${title.encode()}&year=${ep.airDate?.take(4)?.toIntOrNull() ?: 0}&poster=${posterPath?.encode() ?: ""}")
-                }
-        ) {
-            Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
-                Box(
-                    Modifier
-                        .width(120.dp)
-                        .fillMaxHeight()
-                        .animateContentSize(animationSpec = tween(300))
-                ) {
-                    AsyncImage(
-                        model = ep.stillPath?.let { "${Urls.TMDB_IMAGE}w780$it" },
-                        contentDescription = null,
-                        modifier = Modifier
-                            .matchParentSize()
-                            .clip(RoundedCornerShape(topStart = 12.dp, bottomStart = 12.dp)),
-                        contentScale = ContentScale.Crop
-                    )
+        val isTv = LocalIsTv.current
+        var isFocused by remember { mutableStateOf(false) }
 
+        ZsOutlinedWrapper(
+            shape = RoundedCornerShape(12.dp),
+            visible = isFocused && isTv,
+            outlineColor = Color.White,
+            outlineWidth = 2.dp,
+            gap = 4.dp,
+            modifier = modifier
+        ) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(theme.colors.modal.background)
+                    .onFocusChanged { isFocused = it.isFocused }
+                    .focusable()
+                    .clickable {
+                        nav.navigate("player/tv/$showId?season=${ep.seasonNumber}&episode=${ep.episodeNumber}&title=${title.encode()}&year=${ep.airDate?.take(4)?.toIntOrNull() ?: 0}&poster=${posterPath?.encode() ?: ""}")
+                    }
+            ) {
+                Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
                     Box(
                         Modifier
-                            .align(Alignment.TopStart)
-                            .padding(6.dp)
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(theme.colors.mediaCard.badge)
-                            .padding(horizontal = 6.dp, vertical = 1.dp)
+                            .width(120.dp)
+                            .fillMaxHeight()
+                            .animateContentSize(animationSpec = tween(300))
                     ) {
-                        Text(
-                            "E${ep.episodeNumber}",
-                            color = theme.colors.mediaCard.badgeText,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold
+                        AsyncImage(
+                            model = ep.stillPath?.let { "${Urls.TMDB_IMAGE}w780$it" },
+                            contentDescription = null,
+                            modifier = Modifier
+                                .matchParentSize()
+                                .clip(RoundedCornerShape(topStart = 12.dp, bottomStart = 12.dp)),
+                            contentScale = ContentScale.Crop
                         )
-                    }
-                }
 
-                Column(Modifier.weight(1f).padding(12.dp).animateContentSize()) {
-                    Text(
-                        ep.name.orEmpty(),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        color = theme.colors.type.emphasis,
-                        fontWeight = FontWeight.Medium
-                    )
-
-                    ep.overview?.takeIf { it.isNotBlank() }?.let { desc ->
-                        Spacer(Modifier.height(4.dp))
-                        var expanded by remember { mutableStateOf(false) }
-                        var canExpand by remember(desc) { mutableStateOf(false) }
-                        val collapsedLines = 3
                         Box(
                             Modifier
-                                .fillMaxWidth()
-                                .let { modifier ->
-                                    if (canExpand) {
-                                        modifier.clickable(
-                                            interactionSource = remember { MutableInteractionSource() },
-                                            indication = null
-                                        ) { expanded = !expanded }
-                                    } else {
-                                        modifier
-                                    }
-                                }
+                                .align(Alignment.TopStart)
+                                .padding(6.dp)
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(theme.colors.mediaCard.badge)
+                                .padding(horizontal = 6.dp, vertical = 1.dp)
                         ) {
                             Text(
-                                desc,
-                                maxLines = if (expanded) Int.MAX_VALUE else collapsedLines,
-                                overflow = TextOverflow.Ellipsis,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = theme.colors.type.text,
-                                onTextLayout = { layoutResult: TextLayoutResult ->
-                                    if (!expanded) {
-                                        canExpand = layoutResult.hasVisualOverflow
-                                    }
-                                }
+                                "E${ep.episodeNumber}",
+                                color = theme.colors.mediaCard.badgeText,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold
                             )
                         }
-                        Spacer(Modifier.height(4.dp))
+                    }
+
+                    Column(Modifier.weight(1f).padding(12.dp).animateContentSize()) {
+                        Text(
+                            ep.name.orEmpty(),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            color = theme.colors.type.emphasis,
+                            fontWeight = FontWeight.Medium
+                        )
+
+                        ep.overview?.takeIf { it.isNotBlank() }?.let { desc ->
+                            Spacer(Modifier.height(4.dp))
+                            var expanded by remember { mutableStateOf(false) }
+                            var canExpand by remember(desc) { mutableStateOf(false) }
+                            val collapsedLines = 3
+                            Box(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .let { modifier ->
+                                        if (canExpand && !isTv) {
+                                            modifier.clickable(
+                                                interactionSource = remember { MutableInteractionSource() },
+                                                indication = null
+                                            ) { expanded = !expanded }
+                                        } else {
+                                            modifier
+                                        }
+                                    }
+                            ) {
+                                Text(
+                                    desc,
+                                    maxLines = if (expanded || isTv) Int.MAX_VALUE else collapsedLines,
+                                    overflow = TextOverflow.Ellipsis,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = theme.colors.type.text,
+                                    onTextLayout = { layoutResult: TextLayoutResult ->
+                                        if (!expanded) {
+                                            canExpand = layoutResult.hasVisualOverflow
+                                        }
+                                    }
+                                )
+                            }
+                            Spacer(Modifier.height(4.dp))
+                        }
                     }
                 }
-            }
 
-            if (pct > 0f) {
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .height(4.dp)
-                        .align(Alignment.BottomCenter)
-                        .background(theme.colors.progress.background.copy(alpha = 0.25f))
-                ) {
+                if (pct > 0f) {
                     Box(
                         Modifier
-                            .fillMaxWidth(fraction = pct / 100f)
+                            .fillMaxWidth()
                             .height(4.dp)
-                            .align(Alignment.CenterStart)
-                            .background(theme.colors.progress.filled)
-                    )
+                            .align(Alignment.BottomCenter)
+                            .background(theme.colors.progress.background.copy(alpha = 0.25f))
+                    ) {
+                        Box(
+                            Modifier
+                                .fillMaxWidth(fraction = pct / 100f)
+                                .height(4.dp)
+                                .align(Alignment.CenterStart)
+                                .background(theme.colors.progress.filled)
+                        )
+                    }
                 }
             }
         }
@@ -737,7 +795,8 @@ private fun BookmarkButton(
     year: Int? = null,
     posterPath: String? = null,
     bookmarkRepo: com.zstream.android.data.BookmarkRepository,
-    theme: com.zstream.android.theme.ZStreamTheme
+    theme: com.zstream.android.theme.ZStreamTheme,
+    onFocused: (() -> Unit)? = null
 ) {
     val isBookmarked by bookmarkRepo.observeBookmark(tmdbId).collectAsState(initial = false)
     val scope = rememberCoroutineScope()
@@ -748,6 +807,7 @@ private fun BookmarkButton(
         label = "",
         theme = theme,
         cornerRadius = 50.dp,
+        onFocused = onFocused,
         onClick = {
             scope.launch {
                 if (isBookmarked != null) {
@@ -766,19 +826,36 @@ private fun ActionPill(
     label: String, 
     theme: com.zstream.android.theme.ZStreamTheme, 
     cornerRadius: Dp, 
+    onFocused: (() -> Unit)? = null,
     onClick: () -> Unit
 ) {
-    Surface(
-        shape = RoundedCornerShape(cornerRadius), 
-        color = theme.colors.type.text.copy(alpha = 0.05f), 
-        border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.type.divider.copy(alpha = 0.3f)),
-        modifier = Modifier.clickable(onClick = onClick)
+    val isTv = LocalIsTv.current
+    var isFocused by remember { mutableStateOf(false) }
+
+    ZsOutlinedWrapper(
+        shape = RoundedCornerShape(cornerRadius),
+        visible = isFocused && isTv,
+        outlineColor = Color.White,
+        outlineWidth = 2.dp,
+        gap = 4.dp,
     ) {
-        Row(Modifier.padding(horizontal = if (label.isEmpty()) 14.dp else 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(icon, null, modifier = Modifier.size(20.dp), tint = theme.colors.type.text)
-            if (label.isNotEmpty()) {
-                Spacer(Modifier.width(6.dp))
-                Text(label, color = theme.colors.type.text, fontSize = 12.sp)
+        Surface(
+            shape = RoundedCornerShape(cornerRadius), 
+            color = if (isFocused && isTv) theme.colors.global.accentA.copy(alpha = 0.3f) else theme.colors.type.text.copy(alpha = 0.05f), 
+            border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.type.divider.copy(alpha = 0.3f)),
+            modifier = Modifier
+                .onFocusChanged { 
+                    isFocused = it.isFocused 
+                    if (it.isFocused) onFocused?.invoke()
+                }
+                .clickable(onClick = onClick)
+        ) {
+            Row(Modifier.padding(horizontal = if (label.isEmpty()) 14.dp else 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(icon, null, modifier = Modifier.size(20.dp), tint = theme.colors.type.text)
+                if (label.isNotEmpty()) {
+                    Spacer(Modifier.width(6.dp))
+                    Text(label, color = theme.colors.type.text, fontSize = 12.sp)
+                }
             }
         }
     }
@@ -794,25 +871,48 @@ private fun TrailerGrid(trailers: List<com.zstream.android.data.model.TrailerDat
         )
         return
     }
-    
+
+    val isTv = LocalIsTv.current
     Column(Modifier.padding(horizontal = 32.dp, vertical = 12.dp)) {
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = if (isTv) PaddingValues(4.dp) else PaddingValues(0.dp)
+        ) {
             items(trailers.take(3)) { trailer ->
-                Box(
-                    modifier = Modifier
-                        .width(200.dp)
-                        .aspectRatio(16f / 9f)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(theme.colors.modal.background)
-                        .clickable { openYoutubeTrailer(context, trailer.key) }
+                var isFocused by remember { mutableStateOf(false) }
+                ZsOutlinedWrapper(
+                    shape = RoundedCornerShape(8.dp),
+                    visible = isFocused && isTv,
+                    outlineColor = Color.White,
+                    outlineWidth = 2.dp,
+                    gap = 4.dp,
                 ) {
-                    AsyncImage(
-                        model = "https://img.youtube.com/vi/${trailer.key}/0.jpg",
-                        contentDescription = trailer.name,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                    Text(trailer.name, color = androidx.compose.ui.graphics.Color.White, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(8.dp))
+                    Box(
+                        modifier = Modifier
+                            .width(200.dp)
+                            .aspectRatio(16f / 9f)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(theme.colors.modal.background)
+                            .onFocusChanged { isFocused = it.isFocused }
+                            .clickable { openYoutubeTrailer(context, trailer.key) }
+                    ) {
+                        AsyncImage(
+                            model = "https://img.youtube.com/vi/${trailer.key}/0.jpg",
+                            contentDescription = trailer.name,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                        Text(
+                            trailer.name,
+                            color = androidx.compose.ui.graphics.Color.White,
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier
+                                .align(Alignment.BottomStart)
+                                .background(Color.Black.copy(alpha = 0.5f))
+                                .padding(8.dp)
+                                .fillMaxWidth()
+                        )
+                    }
                 }
             }
         }
@@ -829,29 +929,65 @@ private fun SimilarMoviesGrid(similar: List<com.zstream.android.data.model.Media
         )
         return
     }
-    
+
+    val isTv = LocalIsTv.current
     Column(Modifier.padding(horizontal = 32.dp, vertical = 12.dp)) {
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = if (isTv) PaddingValues(4.dp) else PaddingValues(0.dp)
+        ) {
             items(similar.take(10)) { movie ->
-                Column(
-                    modifier = Modifier
-                        .width(140.dp)
-                        .clickable {
-                            val mediaType = movie.type
-                            nav.navigate("detail/$mediaType/${movie.id}")
-                        }
+                var isFocused by remember { mutableStateOf(false) }
+                ZsOutlinedWrapper(
+                    shape = RoundedCornerShape(8.dp),
+                    visible = isFocused && isTv,
+                    outlineColor = Color.White,
+                    outlineWidth = 2.dp,
+                    gap = 4.dp,
                 ) {
-                    Box(modifier = Modifier.fillMaxWidth().height(205.dp).clip(RoundedCornerShape(8.dp)).background(theme.colors.modal.background)) {
-                        movie.posterUrl()?.let {
-                            AsyncImage(model = it, contentDescription = movie.displayTitle, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                    Column(
+                        modifier = Modifier
+                            .width(140.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .onFocusChanged { isFocused = it.isFocused }
+                            .clickable {
+                                val mediaType = movie.type
+                                nav.navigate("detail/$mediaType/${movie.id}")
+                            }
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(205.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(theme.colors.modal.background)
+                        ) {
+                            movie.posterUrl()?.let {
+                                AsyncImage(
+                                    model = it,
+                                    contentDescription = movie.displayTitle,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
                         }
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            movie.displayTitle,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = theme.colors.type.emphasis
+                        )
+                        val year = (movie.releaseDate ?: movie.firstAirDate)?.take(4) ?: "—"
+                        val capitalizedMovie = movie.type.replaceFirstChar { it.uppercase() }
+                        Text(
+                            "$capitalizedMovie • $year",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = theme.colors.type.secondary
+                        )
+                        Spacer(Modifier.height(8.dp))
                     }
-                    Spacer(Modifier.height(8.dp))
-                    Text(movie.displayTitle, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelMedium, color = theme.colors.type.emphasis)
-                    val year = (movie.releaseDate ?: movie.firstAirDate)?.take(4) ?: "—"
-                    val capitalizedMovie = movie.type.replaceFirstChar { it.uppercase() }
-                    Text("$capitalizedMovie • $year", style = MaterialTheme.typography.labelSmall, color = theme.colors.type.secondary)
-                    Spacer(Modifier.height(16.dp))
                 }
             }
         }

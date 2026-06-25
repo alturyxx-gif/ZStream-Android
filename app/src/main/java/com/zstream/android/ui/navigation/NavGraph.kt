@@ -1,9 +1,11 @@
 package com.zstream.android.ui.navigation
 
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.window.DialogProperties
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.dialog
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.zstream.android.ui.screens.*
@@ -15,11 +17,16 @@ fun NavGraph() {
     NavHost(nav, startDestination = "home") {
         composable("home") { HomeScreen(nav) }
         composable("search") { SearchScreen(nav) }
-        composable(
+        dialog(
             "detail/{mediaType}/{id}",
             arguments = listOf(
                 navArgument("mediaType") { type = NavType.StringType },
                 navArgument("id") { type = NavType.IntType },
+            ),
+            dialogProperties = DialogProperties(
+                usePlatformDefaultWidth = false,
+                dismissOnBackPress = true,
+                dismissOnClickOutside = true
             )
         ) { DetailScreen(nav) }
         composable(

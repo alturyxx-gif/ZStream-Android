@@ -2,11 +2,16 @@ package com.zstream.android.ui.screens
 
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.BringIntoViewSpec
+import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -27,10 +32,17 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -48,9 +60,12 @@ import com.zstream.android.data.model.TrailerData
 import com.zstream.android.data.model.TvDetail
 import com.zstream.android.data.model.airedEpisodes
 import com.zstream.android.theme.ZStreamTheme
+import com.zstream.android.ui.LocalIsTv
 import com.zstream.android.ui.components.themed.ZsBottomSheetSectionHeader
+import com.zstream.android.ui.components.themed.ZsOutlinedWrapper
 import com.zstream.android.ui.components.themed.ZsStatusBanner
 import com.zstream.android.ui.components.themed.ZsStatusBannerVariant
+import kotlinx.coroutines.launch
 
 internal val DETAIL_SHEET_CORNER_RADIUS = 28.dp
 internal val DETAIL_SHEET_BACKDROP_HEIGHT = 360.dp
@@ -58,6 +73,23 @@ internal val DETAIL_SHEET_CONTENT_PADDING = 32.dp
 internal val DETAIL_SHEET_BOTTOM_SPACER = 36.dp
 internal val DETAIL_SHEET_MIN_SCROLL_EXTRA = 1.dp
 
+private fun calculateDefaultBringIntoViewScrollDistance(
+    offset: Float,
+    size: Float,
+    containerSize: Float,
+): Float {
+    val trailingEdge = offset + size
+    return when {
+        offset < 0f -> offset
+        trailingEdge > containerSize -> trailingEdge - containerSize
+        else -> 0f
+    }
+}
+
+internal val LocalScrollState = compositionLocalOf<ScrollState?> { null }
+internal val LocalScrollableContainerCoordinates = compositionLocalOf<LayoutCoordinates?> { null }
+
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun SharedDetailSheetScaffold(
     title: String,
@@ -69,40 +101,79 @@ internal fun SharedDetailSheetScaffold(
     theme: ZStreamTheme,
     onClose: (() -> Unit)?,
     modifier: Modifier = Modifier,
+    scrollState: ScrollState = rememberScrollState(),
     content: @Composable ColumnScope.() -> Unit,
 ) {
+    val isTv = LocalIsTv.current
+    var containerCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
+
+    val bringIntoViewSpec = remember(isTv) {
+        object : BringIntoViewSpec {
+            override fun calculateScrollDistance(
+                offset: Float,
+                size: Float,
+                containerSize: Float,
+            ): Float {
+                // On TV, we handle scrolling such that the item is positioned near the top
+                if (isTv) {
+                    val targetPadding = 200f // Scroll such that item is 200px from the top
+                    return offset - targetPadding
+                }
+                
+                return calculateDefaultBringIntoViewScrollDistance(
+                    offset = offset,
+                    size = size,
+                    containerSize = containerSize,
+                )
+            }
+        }
+    }
+
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
+        CompositionLocalProvider(
+            LocalBringIntoViewSpec provides bringIntoViewSpec,
+            LocalScrollState provides scrollState,
+            LocalScrollableContainerCoordinates provides containerCoords
         ) {
-            Surface(
-                color = theme.colors.background.main,
-                shape = RoundedCornerShape(DETAIL_SHEET_CORNER_RADIUS),
+            Column(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = this@BoxWithConstraints.maxHeight + DETAIL_SHEET_MIN_SCROLL_EXTRA)
-                    .border(1.dp, theme.colors.type.divider.copy(alpha = 0.2f), RoundedCornerShape(DETAIL_SHEET_CORNER_RADIUS))
+                    .fillMaxSize()
+                    .verticalScroll(scrollState)
+                    .onGloballyPositioned { containerCoords = it }
+                    .padding(top = if (isTv) 64.dp else 64.dp, bottom = 64.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Column(Modifier.fillMaxWidth()) {
-                    SharedDetailSheetHero(
-                        title = title,
-                        backdropUrl = backdropUrl,
-                        logoUrl = logoUrl,
-                        posterUrl = posterUrl,
-                        year = year,
-                        rating = rating,
-                        theme = theme,
-                        onClose = onClose
-                    )
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .offset(y = (-20).dp)
-                    ) {
-                        content()
-                        Spacer(Modifier.height(DETAIL_SHEET_BOTTOM_SPACER))
+                Surface(
+                    color = theme.colors.background.main,
+                    shape = RoundedCornerShape(DETAIL_SHEET_CORNER_RADIUS),
+                    modifier = Modifier
+                        .fillMaxWidth(if (isTv) 0.85f else 1f)
+                        .heightIn(min = this@BoxWithConstraints.maxHeight + DETAIL_SHEET_MIN_SCROLL_EXTRA)
+                        .border(
+                            1.dp,
+                            theme.colors.type.divider.copy(alpha = 0.2f),
+                            RoundedCornerShape(DETAIL_SHEET_CORNER_RADIUS)
+                        )
+                ) {
+                    Column(Modifier.fillMaxWidth()) {
+                        SharedDetailSheetHero(
+                            title = title,
+                            backdropUrl = backdropUrl,
+                            logoUrl = logoUrl,
+                            posterUrl = posterUrl,
+                            year = year,
+                            rating = rating,
+                            theme = theme,
+                            onClose = onClose
+                        )
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .offset(y = (-20).dp)
+                        ) {
+                            content()
+                            Spacer(Modifier.height(DETAIL_SHEET_BOTTOM_SPACER))
+                        }
                     }
                 }
             }
@@ -121,6 +192,7 @@ internal fun SharedDetailSheetHero(
     theme: ZStreamTheme,
     onClose: (() -> Unit)?,
 ) {
+    val isTv = LocalIsTv.current
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -145,7 +217,7 @@ internal fun SharedDetailSheetHero(
                     )
                 )
         )
-        if (onClose != null) {
+        if (onClose != null && !isTv) {
             IconButton(
                 onClick = onClose,
                 modifier = Modifier
@@ -170,7 +242,7 @@ internal fun SharedDetailSheetHero(
                     contentDescription = title,
                     modifier = Modifier
                         .height(100.dp)
-                        .fillMaxWidth(0.6f),
+                        .fillMaxWidth(if (isTv) 0.4f else 0.6f),
                     contentScale = ContentScale.Fit
                 )
             } else {
@@ -195,7 +267,6 @@ internal fun SharedDetailSheetHero(
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun ColumnScope.SharedMovieDetailContent(
     detail: MovieDetail,
@@ -207,6 +278,7 @@ internal fun ColumnScope.SharedMovieDetailContent(
 ) {
     val genres = detail.genres.orEmpty()
     val cast = detail.credits?.cast.orEmpty().take(8)
+    val scrollState = LocalScrollState.current
 
     Row(
         Modifier
@@ -219,7 +291,14 @@ internal fun ColumnScope.SharedMovieDetailContent(
 
     Row(Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(40.dp)) {
         Column(Modifier.weight(1f)) {
-            detail.overview?.takeIf { it.isNotBlank() }?.let { Text(it, color = theme.colors.type.text, fontSize = 14.sp) }
+            detail.overview?.takeIf { it.isNotBlank() }?.let { 
+                Text(
+                    it, 
+                    color = theme.colors.type.text, 
+                    fontSize = 14.sp,
+                    modifier = Modifier.focusable()
+                ) 
+            }
             Spacer(Modifier.height(18.dp))
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 genres.forEach { SharedGenreChip(it.name, theme) }
@@ -258,6 +337,7 @@ internal fun ColumnScope.SharedTvDetailContent(
     topActions: @Composable RowScope.() -> Unit,
 ) {
     val seasons = detail.seasons.orEmpty().filter { it.seasonNumber > 0 }
+    val scrollState = LocalScrollState.current
 
     Row(
         Modifier
@@ -270,7 +350,14 @@ internal fun ColumnScope.SharedTvDetailContent(
 
     Row(Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(40.dp)) {
         Column(Modifier.weight(1f)) {
-            detail.overview?.takeIf { it.isNotBlank() }?.let { Text(it, color = theme.colors.type.text, fontSize = 14.sp) }
+            detail.overview?.takeIf { it.isNotBlank() }?.let { 
+                Text(
+                    it, 
+                    color = theme.colors.type.text, 
+                    fontSize = 14.sp,
+                    modifier = Modifier.focusable()
+                ) 
+            }
             Spacer(Modifier.height(18.dp))
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 detail.genres.orEmpty().forEach { SharedGenreChip(it.name, theme) }
@@ -286,29 +373,46 @@ internal fun ColumnScope.SharedTvDetailContent(
     }
 
     ZsBottomSheetSectionHeader("Seasons")
-    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(horizontal = 32.dp)) {
+    val isTv = LocalIsTv.current
+    LazyRow(
+        horizontalArrangement = Arrangement.spacedBy(if (isTv) 12.dp else 8.dp),
+        modifier = Modifier.padding(horizontal = 32.dp),
+        contentPadding = if (isTv) PaddingValues(4.dp) else PaddingValues(0.dp)
+    ) {
         items(seasons) { season ->
-            FilterChip(
-                selected = season.seasonNumber == selectedSeason?.seasonNumber,
-                onClick = { onSelectSeason(season.seasonNumber) },
-                label = { Text("S${season.seasonNumber}") },
-                colors = FilterChipDefaults.filterChipColors(
-                    selectedContainerColor = theme.colors.background.secondaryHover.copy(alpha = 0.8f),
-                    selectedLabelColor = theme.colors.type.emphasis,
-                    containerColor = theme.colors.background.secondary.copy(alpha = 0.5f),
-                    labelColor = theme.colors.type.secondary,
-                ),
-                border = FilterChipDefaults.filterChipBorder(
-                    enabled = true,
-                    selected = season.seasonNumber == selectedSeason?.seasonNumber,
-                    borderColor = theme.colors.type.divider.copy(alpha = 0.22f),
-                    selectedBorderColor = theme.colors.global.accentA.copy(alpha = 0.45f),
-                    borderWidth = 1.dp,
-                    selectedBorderWidth = 1.dp,
-                ),
-                leadingIcon = null,
-                trailingIcon = null,
-            )
+            var isFocused by remember { mutableStateOf(false) }
+            val isSelected = season.seasonNumber == selectedSeason?.seasonNumber
+
+            ZsOutlinedWrapper(
+                shape = RoundedCornerShape(8.dp),
+                visible = isFocused && isTv,
+                outlineColor = Color.White,
+                outlineWidth = 2.dp,
+                gap = 2.dp,
+            ) {
+                FilterChip(
+                    selected = isSelected,
+                    onClick = { onSelectSeason(season.seasonNumber) },
+                    label = { Text("S${season.seasonNumber}") },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = theme.colors.background.secondaryHover.copy(alpha = 0.8f),
+                        selectedLabelColor = theme.colors.type.emphasis,
+                        containerColor = theme.colors.background.secondary.copy(alpha = 0.5f),
+                        labelColor = theme.colors.type.secondary,
+                    ),
+                    border = FilterChipDefaults.filterChipBorder(
+                        enabled = true,
+                        selected = isSelected,
+                        borderColor = theme.colors.type.divider.copy(alpha = 0.22f),
+                        selectedBorderColor = theme.colors.global.accentA.copy(alpha = 0.45f),
+                        borderWidth = 1.dp,
+                        selectedBorderWidth = 1.dp,
+                    ),
+                    modifier = Modifier.onFocusChanged { isFocused = it.isFocused },
+                    leadingIcon = null,
+                    trailingIcon = null,
+                )
+            }
         }
     }
     Spacer(Modifier.height(16.dp))
@@ -343,19 +447,38 @@ internal fun ColumnScope.SharedTvDetailContent(
 }
 
 @Composable
+internal fun Modifier.onTvFocusScroll(scrollState: ScrollState): Modifier {
+    // BringIntoViewSpec handles all focus scrolling now
+    return this
+}
+
+@Composable
 internal fun SharedActionPill(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     theme: ZStreamTheme,
     onClick: () -> Unit,
 ) {
-    Surface(
+    val isTv = LocalIsTv.current
+    var isFocused by remember { mutableStateOf(false) }
+
+    ZsOutlinedWrapper(
         shape = RoundedCornerShape(50.dp),
-        color = theme.colors.type.text.copy(alpha = 0.05f),
-        border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.type.divider.copy(alpha = 0.3f)),
-        modifier = Modifier.clickable(onClick = onClick)
+        visible = isFocused && isTv,
+        outlineColor = Color.White,
+        outlineWidth = 2.dp,
+        gap = 4.dp,
     ) {
-        Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(icon, null, modifier = Modifier.size(20.dp), tint = theme.colors.type.text)
+        Surface(
+            shape = RoundedCornerShape(50.dp),
+            color = if (isFocused && isTv) theme.colors.global.accentA.copy(alpha = 0.3f) else theme.colors.type.text.copy(alpha = 0.05f),
+            border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.type.divider.copy(alpha = 0.3f)),
+            modifier = Modifier
+                .onFocusChanged { isFocused = it.isFocused }
+                .clickable(onClick = onClick)
+        ) {
+            Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(icon, null, modifier = Modifier.size(20.dp), tint = theme.colors.type.text)
+            }
         }
     }
 }
@@ -385,55 +508,64 @@ internal fun SharedGenreChip(label: String, theme: ZStreamTheme) {
 }
 
 @Composable
-internal fun SharedCastRow(cast: List<CastMember>, theme: ZStreamTheme, context: android.content.Context) {
-    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(horizontal = 32.dp, vertical = 8.dp)) {
+internal fun SharedCastRow(
+    cast: List<CastMember>,
+    theme: ZStreamTheme,
+    context: android.content.Context,
+    modifier: Modifier = Modifier
+) {
+    val isTv = LocalIsTv.current
+    LazyRow(
+        horizontalArrangement = Arrangement.spacedBy(if (isTv) 12.dp else 8.dp),
+        modifier = modifier.padding(horizontal = 32.dp, vertical = 8.dp),
+        contentPadding = if (isTv) PaddingValues(4.dp) else PaddingValues(0.dp)
+    ) {
         items(cast) { member ->
-            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(105.dp).clickable {
-                openCastProfile(context, member.id, member.externalIds?.imdbId)
-            }) {
-                AsyncImage(
-                    model = member.profilePath?.let { "${Urls.TMDB_IMAGE}w185$it" },
-                    contentDescription = member.name,
-                    modifier = Modifier.size(96.dp).clip(CircleShape).border(1.dp, theme.colors.type.text.copy(alpha = 0.08f), CircleShape),
-                    contentScale = ContentScale.Crop,
-                )
-                Spacer(Modifier.height(10.dp))
-                Text(member.name.orEmpty(), maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelMedium, color = theme.colors.type.emphasis)
-                Text(member.character.orEmpty(), maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelSmall, color = theme.colors.type.secondary)
-            }
-        }
-    }
-}
-
-@Composable
-internal fun SharedTrailerGrid(trailers: List<TrailerData>, theme: ZStreamTheme, context: android.content.Context) {
-    if (trailers.isEmpty()) {
-        ZsStatusBanner(
-            message = "No trailers available",
-            variant = ZsStatusBannerVariant.Info,
-            modifier = Modifier.padding(horizontal = 32.dp, vertical = 12.dp),
-        )
-        return
-    }
-
-    Column(Modifier.padding(horizontal = 32.dp, vertical = 12.dp)) {
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            items(trailers.take(3)) { trailer ->
-                Box(
+            var isFocused by remember { mutableStateOf(false) }
+            ZsOutlinedWrapper(
+                shape = RoundedCornerShape(12.dp),
+                visible = isFocused && isTv,
+                outlineColor = Color.White,
+                outlineWidth = 2.dp,
+                gap = 4.dp,
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier
-                        .width(200.dp)
-                        .aspectRatio(16f / 9f)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(theme.colors.modal.background)
-                        .clickable { openYoutubeTrailer(context, trailer.key) }
+                        .width(105.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .onFocusChanged { isFocused = it.isFocused }
+                        .clickable {
+                            openCastProfile(context, member.id, member.externalIds?.imdbId)
+                        }
+                        .padding(vertical = 4.dp)
                 ) {
                     AsyncImage(
-                        model = "https://img.youtube.com/vi/${trailer.key}/0.jpg",
-                        contentDescription = trailer.name,
+                        model = member.profilePath?.let { "${Urls.TMDB_IMAGE}w185$it" },
+                        contentDescription = member.name,
+                        modifier = Modifier
+                            .size(96.dp)
+                            .clip(CircleShape)
+                            .border(1.dp, theme.colors.type.text.copy(alpha = 0.08f), CircleShape),
                         contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize()
                     )
-                    Text(trailer.name, color = Color.White, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(8.dp))
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        member.name.orEmpty(),
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = theme.colors.type.emphasis,
+                        textAlign = TextAlign.Center
+                    )
+                    Text(
+                        member.character.orEmpty(),
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = theme.colors.type.secondary,
+                        textAlign = TextAlign.Center
+                    )
                 }
             }
         }
@@ -441,35 +573,139 @@ internal fun SharedTrailerGrid(trailers: List<TrailerData>, theme: ZStreamTheme,
 }
 
 @Composable
-internal fun SharedSimilarGrid(similar: List<Media>, theme: ZStreamTheme, nav: NavController) {
-    if (similar.isEmpty()) {
+internal fun SharedTrailerGrid(
+    trailers: List<TrailerData>,
+    theme: ZStreamTheme,
+    context: android.content.Context,
+    modifier: Modifier = Modifier
+) {
+    if (trailers.isEmpty()) {
         ZsStatusBanner(
-            message = "No similar movies available",
+            message = "No trailers available",
             variant = ZsStatusBannerVariant.Info,
-            modifier = Modifier.padding(horizontal = 32.dp, vertical = 12.dp),
+            modifier = modifier.padding(horizontal = 32.dp, vertical = 12.dp),
         )
         return
     }
 
-    Column(Modifier.padding(horizontal = 32.dp, vertical = 12.dp)) {
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(similar.take(10)) { movie ->
-                Column(
-                    modifier = Modifier
-                        .width(140.dp)
-                        .clickable { nav.navigate("detail/${movie.type}/${movie.id}") }
+    val isTv = LocalIsTv.current
+    Column(modifier.padding(horizontal = 32.dp, vertical = 12.dp)) {
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = if (isTv) PaddingValues(4.dp) else PaddingValues(0.dp)
+        ) {
+            items(trailers.take(3)) { trailer ->
+                var isFocused by remember { mutableStateOf(false) }
+                ZsOutlinedWrapper(
+                    shape = RoundedCornerShape(8.dp),
+                    visible = isFocused && isTv,
+                    outlineColor = Color.White,
+                    outlineWidth = 2.dp,
+                    gap = 4.dp,
                 ) {
-                    Box(modifier = Modifier.fillMaxWidth().height(205.dp).clip(RoundedCornerShape(8.dp)).background(theme.colors.modal.background)) {
-                        movie.posterUrl()?.let {
-                            AsyncImage(model = it, contentDescription = movie.displayTitle, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-                        }
+                    Box(
+                        modifier = Modifier
+                            .width(200.dp)
+                            .aspectRatio(16f / 9f)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(theme.colors.modal.background)
+                            .onFocusChanged { isFocused = it.isFocused }
+                            .clickable { openYoutubeTrailer(context, trailer.key) }
+                    ) {
+                        AsyncImage(
+                            model = "https://img.youtube.com/vi/${trailer.key}/0.jpg",
+                            contentDescription = trailer.name,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                        Text(
+                            trailer.name,
+                            color = Color.White,
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier
+                                .align(Alignment.BottomStart)
+                                .background(Color.Black.copy(alpha = 0.5f))
+                                .padding(8.dp)
+                                .fillMaxWidth()
+                        )
                     }
-                    Spacer(Modifier.height(8.dp))
-                    Text(movie.displayTitle, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelMedium, color = theme.colors.type.emphasis)
-                    val year = (movie.releaseDate ?: movie.firstAirDate)?.take(4) ?: "—"
-                    val capitalizedMovie = movie.type.replaceFirstChar { it.uppercase() }
-                    Text("$capitalizedMovie • $year", style = MaterialTheme.typography.labelSmall, color = theme.colors.type.secondary)
-                    Spacer(Modifier.height(16.dp))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+internal fun SharedSimilarGrid(
+    similar: List<Media>,
+    theme: ZStreamTheme,
+    nav: NavController,
+    modifier: Modifier = Modifier
+) {
+    if (similar.isEmpty()) {
+        ZsStatusBanner(
+            message = "No similar movies available",
+            variant = ZsStatusBannerVariant.Info,
+            modifier = modifier.padding(horizontal = 32.dp, vertical = 12.dp),
+        )
+        return
+    }
+
+    val isTv = LocalIsTv.current
+    Column(modifier.padding(horizontal = 32.dp, vertical = 12.dp)) {
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = if (isTv) PaddingValues(4.dp) else PaddingValues(0.dp)
+        ) {
+            items(similar.take(10)) { movie ->
+                var isFocused by remember { mutableStateOf(false) }
+                ZsOutlinedWrapper(
+                    shape = RoundedCornerShape(8.dp),
+                    visible = isFocused && isTv,
+                    outlineColor = Color.White,
+                    outlineWidth = 2.dp,
+                    gap = 4.dp,
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .width(140.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .onFocusChanged { isFocused = it.isFocused }
+                            .clickable { nav.navigate("detail/${movie.type}/${movie.id}") }
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(205.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(theme.colors.modal.background)
+                        ) {
+                            movie.posterUrl()?.let {
+                                AsyncImage(
+                                    model = it,
+                                    contentDescription = movie.displayTitle,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            movie.displayTitle,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = theme.colors.type.emphasis
+                        )
+                        val year = (movie.releaseDate ?: movie.firstAirDate)?.take(4) ?: "—"
+                        val capitalizedMovie = movie.type.replaceFirstChar { it.uppercase() }
+                        Text(
+                            "$capitalizedMovie • $year",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = theme.colors.type.secondary
+                        )
+                        Spacer(Modifier.height(8.dp))
+                    }
                 }
             }
         }
