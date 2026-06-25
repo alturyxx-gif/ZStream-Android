@@ -3,6 +3,7 @@ package com.zstream.android.ui.screens
 import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
@@ -21,8 +22,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.focus.requestFocus
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -62,6 +66,12 @@ fun SearchScreenTV(nav: NavController, vm: SearchViewModel) {
     val error by vm.error.collectAsState()
     val theme = LocalZStreamTheme.current
     val hazeState = rememberHazeState()
+    
+    val searchBarFocusRequester = remember { FocusRequester() }
+    
+    LaunchedEffect(Unit) {
+        searchBarFocusRequester.requestFocus()
+    }
     
     var focusedMedia by remember { mutableStateOf<Media?>(null) }
     
@@ -103,12 +113,29 @@ fun SearchScreenTV(nav: NavController, vm: SearchViewModel) {
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 // Search Input
-                ZsSearchField(
-                    value = query,
-                    onValueChange = { vm.query.value = it },
-                    placeholder = "Search movies and shows here...",
-                    modifier = Modifier.fillMaxWidth().focusProperties { canFocus = false }.height(72.dp)
-                )
+                var isSearchBarFocused by remember { mutableStateOf(false) }
+                ZsOutlinedWrapper(
+                    visible = isSearchBarFocused,
+                    shape = RoundedCornerShape(12.dp),
+                    outlineColor = theme.colors.global.accentA.copy(alpha = 0.6f),
+                    gap = 4.dp
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(72.dp)
+                            .focusRequester(searchBarFocusRequester)
+                            .onFocusChanged { isSearchBarFocused = it.isFocused }
+                            .focusable()
+                    ) {
+                        ZsSearchField(
+                            value = query,
+                            onValueChange = { vm.query.value = it },
+                            placeholder = "Search movies and shows here...",
+                            modifier = Modifier.fillMaxSize().focusProperties { canFocus = false }
+                        )
+                    }
+                }
 
                 // Preview Area
                 Box(Modifier.weight(1f)) {

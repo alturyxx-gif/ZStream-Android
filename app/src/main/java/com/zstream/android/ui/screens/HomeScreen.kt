@@ -2292,7 +2292,8 @@ private fun FeaturedCarousel(
     progressMap: Map<String, ProgressEntity> = emptyMap(),
     isSearching: Boolean = false,
     modifier: Modifier = Modifier,
-    onFocused: () -> Unit = {}
+    onFocused: () -> Unit = {},
+    playButtonFocusRequester: FocusRequester? = null
 ) {
     val theme = LocalZStreamTheme.current
     var focusedMenu by remember { mutableStateOf(false) }
@@ -2394,7 +2395,8 @@ private fun FeaturedCarousel(
             val title = current.displayTitle
             val year = current.displayDate.take(4)
             val type = current.type
-            val playButtonFocusRequester = remember(page) { FocusRequester() }
+            val itemPlayButtonFocusRequester = remember(page) { FocusRequester() }
+            val effectivePlayRequester = if (page == 0 && playButtonFocusRequester != null) playButtonFocusRequester else itemPlayButtonFocusRequester
             val moreInfoButtonFocusRequester = remember(page) { FocusRequester() }
 
             LaunchedEffect(pagerState.currentPage, pendingButtonFocus, page) {
@@ -2403,7 +2405,7 @@ private fun FeaturedCarousel(
 
                 withFrameMillis { }
                 when (pendingFocus.button) {
-                    FeaturedCarouselButtonFocus.Play -> playButtonFocusRequester.requestFocus()
+                    FeaturedCarouselButtonFocus.Play -> effectivePlayRequester.requestFocus()
                     FeaturedCarouselButtonFocus.MoreInfo -> moreInfoButtonFocusRequester.requestFocus()
                 }
                 pendingButtonFocus = null
@@ -2603,7 +2605,7 @@ private fun FeaturedCarousel(
                                     modifier = Modifier
                                         .height(48.dp)
                                         .fillMaxWidth()
-                                        .focusRequester(playButtonFocusRequester)
+                                        .focusRequester(effectivePlayRequester)
                                         .onPreviewKeyEvent { event ->
                                             if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionLeft) {
                                                 if (pagerState.currentPage > 0) {
@@ -2885,8 +2887,19 @@ private fun TvHomeScreenContent(
     val topPaddingPx = remember(density) { with(density) { 80.dp.roundToPx() } }
 
     val carouselFocusRequester = remember { FocusRequester() }
+    val carouselPlayButtonRequester = remember { FocusRequester() }
     val searchBarFocusRequester = remember { FocusRequester() }
     val topBarFocusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(Unit) {
+        if (state.loading) return@LaunchedEffect
+        delay(600) // Wait for content and layout to settle
+        if (isFeaturedActive) {
+            carouselPlayButtonRequester.requestFocus()
+        } else {
+            searchBarFocusRequester.requestFocus()
+        }
+    }
 
     var tvScrollRequestId by remember { mutableStateOf(0) }
     var tvScrollTarget by remember { mutableStateOf<TvHomeScrollTarget?>(null) }
@@ -2947,6 +2960,7 @@ private fun TvHomeScreenContent(
                             media = state.featuredMedia,
                             nav = nav,
                             progressMap = state.progressMap,
+                            playButtonFocusRequester = carouselPlayButtonRequester,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .focusRequester(carouselFocusRequester)
