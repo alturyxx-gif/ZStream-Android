@@ -581,17 +581,17 @@ private fun TvSettingsRow(
                 .clip(RoundedCornerShape(8.dp))
                 .background(bgColor)
                 .onFocusChanged { isFocused = it.isFocused }
-                .focusable()
                 .then(
-                    if (onActivate != null) Modifier
-                        .clickable { onActivate() }
-                        .onKeyEvent { event ->
-                            if (event.type == KeyEventType.KeyDown && (event.key == Key.DirectionCenter || event.key == Key.Enter)) {
-                                onActivate()
-                                true
-                            } else false
-                        }
-                    else Modifier
+                    if (onActivate != null) {
+                        Modifier
+                            .onKeyEvent { event ->
+                                if (event.type == KeyEventType.KeyDown && (event.key == Key.DirectionCenter || event.key == Key.Enter)) {
+                                    onActivate()
+                                    true
+                                } else false
+                            }
+                            .focusable()
+                    } else Modifier
                 )
                 .padding(horizontal = 4.dp, vertical = 2.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -1961,7 +1961,6 @@ private fun TvSliderRow(
                         } else false
                     }
                 }
-                .clickable { if (!isAdjusting) isAdjusting = true }
                 .padding(horizontal = 4.dp, vertical = 2.dp),
         ) {
             Row(
@@ -2048,14 +2047,13 @@ private fun TvDropdownRow(
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(8.dp))
                 .onFocusChanged { isFocused = it.isFocused }
-                .focusable()
                 .onKeyEvent { event ->
-                    if (event.key == Key.DirectionCenter || event.key == Key.Enter) {
-                        expanded = true
+                    if (event.type == KeyEventType.KeyDown && (event.key == Key.DirectionCenter || event.key == Key.Enter)) {
+                        if (!expanded) expanded = true
                         true
                     } else false
                 }
-                .clickable { if (!expanded) expanded = true }
+                .focusable()
                 .padding(horizontal = 12.dp, vertical = 14.dp),
             Arrangement.SpaceBetween,
             Alignment.CenterVertically,
@@ -2134,7 +2132,6 @@ private fun TvTextField(
                         else -> false
                     }
                 }
-                .clickable { if (!isEditing) isEditing = true }
                 .padding(horizontal = 12.dp, vertical = 10.dp),
         ) {
             BasicTextField(
