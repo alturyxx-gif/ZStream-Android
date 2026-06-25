@@ -181,6 +181,42 @@ class SettingsViewModel @Inject constructor(
         update { copy(tidbKey = key) }
     }
 
+    suspend fun validateTmdbKey(key: String): Result<Boolean> = withContext(kotlinx.coroutines.Dispatchers.IO) {
+        if (key.isBlank()) return@withContext Result.success(false)
+
+        // If it looks like a v4 token (JWT), we should ideally use Bearer auth,
+        // but the app currently uses api_key query param for everything.
+        // TMDB v3 API key is 32 chars. v4 is a long JWT.
+        val isV4 = key.length > 32 && key.contains(".")
+
+        val url = "https://api.themoviedb.org/3/authentication"
+        val requestBuilder = Request.Builder().url(url)
+        
+        if (isV4) {
+            requestBuilder.header("Authorization", "Bearer $key")
+        } else {
+            val fullUrl = Request.Builder().url(url).build().url.newBuilder()
+                .addQueryParameter("api_key", key)
+                .build()
+            requestBuilder.url(fullUrl)
+        }
+
+        runCatching {
+            httpClient.newCall(requestBuilder.build()).execute().use { response ->
+                when (response.code) {
+                    200 -> Result.success(true)
+                    401 -> Result.success(false)
+                    else -> {
+                        val errorBody = response.body?.string().orEmpty()
+                        val errorMessage = runCatching { JSONObject(errorBody).optString("status_message") }.getOrNull()
+                        throw IllegalStateException(errorMessage?.takeIf { it.isNotBlank() }
+                            ?: "Validation request failed (${response.code})")
+                    }
+                }
+            }
+        }.getOrElse { Result.failure(it) }
+    }
+
     suspend fun validateTidbKey(key: String): Result<Boolean> = withContext(kotlinx.coroutines.Dispatchers.IO) {
         if (key.isBlank()) return@withContext Result.success(false)
 
