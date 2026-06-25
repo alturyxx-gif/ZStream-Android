@@ -37,11 +37,13 @@ typealias MediaCardComponent = @Composable (
     media: Media,
     onClick: () -> Unit,
     percentage: Float?,
-    seriesLabel: String?
+    seriesLabel: String?,
+    width: Dp?,
+    height: Dp?
 ) -> Unit
 
 val LocalMediaCard = compositionLocalOf<MediaCardComponent> {
-    { m, o, p, s -> MediaCardStandard(m, o, p, s) }
+    { m, o, p, s, w, h -> MediaCardStandard(m, o, p, s, w, h) }
 }
 
 @Composable
@@ -50,8 +52,10 @@ fun MediaCard(
     onClick: () -> Unit,
     percentage: Float? = null,
     seriesLabel: String? = null,
+    width: Dp? = null,
+    height: Dp? = null,
 ) {
-    LocalMediaCard.current(media, onClick, percentage, seriesLabel)
+    LocalMediaCard.current(media, onClick, percentage, seriesLabel, width, height)
 }
 
 @Composable
@@ -60,13 +64,15 @@ fun MediaCardStandard(
     onClick: () -> Unit,
     percentage: Float? = null,
     seriesLabel: String? = null,
+    width: Dp? = null,
+    height: Dp? = null,
 ) {
     val theme = LocalZStreamTheme.current
     val posterUrl = media.posterUrl("w342")
     val isTv = LocalIsTv.current
     var isFocused by remember { mutableStateOf(false) }
-    val cardWidth: Dp = if (isTv) 140.dp else 110.dp
-    val cardHeight: Dp = if (isTv) 210.dp else 165.dp
+    val cardWidth: Dp = width ?: if (isTv) 140.dp else 110.dp
+    val cardHeight: Dp = height ?: if (isTv) 210.dp else 165.dp
 
     ZsOutlinedWrapper(
         visible = isFocused && isTv,
@@ -232,13 +238,15 @@ fun MediaCardMinimal(
     onClick: () -> Unit,
     percentage: Float? = null,
     seriesLabel: String? = null,
+    width: Dp? = null,
+    height: Dp? = null,
 ) {
     val theme = LocalZStreamTheme.current
     val posterUrl = media.posterUrl("w342")
     val isTv = LocalIsTv.current
     var isFocused by remember { mutableStateOf(false) }
-    val cardWidth: Dp = if (isTv) 140.dp else 110.dp
-    val cardHeight: Dp = if (isTv) 210.dp else 165.dp
+    val cardWidth: Dp = width ?: if (isTv) 140.dp else 110.dp
+    val cardHeight: Dp = height ?: if (isTv) 210.dp else 165.dp
 
     ZsOutlinedWrapper(
         visible = isFocused && isTv,

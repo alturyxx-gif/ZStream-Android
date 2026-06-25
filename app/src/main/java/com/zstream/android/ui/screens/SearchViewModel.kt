@@ -17,10 +17,18 @@ class SearchViewModel @Inject constructor(private val repo: TmdbRepository) : Vi
     val query = MutableStateFlow("")
     private val _results = MutableStateFlow<List<Media>>(emptyList())
     val results = _results.asStateFlow()
+
+    private val _popular = MutableStateFlow<List<Media>>(emptyList())
+    val popular = _popular.asStateFlow()
+
     val loading = MutableStateFlow(false)
     val error = MutableStateFlow<String?>(null)
 
     init {
+        viewModelScope.launch {
+            runCatching { _popular.value = repo.popularMovies() }
+        }
+
         viewModelScope.launch {
             query.debounce(400).collectLatest { q ->
                 if (q.isBlank()) { _results.value = emptyList(); return@collectLatest }
