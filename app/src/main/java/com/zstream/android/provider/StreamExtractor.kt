@@ -55,7 +55,14 @@ class StreamExtractor(private val activity: Activity) {
                 fun finish(url: String?) {
                     if (resolved) return
                     resolved = true
-                    webView?.let { wv -> activity.runOnUiThread { wv.stopLoading(); wv.loadUrl("about:blank") } }
+                    webView?.let { wv -> 
+                        activity.runOnUiThread { 
+                            wv.stopLoading()
+                            wv.loadUrl("about:blank")
+                            (activity.window.decorView as ViewGroup).removeView(wv)
+                            wv.destroy()
+                        } 
+                    }
                     if (cont.isActive) cont.resume(url)
                 }
 
@@ -71,11 +78,19 @@ class StreamExtractor(private val activity: Activity) {
                         finish(url)
                         true
                     }.also { wv ->
-                        (activity.window.decorView as ViewGroup)
-                            .addView(wv, ViewGroup.LayoutParams(1, 1))
+                        val parent = activity.window.decorView as ViewGroup
+                        parent.addView(wv, ViewGroup.LayoutParams(1, 1))
                         wv.loadUrl(embedUrl)
                     }
-                    cont.invokeOnCancellation { activity.runOnUiThread { webView?.destroy() } }
+                    cont.invokeOnCancellation { 
+                        activity.runOnUiThread { 
+                            val parent = activity.window.decorView as ViewGroup
+                            webView?.let { wv ->
+                                parent.removeView(wv)
+                                wv.destroy()
+                            }
+                        } 
+                    }
                 }
             }
         }
@@ -83,6 +98,8 @@ class StreamExtractor(private val activity: Activity) {
 
     @SuppressLint("SetJavaScriptEnabled")
     private fun createWebView(onRequest: (String) -> Boolean): WebView = WebView(activity).apply {
+        isFocusable = false
+        isFocusableInTouchMode = false
         settings.javaScriptEnabled = true
         settings.domStorageEnabled = true
         settings.userAgentString =

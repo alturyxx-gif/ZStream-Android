@@ -1253,7 +1253,10 @@ private fun MediaCarouselSection(
         SyncedSectionTitle(section.title)
 //      Text("View more →", color = theme.colors.type.dimmed, fontSize = 11.sp) // TODO: add ability to click this
 
-        LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 16.dp), 
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
             items(section.items) { media ->
                 val progress = progressMap[media.id.toString()]
                 val progressInfo = progress?.let { getProgressInfo(it) }
@@ -1953,7 +1956,7 @@ private fun SandwichItem(
         shape = RoundedCornerShape(8.dp),
         outlineColor = theme.colors.global.accentA.copy(alpha = 0.6f),
         gap = 2.dp,
-        modifier = modifier
+        modifier = modifier.padding(horizontal = 5.dp)
     ) {
         Row(
             modifier = Modifier

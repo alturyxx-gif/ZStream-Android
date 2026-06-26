@@ -25,6 +25,7 @@ espressoCore = "3.6.1"
 ui = "1.11.3"
 tvFoundation = "1.0.0"
 tvMaterial = "1.1.0"
+foundation = "1.11.3"
 
 [libraries]
 # Core
@@ -91,6 +92,7 @@ junit = { group = "junit", name = "junit", version.ref = "junit" }
 androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "junitVersion" }
 androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espressoCore" }
 androidx-ui = { group = "androidx.compose.ui", name = "ui", version.ref = "ui" }
+androidx-foundation = { group = "androidx.compose.foundation", name = "foundation", version.ref = "foundation" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

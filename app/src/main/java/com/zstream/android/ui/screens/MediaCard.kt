@@ -76,7 +76,7 @@ fun MediaCardStandard(
 
     ZsOutlinedWrapper(
         visible = isFocused && isTv,
-        shape = RoundedCornerShape(10.dp),
+        shape = RoundedCornerShape(14.dp),
         outlineColor = Color.White,
         gap = 4.dp
     ) {
