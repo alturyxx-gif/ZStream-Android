@@ -90,11 +90,14 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -129,6 +132,22 @@ import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 private const val HOME_FOCUS_DEBUG_TAG = "HomeFocusDebug"
+
+private object TvHomeMetrics {
+    val screenPadding = 32.dp
+    val topBarHeight = 56.dp
+    val headerButtonSize = 40.dp
+    val headerIconSize = 20.dp
+    val searchBarWidth = 280.dp
+    val sectionTitleSize = 16.sp
+    val sectionSpacing = 16.dp
+    val cardWidth = 126.dp
+    val cardHeight = 189.dp
+    val featuredHeight = 360.dp
+    val menuWidth = 320.dp
+    val railItemSpacing = 12.dp
+    val railVerticalSpacing = 8.dp
+}
 
 private fun calculateDefaultBringIntoViewScrollDistance(
     offset: Float,
@@ -601,7 +620,7 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
                                                     .clickable { vm.searchLoadMore() }
                                                     .padding(horizontal = 16.dp, vertical = 10.dp),
                                                 contentAlignment = Alignment.Center
-                                            ) 
+                                            )
                                             { Text("Load More", color = theme.colors.type.emphasis, fontSize = 18.sp) }
                                         } else {
                                             Box(
@@ -614,7 +633,7 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
                                                     )
                                                     .padding(horizontal = 16.dp, vertical = 10.dp),
                                                 contentAlignment = Alignment.Center
-                                            ) 
+                                            )
                                             { Text("That's all we have...", color = theme.colors.type.secondary, fontSize = 12.sp) }
                                         }
                                     }
@@ -1229,14 +1248,16 @@ private fun HomeTabs(activeTab: HomeTab, onTab: (HomeTab) -> Unit) {
 @Composable
 private fun SyncedSectionTitle(title: String) {
     val theme = LocalZStreamTheme.current
-    var focusedMenu by remember { mutableStateOf(false) }
-    val focusMenuWidth by animateDpAsState(if (focusedMenu) 3.dp else 0.dp)
+    val isTv = LocalIsTv.current
     Text(
         text = title,
         color = theme.colors.type.emphasis,
         fontWeight = FontWeight.Bold,
-        fontSize = 16.sp,
-        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+        fontSize = if (isTv) TvHomeMetrics.sectionTitleSize else 16.sp,
+        modifier = Modifier.padding(
+            horizontal = if (isTv) TvHomeMetrics.screenPadding else 16.dp,
+            vertical = if (isTv) 6.dp else 8.dp
+        )
     )
 }
 @Composable
@@ -1247,15 +1268,13 @@ private fun MediaCarouselSection(
     modifier: Modifier = Modifier,
 ) {
     val theme = LocalZStreamTheme.current
-    var focusedMenu by remember { mutableStateOf(false) }
-    val focusMenuWidth by animateDpAsState(if (focusedMenu) 3.dp else 0.dp)
+    val isTv = LocalIsTv.current
     Column(modifier = modifier) {
         SyncedSectionTitle(section.title)
-//      Text("View more →", color = theme.colors.type.dimmed, fontSize = 11.sp) // TODO: add ability to click this
 
         LazyRow(
-            contentPadding = PaddingValues(horizontal = 16.dp), 
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+            contentPadding = PaddingValues(horizontal = if (isTv) TvHomeMetrics.screenPadding else 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(if (isTv) TvHomeMetrics.railItemSpacing else 10.dp)
         ) {
             items(section.items) { media ->
                 val progress = progressMap[media.id.toString()]
@@ -1473,9 +1492,6 @@ private fun LayoutMenuDialog(
     onDismiss: () -> Unit,
 ) {
     val theme = LocalZStreamTheme.current
-    var focusedMenu by remember { mutableStateOf(false) }
-    val focusMenuWidth by animateDpAsState(if (focusedMenu) 3.dp else 0.dp)
-
     val isTv = LocalIsTv.current
     val closeFocusRequester = remember { FocusRequester() }
     LaunchedEffect(Unit) {
@@ -1514,87 +1530,165 @@ private fun LayoutMenuDialog(
     var draggedOffset by remember { mutableStateOf(0f) }
     val itemHeights = remember { mutableMapOf<Int, Int>() }
 
-    Dialog(onDismissRequest = onDismiss) {
-        Box(Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
-            .background(theme.colors.modal.background)
-            .padding(20.dp)
+    if (isTv) {
+        Popup(
+            alignment = Alignment.TopEnd,
+            offset = IntOffset(
+                x = -(TvHomeMetrics.screenPadding.value * 2).toInt(),
+                y = (TvHomeMetrics.topBarHeight.value).toInt()
+            ),
+            onDismissRequest = onDismiss,
+            properties = PopupProperties(focusable = true)
         ) {
-            Column {
-                Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
-                    Text("Edit Layout", color = theme.colors.type.emphasis, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                    ZsIconButton(
-                        onClick = onDismiss,
-                        icon = Icons.Default.Close,
-                        contentDescription = null,
-                        variant = ZsIconButtonVariant.Ghost,
-                        containerSize = 24.dp,
-                        iconSize = 16.dp,
-                        modifier = Modifier.focusRequester(closeFocusRequester)
-                    )
-                }
+            Box(Modifier
+                .width(TvHomeMetrics.menuWidth)
+                .clip(RoundedCornerShape(16.dp))
+                .background(theme.colors.modal.background)
+                .border(1.dp, theme.colors.type.divider.copy(alpha = 0.2f), RoundedCornerShape(16.dp))
+                .padding(12.dp)
+            ) {
+                Column {
+                    Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
+                        Text("Edit Layout", color = theme.colors.type.emphasis, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        ZsIconButton(
+                            onClick = onDismiss,
+                            icon = Icons.Default.Close,
+                            contentDescription = null,
+                            variant = ZsIconButtonVariant.Ghost,
+                            containerSize = 24.dp,
+                            iconSize = 16.dp,
+                            modifier = Modifier.focusRequester(closeFocusRequester)
+                        )
+                    }
+                    Spacer(Modifier.height(8.dp))
 
-                sections.forEachIndexed { index, section ->
-                    val isDragging = draggedIndex == index
-                    var isRowFocused by remember { mutableStateOf(false) }
+                    sections.forEachIndexed { index, section ->
+                        var isRowFocused by remember { mutableStateOf(false) }
 
-                    ZsOutlinedWrapper(
-                        visible = isRowFocused && LocalIsTv.current,
-                        shape = RoundedCornerShape(12.dp),
-                        outlineColor = theme.colors.global.accentA.copy(alpha = 0.6f),
-                        gap = 2.dp
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .onGloballyPositioned { itemHeights[index] = it.size.height }
-                                .offset {
-                                    IntOffset(
-                                        0,
-                                        if (isDragging) draggedOffset.roundToInt() else 0
+                        ZsOutlinedWrapper(
+                            visible = isRowFocused,
+                            shape = RoundedCornerShape(8.dp),
+                            outlineColor = theme.colors.global.accentA.copy(alpha = 0.6f),
+                            gap = 2.dp
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (isRowFocused) theme.colors.background.secondary.copy(alpha = 0.4f) else Color.Transparent)
+                                    .onFocusChanged { isRowFocused = it.isFocused }
+                                    .clickable {
+                                        val nextVal = !section.visible
+                                        sections[index] = section.copy(visible = nextVal)
+                                        onToggle(section.id, nextVal)
+                                    }
+                                    .padding(horizontal = 8.dp, vertical = 6.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Icon(
+                                        Icons.Default.DragHandle, null,
+                                        tint = theme.colors.type.dimmed,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Text(
+                                        section.label,
+                                        color = theme.colors.type.text, fontSize = 12.sp,
+                                        fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f),
+                                    )
+                                    Switch(
+                                        checked = section.visible,
+                                        onCheckedChange = null,
+                                        thumbContent = null,
+                                        colors = SwitchDefaults.colors(
+                                            checkedThumbColor = theme.colors.type.emphasis,
+                                            checkedTrackColor = theme.colors.global.accentA,
+                                            uncheckedThumbColor = theme.colors.type.dimmed,
+                                            uncheckedTrackColor = theme.colors.background.secondary,
+                                        ),
+                                        modifier = Modifier.scale(0.7f)
                                     )
                                 }
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(if (isRowFocused && LocalIsTv.current) theme.colors.background.secondary.copy(alpha = 0.4f) else Color.Transparent)
-                                .onFocusChanged { isRowFocused = it.isFocused }
-                                .then(
-                                    if (LocalIsTv.current) {
-                                        Modifier.clickable {
-                                            val nextVal = !section.visible
-                                            sections[index] = section.copy(visible = nextVal)
-                                            onToggle(section.id, nextVal)
-                                        }
-                                    } else Modifier
-                                )
-                                .padding(horizontal = 8.dp, vertical = 6.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Icon(
-                                    Icons.Default.DragHandle, "Drag to reorder",
-                                    tint = theme.colors.type.dimmed,
-                                    modifier = Modifier
-                                        .size(24.dp)
-                                        .then(
-                                            if (!LocalIsTv.current) {
-                                                Modifier.pointerInput(Unit) {
-                                                    detectDragGesturesAfterLongPress(
-                                                        onDragStart = {
-                                                            draggedIndex = index
-                                                            draggedOffset = 0f
-                                                        },
-                                                        onDrag = { change, dragAmount ->
-                                                            change.consume()
-                                                            val idx = draggedIndex
-                                                            if (idx != null) {
-                                                                draggedOffset += dragAmount.y
-                                                                val h = (itemHeights[idx] ?: 0).toFloat()
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    } else {
+        Dialog(onDismissRequest = onDismiss) {
+            Box(Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(20.dp))
+                .background(theme.colors.modal.background)
+                .padding(20.dp)
+            ) {
+                Column {
+                    Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
+                        Text("Edit Layout", color = theme.colors.type.emphasis, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        ZsIconButton(
+                            onClick = onDismiss,
+                            icon = Icons.Default.Close,
+                            contentDescription = null,
+                            variant = ZsIconButtonVariant.Ghost,
+                            containerSize = 24.dp,
+                            iconSize = 16.dp,
+                            modifier = Modifier.focusRequester(closeFocusRequester)
+                        )
+                    }
 
-                                                                if (draggedOffset > h / 2 && idx < sections.size - 1) {
+                    sections.forEachIndexed { index, section ->
+                        val isDragging = draggedIndex == index
+                        var isRowFocused by remember { mutableStateOf(false) }
+
+                        ZsOutlinedWrapper(
+                            visible = isRowFocused && LocalIsTv.current,
+                            shape = RoundedCornerShape(12.dp),
+                            outlineColor = theme.colors.global.accentA.copy(alpha = 0.6f),
+                            gap = 2.dp
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .onGloballyPositioned { itemHeights[index] = it.size.height }
+                                    .offset {
+                                        IntOffset(
+                                            0,
+                                            if (isDragging) draggedOffset.roundToInt() else 0
+                                        )
+                                    }
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(if (isRowFocused && LocalIsTv.current) theme.colors.background.secondary.copy(alpha = 0.4f) else Color.Transparent)
+                                    .onFocusChanged { isRowFocused = it.isFocused }
+                                    .padding(horizontal = 8.dp, vertical = 6.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Icon(
+                                        Icons.Default.DragHandle, "Drag to reorder",
+                                        tint = theme.colors.type.dimmed,
+                                        modifier = Modifier
+                                            .size(24.dp)
+                                            .pointerInput(Unit) {
+                                                detectDragGesturesAfterLongPress(
+                                                    onDragStart = {
+                                                        draggedIndex = index
+                                                        draggedOffset = 0f
+                                                    },
+                                                    onDrag = { change, dragAmount ->
+                                                        change.consume()
+                                                        val idx = draggedIndex
+                                                        if (idx != null) {
+                                                            draggedOffset += dragAmount.y
+                                                            val h = (itemHeights[idx] ?: 0).toFloat()
+
+                                                            if (draggedOffset > h / 2 && idx < sections.size - 1) {
                                                                     val temp = sections[idx]
                                                                     sections[idx] = sections[idx + 1]
                                                                     sections[idx + 1] = temp
@@ -1620,9 +1714,7 @@ private fun LayoutMenuDialog(
                                                         },
                                                     )
                                                 }
-                                            } else Modifier
-                                        ),
-                                )
+                                        )
                                 Text(
                                     section.label,
                                     color = theme.colors.type.text, fontSize = 13.sp,
@@ -1630,12 +1722,11 @@ private fun LayoutMenuDialog(
                                 )
                                 Switch(
                                     checked = section.visible,
-                                    onCheckedChange = if (LocalIsTv.current) null else {
-                                        {
-                                            sections[index] = section.copy(visible = it)
-                                            onToggle(section.id, it)
-                                        }
+                                    onCheckedChange = {
+                                        sections[index] = section.copy(visible = it)
+                                        onToggle(section.id, it)
                                     },
+                                    thumbContent = null,
                                     colors = SwitchDefaults.colors(
                                         checkedThumbColor = theme.colors.type.emphasis,
                                         checkedTrackColor = theme.colors.global.accentA,
@@ -1643,6 +1734,7 @@ private fun LayoutMenuDialog(
                                         uncheckedTrackColor = theme.colors.background.secondary,
                                     ),
                                 )
+                                }
                             }
                         }
                     }
@@ -1674,9 +1766,9 @@ private fun SandwichMenuDialog(
     var watchPartyCode by remember { mutableStateOf("") }
     val focusRequester = remember { FocusRequester() }
     val uriHandler = LocalUriHandler.current
-
     val isTv = LocalIsTv.current
     val firstItemFocusRequester = remember { FocusRequester() }
+
     LaunchedEffect(Unit) {
         if (isTv) {
             try {
@@ -1685,22 +1777,68 @@ private fun SandwichMenuDialog(
         }
     }
 
-    Dialog(onDismissRequest = onDismiss) {
-        Box(Modifier
-            .width(384.dp)
-            .clip(RoundedCornerShape(20.dp))
-            .background(theme.colors.modal.background)
-            .padding(vertical = 8.dp)) {
-            Column {
-                if (session != null) {
-                    val displayName = session.nickname.ifBlank { session.deviceName.ifBlank { "Synced" } }
+    if (isTv) {
+        Popup(
+            alignment = Alignment.TopEnd,
+            offset = IntOffset(
+                x = -(TvHomeMetrics.screenPadding.value * 2).toInt(),
+                y = (TvHomeMetrics.topBarHeight.value).toInt()
+            ),
+            onDismissRequest = onDismiss,
+            properties = PopupProperties(focusable = true)
+        ) {
+            Box(Modifier
+                .width(TvHomeMetrics.menuWidth)
+                .clip(RoundedCornerShape(16.dp))
+                .background(theme.colors.modal.background)
+                .border(1.dp, theme.colors.type.divider.copy(alpha = 0.2f), RoundedCornerShape(16.dp))
+                .padding(vertical = 8.dp)) {
+                Column {
+                    if (session != null) {
+                        val displayName = session.nickname.ifBlank { session.deviceName.ifBlank { "Synced" } }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 8.dp, vertical = 2.dp)
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            Icon(Icons.Default.CheckCircle, null, tint = theme.colors.type.success, modifier = Modifier.size(16.dp))
+                            Text("Synced: $displayName", color = theme.colors.type.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    } else {
+                        SandwichItem(
+                            Icons.Default.Star, "Sync to Cloud", theme = theme, tint = theme.colors.global.accentA,
+                            modifier = Modifier.focusRequester(firstItemFocusRequester)
+                        ) {
+                            nav.navigate("login")
+                            onDismiss()
+                        }
+                    }
+                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp), color = theme.colors.type.divider.copy(alpha = 0.15f))
+
+                    val settingsModifier = if (session != null) Modifier.focusRequester(firstItemFocusRequester) else Modifier
+                    SandwichItem(Icons.Default.Settings, "Settings", theme = theme, modifier = settingsModifier) { nav.navigate("settings"); onDismiss() }
+                    SandwichItem(Icons.Default.History, "Watch History", theme = theme) { nav.navigate("watchHistory"); onDismiss() }
+                    if (showHeaderActions) {
+                        SandwichItem(ImageVector.vectorResource(R.drawable.ic_discord), "Discord", theme = theme) { onDiscord(); onDismiss() }
+                        SandwichItem(Icons.Default.Notifications, if (unreadCount > 0) "Notifications ($unreadCount)" else "Notifications", theme = theme) {
+                            onNotifications()
+                            onDismiss()
+                        }
+                        SandwichItem(Icons.Default.AttachMoney, "Tip Jar", theme = theme) { onTipJar(); onDismiss() }
+                    }
+                    SandwichItem(Icons.Default.Explore, "Discover", theme = theme) { nav.navigate("search"); onDismiss() }
+                    SandwichItem(Icons.Default.Group, "Join a Watch Party", theme = theme) { onDismiss() }
+
+                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp), color = theme.colors.type.divider.copy(alpha = 0.15f))
+
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 8.dp, vertical = 2.dp)
-                            .padding(horizontal = 12.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            .padding(horizontal = 16.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
                         Icon(Icons.Default.CheckCircle, null, tint = theme.colors.type.success, modifier = Modifier.size(18.dp))
                         Text("Synced: $displayName", color = theme.colors.type.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
@@ -1843,38 +1981,93 @@ private fun SandwichMenuDialog(
                     links.forEach { (icon, url) ->
                         var isLinkFocused by remember { mutableStateOf(false) }
                         ZsOutlinedWrapper(
-                            visible = isLinkFocused && LocalIsTv.current,
+                            visible = isLinkFocused,
                             shape = CircleShape,
                             outlineColor = theme.colors.global.accentA.copy(alpha = 0.6f),
                             gap = 2.dp
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(40.dp)
+                                    .size(36.dp)
                                     .clip(CircleShape)
                                     .background(theme.colors.background.secondary)
-                                    .border(
-                                        1.dp,
-                                        theme.colors.type.divider.copy(alpha = 0.3f),
-                                        CircleShape
-                                    )
+                                    .border(1.dp, theme.colors.type.divider.copy(alpha = 0.3f), CircleShape)
                                     .onFocusChanged { isLinkFocused = it.isFocused }
-                                    .clickable {
-                                        uriHandler.openUri(url)
-                                    },
+                                    .clickable { uriHandler.openUri(Urls.GITHUB_REPO) },
                                 contentAlignment = Alignment.Center
                             ) {
-                                Icon(
-                                    imageVector = icon,
-                                    contentDescription = null,
-                                    tint = theme.colors.type.secondary,
-                                    modifier = Modifier.size(18.dp)
-                                )
+                                Icon(Icons.Default.Code, null, tint = theme.colors.type.secondary, modifier = Modifier.size(18.dp))
                             }
                         }
                     }
                 }
-                Spacer(Modifier.height(8.dp))
+            }
+        }
+    } else {
+        Dialog(onDismissRequest = onDismiss) {
+            Box(Modifier
+                .width(384.dp)
+                .clip(RoundedCornerShape(20.dp))
+                .background(theme.colors.modal.background)
+                .padding(vertical = 8.dp)) {
+                Column {
+                    if (session != null) {
+                        val displayName = session.nickname.ifBlank { session.deviceName.ifBlank { "Synced" } }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 8.dp, vertical = 2.dp)
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            Icon(Icons.Default.CheckCircle, null, tint = theme.colors.type.success, modifier = Modifier.size(18.dp))
+                            Text("Synced: $displayName", color = theme.colors.type.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    } else {
+                        SandwichItem(
+                            Icons.Default.Star, "Sync to Cloud", theme = theme, tint = theme.colors.global.accentA,
+                        ) {
+                            nav.navigate("login")
+                            onDismiss()
+                        }
+                    }
+                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp), color = theme.colors.type.divider.copy(alpha = 0.15f))
+
+                    SandwichItem(Icons.Default.Settings, "Settings", theme = theme) { nav.navigate("settings"); onDismiss() }
+                    SandwichItem(Icons.Default.History, "Watch History", theme = theme) { nav.navigate("watchHistory"); onDismiss() }
+                    if (showHeaderActions) {
+                        SandwichItem(ImageVector.vectorResource(R.drawable.ic_discord), "Discord", theme = theme) { onDiscord(); onDismiss() }
+                        SandwichItem(Icons.Default.Notifications, if (unreadCount > 0) "Notifications ($unreadCount)" else "Notifications", theme = theme) {
+                            onNotifications()
+                            onDismiss()
+                        }
+                        SandwichItem(Icons.Default.AttachMoney, "Tip Jar", theme = theme) { onTipJar(); onDismiss() }
+                    }
+                    SandwichItem(Icons.Default.Explore, "Discover", theme = theme) { nav.navigate("search"); onDismiss() }
+                    SandwichItem(Icons.Default.Group, "Join a Watch Party", theme = theme) { onDismiss() }
+
+                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp), color = theme.colors.type.divider.copy(alpha = 0.15f))
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(theme.colors.background.secondary)
+                                .border(1.dp, theme.colors.type.divider.copy(alpha = 0.3f), CircleShape)
+                                .clickable { uriHandler.openUri(Urls.GITHUB_REPO) },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.Code, null, tint = theme.colors.type.secondary, modifier = Modifier.size(24.dp))
+                        }
+                    }
+                }
             }
         }
     }
@@ -1953,17 +2146,23 @@ private fun SandwichItem(
 
     ZsOutlinedWrapper(
         visible = isFocused && isTv,
-        shape = RoundedCornerShape(8.dp),
+        shape = RoundedCornerShape(10.dp),
         outlineColor = theme.colors.global.accentA.copy(alpha = 0.6f),
         gap = 2.dp,
-        modifier = modifier.padding(horizontal = 5.dp)
+        modifier = modifier.padding(horizontal = 8.dp, vertical = 2.dp)
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 2.dp)
                 .clip(RoundedCornerShape(8.dp))
+                .background(if (isFocused && isTv) theme.colors.background.secondary.copy(alpha = 0.4f) else Color.Transparent)
                 .onFocusChanged { isFocused = it.isFocused }
+                .focusProperties {
+                    if (isTv) {
+                        left = FocusRequester.Cancel
+                        right = FocusRequester.Cancel
+                    }
+                }
                 .clickable(onClick = onClick)
                 .padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -2005,10 +2204,9 @@ private fun NotificationsDialog(
     ) {
         Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp)
-                .heightIn(max = 500.dp)
-                .clip(RoundedCornerShape(20.dp))
+                .then(if (isTv) Modifier.width(480.dp) else Modifier.fillMaxWidth().padding(horizontal = 16.dp))
+                .heightIn(max = if (isTv) 400.dp else 500.dp)
+                .clip(RoundedCornerShape(if (isTv) 16.dp else 20.dp))
                 .background(theme.colors.modal.background),
         ) {
             if (selectedNotif != null) {
@@ -2021,7 +2219,7 @@ private fun NotificationsDialog(
                     theme = theme,
                 )
             } else {
-                Column(modifier = Modifier.padding(20.dp)) {
+                Column(modifier = Modifier.padding(if (isTv) 16.dp else 20.dp)) {
                     // Header: title left, actions right, all aligned center
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -2031,23 +2229,29 @@ private fun NotificationsDialog(
                             "Notifications",
                             color = theme.colors.type.emphasis,
                             fontWeight = FontWeight.Bold,
-                            fontSize = 15.sp,
+                            fontSize = if (isTv) 14.sp else 15.sp,
                             modifier = Modifier.weight(1f),
                         )
                         if (notifications.any { it.guid !in readGuids }) {
                             var isMarkAllFocused by remember { mutableStateOf(false) }
-                            ZsOutlinedWrapper(
-                                visible = isMarkAllFocused && LocalIsTv.current,
-                                shape = RoundedCornerShape(4.dp),
-                                outlineColor = theme.colors.global.accentA.copy(alpha = 0.6f),
-                                gap = 2.dp
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .onFocusChanged { isMarkAllFocused = it.isFocused }
-                                        .clickable(onClick = onMarkAllRead)
-                                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                                ) {
+                                    ZsOutlinedWrapper(
+                                        visible = isMarkAllFocused && LocalIsTv.current,
+                                        shape = RoundedCornerShape(4.dp),
+                                        outlineColor = theme.colors.global.accentA.copy(alpha = 0.6f),
+                                        gap = 2.dp
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .onFocusChanged { isMarkAllFocused = it.isFocused }
+                                                .focusProperties {
+                                                    if (isTv) {
+                                                        left = FocusRequester.Cancel
+                                                        right = FocusRequester.Cancel
+                                                    }
+                                                }
+                                                .clickable(onClick = onMarkAllRead)
+                                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                                        ) {
                                     Text(
                                         "Mark all read",
                                         color = theme.colors.global.accentA,
@@ -2109,10 +2313,11 @@ private fun NotificationCard(
     modifier: Modifier = Modifier,
 ) {
     val categoryColor = notificationCategoryColor(theme, notif.category)
+    val isTv = LocalIsTv.current
     var isFocused by remember { mutableStateOf(false) }
 
     ZsOutlinedWrapper(
-        visible = isFocused && LocalIsTv.current,
+        visible = isFocused && isTv,
         shape = RoundedCornerShape(12.dp),
         outlineColor = theme.colors.global.accentA.copy(alpha = 0.6f),
         gap = 2.dp,
@@ -2125,6 +2330,12 @@ private fun NotificationCard(
                 .background(theme.colors.background.secondary.copy(alpha = 0.4f))
                 .border(1.dp, theme.colors.type.divider.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
                 .onFocusChanged { isFocused = it.isFocused }
+                .focusProperties {
+                    if (isTv) {
+                        left = FocusRequester.Cancel
+                        right = FocusRequester.Cancel
+                    }
+                }
                 .clickable(onClick = onClick)
                 .padding(12.dp),
         ) {
@@ -2269,6 +2480,12 @@ private fun NotificationDetailView(
                                     RoundedCornerShape(10.dp)
                                 )
                                 .onFocusChanged { isMarkReadFocused = it.isFocused }
+                                .focusProperties {
+                                    if (isTv) {
+                                        left = FocusRequester.Cancel
+                                        right = FocusRequester.Cancel
+                                    }
+                                }
                                 .clickable(onClick = onMarkRead)
                                 .padding(horizontal = 12.dp, vertical = 8.dp),
                         ) {
@@ -2299,6 +2516,12 @@ private fun NotificationDetailView(
                                     RoundedCornerShape(10.dp)
                                 )
                                 .onFocusChanged { isOpenLinkFocused = it.isFocused }
+                                .focusProperties {
+                                    if (isTv) {
+                                        left = FocusRequester.Cancel
+                                        right = FocusRequester.Cancel
+                                    }
+                                }
                                 .clickable { uriHandler.openUri(notif.link) }
                                 .padding(horizontal = 12.dp, vertical = 8.dp),
                         ) {
@@ -2350,15 +2573,15 @@ private fun TipJarDialog(onDismiss: () -> Unit) {
     Dialog(onDismissRequest = onDismiss) {
         Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(max = 500.dp)
-                .clip(RoundedCornerShape(20.dp))
+                .then(if (isTv) Modifier.width(440.dp) else Modifier.fillMaxWidth())
+                .heightIn(max = if (isTv) 400.dp else 500.dp)
+                .clip(RoundedCornerShape(if (isTv) 16.dp else 20.dp))
                 .background(theme.colors.modal.background)
-                .padding(20.dp),
+                .padding(if (isTv) 16.dp else 20.dp),
         ) {
             Column {
                 Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
-                    Text("Tip Jar", color = theme.colors.type.emphasis, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    Text("Tip Jar", color = theme.colors.type.emphasis, fontWeight = FontWeight.Bold, fontSize = if (isTv) 14.sp else 15.sp)
                     ZsIconButton(
                         onClick = onDismiss,
                         icon = Icons.Default.Close,
@@ -2395,6 +2618,12 @@ private fun TipJarDialog(onDismiss: () -> Unit) {
                                         RoundedCornerShape(12.dp)
                                     )
                                     .onFocusChanged { isAddressFocused = it.isFocused }
+                                    .focusProperties {
+                                        if (isTv) {
+                                            left = FocusRequester.Cancel
+                                            right = FocusRequester.Cancel
+                                        }
+                                    }
                                     .clickable { clipboard.setText(AnnotatedString(crypto.address)) }
                                     .padding(12.dp),
                                 verticalAlignment = Alignment.CenterVertically,
@@ -2516,8 +2745,9 @@ private fun FeaturedCarousel(
         }
     }
 
+    val isTv = LocalIsTv.current
     val height by animateDpAsState(
-        targetValue = if (isSearching) 170.dp else 450.dp,
+        targetValue = if (isSearching) 170.dp else if (isTv) TvHomeMetrics.featuredHeight else 450.dp,
         label = "carouselHeight"
     )
     val contentAlpha by animateFloatAsState(
@@ -2639,7 +2869,7 @@ private fun FeaturedCarousel(
                 Box(
                     Modifier
                         .fillMaxSize()
-                        .padding(start = 16.dp, end = 16.dp, bottom = 50.dp),
+                        .padding(start = TvHomeMetrics.screenPadding, end = TvHomeMetrics.screenPadding, bottom = if (isTv) 40.dp else 50.dp),
                     contentAlignment = Alignment.BottomStart,
                 ) {
                     Column(Modifier.fillMaxWidth()) {
@@ -2647,7 +2877,7 @@ private fun FeaturedCarousel(
                         current.logoUrl()?.let { logo ->
                             Box(
                                 Modifier
-                                    .height(80.dp)
+                                    .height(if (isTv) 60.dp else 80.dp)
                                     .fillMaxWidth(0.7f)
                                     .padding(bottom = 8.dp)
                                     .graphicsLayer { alpha = contentAlpha }
@@ -2663,9 +2893,9 @@ private fun FeaturedCarousel(
                         } ?: Text(
                             title,
                             color = theme.colors.type.emphasis,
-                            fontSize = 32.sp,
+                            fontSize = if (isTv) 28.sp else 32.sp,
                             fontWeight = FontWeight.Bold,
-                            maxLines = 2,
+                            maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.graphicsLayer { alpha = contentAlpha },
                             style = LocalTextStyle.current.copy(
@@ -2684,12 +2914,12 @@ private fun FeaturedCarousel(
                                 Image(
                                     painter = painterResource(id = R.drawable.tmdb_logo),
                                     contentDescription = "TMDB Logo",
-                                    modifier = Modifier.size(22.dp)
+                                    modifier = Modifier.size(if (isTv) 18.dp else 22.dp)
                                 )
                                 Text(
                                     String.format(Locale.US, "%.1f", current.voteAverage ?: 0.0),
                                     color = Color.White,
-                                    fontSize = 11.sp,
+                                    fontSize = if (isTv) 10.sp else 11.sp,
                                     fontWeight = FontWeight.Bold,
                                     style = LocalTextStyle.current.copy(shadow = featuredCarouselTextShadow())
                                 )
@@ -2700,7 +2930,7 @@ private fun FeaturedCarousel(
                                 Text(
                                     year,
                                     color = Color.White,
-                                    fontSize = 11.sp,
+                                    fontSize = if (isTv) 10.sp else 11.sp,
                                     style = LocalTextStyle.current.copy(shadow = featuredCarouselTextShadow())
                                 )
                             }
@@ -2710,27 +2940,27 @@ private fun FeaturedCarousel(
                             Text(
                                 typeLabel,
                                 color = Color.White,
-                                fontSize = 11.sp,
+                                fontSize = if (isTv) 10.sp else 11.sp,
                                 style = LocalTextStyle.current.copy(shadow = featuredCarouselTextShadow())
                             )
                         }
 
                         // Overview or movie/show description
-                        current.overview?.takeIf { it.isNotBlank() }?.let { overview ->
+                        current.overview?.takeIf { it.isNotBlank() && (!isTv || it.length < 200) }?.let { overview ->
                             Spacer(Modifier.height(8.dp))
                             Text(
                                 overview,
                                 color = Color.White,
-                                fontSize = 14.sp,
-                                maxLines = 3,
-                                lineHeight = 20.sp,
+                                fontSize = if (isTv) 13.sp else 14.sp,
+                                maxLines = if (isTv) 2 else 3,
+                                lineHeight = if (isTv) 18.sp else 20.sp,
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.graphicsLayer { alpha = contentAlpha },
                                 style = LocalTextStyle.current.copy(shadow = featuredCarouselTextShadow())
                             )
                         }
 
-                        Spacer(Modifier.height(20.dp))
+                        Spacer(Modifier.height(if (isTv) 12.dp else 20.dp))
 
                         // Buttons Row
                         Row(
@@ -2740,10 +2970,10 @@ private fun FeaturedCarousel(
                             // Play Now button
                             ZsOutlinedWrapper(
                                 visible = playButtonFocused,
-                                shape = RoundedCornerShape(12.dp),
+                                shape = RoundedCornerShape(10.dp),
                                 outlineColor = Color.White,
-                                gap = 4.dp,
-                                modifier = Modifier.weight(1f)
+                                gap = 2.dp,
+                                modifier = Modifier.weight(1f).widthIn(max = if (isTv) 160.dp else Dp.Unspecified)
                             ) {
                                 Button(
                                     onClick = {
@@ -2768,9 +2998,9 @@ private fun FeaturedCarousel(
                                         1.dp,
                                         theme.colors.type.divider.copy(alpha = 0.3f)
                                     ),
-                                    shape = RoundedCornerShape(12.dp),
+                                    shape = RoundedCornerShape(10.dp),
                                     modifier = Modifier
-                                        .height(48.dp)
+                                        .height(if (isTv) 40.dp else 48.dp)
                                         .fillMaxWidth()
                                         .focusRequester(effectivePlayRequester)
                                         .onPreviewKeyEvent { event ->
@@ -2802,19 +3032,19 @@ private fun FeaturedCarousel(
                                         },
                                     contentPadding = PaddingValues(horizontal = 16.dp)
                                 ) {
-                                    Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(20.dp), tint = theme.colors.buttons.primaryText)
+                                    Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(if (isTv) 18.dp else 20.dp), tint = theme.colors.buttons.primaryText)
                                     Spacer(Modifier.width(8.dp))
-                                    Text("Play Now", fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                                    Text("Play Now", fontSize = if (isTv) 14.sp else 15.sp, fontWeight = FontWeight.Bold)
                                 }
                             }
 
                             // More Info button
                             ZsOutlinedWrapper(
                                 visible = moreInfoButtonFocused,
-                                shape = RoundedCornerShape(12.dp),
+                                shape = RoundedCornerShape(10.dp),
                                 outlineColor = Color.White,
-                                gap = 4.dp,
-                                modifier = Modifier.weight(1f)
+                                gap = 2.dp,
+                                modifier = Modifier.weight(1f).widthIn(max = if (isTv) 160.dp else Dp.Unspecified)
                             ) {
                                 Button(
                                     onClick = { nav.navigate("detail/$type/${current.id}") },
@@ -2826,9 +3056,9 @@ private fun FeaturedCarousel(
                                         1.dp,
                                         theme.colors.type.divider.copy(alpha = 0.3f)
                                     ),
-                                    shape = RoundedCornerShape(12.dp),
+                                    shape = RoundedCornerShape(10.dp),
                                     modifier = Modifier
-                                        .height(48.dp)
+                                        .height(if (isTv) 40.dp else 48.dp)
                                         .fillMaxWidth()
                                         .focusRequester(moreInfoButtonFocusRequester)
                                         .onPreviewKeyEvent { event ->
@@ -2860,9 +3090,9 @@ private fun FeaturedCarousel(
                                         },
                                     contentPadding = PaddingValues(horizontal = 16.dp)
                                 ) {
-                                    Icon(Icons.Default.Info, contentDescription = null, modifier = Modifier.size(20.dp), tint = theme.colors.buttons.secondaryText)
+                                    Icon(Icons.Default.Info, contentDescription = null, modifier = Modifier.size(if (isTv) 18.dp else 20.dp), tint = theme.colors.buttons.secondaryText)
                                     Spacer(Modifier.width(8.dp))
-                                    Text("More Info", fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                                    Text("More Info", fontSize = if (isTv) 14.sp else 15.sp, fontWeight = FontWeight.Bold)
                                 }
                             }
                         }
@@ -3046,12 +3276,12 @@ private fun TvHomeScreenContent(
     val startIndexOffset = if (isFeaturedActive) {
         1
     } else if (!state.enableFeatured || state.featuredMedia.isEmpty()) {
-        3 // Spacer(80.dp) + HeroSection + Spacer(16.dp)
+        3 // Spacer(56.dp) + HeroSection + Spacer(12.dp)
     } else {
         1
     }
     val density = LocalDensity.current
-    val topPaddingPx = remember(density) { with(density) { 80.dp.roundToPx() } }
+    val topPaddingPx = remember(density) { with(density) { TvHomeMetrics.topBarHeight.roundToPx() } }
 
     val carouselFocusRequester = remember { FocusRequester() }
     val carouselPlayButtonRequester = remember { FocusRequester() }
@@ -3153,7 +3383,7 @@ private fun TvHomeScreenContent(
                     }
                 } else {
                     item {
-                        Spacer(Modifier.height(80.dp))
+                        Spacer(Modifier.height(TvHomeMetrics.topBarHeight))
                     }
                 }
 
@@ -3176,7 +3406,7 @@ private fun TvHomeScreenContent(
                             }
                         )
                     }
-                    item { Spacer(Modifier.height(16.dp)) }
+                    item { Spacer(Modifier.height(12.dp)) }
                 }
 
                 if (state.searchQuery.isNotBlank()) {
@@ -3248,7 +3478,7 @@ private fun TvHomeScreenContent(
                             }
                         )
                     }
-                    item { Spacer(Modifier.height(24.dp)) }
+                    item { Spacer(Modifier.height(TvHomeMetrics.sectionSpacing)) }
                     }
                 }
             }
@@ -3296,11 +3526,11 @@ private fun TvTopBar(
 ) {
     val theme = LocalZStreamTheme.current
     var focusedMenu by remember { mutableStateOf(false) }
-    val focusMenuWidth by animateDpAsState(if (focusedMenu) 3.dp else 0.dp)
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 32.dp, vertical = 16.dp),
+            .padding(horizontal = TvHomeMetrics.screenPadding, vertical = 12.dp)
+            .height(TvHomeMetrics.topBarHeight),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
@@ -3309,7 +3539,7 @@ private fun TvTopBar(
                 modifier = Modifier
                     .clip(RoundedCornerShape(50))
                     .background(theme.colors.background.secondary.copy(alpha = 0.8f))
-                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
@@ -3317,13 +3547,13 @@ private fun TvTopBar(
                     model = com.zstream.android.R.mipmap.ic_launcher,
                     contentDescription = null,
                     modifier = Modifier
-                        .size(32.dp)
+                        .size(24.dp)
                         .clip(CircleShape)
                 )
-                Text("Z-Stream", color = theme.colors.type.emphasis, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                Text("Z-Stream", color = theme.colors.type.emphasis, fontSize = 18.sp, fontWeight = FontWeight.Bold)
             }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
             if (collapseActionsIntoMenu) {
                 TvHeaderButton(Icons.Default.Search, null, onClick = onSearch)
             } else {
@@ -3335,10 +3565,11 @@ private fun TvTopBar(
                 visible = focusedMenu && LocalIsTv.current,
                 shape = RoundedCornerShape(50),
                 outlineColor = Color.White,
-                gap = 4.dp
+                gap = 2.dp
             ) {
                 Box(
                     modifier = Modifier
+                        .height(TvHomeMetrics.headerButtonSize)
                         .clip(RoundedCornerShape(50))
                         .background(theme.colors.background.secondary.copy(alpha = 0.8f))
                         .border(
@@ -3348,11 +3579,12 @@ private fun TvTopBar(
                         )
                         .onFocusChanged { focusedMenu = it.isFocused }
                         .clickable(onClick = onMenu)
-                        .padding(horizontal = 14.dp, vertical = 10.dp)
+                        .padding(horizontal = 12.dp),
+                    contentAlignment = Alignment.Center
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Icon(Icons.Default.Menu, null, tint = theme.colors.type.secondary, modifier = Modifier.size(24.dp))
-                        Icon(Icons.Default.KeyboardArrowDown, null, tint = theme.colors.type.dimmed, modifier = Modifier.size(24.dp))
+                        Icon(Icons.Default.Menu, null, tint = theme.colors.type.secondary, modifier = Modifier.size(TvHomeMetrics.headerIconSize))
+                        Icon(Icons.Default.KeyboardArrowDown, null, tint = theme.colors.type.dimmed, modifier = Modifier.size(TvHomeMetrics.headerIconSize))
                     }
                 }
             }
@@ -3373,35 +3605,35 @@ private fun TvHeaderButton(
         visible = focused && LocalIsTv.current,
         shape = RoundedCornerShape(50),
         outlineColor = Color.White,
-        gap = 4.dp
+        gap = 2.dp
     ) {
         Box(
             modifier = Modifier
+                .size(TvHomeMetrics.headerButtonSize)
                 .clip(RoundedCornerShape(50))
                 .background(theme.colors.background.secondary.copy(alpha = 0.8f))
                 .border(1.dp, theme.colors.type.divider.copy(alpha = 0.3f), RoundedCornerShape(50))
                 .onFocusChanged { focused = it.isFocused }
-                .clickable(onClick = onClick)
-                .padding(horizontal = 14.dp, vertical = 10.dp),
+                .clickable(onClick = onClick),
             contentAlignment = Alignment.Center,
         ) {
             Box {
-                Icon(icon, null, tint = theme.colors.type.secondary, modifier = Modifier.size(24.dp))
+                Icon(icon, null, tint = theme.colors.type.secondary, modifier = Modifier.size(TvHomeMetrics.headerIconSize))
                 if (badge != null) {
                     Box(
                         modifier = Modifier
-                            .size(18.dp)
+                            .size(14.dp)
                             .clip(CircleShape)
                             .background(theme.colors.type.danger)
                             .align(Alignment.TopEnd)
-                            .offset(x = 4.dp, y = (-6).dp),
-                        contentAlignment = Alignment.Center,
+                            .offset(x = 4.dp, y = (-4).dp),
+                        contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            badge,
-                            color = theme.colors.type.emphasis,
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Bold,
+                            text = badge,
+                            color = Color.White,
+                            fontSize = 8.sp,
+                            fontWeight = FontWeight.Bold
                         )
                     }
                 }
