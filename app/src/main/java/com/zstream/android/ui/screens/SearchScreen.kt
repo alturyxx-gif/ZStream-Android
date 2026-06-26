@@ -126,7 +126,9 @@ fun SearchScreenTV(nav: NavController, vm: SearchViewModel) {
                             .height(72.dp)
                             .focusRequester(searchBarFocusRequester)
                             .onFocusChanged { isSearchBarFocused = it.isFocused }
-                            .focusable()
+                            .clickable {
+                                // Just to consume the click and handle focus activation in one go
+                            }
                     ) {
                         ZsSearchField(
                             value = query,

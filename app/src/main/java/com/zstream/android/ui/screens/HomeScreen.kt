@@ -1059,7 +1059,6 @@ private fun HeroSection(
                             if (isTv) {
                                 Modifier
                                     .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
-                                    .focusable()
                                     .clickable {
                                         isEditing = true
                                         try {
