@@ -141,7 +141,7 @@ fun SearchScreenTV(nav: NavController, vm: SearchViewModel) {
                         ZsSearchField(
                             value = query,
                             onValueChange = { vm.query.value = it },
-                            placeholder = "Search movies and shows here...",
+                            placeholder = "Search here",
                             focusRequester = textFieldFocusRequester,
                             modifier = Modifier
                                 .fillMaxSize()
@@ -344,7 +344,7 @@ fun SearchScreenPhone(nav: NavController, vm: SearchViewModel) {
                     ZsSearchField(
                         value = query,
                         onValueChange = { vm.query.value = it },
-                        placeholder = "Search movies & shows…",
+                        placeholder = "Search here",
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                         keyboardActions = KeyboardActions(),
                         modifier = Modifier.fillMaxWidth(),
