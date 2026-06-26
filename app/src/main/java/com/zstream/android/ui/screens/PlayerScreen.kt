@@ -17,9 +17,10 @@ import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.util.TypedValue
 import android.view.WindowManager
 import android.widget.FrameLayout
-import androidx.activity.ComponentActivity
+import androidx.activity.compose.LocalActivity
 import androidx.annotation.DrawableRes
 import androidx.annotation.OptIn
+import androidx.activity.compose.BackHandler
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -119,12 +120,17 @@ import com.zstream.android.R
 import com.zstream.android.provider.WebViewDataSource
 import androidx.media3.common.MediaItem.SubtitleConfiguration
 import android.net.Uri
+import androidx.compose.foundation.focusGroup
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import com.zstream.android.ui.LocalIsTv
+import com.zstream.android.ui.components.themed.ZsOutlinedWrapper
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import dagger.hilt.android.EntryPointAccessors
@@ -148,7 +154,6 @@ import com.zstream.android.ui.components.themed.ZsIconButtonVariant
 import com.zstream.android.ui.components.themed.ZsStatusBanner
 import com.zstream.android.ui.components.themed.ZsStatusBannerVariant
 import com.zstream.android.ui.components.themed.ZsTextField
-import com.zstream.android.ui.components.themed.ZsTextButton
 import com.zstream.android.ui.navigation.rememberSafeNavigateBack
 import com.zstream.android.data.WatchPartyAction
 import coil.compose.AsyncImage
@@ -206,14 +211,9 @@ private val OVERLAY_PANEL_SHAPE = RoundedCornerShape(24.dp)
 private val BOTTOM_BAR_MENU_BUTTON_SIZE = 42.dp
 private val BOTTOM_BAR_MENU_ICON_SIZE = 22.dp
 private val PLAYER_DETAIL_SHEET_CORNER_RADIUS = 28.dp
-private const val PLAYER_DETAIL_SHEET_HEIGHT_FRACTION = 0.82f
-private val PLAYER_DETAIL_SHEET_SIDE_MARGIN = 50.dp
-private val PLAYER_DETAIL_SHEET_BOTTOM_MARGIN = 18.dp
-private val PLAYER_DETAIL_SHEET_BACKDROP_HEIGHT = 360.dp
-private val PLAYER_DETAIL_SHEET_CONTENT_PADDING = 32.dp
-private val PLAYER_DETAIL_SHEET_BOTTOM_SPACER = 36.dp
-private val PLAYER_DETAIL_SHEET_MIN_SCROLL_EXTRA = 1.dp
-private val PLAYER_DETAIL_SHEET_SECTION_GAP = 18.dp
+private const val PLAYER_DETAIL_SHEET_HEIGHT_FRACTION = 1f
+private val PLAYER_DETAIL_SHEET_SIDE_MARGIN = 24.dp
+private val PLAYER_DETAIL_SHEET_BOTTOM_MARGIN = 0.dp
 private const val PLAYBACK_SPEED_MIN = 0.25f
 private const val PLAYBACK_SPEED_MAX = 5f
 private const val RESUME_DIALOG_COMPLETION_THRESHOLD = 0.95f
@@ -261,7 +261,7 @@ private data class AudioOption(
     val selected: Boolean,
 )
 
-@OptIn(UnstableApi::class)
+@OptIn(UnstableApi::class, ExperimentalComposeUiApi::class)
 @Composable
 fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
     val state by vm.state.collectAsState()
@@ -305,11 +305,14 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
         }
     }
 
-    Box(Modifier.fillMaxSize().background(Color.Black)) /* Color of the video background in the player */ {
+    Box(Modifier
+        .fillMaxSize()
+        .background(Color.Black)) /* Color of the video background in the player */ {
         when (val s = state) {
             is PlayerState.Idle, is PlayerState.Scraping -> {
                 val sources = (s as? PlayerState.Scraping)?.sources ?: emptyList()
                 Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
+                    // sources list
                     CircularProgressIndicator(color = theme.colors.type.emphasis, modifier = Modifier.size(36.dp))
                     Spacer(Modifier.height(16.dp))
                     Text("Finding stream…", color = theme.colors.type.emphasis, fontSize = 14.sp)
@@ -324,7 +327,9 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                         }
                     }
                 }
-                IconButton(onClick = onBack, modifier = Modifier.align(Alignment.TopStart).padding(4.dp)) {
+                IconButton(onClick = onBack, modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(4.dp)) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = theme.colors.type.emphasis)
                 }
             }
@@ -370,12 +375,16 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                         }
                     }
                 }
-                IconButton(onClick = onBack, modifier = Modifier.align(Alignment.TopStart).padding(4.dp)) {
+                IconButton(onClick = onBack, modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(4.dp)) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = theme.colors.type.emphasis)
                 }
             }
             is PlayerState.Error -> {
-                Column(Modifier.align(Alignment.Center).padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Column(Modifier
+                    .align(Alignment.Center)
+                    .padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(s.message, color = theme.colors.type.emphasis, fontSize = 14.sp)
                     Spacer(Modifier.height(16.dp))
                     Button(
@@ -386,7 +395,9 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                         Text("Retry")
                     }
                 }
-                IconButton(onClick = onBack, modifier = Modifier.align(Alignment.TopStart).padding(4.dp)) {
+                IconButton(onClick = onBack, modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(4.dp)) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = theme.colors.type.emphasis)
                 }
             }
@@ -401,7 +412,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                         com.zstream.android.di.RepositoryEntryPoint::class.java
                     )
                 }
-                val activity = context as? ComponentActivity
+                val activity = LocalActivity.current
                 val pipProvider = activity as? OnPictureInPictureModeChangedProvider
                 var isInPip by remember { mutableStateOf(activity?.isInPictureInPictureMode == true) }
                 val configuration = LocalConfiguration.current
@@ -673,6 +684,22 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
 
                 var controlsVisible by remember { mutableStateOf(true) }
                 var audioSessionId by remember(player) { mutableIntStateOf(player.audioSessionId) }
+                var menuPage by remember { mutableStateOf<PlayerMenuPage?>(null) }
+                val onMenuPageChange: (PlayerMenuPage?) -> Unit = { menuPage = it }
+
+                BackHandler(enabled = showInfoSheet || menuPage != null) {
+                    if (showInfoSheet) {
+                        showInfoSheet = false
+                    } else {
+                        onMenuPageChange(
+                            when (menuPage) {
+                                PlayerMenuPage.Root, null -> null
+                                PlayerMenuPage.AdvancedColor -> PlayerMenuPage.Playback
+                                else -> PlayerMenuPage.Root
+                            }
+                        )
+                    }
+                }
 
                 if (isTv) {
                     LaunchedEffect(Unit) {
@@ -687,28 +714,46 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                             when (keyEvent.nativeKeyEvent.keyCode) {
                                 android.view.KeyEvent.KEYCODE_DPAD_CENTER,
                                 android.view.KeyEvent.KEYCODE_ENTER,
-                                android.view.KeyEvent.KEYCODE_BUTTON_A -> {
+                                android.view.KeyEvent.KEYCODE_BUTTON_A,
+                                android.view.KeyEvent.KEYCODE_DPAD_UP,
+                                android.view.KeyEvent.KEYCODE_DPAD_DOWN -> {
                                     if (!controlsVisible) {
                                         controlsVisible = true
                                         true
                                     } else false
                                 }
+
                                 android.view.KeyEvent.KEYCODE_DPAD_LEFT -> {
-                                    player.seekTo((player.currentPosition - 10_000).coerceAtLeast(0))
-                                    controlsVisible = true
-                                    true
+                                    if (!controlsVisible) {
+                                        player.seekTo(
+                                            (player.currentPosition - 10_000).coerceAtLeast(
+                                                0
+                                            )
+                                        )
+                                        controlsVisible = true
+                                        true
+                                    } else false
                                 }
+
                                 android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                                    player.seekTo((player.currentPosition + 10_000).coerceAtMost(player.duration))
-                                    controlsVisible = true
-                                    true
+                                    if (!controlsVisible) {
+                                        player.seekTo(
+                                            (player.currentPosition + 10_000).coerceAtMost(
+                                                player.duration
+                                            )
+                                        )
+                                        controlsVisible = true
+                                        true
+                                    } else false
                                 }
+
                                 android.view.KeyEvent.KEYCODE_BACK -> {
                                     if (controlsVisible) {
                                         controlsVisible = false
                                         true
                                     } else false
                                 }
+
                                 else -> false
                             }
                         } else false
@@ -974,8 +1019,14 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                         (context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager)?.let {
                             it.setPrimaryClip(android.content.ClipData.newPlainText("Legacy Watch Party", wpUrl))
                         }
-                    }
+                    },
+                    showInfoSheet = showInfoSheet,
+                    menuPage = menuPage,
+                    onMenuPageChange = { menuPage = it }
                 )
+
+                val infoSheetFocusRequester = remember { FocusRequester() }
+                val infoSheetFirstItemFocusRequester = remember { FocusRequester() }
 
                 AnimatedVisibility(
                     visible = showInfoSheet,
@@ -987,44 +1038,66 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                         modifier = Modifier
                             .fillMaxSize()
                             .background(Color.Black.copy(alpha = 0.34f))
+                            .then(if (isTv) Modifier.focusProperties {
+                                canFocus = false
+                            } else Modifier)
+                            .onKeyEvent {
+                                if (isTv && it.type == KeyEventType.KeyDown && it.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_BACK) {
+                                    showInfoSheet = false
+                                    true
+                                } else false
+                            }
                             .clickable(
                                 indication = null,
                                 interactionSource = remember { MutableInteractionSource() }
                             ) { showInfoSheet = false }
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.BottomCenter)
-                                .fillMaxWidth()
-                                .fillMaxHeight(PLAYER_DETAIL_SHEET_HEIGHT_FRACTION)
-                                .padding(
-                                    start = PLAYER_DETAIL_SHEET_SIDE_MARGIN,
-                                    end = PLAYER_DETAIL_SHEET_SIDE_MARGIN,
-                                    bottom = PLAYER_DETAIL_SHEET_BOTTOM_MARGIN
-                                )
-                                .clickable(
-                                    indication = null,
-                                    interactionSource = remember { MutableInteractionSource() }
-                                ) {}
-                                .clip(RoundedCornerShape(PLAYER_DETAIL_SHEET_CORNER_RADIUS))
-                        ) {
-                            PlayerInfoSheet(
-                                state = infoState,
-                                nav = nav,
-                                allProgress = progressList,
-                                isBookmarked = isBookmarked != null,
-                                onToggleBookmark = vm::toggleBookmark,
-                                onClose = { showInfoSheet = false },
-                                onSelectSeason = { seasonNumber ->
-                                    playerScope.launch {
-                                        val current = infoState as? PlayerInfoState.Tv ?: return@launch
-                                        infoState = current.copy(
-                                            selectedSeason = tmdbRepo.season(vm.tmdbId.toInt(), seasonNumber)
-                                        )
-                                    }
-                                }
-                            )
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .fillMaxHeight(PLAYER_DETAIL_SHEET_HEIGHT_FRACTION)
+                        .padding(
+                            start = PLAYER_DETAIL_SHEET_SIDE_MARGIN,
+                            end = PLAYER_DETAIL_SHEET_SIDE_MARGIN,
+                            bottom = PLAYER_DETAIL_SHEET_BOTTOM_MARGIN
+                        )
+                        .clickable(
+                            indication = null,
+                            interactionSource = remember { MutableInteractionSource() }
+                        ) {}
+                        .clip(RoundedCornerShape(PLAYER_DETAIL_SHEET_CORNER_RADIUS))
+                        .focusRequester(infoSheetFocusRequester)
+                        .focusProperties {
+                            onEnter = { infoSheetFirstItemFocusRequester.requestFocus() }
+                            // Trap focus inside the info sheet for TV navigation
+                            if (isTv) {
+                                left = FocusRequester.Cancel
+                                right = FocusRequester.Cancel
+                                up = FocusRequester.Cancel
+                                down = FocusRequester.Cancel
+                            }
                         }
+                        .focusable()
+                ) {
+                    PlayerInfoSheet(
+                        state = infoState,
+                        nav = nav,
+                        allProgress = progressList,
+                        isBookmarked = isBookmarked != null,
+                        onToggleBookmark = vm::toggleBookmark,
+                        onClose = { showInfoSheet = false },
+                        firstItemFocusRequester = infoSheetFirstItemFocusRequester,
+                        onSelectSeason = { seasonNumber ->
+                            playerScope.launch {
+                                val current = infoState as? PlayerInfoState.Tv ?: return@launch
+                                infoState = current.copy(
+                                    selectedSeason = tmdbRepo.season(vm.tmdbId.toInt(), seasonNumber)
+                                )
+                            }
+                        }
+                    )
+                }
                     }
                 }
 
@@ -1247,7 +1320,7 @@ private fun String.slugify(): String {
         .trim('-')
 }
 
-@OptIn(UnstableApi::class)
+@OptIn(ExperimentalComposeUiApi::class, UnstableApi::class)
 @Composable
 private fun PlayerControls(
     player: ExoPlayer,
@@ -1300,7 +1373,11 @@ private fun PlayerControls(
     onUpdateRoomCode: (String) -> Unit,
     onManualSync: () -> Unit,
     onLegacyWatchParty: () -> Unit,
+    showInfoSheet: Boolean,
+    menuPage: PlayerMenuPage?,
+    onMenuPageChange: (PlayerMenuPage?) -> Unit,
 ) {
+    val menuOpen = menuPage != null
     val theme = LocalZStreamTheme.current
     val focusManager = LocalFocusManager.current
     var isJoiningRoom by remember { mutableStateOf(false) }
@@ -1313,6 +1390,7 @@ private fun PlayerControls(
             onOpenPage(PlayerMenuPage.WatchParty)
         }
     }
+    val isTv = LocalIsTv.current
     var isPlaying by remember { mutableStateOf(player.isPlaying) }
     var playWhenReady by remember { mutableStateOf(player.playWhenReady) }
     var playbackState by remember { mutableIntStateOf(player.playbackState) }
@@ -1324,7 +1402,6 @@ private fun PlayerControls(
     val menuScrollPositions = remember { mutableStateMapOf<PlayerMenuPage, Int>() }
     var tracksSnapshot by remember { mutableStateOf(player.currentTracks) }
     var playbackSpeed by remember { mutableFloatStateOf(player.playbackParameters.speed) }
-    val menuOpen = menuPage != null
     var showSkipSubmissionDialog by remember { mutableStateOf(false) }
     var skipSubmissionSeed by remember { mutableStateOf<SkipSegment?>(null) }
 
@@ -1407,7 +1484,29 @@ private fun PlayerControls(
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize()
+    val playFocusRequester = remember { FocusRequester() }
+    val ccFocusRequester = remember { FocusRequester() }
+    val bookmarkFocusRequester = remember { FocusRequester() }
+    val settingsFocusRequester = remember { FocusRequester() }
+    val skipFocusRequester = remember { FocusRequester() }
+    val muteFocusRequester = remember { FocusRequester() }
+    var menuSourceRequester by remember { mutableStateOf<FocusRequester?>(null) }
+
+    LaunchedEffect(controlsVisible) {
+        if (controlsVisible) {
+            delay(100)
+            if (isTv) {
+                if (activeSkipSegments.isNotEmpty()) {
+                    skipFocusRequester.requestFocus()
+                } else {
+                    playFocusRequester.requestFocus()
+                }
+            }
+        }
+    }
+
+    Box(modifier = Modifier
+        .fillMaxSize()
         .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) {
             if (!menuOpen) {
                 onControlsVisibilityChanged(!controlsVisible)
@@ -1418,7 +1517,9 @@ private fun PlayerControls(
             Box(Modifier.fillMaxSize()) {
 
                 Row(
-                    modifier = Modifier.fillMaxWidth().align(Alignment.TopCenter)
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .align(Alignment.TopCenter)
                         .background(
                             Brush.verticalGradient(
                                 listOf(
@@ -1428,7 +1529,12 @@ private fun PlayerControls(
                                 )
                             )
                         )
-                        .padding(start = TOP_BAR_LEFT_PADDING, end = TOP_BAR_RIGHT_PADDING, top = 12.dp, bottom = 10.dp),
+                        .padding(
+                            start = TOP_BAR_LEFT_PADDING,
+                            end = TOP_BAR_RIGHT_PADDING,
+                            top = 12.dp,
+                            bottom = 10.dp
+                        ),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1439,9 +1545,17 @@ private fun PlayerControls(
                             variant = ZsIconButtonVariant.Ghost,
                             containerSize = TOP_BAR_BUTTON_SIZE,
                             iconSize = TOP_BAR_ICON_SIZE,
+                            modifier = if (isTv) Modifier.focusProperties { 
+                                down = playFocusRequester
+                                if (showInfoSheet || menuOpen) {
+                                    canFocus = false
+                                }
+                            } else Modifier,
                         )
-                        Text("Back to home", color = theme.colors.type.secondary, fontSize = 13.sp, modifier = Modifier.clickable(onClick = onBack))
-                        Text("  /  ", color = theme.colors.type.dimmed.copy(alpha = 0.6f), fontSize = 13.sp)
+                        if (!isTv) {
+                            Text("Back to home", color = theme.colors.type.secondary, fontSize = 13.sp, modifier = Modifier.clickable(onClick = onBack))
+                            Text("  /  ", color = theme.colors.type.dimmed.copy(alpha = 0.6f), fontSize = 13.sp)
+                        }
                         Column(modifier = Modifier.widthIn(max = 320.dp)) {
                             Text(title, color = theme.colors.type.emphasis, fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             if (episodeLabel != null) {
@@ -1456,6 +1570,12 @@ private fun PlayerControls(
                             variant = ZsIconButtonVariant.Ghost,
                             containerSize = TOP_BAR_BUTTON_SIZE,
                             iconSize = TOP_BAR_ICON_SIZE,
+                            modifier = if (isTv) Modifier.focusProperties { 
+                                down = playFocusRequester
+                                if (showInfoSheet || menuOpen) {
+                                    canFocus = false
+                                }
+                            } else Modifier,
                         )
                         ZsIconButton(
                             onClick = onToggleBookmark,
@@ -1465,6 +1585,15 @@ private fun PlayerControls(
                             selected = isBookmarked,
                             containerSize = TOP_BAR_BUTTON_SIZE,
                             iconSize = TOP_BAR_ICON_SIZE,
+                            modifier = if (isTv) Modifier
+                                .focusRequester(bookmarkFocusRequester)
+                                .focusProperties {
+                                    down = playFocusRequester
+                                    if (showInfoSheet || menuOpen) {
+                                        canFocus = false
+                                    }
+                                }
+                            else Modifier,
                         )
                     }
                 }
@@ -1472,21 +1601,88 @@ private fun PlayerControls(
                 Row(modifier = Modifier.align(Alignment.Center),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(CENTER_ICON_SPACING)) {
-                    IconButton(onClick = { player.seekTo((player.currentPosition - 10_000).coerceAtLeast(0)) },
-                        modifier = Modifier.size(CENTER_BUTTON_SIZE)) {
-                        Icon(painterResource(R.drawable.ic_player_skip_back), null, tint = theme.colors.type.emphasis,
-                            modifier = Modifier.height(CENTER_ICON_HEIGHT).wrapContentWidth())
+                    if (!isTv) {
+                        IconButton(onClick = { player.seekTo((player.currentPosition - 10_000).coerceAtLeast(0)) },
+                            modifier = Modifier.size(CENTER_BUTTON_SIZE)) {
+                            Icon(painterResource(R.drawable.ic_player_skip_back), null, tint = theme.colors.type.emphasis,
+                                modifier = Modifier
+                                    .height(CENTER_ICON_HEIGHT)
+                                    .wrapContentWidth())
+                        }
                     }
-                    IconButton(onClick = { if (playWhenReady) player.pause() else player.play() },
-                        modifier = Modifier.size(CENTER_BUTTON_SIZE)) {
-                        Icon(painterResource(if (playWhenReady) R.drawable.ic_player_pause else R.drawable.ic_player_play),
-                            null, tint = theme.colors.type.emphasis,
-                            modifier = Modifier.height(CENTER_ICON_HEIGHT).wrapContentWidth())
+                    var playBtnFocused by remember { mutableStateOf(false) }
+                    if (isTv) {
+                        ZsOutlinedWrapper(
+                            visible = playBtnFocused,
+                            shape = RoundedCornerShape(50),
+                            outlineColor = Color.White,
+                            gap = 4.dp,
+                        ) {
+                            IconButton(onClick = { if (player.isPlaying) player.pause() else player.play() },
+                                modifier = Modifier
+                                    .size(CENTER_BUTTON_SIZE)
+                                    .focusRequester(playFocusRequester)
+                                    .focusProperties {
+                                        up = bookmarkFocusRequester;
+                                        down =
+                                            if (activeSkipSegments.isNotEmpty()) skipFocusRequester else ccFocusRequester
+                                        if (showInfoSheet || menuOpen) {
+                                            canFocus = false
+                                        }
+                                    }
+                                    .onKeyEvent { keyEvent ->
+                                        if (keyEvent.type == KeyEventType.KeyDown) {
+                                            when (keyEvent.nativeKeyEvent.keyCode) {
+                                                android.view.KeyEvent.KEYCODE_DPAD_LEFT -> {
+                                                    player.seekTo(
+                                                        (player.currentPosition - 10_000).coerceAtLeast(
+                                                            0
+                                                        )
+                                                    )
+                                                    true
+                                                }
+
+                                                android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                                                    player.seekTo(
+                                                        (player.currentPosition + 10_000).coerceAtMost(
+                                                            durationMs
+                                                        )
+                                                    )
+                                                    true
+                                                }
+
+                                                else -> false
+                                            }
+                                        } else false
+                                    }
+                                    .onFocusChanged { playBtnFocused = it.isFocused }
+                            ) {
+                                Icon(painterResource(if (isPlaying) R.drawable.ic_player_pause else R.drawable.ic_player_play),
+                                    null, tint = theme.colors.type.emphasis,
+                                    modifier = Modifier
+                                        .height(CENTER_ICON_HEIGHT)
+                                        .wrapContentWidth())
+                            }
+                        }
+                    } else {
+                        IconButton(onClick = { if (player.isPlaying) player.pause() else player.play() },
+                            modifier = Modifier.size(CENTER_BUTTON_SIZE)) {
+                            Icon(painterResource(if (isPlaying) R.drawable.ic_player_pause else R.drawable.ic_player_play),
+                                null, tint = theme.colors.type.emphasis,
+                                modifier = Modifier
+                                    .height(CENTER_ICON_HEIGHT)
+                                    .wrapContentWidth())
+                        }
                     }
-                    IconButton(onClick = { player.seekTo((player.currentPosition + 10_000).coerceAtMost(durationMs)) },
-                        modifier = Modifier.size(CENTER_BUTTON_SIZE)) {
-                        Icon(painterResource(R.drawable.ic_player_skip_fwd), null, tint = theme.colors.type.emphasis,
-                            modifier = Modifier.height(CENTER_ICON_HEIGHT).wrapContentWidth())
+
+                    if (!isTv) {
+                        IconButton(onClick = { player.seekTo((player.currentPosition + 10_000).coerceAtMost(durationMs)) },
+                            modifier = Modifier.size(CENTER_BUTTON_SIZE)) {
+                            Icon(painterResource(R.drawable.ic_player_skip_fwd), null, tint = theme.colors.type.emphasis,
+                                modifier = Modifier
+                                    .height(CENTER_ICON_HEIGHT)
+                                    .wrapContentWidth())
+                        }
                     }
                 }
 
@@ -1496,6 +1692,8 @@ private fun PlayerControls(
                     currentTimeSeconds = currentTimeSeconds,
                     segments = activeSkipSegments,
                     durationMs = durationMs,
+                    showInfoSheet = showInfoSheet,
+                    menuOpen = menuOpen,
                     onSkip = { segment ->
                         val seekTargetMs = segment.endMs ?: durationMs
                         if (seekTargetMs > 0) {
@@ -1503,12 +1701,20 @@ private fun PlayerControls(
                             skippedSegmentIds[skipSegmentId(segment)] = true
                         }
                     },
+                    focusRequester = skipFocusRequester,
+                    upRequester = playFocusRequester,
+                    downRequester = ccFocusRequester,
+                    onSeekBack = { player.seekTo((player.currentPosition - 10_000).coerceAtLeast(0)) },
+                    onSeekFwd = { player.seekTo((player.currentPosition + 10_000).coerceAtMost(durationMs)) },
                     modifier = Modifier.align(Alignment.BottomEnd)
                 )
 
-                Column(modifier = Modifier.fillMaxWidth().align(Alignment.BottomCenter)) {
+                Column(modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.BottomCenter)) {
                     BoxWithConstraints(
-                        Modifier.fillMaxWidth()
+                        Modifier
+                            .fillMaxWidth()
                             .padding(horizontal = SCRUBBER_SIDE_PADDING)
                             .height(28.dp)
                             .pointerInput(durationMs) {
@@ -1547,7 +1753,10 @@ private fun PlayerControls(
                                         .offset(x = scrubberWidth * startFraction)
                                         .width(scrubberWidth * widthFraction)
                                         .height(3.dp)
-                                        .background(SKIP_SEGMENT_BAR_COLORS[segment.type] ?: theme.colors.type.dimmed.copy(alpha = 0.35f))
+                                        .background(
+                                            SKIP_SEGMENT_BAR_COLORS[segment.type]
+                                                ?: theme.colors.type.dimmed.copy(alpha = 0.35f)
+                                        )
                                 )
                             }
                         }
@@ -1560,12 +1769,21 @@ private fun PlayerControls(
                         )
                         if (isDragging) {
                             val thumbFraction = scrubPosition
-                            Box(Modifier.align(Alignment.CenterStart).fillMaxWidth(thumbFraction).wrapContentWidth(Alignment.End)) {
-                                Box(Modifier.size(12.dp).background(theme.colors.type.emphasis, androidx.compose.foundation.shape.CircleShape))
+                            Box(Modifier
+                                .align(Alignment.CenterStart)
+                                .fillMaxWidth(thumbFraction)
+                                .wrapContentWidth(Alignment.End)) {
+                                Box(Modifier
+                                    .size(12.dp)
+                                    .background(
+                                        theme.colors.type.emphasis,
+                                        androidx.compose.foundation.shape.CircleShape
+                                    ))
                             }
                         }
                     }
-                    Row(modifier = Modifier.fillMaxWidth()
+                    Row(modifier = Modifier
+                        .fillMaxWidth()
                         .background(
                             Brush.verticalGradient(
                                 0f to Color.Transparent,
@@ -1577,26 +1795,68 @@ private fun PlayerControls(
                         .padding(vertical = BOTTOM_BAR_PADDING_V),
                         verticalAlignment = Alignment.CenterVertically) {
                         Spacer(Modifier.width(BOTTOM_LEFT_START_PADDING))
+                        
                         DrawableControlIcon(
                             res = if (playWhenReady) R.drawable.ic_player_pause else R.drawable.ic_player_play,
                             theme = theme
                         ) {
                             if (playWhenReady) player.pause() else player.play()
+                        if (!isTv) {
+                            DrawableControlIcon(
+                                res = if (isPlaying) R.drawable.ic_player_pause else R.drawable.ic_player_play,
+                                theme = theme
+                            ) {
+                                if (player.isPlaying) 
+                                    player.pause() 
+                                else 
+                                    player.play()
+                            }
+                            DrawableControlIcon(R.drawable.ic_player_skip_back, theme) {
+                                player.seekTo((player.currentPosition - 10_000).coerceAtLeast(0))
+                            }
+                            DrawableControlIcon(R.drawable.ic_player_skip_fwd, theme) {
+                                player.seekTo((player.currentPosition + 10_000).coerceAtMost(durationMs))
+                            }
                         }
-                        DrawableControlIcon(R.drawable.ic_player_skip_back, theme) {
-                            player.seekTo((player.currentPosition - 10_000).coerceAtLeast(0))
-                        }
-                        DrawableControlIcon(R.drawable.ic_player_skip_fwd, theme) {
-                            player.seekTo((player.currentPosition + 10_000).coerceAtMost(durationMs))
-                        }
-                        DrawableControlIcon(
-                            res = if (isMuted) R.drawable.ic_player_mute else R.drawable.ic_player_volume,
-                            theme = theme
-                        ) {
-                            isMuted = !isMuted; player.volume = if (isMuted) 0f else 1f
+                        var muteBtnFocused by remember { mutableStateOf(false) }
+                        if (isTv) {
+                            ZsOutlinedWrapper(
+                                visible = muteBtnFocused,
+                                shape = RoundedCornerShape(50),
+                                outlineColor = Color.White,
+                                gap = 4.dp,
+                            ) {
+                                IconButton(
+                                    onClick = { isMuted = !isMuted; player.volume = if (isMuted) 0f else 1f },
+                                    modifier = Modifier
+                                        .size(BOTTOM_BAR_BUTTON_SIZE)
+                                        .focusRequester(muteFocusRequester)
+                                        .focusProperties {
+                                            up =
+                                                if (activeSkipSegments.isNotEmpty()) skipFocusRequester else playFocusRequester
+                                            if (showInfoSheet || menuOpen) canFocus = false
+                                        }
+                                        .onFocusChanged { muteBtnFocused = it.isFocused }
+                                ) {
+                                    Icon(
+                                        painterResource(if (isMuted) R.drawable.ic_player_mute else R.drawable.ic_player_volume),
+                                        null,
+                                        tint = theme.colors.type.emphasis,
+                                        modifier = Modifier.size(BOTTOM_BAR_ICON_SIZE)
+                                    )
+                                }
+                            }
+                        } else {
+                            DrawableControlIcon(
+                                res = if (isMuted) R.drawable.ic_player_mute else R.drawable.ic_player_volume,
+                                theme = theme
+                            ) {
+                                isMuted = !isMuted; player.volume = if (isMuted) 0f else 1f
+                            }
                         }
                         Spacer(Modifier.width(4.dp))
                         Text("${formatTime(positionMs)} / ${formatTime(durationMs)}", color = theme.colors.type.emphasis, fontSize = 12.sp)
+
                         Spacer(Modifier.weight(1f))
                         if (roomCode != null && !isHost) {
                             ZsTextButton(
@@ -1615,19 +1875,92 @@ private fun PlayerControls(
                                 tint = if (subtitlesEnabled) theme.colors.type.emphasis else theme.colors.type.secondary,
                                 modifier = Modifier.size(BOTTOM_BAR_MENU_ICON_SIZE)
                             )
+
+                        var ccBtnFocused by remember { mutableStateOf(false) }
+                        if (isTv) {
+                            ZsOutlinedWrapper(
+                                visible = ccBtnFocused,
+                                shape = RoundedCornerShape(50),
+                                outlineColor = Color.White,
+                                gap = 4.dp,
+                            ) {
+                                IconButton(onClick = {
+                                    onControlsVisibilityChanged(true)
+                                    onMenuPageChange(PlayerMenuPage.Captions)
+                                    menuSourceRequester = ccFocusRequester
+                                }, modifier = Modifier
+                                    .size(BOTTOM_BAR_MENU_BUTTON_SIZE)
+                                    .focusRequester(ccFocusRequester)
+                                    .focusProperties {
+                                        up =
+                                            if (activeSkipSegments.isNotEmpty()) skipFocusRequester else playFocusRequester
+                                        if (showInfoSheet || menuOpen) {
+                                            canFocus = false
+                                        }
+                                    }
+                                    .onFocusChanged { ccBtnFocused = it.isFocused }
+                                ) {
+                                    Icon(Icons.Filled.ClosedCaption, null,
+                                        tint = if (subtitlesEnabled) theme.colors.type.emphasis else theme.colors.type.secondary,
+                                        modifier = Modifier.size(BOTTOM_BAR_MENU_ICON_SIZE))
+                                }
+                            }
+                        } else {
+                            IconButton(onClick = {
+                                onControlsVisibilityChanged(true)
+                                onMenuPageChange(PlayerMenuPage.Captions)
+                            }, modifier = Modifier.size(BOTTOM_BAR_MENU_BUTTON_SIZE)) {
+                                Icon(Icons.Filled.ClosedCaption, null,
+                                    tint = if (subtitlesEnabled) theme.colors.type.emphasis else theme.colors.type.secondary,
+                                    modifier = Modifier.size(BOTTOM_BAR_MENU_ICON_SIZE))
+                            }
                         }
-                        IconButton(onClick = {
-                            onControlsVisibilityChanged(true)
-                            menuPage = PlayerMenuPage.Root
-                        }, modifier = Modifier.size(BOTTOM_BAR_MENU_BUTTON_SIZE)) {
-                            Icon(Icons.Filled.Tune, null, tint = theme.colors.type.emphasis, modifier = Modifier.size(BOTTOM_BAR_MENU_ICON_SIZE))
+
+                        var settingsBtnFocused by remember { mutableStateOf(false) }
+                        if (isTv) {
+                            ZsOutlinedWrapper(
+                                visible = settingsBtnFocused,
+                                shape = RoundedCornerShape(50),
+                                outlineColor = Color.White,
+                                gap = 4.dp,
+                            ) {
+                                IconButton(onClick = {
+                                    onControlsVisibilityChanged(true)
+                                    onMenuPageChange(PlayerMenuPage.Root)
+                                    menuSourceRequester = settingsFocusRequester
+                                }, modifier = Modifier
+                                    .size(BOTTOM_BAR_MENU_BUTTON_SIZE)
+                                    .focusRequester(settingsFocusRequester)
+                                    .focusProperties {
+                                        up =
+                                            if (activeSkipSegments.isNotEmpty()) skipFocusRequester else playFocusRequester
+                                        if (showInfoSheet || menuOpen) {
+                                            canFocus = false
+                                        }
+                                    }
+                                    .onFocusChanged { settingsBtnFocused = it.isFocused }
+                                ) {
+                                    Icon(Icons.Filled.Tune, null, tint = theme.colors.type.emphasis,
+                                        modifier = Modifier.size(BOTTOM_BAR_MENU_ICON_SIZE))
+                                }
+                            }
+                        } else {
+                            IconButton(onClick = {
+                                onControlsVisibilityChanged(true)
+                                onMenuPageChange(PlayerMenuPage.Root)
+                            }, modifier = Modifier.size(BOTTOM_BAR_MENU_BUTTON_SIZE)) {
+                                Icon(Icons.Filled.Tune, null, tint = theme.colors.type.emphasis,
+                                    modifier = Modifier.size(BOTTOM_BAR_MENU_ICON_SIZE))
+                            }
                         }
-                        IconButton(onClick = {
-                            menuPage = null
-                            onControlsVisibilityChanged(false)
-                            onPip()
-                        }, modifier = Modifier.size(BOTTOM_BAR_MENU_BUTTON_SIZE)) {
-                            Icon(Icons.Filled.PictureInPictureAlt, null, tint = theme.colors.type.emphasis, modifier = Modifier.size(BOTTOM_BAR_MENU_ICON_SIZE))
+                        if (!isTv) {
+                            IconButton(onClick = {
+                                onMenuPageChange(null)
+                                onControlsVisibilityChanged(false)
+                                onPip()
+                            }, modifier = Modifier.size(BOTTOM_BAR_MENU_BUTTON_SIZE)) {
+                                Icon(Icons.Filled.PictureInPictureAlt, null, tint = theme.colors.type.emphasis, modifier = Modifier.size(BOTTOM_BAR_MENU_ICON_SIZE))
+                            }
                         }
                         Spacer(Modifier.width(BOTTOM_RIGHT_END_PADDING))
                     }
@@ -1682,6 +2015,28 @@ private fun PlayerControls(
             )
         }
 
+        val menuFocusRequester = remember { FocusRequester() }
+        val menuFirstItemFocusRequester = remember { FocusRequester() }
+        LaunchedEffect(menuOpen) {
+            if (menuOpen && isTv) {
+                android.util.Log.d("PlayerFocus", "Menu opened, requesting focus on menuFirstItemFocusRequester, source=$menuSourceRequester")
+                menuFirstItemFocusRequester.requestFocus()
+                android.util.Log.d("PlayerFocus", "Menu focus request completed")
+            } else if (!menuOpen && isTv && menuSourceRequester != null) {
+                android.util.Log.d("PlayerFocus", "Menu closed, restoring focus to source=$menuSourceRequester")
+                menuSourceRequester!!.requestFocus()
+                menuSourceRequester = null
+                android.util.Log.d("PlayerFocus", "Focus restoration completed")
+            }
+        }
+        LaunchedEffect(menuPage) {
+            if (menuPage != null && isTv) {
+                android.util.Log.d("PlayerFocus", "Menu page changed to $menuPage, requesting focus on first item")
+                menuFirstItemFocusRequester.requestFocus()
+                android.util.Log.d("PlayerFocus", "Page focus request completed")
+            }
+        }
+
         AnimatedVisibility(
             visible = menuOpen,
             enter = fadeIn() + slideInVertically(initialOffsetY = { it / 3 }),
@@ -1692,10 +2047,31 @@ private fun PlayerControls(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
+                    .then(if (isTv) Modifier.focusProperties { canFocus = false } else Modifier)
+                    .onKeyEvent {
+                        if (isTv && it.type == KeyEventType.KeyDown && it.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_BACK) {
+                            onMenuPageChange(
+                                when (menuPage) {
+                                    null, PlayerMenuPage.Root -> null
+                                    PlayerMenuPage.AdvancedColor -> PlayerMenuPage.Playback
+                                    else -> PlayerMenuPage.Root
+                                }
+                            )
+                            true
+                        } else false
+                    }
                     .clickable(
                         indication = null,
                         interactionSource = remember { MutableInteractionSource() }
-                    ) { menuPage = null }
+                    ) {
+                        onMenuPageChange(
+                            when (menuPage) {
+                                null, PlayerMenuPage.Root -> null
+                                PlayerMenuPage.AdvancedColor -> PlayerMenuPage.Playback
+                                else -> PlayerMenuPage.Root
+                            }
+                        )
+                    }
             ) {
                 Surface(
                     color = theme.colors.modal.background.copy(alpha = 0.96f),
@@ -1707,11 +2083,28 @@ private fun PlayerControls(
                         .padding(end = 28.dp, bottom = 86.dp)
                         .widthIn(max = MENU_PANEL_WIDTH)
                         .heightIn(max = MENU_PANEL_HEIGHT)
-                        .border(1.dp, theme.colors.type.emphasis.copy(alpha = 0.08f), OVERLAY_PANEL_SHAPE)
+                        .border(
+                            1.dp,
+                            theme.colors.type.emphasis.copy(alpha = 0.08f),
+                            OVERLAY_PANEL_SHAPE
+                        )
                         .clickable(
                             indication = null,
                             interactionSource = remember { MutableInteractionSource() }
                         ) {}
+                        .focusRequester(menuFocusRequester)
+                        .focusProperties {
+                            onEnter = { menuFirstItemFocusRequester.requestFocus() }
+                            // Trap focus inside the menu for TV navigation
+                            if (isTv) {
+                                left = FocusRequester.Cancel
+                                right = FocusRequester.Cancel
+                                up = FocusRequester.Cancel
+                                down = FocusRequester.Cancel
+                            }
+                        }
+                        .focusable()
+                        .focusGroup()
                 ) {
                     PlayerMenuContent(
                         page = menuPage ?: PlayerMenuPage.Root,
@@ -1733,15 +2126,18 @@ private fun PlayerControls(
                         canSubmitSkipSegments = canSubmitSkipSegments,
                         hasTidbKey = hasTidbKey,
                         menuScrollPositions = menuScrollPositions,
-                        onClose = { menuPage = null },
+                        firstItemFocusRequester = menuFirstItemFocusRequester,
+                        onClose = { onMenuPageChange(null) },
                         onBack = {
-                            menuPage = when (menuPage) {
-                                null, PlayerMenuPage.Root -> null
-                                PlayerMenuPage.AdvancedColor -> PlayerMenuPage.Playback
-                                else -> PlayerMenuPage.Root
-                            }
+                            onMenuPageChange(
+                                when (menuPage) {
+                                    null, PlayerMenuPage.Root -> null
+                                    PlayerMenuPage.AdvancedColor -> PlayerMenuPage.Playback
+                                    else -> PlayerMenuPage.Root
+                                }
+                            )
                         },
-                        onOpenPage = { menuPage = it },
+                        onOpenPage = { onMenuPageChange(it) },
                         onToggleSubtitles = onToggleSubtitles,
                         onDisableSubtitles = onDisableSubtitles,
                         onSelectSubtitle = onSelectSubtitle,
@@ -2200,9 +2596,17 @@ private fun SkipSegmentOverlay(
     currentTimeSeconds: Float,
     segments: List<SkipSegment>,
     durationMs: Long,
+    showInfoSheet: Boolean,
+    menuOpen: Boolean,
     onSkip: (SkipSegment) -> Unit,
     modifier: Modifier = Modifier,
+    focusRequester: FocusRequester? = null,
+    upRequester: FocusRequester? = null,
+    downRequester: FocusRequester? = null,
+    onSeekBack: () -> Unit = {},
+    onSeekFwd: () -> Unit = {},
 ) {
+    val isTv = LocalIsTv.current
     if (segments.isEmpty()) return
     val bottomOffset by animateDpAsState(
         targetValue = if (controlsVisible) 96.dp else 48.dp,
@@ -2215,48 +2619,89 @@ private fun SkipSegmentOverlay(
         horizontalAlignment = Alignment.End,
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        segments.forEach { segment ->
+        segments.forEachIndexed { index, segment ->
             val visibility = shouldShowSkipButton(currentTimeSeconds, segment)
             val show = visibility == SkipButtonVisibility.Always || (visibility == SkipButtonVisibility.Hover && controlsVisible)
+            var isFocused by remember { mutableStateOf(false) }
+
             AnimatedVisibility(
                 visible = show,
                 enter = fadeIn() + slideInVertically(initialOffsetY = { it / 3 }),
                 exit = fadeOut() + slideOutVertically(targetOffsetY = { it / 3 }),
             ) {
-                TextButton(
-                    onClick = { onSkip(segment) },
-                    colors = ButtonDefaults.textButtonColors(
-                        containerColor = theme.colors.buttons.primary,
-                        contentColor = theme.colors.buttons.primaryText,
-                    ),
+                ZsOutlinedWrapper(
+                    visible = isFocused && isTv,
                     shape = RoundedCornerShape(8.dp),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
-                    modifier = Modifier
-                        .width(SKIP_SEGMENT_BUTTON_WIDTH)
-                        .height(40.dp)
-                        .graphicsLayer(scaleX = 0.95f, scaleY = 0.95f)
+                    outlineColor = Color.White,
+                    gap = 4.dp,
                 ) {
-                    Icon(
-                        painterResource(R.drawable.ic_player_skip_fwd),
-                        null,
-                        tint = theme.colors.buttons.primaryText,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        if (segment.type == "credits" && segment.endMs == null && durationMs > 0L) "Next Episode" else skipSegmentLabel(segment.type),
-                        color = theme.colors.buttons.primaryText,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                    TextButton(
+                        onClick = { onSkip(segment) },
+                        colors = ButtonDefaults.textButtonColors(
+                            containerColor = theme.colors.buttons.primary,
+                            contentColor = theme.colors.buttons.primaryText,
+                        ),
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                        modifier = Modifier
+                            .width(SKIP_SEGMENT_BUTTON_WIDTH)
+                            .height(40.dp)
+                            .then(
+                                if (isTv && index == 0 && focusRequester != null) Modifier.focusRequester(
+                                    focusRequester
+                                ) else Modifier
+                            )
+                            .then(if (isTv) Modifier.focusProperties {
+                                if (showInfoSheet || menuOpen) {
+                                    canFocus = false
+                                }
+                                up = upRequester ?: FocusRequester.Default
+                                down = downRequester ?: FocusRequester.Default
+                                left = FocusRequester.Cancel
+                                right = FocusRequester.Cancel
+                            } else Modifier)
+                            .onFocusChanged { isFocused = it.isFocused }
+                            .onKeyEvent { keyEvent ->
+                                if (isTv && keyEvent.type == KeyEventType.KeyDown) {
+                                    when (keyEvent.nativeKeyEvent.keyCode) {
+                                        android.view.KeyEvent.KEYCODE_DPAD_LEFT -> {
+                                            onSeekBack()
+                                            true
+                                        }
+                                        android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                                            onSeekFwd()
+                                            true
+                                        }
+                                        else -> false
+                                    }
+                                } else false
+                            }
+                            .graphicsLayer(scaleX = 0.95f, scaleY = 0.95f)
+                    ) {
+                        Icon(
+                            painterResource(R.drawable.ic_player_skip_fwd),
+                            null,
+                            tint = theme.colors.buttons.primaryText,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            if (segment.type == "credits" && segment.endMs == null && durationMs > 0L) "Next Episode" else skipSegmentLabel(
+                                segment.type
+                            ),
+                            color = theme.colors.buttons.primaryText,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
             }
         }
     }
 }
 
-@OptIn(UnstableApi::class)
+@OptIn(ExperimentalComposeUiApi::class, UnstableApi::class)
 @Composable
 private fun PlayerMenuContent(
     page: PlayerMenuPage,
@@ -2278,6 +2723,7 @@ private fun PlayerMenuContent(
     canSubmitSkipSegments: Boolean,
     hasTidbKey: Boolean,
     menuScrollPositions: SnapshotStateMap<PlayerMenuPage, Int>,
+    firstItemFocusRequester: FocusRequester? = null,
     onClose: () -> Unit,
     onBack: () -> Unit,
     onOpenPage: (PlayerMenuPage) -> Unit,
@@ -2385,6 +2831,7 @@ private fun PlayerMenuContent(
             when (currentPage) {
                 PlayerMenuPage.Root -> {
                     PlayerMenuGridSection(
+                        firstItemFocusRequester = firstItemFocusRequester,
                         items = listOf(
                             PlayerMenuTileItem("Quality", selectedQualityLabel) { onOpenPage(PlayerMenuPage.Quality) },
                             PlayerMenuTileItem("Source", sourceId ?: "Auto") { onOpenPage(PlayerMenuPage.Sources) },
@@ -2411,7 +2858,7 @@ private fun PlayerMenuContent(
                 }
                 PlayerMenuPage.Captions -> {
                     PlayerMenuSection {
-                        PlayerMenuToggleRow("Enable subtitles", subtitlesEnabled, onToggleSubtitles)
+                        PlayerMenuToggleRow("Enable subtitles", subtitlesEnabled, focusRequester = firstItemFocusRequester, onToggle = onToggleSubtitles)
                     }
                     PlayerMenuSection {
                         PlayerMenuSelectableRow(
@@ -2436,7 +2883,11 @@ private fun PlayerMenuContent(
                     PlayerMenuSection {
                         PlayerMenuFieldTitle("Speed")
                         Spacer(Modifier.height(12.dp))
-                        PlayerMenuSpeedOptions(playbackSpeed = playbackSpeed, onSetPlaybackSpeed = onSetPlaybackSpeed)
+                        PlayerMenuSpeedOptions(
+                            playbackSpeed = playbackSpeed, 
+                            onSetPlaybackSpeed = onSetPlaybackSpeed,
+                            firstItemFocusRequester = firstItemFocusRequester
+                        )
                     }
                     PlayerMenuSection {
                         PlayerMenuSliderRow(
@@ -2447,7 +2898,8 @@ private fun PlayerMenuContent(
                             steps = 0,
                             onValueChange = { onSetPlaybackSpeed((it * 20).toInt() / 20f) },
                             onReset = { onSetPlaybackSpeed(1f) },
-                            isDefault = playbackSpeed == 1f
+                            isDefault = playbackSpeed == 1f,
+                            tickStep = 0.05f,
                         )
                         PlayerMenuToggleRow("Autoplay next episode", settings.enableAutoplay) {
                             onSetEnableAutoplay(!settings.enableAutoplay)
@@ -2499,7 +2951,8 @@ private fun PlayerMenuContent(
                             steps = 0,
                             onValueChange = { onSetVideoBrightness((it / 5).toInt() * 5) },
                             onReset = { onSetVideoBrightness(100) },
-                            isDefault = settings.videoBrightness == 100
+                            isDefault = settings.videoBrightness == 100,
+                            focusRequester = firstItemFocusRequester
                         )
                         PlayerMenuSliderRow(
                             label = "Contrast",
@@ -2531,12 +2984,30 @@ private fun PlayerMenuContent(
                             onReset = { onSetVideoHueRotate(0) },
                             isDefault = settings.videoHueRotate == 0
                         )
-                        TextButton(
-                            onClick = onResetAdvancedColor,
-                            contentPadding = PaddingValues(0.dp),
-                            modifier = Modifier.align(Alignment.CenterHorizontally)
+                        
+                        val isTv = LocalIsTv.current
+                        var isResetFocused by remember { mutableStateOf(false) }
+                        ZsOutlinedWrapper(
+                            visible = isResetFocused && isTv,
+                            shape = RoundedCornerShape(12.dp),
+                            outlineColor = Color.White,
+                            gap = 2.dp,
                         ) {
-                            Text("Reset all", color = playerMenuMutedText())
+                            TextButton(
+                                onClick = onResetAdvancedColor,
+                                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                                modifier = Modifier
+                                    .align(Alignment.CenterHorizontally)
+                                    .onFocusChanged { isResetFocused = it.isFocused }
+                                    .focusProperties {
+                                        if (isTv) {
+                                            left = FocusRequester.Cancel
+                                            right = FocusRequester.Cancel
+                                        }
+                                    }
+                            ) {
+                                Text("Reset all", color = playerMenuMutedText())
+                            }
                         }
                     }
                 }
@@ -2551,7 +3022,7 @@ private fun PlayerMenuContent(
                     }
                     if (manualSourceSelection) {
                         PlayerMenuSection {
-                            sourceResults.forEach { source ->
+                            sourceResults.forEachIndexed { index, source ->
                                 PlayerMenuSelectableRow(
                                     title = source.id,
                                     subtitle = source.status.name.lowercase().replaceFirstChar { it.uppercase() },
@@ -2559,7 +3030,8 @@ private fun PlayerMenuContent(
                                     onClick = {
                                         onClose()
                                         onSelectSource(source.id)
-                                    }
+                                    },
+                                    focusRequester = if (index == 0) firstItemFocusRequester else null
                                 )
                             }
                         }
@@ -2576,7 +3048,8 @@ private fun PlayerMenuContent(
                             title = "Auto",
                             subtitle = "Adaptive streaming",
                             selected = qualityOptions.none { it.selected },
-                            onClick = onSelectAutoQuality
+                            onClick = onSelectAutoQuality,
+                            focusRequester = firstItemFocusRequester
                         )
                         qualityOptions.forEach { option ->
                             PlayerMenuSelectableRow(
@@ -2593,12 +3066,13 @@ private fun PlayerMenuContent(
                 }
                 PlayerMenuPage.Audio -> {
                     PlayerMenuSection {
-                        audioOptions.forEach { option ->
+                        audioOptions.forEachIndexed { index, option ->
                             PlayerMenuSelectableRow(
                                 title = option.label,
                                 subtitle = option.language ?: "Unknown",
                                 selected = option.selected,
-                                onClick = { onSelectAudio(option) }
+                                onClick = { onSelectAudio(option) },
+                                focusRequester = if (index == 0) firstItemFocusRequester else null
                             )
                         }
                     }
@@ -2980,12 +3454,35 @@ private fun PlayerMenuContent(
                     PlayerMenuSection {
                         if (canSubmitSkipSegments) {
                             if (hasTidbKey) {
-                                ZsButton(
-                                    text = "Submit Segment",
-                                    onClick = { onOpenSkipSubmission(null) },
-                                    variant = ZsButtonVariant.Purple,
-                                    modifier = Modifier.fillMaxWidth(),
-                                )
+                                val isTv = LocalIsTv.current
+                                var isFocused by remember { mutableStateOf(false) }
+                                ZsOutlinedWrapper(
+                                    visible = isFocused && isTv,
+                                    shape = RoundedCornerShape(12.dp),
+                                    outlineColor = Color.White,
+                                    gap = 2.dp,
+                                ) {
+                                    ZsButton(
+                                        text = "Submit Segment",
+                                        onClick = { onOpenSkipSubmission(null) },
+                                        variant = ZsButtonVariant.Purple,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .then(
+                                                if (firstItemFocusRequester != null) Modifier.focusRequester(
+                                                    firstItemFocusRequester
+                                                ) else Modifier
+                                            )
+                                            .onFocusChanged { isFocused = it.isFocused }
+                                            .focusProperties {
+                                                if (isTv) {
+                                                    left = FocusRequester.Cancel
+                                                    right = FocusRequester.Cancel
+                                                }
+                                            },
+                                    )
+                                }
+                                Spacer(Modifier.height(8.dp))
                             } else {
                                 PlayerMenuStubCard("To submit new segments, enter your TheIntroDB API key in the connections settings.")
                             }
@@ -2993,38 +3490,17 @@ private fun PlayerMenuContent(
                         if (skipSegments.isEmpty()) {
                             PlayerMenuStubCard("No skip segments available.")
                         } else {
-                            skipSegments.forEach { segment ->
-                                ZsCard(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable {
-                                            onSeekToMs(segment.startMs ?: 0L)
-                                            if (canSubmitSkipSegments && hasTidbKey) {
-                                                onOpenSkipSubmission(segment)
-                                            }
-                                        },
-                                    variant = ZsCardVariant.Elevated,
-                                ) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 14.dp, vertical = 12.dp),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically,
-                                    ) {
-                                        Text(
-                                            skipSegmentLabel(segment.type),
-                                            color = theme.colors.video.context.type.main,
-                                            fontWeight = FontWeight.Medium,
-                                        )
-                                        Text(
-                                            "${formatTime(segment.startMs ?: 0L)} - ${segment.endMs?.let(::formatTime) ?: "End of video"}",
-                                            color = theme.colors.video.context.type.secondary,
-                                            fontSize = 12.sp,
-                                        )
-                                    }
+                            skipSegments.forEachIndexed { index, segment ->
+                                PlayerMenuSkipSegmentRow(
+                                    segment = segment,
+                                    onSeek = { onSeekToMs(segment.startMs ?: 0L) },
+                                    onOpenSubmission = { onOpenSkipSubmission(segment) },
+                                    canSubmit = canSubmitSkipSegments && hasTidbKey,
+                                    focusRequester = if (index == 0 && !(canSubmitSkipSegments && hasTidbKey)) firstItemFocusRequester else null
+                                )
+                                if (index < skipSegments.size - 1) {
+                                    Spacer(Modifier.height(8.dp))
                                 }
-                                Spacer(Modifier.height(8.dp))
                             }
                         }
                     }
@@ -3038,6 +3514,7 @@ private fun PlayerMenuContent(
 @Composable
 private fun PlayerMenuHeader(title: String, showBack: Boolean, onBack: () -> Unit) {
     val theme = LocalZStreamTheme.current
+    val isTv = LocalIsTv.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -3054,14 +3531,25 @@ private fun PlayerMenuHeader(title: String, showBack: Boolean, onBack: () -> Uni
             verticalAlignment = Alignment.CenterVertically
         ) {
             if (showBack) {
-                ZsIconButton(
-                    onClick = onBack,
-                    icon = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = null,
-                    variant = ZsIconButtonVariant.Ghost,
-                    containerSize = 32.dp,
-                    iconSize = 18.dp,
-                )
+                var isFocused by remember { mutableStateOf(false) }
+                ZsOutlinedWrapper(
+                    visible = isFocused && isTv,
+                    shape = CircleShape,
+                    outlineColor = Color.White,
+                    gap = 2.dp,
+                ) {
+                    ZsIconButton(
+                        onClick = onBack,
+                        icon = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = null,
+                        variant = ZsIconButtonVariant.Ghost,
+                        containerSize = 32.dp,
+                        iconSize = 18.dp,
+                        modifier = Modifier
+                            .onFocusChanged { isFocused = it.isFocused }
+                            .focusProperties { if (isTv) left = FocusRequester.Cancel }
+                    )
+                }
                 Spacer(Modifier.width(4.dp))
             }
             Text(
@@ -3095,21 +3583,28 @@ private fun PlayerMenuSection(content: @Composable ColumnScope.() -> Unit) {
 }
 
 @Composable
-private fun PlayerMenuGridSection(items: List<PlayerMenuTileItem>) {
+private fun PlayerMenuGridSection(items: List<PlayerMenuTileItem>, firstItemFocusRequester: FocusRequester? = null) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(top = 24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        items.chunked(2).forEach { rowItems ->
+        items.chunked(2).forEachIndexed { rowIndex, rowItems ->
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                rowItems.forEach { item ->
+                rowItems.forEachIndexed { colIndex, item ->
                     Box(modifier = Modifier.weight(1f)) {
-                        PlayerMenuBoxNavTile(item.title, item.value, item.onClick)
+                        PlayerMenuBoxNavTile(
+                            title = item.title,
+                            value = item.value,
+                            onClick = item.onClick,
+                            focusRequester = if (rowIndex == 0 && colIndex == 0) firstItemFocusRequester else null,
+                            isLeft = colIndex == 0,
+                            isRight = colIndex == rowItems.size - 1
+                        )
                     }
                 }
                 if (rowItems.size == 1) {
@@ -3135,7 +3630,9 @@ private fun PlayerMenuSectionTitle(text: String) {
 private fun PlayerMenuSummaryCard(title: String, value: String, subtitle: String) {
     val theme = LocalZStreamTheme.current
     Surface(color = playerMenuCardFill(), shape = RoundedCornerShape(18.dp)) {
-        Column(Modifier.fillMaxWidth().padding(14.dp)) {
+        Column(Modifier
+            .fillMaxWidth()
+            .padding(14.dp)) {
             Text(title, color = theme.colors.type.emphasis, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
             Spacer(Modifier.height(6.dp))
             Text(value, color = playerMenuMutedText(), fontSize = 12.sp)
@@ -3146,33 +3643,57 @@ private fun PlayerMenuSummaryCard(title: String, value: String, subtitle: String
 }
 
 @Composable
-private fun PlayerMenuBoxNavTile(title: String, value: String, onClick: () -> Unit) {
+private fun PlayerMenuBoxNavTile(
+    title: String, 
+    value: String, 
+    onClick: () -> Unit, 
+    focusRequester: FocusRequester? = null,
+    isLeft: Boolean = false,
+    isRight: Boolean = false
+) {
     val theme = LocalZStreamTheme.current
-    Surface(
-        color = playerMenuCardFill(),
+    val isTv = LocalIsTv.current
+    var isFocused by remember { mutableStateOf(false) }
+    ZsOutlinedWrapper(
+        visible = isFocused && isTv,
         shape = RoundedCornerShape(18.dp),
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(PLAYER_MENU_BOX_TILE_HEIGHT)
-            .clickable(onClick = onClick)
+        outlineColor = Color.White,
+        gap = 2.dp,
     ) {
-        Column(
+        Surface(
+            color = playerMenuCardFill(),
+            shape = RoundedCornerShape(18.dp),
             modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 12.dp, vertical = 10.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+                .fillMaxWidth()
+                .height(PLAYER_MENU_BOX_TILE_HEIGHT)
+                .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
+                .focusProperties {
+                    if (isTv) {
+                        if (isLeft) left = FocusRequester.Cancel
+                        if (isRight) right = FocusRequester.Cancel
+                    }
+                }
+                .onFocusChanged { isFocused = it.isFocused }
+                .clickable(onClick = onClick)
         ) {
-            Text(title, color = theme.colors.type.emphasis, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center)
-            Spacer(Modifier.height(4.dp))
-            Text(
-                value,
-                color = playerMenuMutedText(),
-                fontSize = 12.sp,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.Center
-            )
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text(title, color = theme.colors.type.emphasis, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center)
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    value,
+                    color = playerMenuMutedText(),
+                    fontSize = 12.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center
+                )
+            }
         }
     }
 }
@@ -3183,8 +3704,9 @@ private fun PlayerMenuFieldTitle(text: String) {
 }
 
 @Composable
-private fun PlayerMenuSpeedOptions(playbackSpeed: Float, onSetPlaybackSpeed: (Float) -> Unit) {
+private fun PlayerMenuSpeedOptions(playbackSpeed: Float, onSetPlaybackSpeed: (Float) -> Unit, firstItemFocusRequester: FocusRequester? = null) {
     val theme = LocalZStreamTheme.current
+    val isTv = LocalIsTv.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -3192,7 +3714,7 @@ private fun PlayerMenuSpeedOptions(playbackSpeed: Float, onSetPlaybackSpeed: (Fl
             .padding(4.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        listOf(0.25f, 0.5f, 1f, 1.5f, 2f).forEach { speed ->
+        listOf(0.25f, 0.5f, 1f, 1.5f, 2f).forEachIndexed { index, speed ->
             val selected = playbackSpeed == speed
             TextButton(
                 onClick = { onSetPlaybackSpeed(speed) },
@@ -3201,7 +3723,19 @@ private fun PlayerMenuSpeedOptions(playbackSpeed: Float, onSetPlaybackSpeed: (Fl
                     contentColor = theme.colors.type.emphasis
                 ),
                 contentPadding = PaddingValues(horizontal = 0.dp, vertical = 8.dp),
-                modifier = Modifier.weight(1f)
+                modifier = Modifier
+                    .weight(1f)
+                    .then(
+                        if (index == 0 && firstItemFocusRequester != null) Modifier.focusRequester(
+                            firstItemFocusRequester
+                        ) else Modifier
+                    )
+                    .focusProperties {
+                        if (isTv) {
+                            if (index == 0) left = FocusRequester.Cancel
+                            if (index == 4) right = FocusRequester.Cancel
+                        }
+                    }
             ) {
                 Text("${speed}x", color = if (selected) theme.colors.type.emphasis else playerMenuMutedText())
             }
@@ -3216,6 +3750,7 @@ private fun PlayerMenuSegmentedOptions(
     onSelect: (String) -> Unit,
 ) {
     val theme = LocalZStreamTheme.current
+    val isTv = LocalIsTv.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -3223,7 +3758,7 @@ private fun PlayerMenuSegmentedOptions(
             .padding(4.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        options.forEach { (value, label) ->
+        options.forEachIndexed { index, (value, label) ->
             val isSelected = selected.equals(value, ignoreCase = true)
             TextButton(
                 onClick = { onSelect(value) },
@@ -3232,7 +3767,14 @@ private fun PlayerMenuSegmentedOptions(
                     contentColor = theme.colors.type.emphasis
                 ),
                 contentPadding = PaddingValues(horizontal = 0.dp, vertical = 8.dp),
-                modifier = Modifier.weight(1f)
+                modifier = Modifier
+                    .weight(1f)
+                    .focusProperties {
+                        if (isTv) {
+                            if (index == 0) left = FocusRequester.Cancel
+                            if (index == options.size - 1) right = FocusRequester.Cancel
+                        }
+                    }
             ) {
                 Text(label, color = if (isSelected) theme.colors.type.emphasis else playerMenuMutedText())
             }
@@ -3243,24 +3785,41 @@ private fun PlayerMenuSegmentedOptions(
 @Composable
 private fun PlayerMenuChevronRow(title: String, value: String? = null, onClick: () -> Unit) {
     val theme = LocalZStreamTheme.current
-    TextButton(
-        onClick = onClick,
-        contentPadding = PaddingValues(horizontal = 0.dp, vertical = 10.dp),
-        modifier = Modifier.fillMaxWidth()
+    val isTv = LocalIsTv.current
+    var isFocused by remember { mutableStateOf(false) }
+    ZsOutlinedWrapper(
+        visible = isFocused && isTv,
+        shape = RoundedCornerShape(14.dp),
+        outlineColor = Color.White,
+        gap = 2.dp,
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            Text(title, color = theme.colors.type.emphasis, modifier = Modifier.weight(1f), textAlign = TextAlign.Start)
-            if (!value.isNullOrBlank()) {
-                Text(
-                    value,
-                    color = playerMenuMutedText(),
-                    fontSize = 13.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Spacer(Modifier.width(4.dp))
+        TextButton(
+            onClick = onClick,
+            contentPadding = PaddingValues(horizontal = 0.dp, vertical = 10.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .focusProperties {
+                    if (isTv) {
+                        left = FocusRequester.Cancel
+                        right = FocusRequester.Cancel
+                    }
+                }
+                .onFocusChanged { isFocused = it.isFocused }
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                Text(title, color = theme.colors.type.emphasis, modifier = Modifier.weight(1f), textAlign = TextAlign.Start)
+                if (!value.isNullOrBlank()) {
+                    Text(
+                        value,
+                        color = playerMenuMutedText(),
+                        fontSize = 13.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(Modifier.width(4.dp))
+                }
+                Icon(Icons.Filled.ChevronRight, null, tint = theme.colors.type.emphasis, modifier = Modifier.size(20.dp))
             }
-            Icon(Icons.Filled.ChevronRight, null, tint = theme.colors.type.emphasis, modifier = Modifier.size(20.dp))
         }
     }
 }
@@ -3268,36 +3827,73 @@ private fun PlayerMenuChevronRow(title: String, value: String? = null, onClick: 
 @Composable
 private fun PlayerMenuLinkRow(title: String, rightIcon: androidx.compose.ui.graphics.vector.ImageVector, onClick: () -> Unit) {
     val theme = LocalZStreamTheme.current
-    TextButton(
-        onClick = onClick,
-        contentPadding = PaddingValues(horizontal = 0.dp, vertical = 10.dp),
-        modifier = Modifier.fillMaxWidth()
+    val isTv = LocalIsTv.current
+    var isFocused by remember { mutableStateOf(false) }
+    ZsOutlinedWrapper(
+        visible = isFocused && isTv,
+        shape = RoundedCornerShape(14.dp),
+        outlineColor = Color.White,
+        gap = 2.dp,
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            Text(title, color = theme.colors.type.emphasis, modifier = Modifier.weight(1f), textAlign = TextAlign.Start)
-            Icon(rightIcon, null, tint = theme.colors.type.emphasis, modifier = Modifier.size(19.dp))
+        TextButton(
+            onClick = onClick,
+            contentPadding = PaddingValues(horizontal = 0.dp, vertical = 10.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .focusProperties {
+                    if (isTv) {
+                        left = FocusRequester.Cancel
+                        right = FocusRequester.Cancel
+                    }
+                }
+                .onFocusChanged { isFocused = it.isFocused }
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                Text(title, color = theme.colors.type.emphasis, modifier = Modifier.weight(1f), textAlign = TextAlign.Start)
+                Icon(rightIcon, null, tint = theme.colors.type.emphasis, modifier = Modifier.size(19.dp))
+            }
         }
     }
 }
 
 @Composable
-private fun PlayerMenuToggleRow(title: String, checked: Boolean, onToggle: () -> Unit) {
+private fun PlayerMenuToggleRow(title: String, checked: Boolean, focusRequester: FocusRequester? = null, onToggle: () -> Unit) {
     val theme = LocalZStreamTheme.current
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
-        verticalAlignment = Alignment.CenterVertically
+    val isTv = LocalIsTv.current
+    var isFocused by remember { mutableStateOf(false) }
+    ZsOutlinedWrapper(
+        visible = isFocused && isTv,
+        shape = RoundedCornerShape(14.dp),
+        outlineColor = Color.White,
+        gap = 2.dp,
     ) {
-        Text(title, color = theme.colors.type.emphasis, modifier = Modifier.weight(1f))
-        Switch(
-            checked = checked,
-            onCheckedChange = { onToggle() },
-            colors = SwitchDefaults.colors(
-                checkedThumbColor = theme.colors.type.emphasis,
-                checkedTrackColor = theme.colors.global.accentA,
-                uncheckedThumbColor = theme.colors.type.dimmed,
-                uncheckedTrackColor = theme.colors.background.secondary,
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 2.dp)
+                .focusProperties {
+                    if (isTv) {
+                        left = FocusRequester.Cancel
+                        right = FocusRequester.Cancel
+                    }
+                }
+                .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
+                .onFocusChanged { isFocused = it.isFocused }
+                .clickable { onToggle() },
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(title, color = theme.colors.type.emphasis, modifier = Modifier.weight(1f))
+            Switch(
+                checked = checked,
+                onCheckedChange = null,
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = theme.colors.type.emphasis,
+                    checkedTrackColor = theme.colors.global.accentA,
+                    uncheckedThumbColor = theme.colors.type.dimmed,
+                    uncheckedTrackColor = theme.colors.background.secondary,
+                ),
             )
-        )
+        }
     }
 }
 
@@ -3311,40 +3907,133 @@ private fun PlayerMenuSliderRow(
     onValueChange: (Float) -> Unit,
     onReset: () -> Unit,
     isDefault: Boolean,
+    tickStep: Float? = null,
+    focusRequester: FocusRequester? = null,
 ) {
     val theme = LocalZStreamTheme.current
-    Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(label, color = playerMenuMutedText(), fontSize = 13.sp, modifier = Modifier.weight(1f))
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.height(24.dp)
-            ) {
-                Text(valueText, color = theme.colors.type.emphasis, fontSize = 13.sp)
-                Box(
-                    modifier = Modifier.size(18.dp),
-                    contentAlignment = Alignment.Center
+    val isTv = LocalIsTv.current
+    var isFocused by remember { mutableStateOf(false) }
+    var isAdjusting by remember { mutableStateOf(false) }
+    var sliderValue by remember { mutableFloatStateOf(value) }
+
+    LaunchedEffect(value) { if (!isAdjusting) sliderValue = value }
+
+    val bgColor by animateColorAsState(
+        if (isAdjusting) theme.colors.global.accentA.copy(alpha = 0.2f)
+        else if (isFocused) theme.colors.background.secondary.copy(alpha = 0.5f)
+        else Color.Transparent
+    )
+
+    val stepAmount = tickStep ?: (range.endInclusive - range.start) * 0.05f
+
+    ZsOutlinedWrapper(
+        shape = RoundedCornerShape(8.dp),
+        outlineColor = Color.White,
+        outlineWidth = 2.dp,
+        horizontal = 4.dp,
+        vertical = 2.dp,
+        visible = (isFocused || isAdjusting) && isTv,
+    ) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .background(bgColor)
+                .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
+                .focusProperties {
+                    if (isTv) {
+                        left = FocusRequester.Cancel
+                        right = FocusRequester.Cancel
+                    }
+                }
+                .onFocusChanged {
+                    isFocused = it.isFocused
+                    if (!it.isFocused) isAdjusting = false
+                }
+                .focusable()
+                .onKeyEvent { event ->
+                    if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
+                    if (isAdjusting) {
+                        when (event.nativeKeyEvent.keyCode) {
+                            android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                                sliderValue = (sliderValue + stepAmount).coerceIn(
+                                    range.start,
+                                    range.endInclusive
+                                )
+                                onValueChange(sliderValue)
+                                true
+                            }
+
+                            android.view.KeyEvent.KEYCODE_DPAD_LEFT -> {
+                                sliderValue = (sliderValue - stepAmount).coerceIn(
+                                    range.start,
+                                    range.endInclusive
+                                )
+                                onValueChange(sliderValue)
+                                true
+                            }
+
+                            android.view.KeyEvent.KEYCODE_DPAD_CENTER,
+                            android.view.KeyEvent.KEYCODE_ENTER,
+                            android.view.KeyEvent.KEYCODE_BUTTON_A,
+                            android.view.KeyEvent.KEYCODE_BACK -> {
+                                isAdjusting = false
+                                true
+                            }
+
+                            android.view.KeyEvent.KEYCODE_DPAD_UP,
+                            android.view.KeyEvent.KEYCODE_DPAD_DOWN -> true
+
+                            else -> false
+                        }
+                    } else {
+                        when (event.nativeKeyEvent.keyCode) {
+                            android.view.KeyEvent.KEYCODE_DPAD_CENTER,
+                            android.view.KeyEvent.KEYCODE_ENTER,
+                            android.view.KeyEvent.KEYCODE_BUTTON_A -> {
+                                isAdjusting = true
+                                true
+                            }
+
+                            else -> false
+                        }
+                    }
+                }
+                .padding(horizontal = 4.dp, vertical = 2.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(label, color = playerMenuMutedText(), fontSize = 13.sp, modifier = Modifier.weight(1f))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.height(24.dp)
                 ) {
-                    if (!isDefault) {
-                        TextButton(onClick = onReset, contentPadding = PaddingValues(0.dp)) {
-                            Icon(Icons.Filled.Close, null, tint = playerMenuMutedText(), modifier = Modifier.size(14.dp))
+                    Text(valueText, color = theme.colors.type.emphasis, fontSize = 13.sp)
+                    Box(
+                        modifier = Modifier.size(18.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (!isDefault) {
+                            TextButton(onClick = onReset, contentPadding = PaddingValues(0.dp)) {
+                                Icon(Icons.Filled.Close, null, tint = playerMenuMutedText(), modifier = Modifier.size(14.dp))
+                            }
                         }
                     }
                 }
             }
-        }
-        Slider(
-            value = value.coerceIn(range.start, range.endInclusive),
-            onValueChange = onValueChange,
-            valueRange = range,
-            steps = steps,
-            colors = SliderDefaults.colors(
-                thumbColor = theme.colors.type.emphasis,
-                activeTrackColor = theme.colors.type.emphasis,
-                inactiveTrackColor = theme.colors.progress.background.copy(alpha = 0.35f)
+            Slider(
+                value = sliderValue.coerceIn(range.start, range.endInclusive),
+                onValueChange = { sliderValue = it; onValueChange(it) },
+                valueRange = range,
+                steps = steps,
+                colors = SliderDefaults.colors(
+                    thumbColor = if (isAdjusting) Color.White else theme.colors.type.dimmed,
+                    activeTrackColor = if (isAdjusting) theme.colors.global.accentA else theme.colors.global.accentA.copy(alpha = 0.6f),
+                    inactiveTrackColor = theme.colors.progress.background.copy(alpha = 0.35f),
+                ),
+                enabled = isAdjusting,
             )
-        )
+        }
     }
 }
 
@@ -3355,29 +4044,112 @@ private fun PlayerMenuSelectableRow(
     selected: Boolean = false,
     onClick: () -> Unit,
     rightContent: (@Composable RowScope.() -> Unit)? = null,
+    focusRequester: FocusRequester? = null,
 ) {
     val theme = LocalZStreamTheme.current
-    Surface(
-        color = if (selected) playerMenuCardActiveFill() else Color.Transparent,
-        shape = RoundedCornerShape(14.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.type.emphasis.copy(alpha = 0.15f)),
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)
+    val isTv = LocalIsTv.current
+    var isFocused by remember { mutableStateOf(false) }
+    ZsOutlinedWrapper(
+        visible = isFocused && isTv,
+        shape = RoundedCornerShape(8.dp),
+        outlineColor = Color.White,
+        outlineWidth = 2.dp,
+        horizontal = 4.dp,
+        vertical = 2.dp,
     ) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically
+        Surface(
+            color = if (selected) playerMenuCardActiveFill() else Color.Transparent,
+            shape = RoundedCornerShape(8.dp),
+            border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.type.emphasis.copy(alpha = 0.15f)),
+            modifier = Modifier
+                .fillMaxWidth()
+                .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
+                .focusProperties {
+                    if (isTv) {
+                        left = FocusRequester.Cancel
+                        right = FocusRequester.Cancel
+                    }
+                }
+                .onFocusChanged { isFocused = it.isFocused }
+                .clickable(onClick = onClick)
         ) {
-            Column(Modifier.weight(1f)) {
-                Text(title, color = if (selected) theme.colors.type.emphasis else theme.colors.type.emphasis.copy(alpha = 0.96f))
-                if (subtitle != null) {
-                    Spacer(Modifier.height(2.dp))
-                    Text(subtitle, color = playerMenuDimText(), fontSize = 12.sp)
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(title, color = if (selected) theme.colors.type.emphasis else theme.colors.type.emphasis.copy(alpha = 0.96f))
+                    if (subtitle != null) {
+                        Spacer(Modifier.height(2.dp))
+                        Text(subtitle, color = playerMenuDimText(), fontSize = 12.sp)
+                    }
+                }
+                if (rightContent != null) {
+                    Row(verticalAlignment = Alignment.CenterVertically, content = rightContent)
+                } else if (selected) {
+                    Icon(Icons.Filled.Check, null, tint = theme.colors.type.success, modifier = Modifier.size(18.dp))
                 }
             }
-            if (rightContent != null) {
-                Row(verticalAlignment = Alignment.CenterVertically, content = rightContent)
-            } else if (selected) {
-                Icon(Icons.Filled.Check, null, tint = theme.colors.type.success, modifier = Modifier.size(18.dp))
+        }
+    }
+}
+
+@Composable
+private fun PlayerMenuSkipSegmentRow(
+    segment: SkipSegment,
+    onSeek: () -> Unit,
+    onOpenSubmission: () -> Unit,
+    canSubmit: Boolean,
+    focusRequester: FocusRequester? = null,
+) {
+    val theme = LocalZStreamTheme.current
+    val isTv = LocalIsTv.current
+    var isFocused by remember { mutableStateOf(false) }
+
+    ZsOutlinedWrapper(
+        visible = isFocused && isTv,
+        shape = RoundedCornerShape(14.dp),
+        outlineColor = Color.White,
+        gap = 2.dp,
+    ) {
+        ZsCard(
+            modifier = Modifier
+                .fillMaxWidth()
+                .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
+                .onFocusChanged { isFocused = it.isFocused }
+                .focusProperties {
+                    if (isTv) {
+                        left = FocusRequester.Cancel
+                        right = FocusRequester.Cancel
+                    }
+                }
+                .clickable {
+                    onSeek()
+                    if (canSubmit) {
+                        onOpenSubmission()
+                    }
+                },
+            variant = ZsCardVariant.Elevated,
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    skipSegmentLabel(segment.type),
+                    color = theme.colors.video.context.type.main,
+                    fontWeight = FontWeight.Medium,
+                )
+                Text(
+                    "${formatTime(segment.startMs ?: 0L)} - ${segment.endMs?.let(::formatTime) ?: "End of video"}",
+                    color = theme.colors.video.context.type.secondary,
+                    fontSize = 12.sp,
+                )
             }
         }
     }
@@ -3441,7 +4213,9 @@ private fun PlayerMenuStubCard(message: String) {
     Surface(
         color = theme.colors.background.secondary.copy(alpha = 0.45f),
         shape = RoundedCornerShape(16.dp),
-        modifier = Modifier.fillMaxWidth().padding(top = 10.dp)
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 10.dp)
     ) {
         Text(message, color = playerMenuMutedText(), fontSize = 12.sp, modifier = Modifier.padding(14.dp))
     }
@@ -3453,11 +4227,15 @@ private fun PlayerMenuSourceRow(source: SourceResult) {
     val color = sourceStatusColor(theme, source.status)
     Surface(
         color = theme.colors.background.secondary.copy(alpha = 0.45f),
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(8.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(8.dp).background(color, CircleShape))
+        Row(Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier
+                .size(8.dp)
+                .background(color, CircleShape))
             Spacer(Modifier.width(10.dp))
             Text(source.id, color = theme.colors.type.emphasis, modifier = Modifier.weight(1f))
             Text(source.status.name.lowercase().replaceFirstChar { it.uppercase() }, color = playerMenuMutedText(), fontSize = 12.sp)
@@ -3484,6 +4262,7 @@ private fun PlayerInfoSheet(
     onToggleBookmark: () -> Unit,
     onClose: () -> Unit,
     onSelectSeason: (Int) -> Unit,
+    firstItemFocusRequester: FocusRequester? = null,
 ) {
     val context = LocalContext.current
     val theme = LocalZStreamTheme.current
@@ -3491,7 +4270,9 @@ private fun PlayerInfoSheet(
         null, PlayerInfoState.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             CircularProgressIndicator(color = theme.colors.type.emphasis)
         }
-        is PlayerInfoState.Error -> Box(Modifier.fillMaxSize().padding(PLAYER_DETAIL_SHEET_CONTENT_PADDING), contentAlignment = Alignment.Center) {
+        is PlayerInfoState.Error -> Box(Modifier
+            .fillMaxSize()
+            .padding(20.dp), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(state.message, color = theme.colors.type.emphasis)
                 Spacer(Modifier.height(12.dp))
@@ -3499,571 +4280,52 @@ private fun PlayerInfoSheet(
             }
         }
         is PlayerInfoState.Movie -> {
-            SharedDetailSheetScaffold(
-                title = state.detail.title,
-                backdropUrl = state.detail.backdropUrl(),
-                logoUrl = state.detail.logoUrl(),
-                posterUrl = state.detail.posterUrl(),
-                year = state.detail.releaseDate?.take(4),
-                rating = state.detail.voteAverage?.let { String.format("%.1f", it) },
+            MovieDetailModal(
+                detail = state.detail,
+                nav = nav,
+                context = context,
                 theme = theme,
-                onClose = onClose
-            ) {
-                SharedMovieDetailContent(
-                    detail = state.detail,
-                    context = context,
-                    nav = nav,
-                    theme = theme,
-                ) {
-                    SharedActionPill(Icons.Filled.Share, theme) {
-                        openPlayerInfoShareSheet(context, state.detail.title, state.detail.id, "movie")
-                    }
-                    SharedActionPill(if (isBookmarked) ImageVector.vectorResource(R.drawable.ic_player_bookmark_filled) else ImageVector.vectorResource(R.drawable.ic_player_bookmark_outline), theme) {
-                        onToggleBookmark()
-                    }
-                }
-            }
+                isBookmarked = isBookmarked,
+                onToggleBookmark = onToggleBookmark,
+                hasProgress = false, // Not relevant for player info sheet as we're already playing
+                onBack = onClose,
+                onMarkMovieWatched = {}, // Stubs for player sheet
+                onClearMovieWatchHistory = {},
+                showPlayButton = false,
+                showBackground = false,
+                firstItemFocusRequester = firstItemFocusRequester
+            )
         }
         is PlayerInfoState.Tv -> {
-            SharedDetailSheetScaffold(
-                title = state.detail.name,
-                backdropUrl = state.detail.backdropUrl(),
-                logoUrl = state.detail.logoUrl(),
-                posterUrl = state.detail.posterUrl(),
-                year = state.detail.firstAirDate?.take(4),
-                rating = state.detail.voteAverage?.let { String.format("%.1f", it) },
-                theme = theme,
-                onClose = onClose
-            ) {
-                SharedTvDetailContent(
-                    detail = state.detail,
-                    selectedSeason = state.selectedSeason,
-                    allProgress = allProgress,
-                    context = context,
-                    nav = nav,
-                    theme = theme,
-                    onSelectSeason = onSelectSeason,
-                ) {
-                    SharedActionPill(Icons.Filled.Share, theme) {
-                        openPlayerInfoShareSheet(context, state.detail.name, state.detail.id, "tv")
-                    }
-                    SharedActionPill(if (isBookmarked) ImageVector.vectorResource(R.drawable.ic_player_bookmark_filled) else ImageVector.vectorResource(R.drawable.ic_player_bookmark_outline), theme) {
-                        onToggleBookmark()
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun PlayerInfoSheetScaffold(
-    title: String,
-    backdropUrl: String?,
-    logoUrl: String?,
-    posterUrl: String?,
-    year: String?,
-    rating: String?,
-    theme: ZStreamTheme,
-    onClose: () -> Unit,
-    content: @Composable ColumnScope.() -> Unit,
-) {
-    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-        ) {
-            Surface(
-                color = theme.colors.background.main,
-                shape = RoundedCornerShape(PLAYER_DETAIL_SHEET_CORNER_RADIUS),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = this@BoxWithConstraints.maxHeight + PLAYER_DETAIL_SHEET_MIN_SCROLL_EXTRA)
-                    .border(1.dp, theme.colors.type.divider.copy(alpha = 0.2f), RoundedCornerShape(PLAYER_DETAIL_SHEET_CORNER_RADIUS))
-            ) {
-                Column(Modifier.fillMaxWidth()) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(PLAYER_DETAIL_SHEET_BACKDROP_HEIGHT)
-                    ) {
-                        AsyncImage(
-                            model = backdropUrl ?: posterUrl,
-                            contentDescription = null,
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = androidx.compose.ui.layout.ContentScale.Crop
-                        )
-                        Box(
-                            Modifier
-                                .fillMaxSize()
-                                .background(
-                                    Brush.verticalGradient(
-                                        listOf(
-                                            Color.Transparent,
-                                            theme.colors.video.context.background.copy(alpha = 0.18f),
-                                            theme.colors.background.main
-                                        )
-                                    )
-                                )
-                        )
-                        ZsIconButton(
-                            onClick = onClose,
-                            icon = Icons.Filled.Close,
-                            contentDescription = null,
-                            variant = ZsIconButtonVariant.Overlay,
-                            modifier = Modifier
-                                .align(Alignment.TopEnd)
-                                .padding(start = 24.dp, end = 24.dp, top = 48.dp),
-                        )
-                        Column(
-                            modifier = Modifier
-                                .align(Alignment.BottomStart)
-                                .padding(horizontal = PLAYER_DETAIL_SHEET_CONTENT_PADDING, vertical = 0.dp)
-                        ) {
-                            if (logoUrl != null) {
-                                AsyncImage(
-                                    model = logoUrl,
-                                    contentDescription = title,
-                                    modifier = Modifier
-                                        .height(100.dp)
-                                        .fillMaxWidth(0.6f),
-                                    contentScale = androidx.compose.ui.layout.ContentScale.Fit
-                                )
-                            } else {
-                                Text(
-                                    title.uppercase(),
-                                    color = theme.colors.type.emphasis,
-                                    style = MaterialTheme.typography.headlineLarge,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    letterSpacing = 4.sp
-                                )
-                            }
-                            Spacer(Modifier.height(6.dp))
-                            MetadataRow(
-                                content = listOfNotNull(
-                                    rating?.toDoubleOrNull()?.let { numericRating -> { TmdbRating(numericRating, theme) } },
-                                    year?.let { { Text(it, fontSize = 12.sp, color = theme.colors.type.emphasis) } }
-                                ),
-                                theme = theme,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalArrangement = Alignment.CenterVertically
-                            )
-                            Spacer(Modifier.height(18.dp))
-                        }
-                    }
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 14.dp)
-                    ) {
-                        content()
-                        Spacer(Modifier.height(PLAYER_DETAIL_SHEET_BOTTOM_SPACER))
-                    }
-                }
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun ColumnScope.PlayerMovieInfoContent(
-    detail: MovieDetail,
-    context: android.content.Context,
-    nav: NavController,
-    theme: ZStreamTheme,
-    isBookmarked: Boolean,
-    onToggleBookmark: () -> Unit,
-) {
-    val genres = detail.genres.orEmpty()
-    val cast = detail.credits?.cast.orEmpty().take(8)
-
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 32.dp, vertical = 14.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        PlayerSheetActionPill(Icons.Filled.Share, theme) {
-            openPlayerInfoShareSheet(context, detail.title, detail.id, "movie")
-        }
-        PlayerSheetActionPill(if (isBookmarked) ImageVector.vectorResource(R.drawable.ic_player_bookmark_filled) else ImageVector.vectorResource(R.drawable.ic_player_bookmark_outline), theme) {
-            onToggleBookmark()
-        }
-    }
-
-    Row(Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(40.dp)) {
-        Column(Modifier.weight(1f)) {
-            detail.overview?.takeIf { it.isNotBlank() }?.let { Text(it, color = theme.colors.type.text, fontSize = 14.sp) }
-            Spacer(Modifier.height(18.dp))
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                genres.forEach { ZsChip(label = it.name, variant = ZsChipVariant.Subtle) }
-            }
-        }
-        Column(Modifier.widthIn(max = 240.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            PlayerSheetDetailSpec("Runtime", detail.runtime?.let { "$it min" } ?: "-", theme)
-            PlayerSheetDetailSpec("Language", "EN", theme)
-            PlayerSheetDetailSpec("Release Date", detail.releaseDate ?: "-", theme)
-            PlayerSheetDetailSpec("Rating", "PG-13", theme)
-        }
-    }
-
-    ZsBottomSheetSectionHeader("Cast")
-    PlayerSheetCastRow(cast, theme, context)
-    ZsBottomSheetSectionHeader("Trailers")
-    PlayerSheetTrailerGrid(detail.videos?.results?.filter { it.site == "YouTube" && it.type == "Trailer" }.orEmpty(), theme, context)
-    ZsBottomSheetSectionHeader("Similar")
-    PlayerSheetSimilarGrid(detail.similar?.results.orEmpty(), theme, nav)
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun ColumnScope.PlayerTvInfoContent(
-    detail: TvDetail,
-    selectedSeason: Season?,
-    allProgress: List<com.zstream.android.data.local.entity.ProgressEntity>,
-    context: android.content.Context,
-    nav: NavController,
-    theme: ZStreamTheme,
-    isBookmarked: Boolean,
-    onToggleBookmark: () -> Unit,
-    onSelectSeason: (Int) -> Unit,
-) {
-    val seasons = detail.seasons.orEmpty().filter { it.seasonNumber > 0 }
-
-    Row(Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 14.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        PlayerSheetActionPill(Icons.Filled.Share, theme) {
-            openPlayerInfoShareSheet(context, detail.name, detail.id, "tv")
-        }
-        PlayerSheetActionPill(if (isBookmarked) ImageVector.vectorResource(R.drawable.ic_player_bookmark_filled) else ImageVector.vectorResource(R.drawable.ic_player_bookmark_outline), theme) {
-            onToggleBookmark()
-        }
-    }
-
-    Row(Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(40.dp)) {
-        Column(Modifier.weight(1f)) {
-            detail.overview?.takeIf { it.isNotBlank() }?.let { Text(it, color = theme.colors.type.text, fontSize = 14.sp) }
-            Spacer(Modifier.height(18.dp))
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                detail.genres.orEmpty().forEach { ZsChip(label = it.name, variant = ZsChipVariant.Subtle) }
-            }
-        }
-        Column(Modifier.widthIn(max = 240.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            PlayerSheetDetailSpec("Seasons", detail.numberOfSeasons?.toString() ?: "—", theme)
-            PlayerSheetDetailSpec("Language", "EN", theme)
-            PlayerSheetDetailSpec("Release Date", detail.firstAirDate ?: "—", theme)
-            PlayerSheetDetailSpec("Rating", "TV-14", theme)
-        }
-    }
-
-    ZsBottomSheetSectionHeader("Seasons")
-    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(horizontal = 32.dp)) {
-        items(seasons) { season ->
-            ZsChip(
-                label = "S${season.seasonNumber}",
-                selected = season.seasonNumber == selectedSeason?.seasonNumber,
-                onClick = { onSelectSeason(season.seasonNumber) },
-                variant = ZsChipVariant.Selectable,
-            )
-        }
-    }
-    Spacer(Modifier.height(16.dp))
-
-    selectedSeason?.episodes?.airedEpisodes()?.takeIf { it.isNotEmpty() }?.let { episodes ->
-        val progressMap = allProgress
-            .filter { it.seasonNumber == selectedSeason.seasonNumber }
-            .associateBy { it.episodeNumber }
-        ZsBottomSheetSectionHeader("Episodes")
-        episodes.forEach { episode ->
-            SharedEpisodeRow(
-                ep = episode,
-                showId = detail.id,
-                title = detail.name,
-                posterPath = detail.posterPath,
+            TvDetailModal(
+                detail = state.detail,
+                selectedSeason = state.selectedSeason,
+                allProgress = allProgress,
                 nav = nav,
+                context = context,
                 theme = theme,
                 episodeProgress = progressMap[episode.episodeNumber],
-                seasonId = selectedSeason.id
+                seasonId = selectedSeason.id,
+                isBookmarked = isBookmarked,
+                onToggleBookmark = onToggleBookmark,
+                hasProgress = false,
+                resumeProgress = null,
+                onBack = onClose,
+                onSelectSeason = onSelectSeason,
+                onMarkEpisodeWatched = {},
+                onClearEpisodeWatchHistory = {},
+                onMarkSeasonWatched = {},
+                onClearSeasonWatchHistory = {},
+                showPlayButton = false,
+                showBackground = false,
+                firstItemFocusRequester = firstItemFocusRequester
             )
         }
     }
-
-    ZsBottomSheetSectionHeader("Cast")
-    PlayerSheetCastRow(detail.credits?.cast.orEmpty().take(8), theme, context)
-    ZsBottomSheetSectionHeader("Trailers")
-    PlayerSheetTrailerGrid(detail.videos?.results?.filter { it.site == "YouTube" && it.type == "Trailer" }.orEmpty(), theme, context)
-    ZsBottomSheetSectionHeader("Similar")
-    PlayerSheetSimilarGrid(detail.similar?.results.orEmpty(), theme, nav)
 }
 
-@Composable
-private fun PlayerSheetCastRow(cast: List<com.zstream.android.data.model.CastMember>, theme: ZStreamTheme, context: android.content.Context) {
-    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(horizontal = 32.dp, vertical = 8.dp)) {
-        items(cast) { member ->
-            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(105.dp).clickable {
-                openPlayerInfoCastProfile(context, member.id, member.externalIds?.imdbId)
-            }) {
-                AsyncImage(
-                    model = member.profilePath?.let { "${Urls.TMDB_IMAGE}w185$it" },
-                    contentDescription = member.name,
-                    modifier = Modifier.size(96.dp).clip(CircleShape).border(1.dp, theme.colors.type.text.copy(alpha = 0.08f), CircleShape),
-                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
-                )
-                Spacer(Modifier.height(10.dp))
-                Text(member.name.orEmpty(), maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelMedium, color = theme.colors.type.emphasis)
-                Text(member.character.orEmpty(), maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelSmall, color = theme.colors.type.secondary)
-            }
-        }
-    }
-}
 
-@Composable
-private fun PlayerSheetDetailSpec(label: String, value: String, theme: ZStreamTheme) {
-    Column {
-        Text(label, style = MaterialTheme.typography.labelMedium, color = theme.colors.type.secondary)
-        Text(value, style = MaterialTheme.typography.bodyMedium, color = theme.colors.type.emphasis)
-    }
-}
-
-@Composable
-private fun MetadataRow(
-    content: List<@Composable () -> Unit>,
-    theme: ZStreamTheme,
-    horizontalArrangement: Arrangement.Horizontal,
-    verticalArrangement: Alignment.Vertical
-) {
-    Row(horizontalArrangement = horizontalArrangement, verticalAlignment = verticalArrangement) {
-        content.forEachIndexed { index, contentItem ->
-            if (index > 0) {
-                Text(
-                    "•",
-                    fontSize = 12.sp,
-                    color = theme.colors.type.secondary,
-                    modifier = Modifier.padding(horizontal = 4.dp)
-                )
-            }
-            contentItem()
-        }
-    }
-}
-
-@Composable
-private fun TmdbRating(rating: Double, theme: ZStreamTheme) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Image(
-            painter = painterResource(id = R.drawable.tmdb_logo),
-            contentDescription = "TMDB Logo",
-            modifier = Modifier.size(24.dp)
-        )
-        Spacer(Modifier.width(4.dp))
-        Text(text = "%.1f".format(rating), color = theme.colors.type.emphasis, fontSize = 12.sp)
-    }
-}
-
-@Composable
-private fun PlayerSheetActionPill(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    theme: ZStreamTheme,
-    onClick: () -> Unit,
-) {
-    Surface(
-        shape = RoundedCornerShape(50.dp),
-        color = theme.colors.type.text.copy(alpha = 0.05f),
-        border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.type.divider.copy(alpha = 0.3f)),
-        modifier = Modifier.clickable(onClick = onClick)
-    ) {
-        Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(icon, null, modifier = Modifier.size(20.dp), tint = theme.colors.type.text)
-        }
-    }
-}
-
-@Composable
-private fun PlayerSheetTrailerGrid(trailers: List<com.zstream.android.data.model.TrailerData>, theme: ZStreamTheme, context: android.content.Context) {
-    if (trailers.isEmpty()) {
-        ZsStatusBanner(
-            message = "No trailers available",
-            variant = ZsStatusBannerVariant.Info,
-            modifier = Modifier.padding(horizontal = 32.dp, vertical = 12.dp),
-        )
-        return
-    }
-
-    Column(Modifier.padding(horizontal = 32.dp, vertical = 12.dp)) {
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            items(trailers.take(3)) { trailer ->
-                Box(
-                    modifier = Modifier
-                        .width(200.dp)
-                        .aspectRatio(16f / 9f)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(theme.colors.modal.background)
-                        .clickable { openPlayerInfoYoutubeTrailer(context, trailer.key) }
-                ) {
-                    AsyncImage(
-                        model = "https://img.youtube.com/vi/${trailer.key}/0.jpg",
-                        contentDescription = trailer.name,
-                        contentScale = androidx.compose.ui.layout.ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                    Text(
-                        trailer.name,
-                        color = theme.colors.type.emphasis,
-                        style = MaterialTheme.typography.labelSmall,
-                        modifier = Modifier.padding(8.dp)
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun PlayerSheetSimilarGrid(similar: List<com.zstream.android.data.model.Media>, theme: ZStreamTheme, nav: NavController) {
-    if (similar.isEmpty()) {
-        ZsStatusBanner(
-            message = "No similar movies available",
-            variant = ZsStatusBannerVariant.Info,
-            modifier = Modifier.padding(horizontal = 32.dp, vertical = 12.dp),
-        )
-        return
-    }
-
-    Column(Modifier.padding(horizontal = 32.dp, vertical = 12.dp)) {
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(similar.take(10)) { movie ->
-                Column(
-                    modifier = Modifier
-                        .width(140.dp)
-                        .clickable {
-                            val mediaType = movie.type
-                            nav.navigate("detail/$mediaType/${movie.id}")
-                        }
-                ) {
-                    Box(modifier = Modifier.fillMaxWidth().height(205.dp).clip(RoundedCornerShape(8.dp)).background(theme.colors.modal.background)) {
-                        movie.posterUrl()?.let {
-                            AsyncImage(model = it, contentDescription = movie.displayTitle, contentScale = androidx.compose.ui.layout.ContentScale.Crop, modifier = Modifier.fillMaxSize())
-                        }
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    Text(movie.displayTitle, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelMedium, color = theme.colors.type.emphasis)
-                    val year = (movie.releaseDate ?: movie.firstAirDate)?.take(4) ?: "—"
-                    val capitalizedMovie = movie.type.replaceFirstChar { it.uppercase() }
-                    Text("$capitalizedMovie • $year", style = MaterialTheme.typography.labelSmall, color = theme.colors.type.secondary)
-                    Spacer(Modifier.height(16.dp))
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun PlayerSheetEpisodeRow(episode: com.zstream.android.data.model.Episode, theme: ZStreamTheme) {
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 32.dp, vertical = 4.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .background(theme.colors.modal.background)
-    ) {
-        Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
-            Box(
-                Modifier
-                    .width(120.dp)
-                    .fillMaxHeight()
-            ) {
-                AsyncImage(
-                    model = episode.stillPath?.let { "${Urls.TMDB_IMAGE}w780$it" },
-                    contentDescription = null,
-                    modifier = Modifier
-                        .matchParentSize()
-                        .clip(RoundedCornerShape(topStart = 12.dp, bottomStart = 12.dp)),
-                    contentScale = androidx.compose.ui.layout.ContentScale.Crop
-                )
-
-                Box(
-                    Modifier
-                        .align(Alignment.TopStart)
-                        .padding(6.dp)
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(theme.colors.mediaCard.badge)
-                        .padding(horizontal = 6.dp, vertical = 1.dp)
-                ) {
-                    Text(
-                        "E${episode.episodeNumber}",
-                        color = theme.colors.mediaCard.badgeText,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
-
-            Column(Modifier.weight(1f).padding(12.dp)) {
-                Text(
-                    episode.name.orEmpty(),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    color = theme.colors.type.emphasis,
-                    fontWeight = FontWeight.Medium
-                )
-
-                episode.overview?.takeIf { it.isNotBlank() }?.let { desc ->
-                    Spacer(Modifier.height(4.dp))
-                    var expanded by remember { mutableStateOf(false) }
-                    Box(
-                        Modifier
-                            .fillMaxWidth()
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null
-                            ) { expanded = !expanded }
-                    ) {
-                        Text(
-                            desc,
-                            maxLines = if (expanded) Int.MAX_VALUE else 3,
-                            overflow = TextOverflow.Ellipsis,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = theme.colors.type.text
-                        )
-                    }
-                    Spacer(Modifier.height(4.dp))
-                }
-            }
-        }
-    }
-}
-
-private fun openPlayerInfoShareSheet(context: android.content.Context, title: String, id: Int, mediaType: String) {
-    val url = "https://www.themoviedb.org/$mediaType/$id"
-    val shareText = "$title on ZStream!\n\n$url"
-    val intent = android.content.Intent().apply {
-        action = android.content.Intent.ACTION_SEND
-        putExtra(android.content.Intent.EXTRA_TEXT, shareText)
-        type = "text/plain"
-    }
-    context.startActivity(android.content.Intent.createChooser(intent, "Share"))
-}
-
-private fun openPlayerInfoYoutubeTrailer(context: android.content.Context, youtubeKey: String) {
-    val intent = android.content.Intent(
-        android.content.Intent.ACTION_VIEW,
-        Uri.parse("https://www.youtube.com/watch?v=$youtubeKey")
-    )
-    context.startActivity(intent)
-}
-
-private fun openPlayerInfoCastProfile(context: android.content.Context, castId: Int, imdbId: String?) {
-    val url = if (!imdbId.isNullOrEmpty()) {
-        "https://www.imdb.com/name/$imdbId/"
-    } else {
-        "https://www.themoviedb.org/person/$castId"
-    }
-    val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse(url))
-    context.startActivity(intent)
-}
-
-@UnstableApi
+@OptIn(ExperimentalComposeUiApi::class, UnstableApi::class)
 private fun collectQualityOptions(tracks: Tracks): List<QualityOption> {
     return tracks.groups
         .filter { it.type == C.TRACK_TYPE_VIDEO }
@@ -4095,7 +4357,7 @@ private fun collectQualityOptions(tracks: Tracks): List<QualityOption> {
         .sortedByDescending { it.height }
 }
 
-@UnstableApi
+@OptIn(ExperimentalComposeUiApi::class, UnstableApi::class)
 private fun collectAudioOptions(tracks: Tracks): List<AudioOption> {
     return tracks.groups
         .filter { it.type == C.TRACK_TYPE_AUDIO }

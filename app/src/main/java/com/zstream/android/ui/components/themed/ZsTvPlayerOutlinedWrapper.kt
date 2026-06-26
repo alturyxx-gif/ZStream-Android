@@ -11,14 +11,13 @@ import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.zstream.android.theme.LocalZStreamTheme
 
 @Composable
-fun ZsOutlinedWrapper(
+fun ZsTvPlayerOutlinedWrapper(
     modifier: Modifier = Modifier,
     outlineColor: Color = LocalZStreamTheme.current.colors.global.accentA.copy(alpha = 0.6f),
     outlineWidth: Dp = 1.5.dp,
@@ -27,7 +26,7 @@ fun ZsOutlinedWrapper(
     visible: Boolean = true,
     content: @Composable () -> Unit
 ) {
-    ZsOutlinedWrapper(
+    ZsTvPlayerOutlinedWrapper(
         modifier = modifier,
         outlineColor = outlineColor,
         outlineWidth = outlineWidth,
@@ -42,7 +41,7 @@ fun ZsOutlinedWrapper(
 }
 
 @Composable
-fun ZsOutlinedWrapper(
+fun ZsTvPlayerOutlinedWrapper(
     modifier: Modifier = Modifier,
     outlineColor: Color = LocalZStreamTheme.current.colors.global.accentA.copy(alpha = 0.6f),
     outlineWidth: Dp = 1.5.dp,
@@ -52,7 +51,7 @@ fun ZsOutlinedWrapper(
     visible: Boolean = true,
     content: @Composable () -> Unit
 ) {
-    ZsOutlinedWrapper(
+    ZsTvPlayerOutlinedWrapper(
         modifier = modifier,
         outlineColor = outlineColor,
         outlineWidth = outlineWidth,
@@ -67,7 +66,7 @@ fun ZsOutlinedWrapper(
 }
 
 @Composable
-fun ZsOutlinedWrapper(
+fun ZsTvPlayerOutlinedWrapper(
     modifier: Modifier = Modifier,
     outlineColor: Color = LocalZStreamTheme.current.colors.global.accentA.copy(alpha = 0.6f),
     outlineWidth: Dp = 1.5.dp,
@@ -83,11 +82,7 @@ fun ZsOutlinedWrapper(
     val layoutDirection = LocalLayoutDirection.current
 
     Box(
-        modifier = modifier.onFocusChanged {
-            if (it.hasFocus) {
-                // Log if needed
-            }
-        }.then(
+        modifier = modifier.then(
             if (visible) {
                 Modifier.drawWithContent {
                     drawContent()
@@ -110,12 +105,15 @@ fun ZsOutlinedWrapper(
                         color = outlineColor,
                         style = Stroke(width = strokeWidthPx)
                     )
+                    drawContext.canvas.save()
+                    drawContext.canvas.restore()
                     drawContext.canvas.restore()
                 }
             } else {
                 Modifier
             }
-        ),
-        content = { content() }
-    )
+        )
+    ) {
+        content()
+    }
 }
