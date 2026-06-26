@@ -1013,6 +1013,8 @@ private fun HeroSection(
         label = "rainbowOffset",
     )
 
+    val isTv = LocalIsTv.current
+
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -1032,9 +1034,7 @@ private fun HeroSection(
         ) {
             // Search field — no border, background only, cursor visible
             var isSearchFocused by remember { mutableStateOf(false) }
-            val isTv = LocalIsTv.current
-            var isEditing by remember { mutableStateOf(false) }
-            val innerFocusRequester = remember { FocusRequester() }
+            val textFieldFocusRequester = remember { FocusRequester() }
 
             ZsOutlinedWrapper(
                 visible = isSearchFocused && isTv,
@@ -1059,12 +1059,7 @@ private fun HeroSection(
                             if (isTv) {
                                 Modifier
                                     .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
-                                    .clickable {
-                                        isEditing = true
-                                        try {
-                                            innerFocusRequester.requestFocus()
-                                        } catch (_: Exception) {}
-                                    }
+                                    .clickable { textFieldFocusRequester.requestFocus() }
                             } else Modifier
                         ),
                     contentAlignment = Alignment.CenterStart,
@@ -1089,13 +1084,7 @@ private fun HeroSection(
                                 cursorBrush = SolidColor(theme.colors.global.accentA),
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .focusRequester(innerFocusRequester)
-                                    .focusable(enabled = !isTv || isEditing)
-                                    .onFocusChanged {
-                                        if (!it.isFocused) {
-                                            isEditing = false
-                                        }
-                                    }
+                                    .focusRequester(textFieldFocusRequester)
                                     .then(if (!isTv && focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier),
                             )
                         }
@@ -1143,6 +1132,7 @@ private fun HeroSection(
                 }
             }
         }
+
         Spacer(Modifier.height(16.dp))
     }
 }
@@ -3026,7 +3016,58 @@ private fun TvHomeScreenContent(
                     item { Spacer(Modifier.height(16.dp)) }
                 }
 
-                allSections.forEachIndexed { sectionIndex, section ->
+                if (state.searchQuery.isNotBlank()) {
+                    item {
+                        Text(
+                            "Search results",
+                            color = theme.colors.type.emphasis,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                        )
+                    }
+                    MediaGridLazy(
+                        section = searchResults,
+                        nav = nav,
+                        progressMap = emptyMap(),
+                        numOfColumns = 6,
+                    )
+                    if (state.canLoadMore || searchResults.isNotEmpty()) {
+                        item {
+                            Box(
+                                modifier = Modifier.fillMaxWidth(),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (state.canLoadMore) {
+                                    var isLoadMoreFocused by remember { mutableStateOf(false) }
+                                    ZsOutlinedWrapper(
+                                        visible = isLoadMoreFocused,
+                                        shape = RoundedCornerShape(35),
+                                        outlineColor = theme.colors.global.accentA.copy(alpha = 0.6f),
+                                        gap = 2.dp
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(35))
+                                                .background(theme.colors.background.secondary.copy(alpha = 1f))
+                                                .border(1.dp, theme.colors.type.divider.copy(alpha = 1f), RoundedCornerShape(35))
+                                                .onFocusChanged { isLoadMoreFocused = it.isFocused }
+                                                .clickable { vm.searchLoadMore() }
+                                                .padding(horizontal = 16.dp, vertical = 10.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text("Load More", color = theme.colors.type.emphasis, fontSize = 18.sp)
+                                        }
+                                    }
+                                } else {
+                                    Text("That's all we have...", color = theme.colors.type.secondary, fontSize = 12.sp)
+                                }
+                            }
+                        }
+                    }
+                    item { Spacer(Modifier.height(24.dp)) }
+                } else {
+                    allSections.forEachIndexed { sectionIndex, section ->
                     val sectionItemIndex = startIndexOffset + sectionIndex * 2
                     item(key = section.title) {
                         MediaCarouselSection(
@@ -3045,6 +3086,7 @@ private fun TvHomeScreenContent(
                         )
                     }
                     item { Spacer(Modifier.height(24.dp)) }
+                    }
                 }
             }
         }
