@@ -928,6 +928,29 @@ private fun PreferencesSection(
         }
 
         Spacer(Modifier.height(16.dp))
+        SectionLabel("Input", theme)
+        if (isTv) {
+            Column(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp).clip(RoundedCornerShape(12.dp))
+                    .background(theme.colors.settings.card.background)
+            ) {
+                TvSettingsRow(theme, onActivate = { vm.setEnableNativeKeyboard(!settings.enableNativeKeyboard) }) {
+                    TvSwitchContent("Use Native Keyboard", "Hide virtual keyboard and use system input", settings.enableNativeKeyboard)
+                }
+            }
+        } else {
+            SettingsCard(theme) {
+                ZsSwitchRow(
+                    title = "Use Native Keyboard",
+                    subtitle = "Hide virtual keyboard and use system input",
+                    checked = settings.enableNativeKeyboard,
+                    onCheckedChange = vm::setEnableNativeKeyboard,
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                )
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
         SectionLabel("Player Controls", theme)
         if (isTv) {
             Column(
