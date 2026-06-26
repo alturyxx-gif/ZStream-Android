@@ -157,6 +157,10 @@ class SettingsViewModel @Inject constructor(
         update { copy(enableAutoResumeOnPlaybackError = v) }
     }
 
+    fun setEnableNativeKeyboard(v: Boolean) {
+        update { copy(enableNativeKeyboard = v) }
+    }
+
     fun setEnableSourceOrder(v: Boolean) {
         update { copy(enableSourceOrder = v) }
     }

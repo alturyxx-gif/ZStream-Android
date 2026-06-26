@@ -33,6 +33,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
@@ -59,6 +60,10 @@ fun SearchScreen(nav: NavController, vm: SearchViewModel = hiltViewModel()) {
 
 @Composable
 fun SearchScreenTV(nav: NavController, vm: SearchViewModel) {
+    val settingsVm: SettingsViewModel = hiltViewModel()
+    val settings by settingsVm.settings.collectAsStateWithLifecycle()
+    val useNativeKeyboard = settings.enableNativeKeyboard
+
     val query by vm.query.collectAsState()
     val results by vm.results.collectAsState()
     val popular by vm.popular.collectAsState()
@@ -68,6 +73,7 @@ fun SearchScreenTV(nav: NavController, vm: SearchViewModel) {
     val hazeState = rememberHazeState()
     
     val searchBarFocusRequester = remember { FocusRequester() }
+    val textFieldFocusRequester = remember { FocusRequester() }
     
     LaunchedEffect(Unit) {
         searchBarFocusRequester.requestFocus()
@@ -127,14 +133,22 @@ fun SearchScreenTV(nav: NavController, vm: SearchViewModel) {
                             .focusRequester(searchBarFocusRequester)
                             .onFocusChanged { isSearchBarFocused = it.isFocused }
                             .clickable {
-                                // Just to consume the click and handle focus activation in one go
+                                if (useNativeKeyboard) {
+                                    textFieldFocusRequester.requestFocus()
+                                }
                             }
                     ) {
                         ZsSearchField(
                             value = query,
                             onValueChange = { vm.query.value = it },
                             placeholder = "Search movies and shows here...",
-                            modifier = Modifier.fillMaxSize().focusProperties { canFocus = false }
+                            focusRequester = textFieldFocusRequester,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .then(
+                                    if (useNativeKeyboard) Modifier
+                                    else Modifier.focusProperties { canFocus = false }
+                                )
                         )
                     }
                 }
@@ -179,7 +193,8 @@ fun SearchScreenTV(nav: NavController, vm: SearchViewModel) {
                 // Virtual Keyboard
                 VirtualKeyboard(
                     onCharClick = { vm.query.value += it },
-                    onBackspace = { if (query.isNotEmpty()) vm.query.value = query.dropLast(1) }
+                    onBackspace = { if (query.isNotEmpty()) vm.query.value = query.dropLast(1) },
+                    invisible = useNativeKeyboard
                 )
             }
 
@@ -232,7 +247,7 @@ fun SearchScreenTV(nav: NavController, vm: SearchViewModel) {
 }
 
 @Composable
-fun VirtualKeyboard(onCharClick: (String) -> Unit, onBackspace: () -> Unit) {
+fun VirtualKeyboard(onCharClick: (String) -> Unit, onBackspace: () -> Unit, invisible: Boolean = false) {
     val theme = LocalZStreamTheme.current
     var isUppercase by remember { mutableStateOf(true) }
     
@@ -244,7 +259,7 @@ fun VirtualKeyboard(onCharClick: (String) -> Unit, onBackspace: () -> Unit) {
         listOf("Space", "⌫")
     )
 
-    Column(modifier = Modifier.fillMaxWidth()) {
+    Column(modifier = Modifier.fillMaxWidth().alpha(if (invisible) 0f else 1f)) {
         rows.forEach { row ->
             Row(modifier = Modifier.fillMaxWidth()) {
                 row.forEach { label ->
@@ -272,14 +287,17 @@ fun VirtualKeyboard(onCharClick: (String) -> Unit, onBackspace: () -> Unit) {
                                 else theme.colors.type.text.copy(alpha = 0.05f)
                             )
                             .onFocusChanged { isFocused = it.isFocused }
-                            .clickable { 
-                                when {
-                                    isCaps -> isUppercase = !isUppercase
-                                    isSpace -> onCharClick(" ")
-                                    isBackspace -> onBackspace()
-                                    else -> onCharClick(if (isUppercase) label.uppercase() else label.lowercase())
+                            .then(
+                                if (invisible) Modifier
+                                else Modifier.clickable { 
+                                    when {
+                                        isCaps -> isUppercase = !isUppercase
+                                        isSpace -> onCharClick(" ")
+                                        isBackspace -> onBackspace()
+                                        else -> onCharClick(if (isUppercase) label.uppercase() else label.lowercase())
+                                    }
                                 }
-                            },
+                            ),
                         contentAlignment = Alignment.Center
                     ) {
                         if (isBackspace) {

@@ -103,6 +103,7 @@ class SettingsPreferences @Inject constructor(
 
     // Other
     private val KEY_ENABLE_AUTO_RESUME_ON_PLAYBACK_ERROR = booleanPreferencesKey("enable_auto_resume_on_playback_error")
+    private val KEY_ENABLE_NATIVE_KEYBOARD = booleanPreferencesKey("enable_native_keyboard")
 
     /**
      * Observe all settings as a data class
@@ -153,6 +154,7 @@ class SettingsPreferences @Inject constructor(
             homeSectionOrder = prefs[KEY_HOME_SECTION_ORDER]?.split(",")?.filter { it.isNotBlank() } ?: emptyList(),
             forceCompactEpisodeView = prefs[KEY_FORCE_COMPACT_EPISODE_VIEW] ?: false,
             enableAutoResumeOnPlaybackError = prefs[KEY_ENABLE_AUTO_RESUME_ON_PLAYBACK_ERROR] ?: true,
+            enableNativeKeyboard = prefs[KEY_ENABLE_NATIVE_KEYBOARD] ?: false,
             subtitleColor = prefs[KEY_SUBTITLE_COLOR] ?: "#ffffff",
             subtitleSize = prefs[KEY_SUBTITLE_SIZE]?.toFloatOrNull() ?: 1f,
             subtitleBackgroundOpacity = prefs[KEY_SUBTITLE_BACKGROUND_OPACITY]?.toFloatOrNull() ?: 0.5f,
@@ -235,6 +237,7 @@ class SettingsPreferences @Inject constructor(
             prefs[KEY_HOME_SECTION_ORDER] = entity.homeSectionOrder.joinToString(",")
             prefs[KEY_FORCE_COMPACT_EPISODE_VIEW] = entity.forceCompactEpisodeView
             prefs[KEY_ENABLE_AUTO_RESUME_ON_PLAYBACK_ERROR] = entity.enableAutoResumeOnPlaybackError
+            prefs[KEY_ENABLE_NATIVE_KEYBOARD] = entity.enableNativeKeyboard
             prefs[KEY_SUBTITLE_COLOR] = entity.subtitleColor
             prefs[KEY_SUBTITLE_SIZE] = entity.subtitleSize.toString()
             prefs[KEY_SUBTITLE_BACKGROUND_OPACITY] = entity.subtitleBackgroundOpacity.toString()
@@ -336,6 +339,7 @@ class SettingsPreferences @Inject constructor(
                 homeSectionOrder = mappedHomeSectionOrder,
                 forceCompactEpisodeView = remote.forceCompactEpisodeView ?: false,
                 enableAutoResumeOnPlaybackError = remote.enableAutoResumeOnPlaybackError ?: true,
+                enableNativeKeyboard = current[KEY_ENABLE_NATIVE_KEYBOARD] ?: false,
                 subtitleColor = currentColor,
                 subtitleSize = currentSize,
                 subtitleBackgroundOpacity = currentBgOpacity,
@@ -549,6 +553,12 @@ class SettingsPreferences @Inject constructor(
     suspend fun setEnableAutoResumeOnPlaybackError(enabled: Boolean) {
         context.settingsStore.edit { prefs ->
             prefs[KEY_ENABLE_AUTO_RESUME_ON_PLAYBACK_ERROR] = enabled
+        }
+    }
+
+    suspend fun setEnableNativeKeyboard(enabled: Boolean) {
+        context.settingsStore.edit { prefs ->
+            prefs[KEY_ENABLE_NATIVE_KEYBOARD] = enabled
         }
     }
 

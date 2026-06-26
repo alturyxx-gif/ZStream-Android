@@ -19,6 +19,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
@@ -33,6 +35,7 @@ fun ZsSearchField(
     placeholder: String = "",
     keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
     keyboardActions: KeyboardActions = KeyboardActions.Default,
+    focusRequester: FocusRequester? = null,
 ) {
     val theme = LocalZStreamTheme.current
 
@@ -57,6 +60,7 @@ fun ZsSearchField(
             value = value,
             onValueChange = onValueChange,
             modifier = Modifier
+                .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
                 .fillMaxWidth()
                 .heightIn(min = 24.dp)
                 .padding(start = 28.dp, end = if (value.isNotEmpty()) 28.dp else 0.dp),

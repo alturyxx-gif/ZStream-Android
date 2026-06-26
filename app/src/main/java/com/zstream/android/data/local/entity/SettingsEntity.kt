@@ -82,6 +82,9 @@ data class SettingsEntity(
     // Other
     val enableAutoResumeOnPlaybackError: Boolean = true,
     
+    // Virtual Keyboard
+    val enableNativeKeyboard: Boolean = false,
+    
     // Theme
     val customTheme: CustomThemeSettings? = null
 ) {
