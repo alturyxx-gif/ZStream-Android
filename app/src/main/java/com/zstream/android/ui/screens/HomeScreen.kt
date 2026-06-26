@@ -2868,7 +2868,7 @@ private fun TvHomeScreenContent(
     val startIndexOffset = if (isFeaturedActive) {
         1
     } else if (!state.enableFeatured || state.featuredMedia.isEmpty()) {
-        4 // Spacer(80.dp) + HeroSection + GenrePills + Spacer(16.dp)
+        3 // Spacer(80.dp) + HeroSection + Spacer(16.dp)
     } else {
         1
     }
@@ -2993,21 +2993,6 @@ private fun TvHomeScreenContent(
                                         itemIndex = 1,
                                         scrollOffset = -topPaddingPx,
                                         reason = "hero-section-focus"
-                                    )
-                                }
-                            }
-                        )
-                    }
-                    item {
-                        GenrePills(
-                            selectedGenreId = state.selectedGenreId,
-                            onSelect = vm::setGenre,
-                            modifier = Modifier.onFocusChanged {
-                                if (it.hasFocus) {
-                                    requestTvHomeScroll(
-                                        itemIndex = 2,
-                                        scrollOffset = -topPaddingPx,
-                                        reason = "genre-pills-focus"
                                     )
                                 }
                             }
