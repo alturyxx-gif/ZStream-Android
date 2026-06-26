@@ -26,7 +26,11 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.focus.requestFocus
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -148,6 +152,12 @@ private fun TvSettingsScreen(
     }
 
     val tabs = listOf("Account", "Preferences", "Appearance", "Subtitles", "Connections")
+    val accountTabFocusRequester = remember { FocusRequester() }
+    val contentFirstItemFocusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(Unit) {
+        accountTabFocusRequester.requestFocus()
+    }
 
     Box(Modifier.fillMaxSize().background(theme.colors.background.main)) {
         Row(Modifier.fillMaxSize()) {
@@ -218,6 +228,8 @@ private fun TvSettingsScreen(
                         selected = currentTab == index,
                         theme = theme,
                         onSelect = { vm.setTab(index) },
+                        focusRequester = if (index == 0) accountTabFocusRequester else null,
+                        contentFocusRequester = contentFirstItemFocusRequester,
                     )
                 }
 
@@ -297,7 +309,13 @@ private fun TvSettingsScreen(
                 Column(Modifier.weight(1f).fillMaxHeight()) {
                     SubtitlePreview(settings, theme, vm, isTv = true)
                     Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(vertical = 16.dp)) {
-                        SubtitlesSettingsContent(settings, theme, vm, isTv = true)
+                        SubtitlesSettingsContent(
+                            settings = settings,
+                            theme = theme,
+                            vm = vm,
+                            isTv = true,
+                            firstItemFocusRequester = contentFirstItemFocusRequester
+                        )
                     }
                 }
             } else {
@@ -313,10 +331,11 @@ private fun TvSettingsScreen(
                             { showLogoutConfirm = it }, nav,
                             onExport = { exportLauncher.launch("zstream_backup_${System.currentTimeMillis()}.json") },
                             isTv = true,
+                            firstItemFocusRequester = contentFirstItemFocusRequester,
                         )
-                        1 -> PreferencesSection(settings, theme, vm, isTv = true)
-                        2 -> AppearanceSection(settings, theme, vm, isTv = true)
-                        4 -> ConnectionsSection(settings, theme, vm, isTv = true)
+                        1 -> PreferencesSection(settings, theme, vm, isTv = true, firstItemFocusRequester = contentFirstItemFocusRequester)
+                        2 -> AppearanceSection(settings, theme, vm, isTv = true, firstItemFocusRequester = contentFirstItemFocusRequester)
+                        4 -> ConnectionsSection(settings, theme, vm, isTv = true, firstItemFocusRequester = contentFirstItemFocusRequester)
                     }
                 }
             }
@@ -331,6 +350,8 @@ private fun TvSettingsTabItem(
     selected: Boolean,
     theme: ZStreamTheme,
     onSelect: () -> Unit,
+    focusRequester: FocusRequester? = null,
+    contentFocusRequester: FocusRequester? = null,
 ) {
     var isFocused by remember { mutableStateOf(false) }
     val bgColor by animateColorAsState(
@@ -350,7 +371,10 @@ private fun TvSettingsTabItem(
         outlineWidth = 2.dp,
         gap = 4.dp,
         visible = isFocused,
-        modifier = Modifier.padding(horizontal = 16.dp, vertical = 3.dp),
+        modifier = Modifier
+            .padding(horizontal = 16.dp, vertical = 3.dp)
+            .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
+            .then(if (contentFocusRequester != null) Modifier.focusProperties { right = contentFocusRequester } else Modifier),
     ) {
         Row(
             Modifier
@@ -427,6 +451,12 @@ private fun PhoneSettingsScreen(
     }
 
     val tabs = listOf("Account", "Preferences", "Appearance", "Subtitles", "Connections")
+    val accountTabFocusRequester = remember { FocusRequester() }
+    val contentFirstItemFocusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(Unit) {
+        accountTabFocusRequester.requestFocus()
+    }
 
     Box(Modifier.fillMaxSize().background(theme.colors.background.main)) {
         Column(
@@ -560,6 +590,7 @@ private fun SettingsRow(label: String, value: String, theme: ZStreamTheme) {
 private fun TvSettingsRow(
     theme: ZStreamTheme,
     onActivate: (() -> Unit)? = null,
+    modifier: Modifier = Modifier,
     content: @Composable RowScope.() -> Unit,
 ) {
     var isFocused by remember { mutableStateOf(false) }
@@ -581,17 +612,13 @@ private fun TvSettingsRow(
                 .clip(RoundedCornerShape(8.dp))
                 .background(bgColor)
                 .onFocusChanged { isFocused = it.isFocused }
+                .then(modifier)
                 .then(
                     if (onActivate != null) {
-                        Modifier
-                            .onKeyEvent { event ->
-                                if (event.type == KeyEventType.KeyDown && (event.key == Key.DirectionCenter || event.key == Key.Enter)) {
-                                    onActivate()
-                                    true
-                                } else false
-                            }
-                            .focusable()
-                    } else Modifier
+                        Modifier.clickable { onActivate() }
+                    } else {
+                        Modifier.focusable()
+                    }
                 )
                 .padding(horizontal = 4.dp, vertical = 2.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -643,6 +670,7 @@ private fun AccountSection(
     nav: NavController,
     onExport: () -> Unit,
     isTv: Boolean = false,
+    firstItemFocusRequester: FocusRequester? = null,
 ) {
     var nickname by remember(session) { mutableStateOf(session?.nickname ?: "") }
     val scope = rememberCoroutineScope()
@@ -657,7 +685,10 @@ private fun AccountSection(
                     Modifier.fillMaxWidth().padding(horizontal = 16.dp).clip(RoundedCornerShape(12.dp))
                         .background(theme.colors.settings.card.background)
                 ) {
-                    TvSettingsRow(theme) {
+                    TvSettingsRow(
+                        theme = theme,
+                        modifier = if (firstItemFocusRequester != null) Modifier.focusRequester(firstItemFocusRequester) else Modifier
+                    ) {
                         Text("Nickname", color = theme.colors.type.text, fontSize = 14.sp, modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 12.dp))
                         Text(nickname.ifEmpty { "—" }, color = theme.colors.type.secondary, fontSize = 13.sp, modifier = Modifier.padding(end = 12.dp))
                     }
@@ -723,7 +754,11 @@ private fun AccountSection(
                     Modifier.fillMaxWidth().padding(horizontal = 16.dp).clip(RoundedCornerShape(12.dp))
                         .background(theme.colors.settings.card.background)
                 ) {
-                    TvSettingsRow(theme, onActivate = { nav.navigate("login") }) {
+                    TvSettingsRow(
+                        theme = theme,
+                        onActivate = { nav.navigate("login") },
+                        modifier = if (firstItemFocusRequester != null) Modifier.focusRequester(firstItemFocusRequester) else Modifier
+                    ) {
                         Text("Log in / Register", color = theme.colors.type.link, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 12.dp, top = 14.dp, bottom = 14.dp))
                     }
                 }
@@ -799,7 +834,13 @@ private fun AccountSection(
 //  Preferences Section 
 
 @Composable
-private fun PreferencesSection(settings: SettingsEntity, theme: ZStreamTheme, vm: SettingsViewModel, isTv: Boolean = false) {
+private fun PreferencesSection(
+    settings: SettingsEntity, 
+    theme: ZStreamTheme, 
+    vm: SettingsViewModel, 
+    isTv: Boolean = false,
+    firstItemFocusRequester: FocusRequester? = null,
+) {
     Column(Modifier.padding(bottom = 32.dp).padding(top = if (isTv) 16.dp else 0.dp)) {
         Spacer(Modifier.height(8.dp))
         SectionLabel("Language", theme)
@@ -808,7 +849,10 @@ private fun PreferencesSection(settings: SettingsEntity, theme: ZStreamTheme, vm
                 Modifier.fillMaxWidth().padding(horizontal = 16.dp).clip(RoundedCornerShape(12.dp))
                     .background(theme.colors.settings.card.background)
             ) {
-                TvSettingsRow(theme) {
+                TvSettingsRow(
+                    theme = theme,
+                    modifier = if (firstItemFocusRequester != null) Modifier.focusRequester(firstItemFocusRequester) else Modifier
+                ) {
                     Text("Application Language", color = theme.colors.type.text, fontSize = 14.sp, modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 12.dp))
                     Text(settings.applicationLanguage.uppercase(), color = theme.colors.type.secondary, fontSize = 13.sp, modifier = Modifier.padding(end = 12.dp))
                 }
@@ -994,7 +1038,13 @@ private fun RowScope.TvSwitchContent(
 //  Appearance Section
 
 @Composable
-private fun AppearanceSection(settings: SettingsEntity, theme: ZStreamTheme, vm: SettingsViewModel, isTv: Boolean = false) {
+private fun AppearanceSection(
+    settings: SettingsEntity, 
+    theme: ZStreamTheme, 
+    vm: SettingsViewModel, 
+    isTv: Boolean = false,
+    firstItemFocusRequester: FocusRequester? = null,
+) {
     val allThemes = ThemeRegistry.allThemes
     val activeTheme = ThemeRegistry.getThemeById(settings.applicationTheme)
 
@@ -1006,7 +1056,11 @@ private fun AppearanceSection(settings: SettingsEntity, theme: ZStreamTheme, vm:
                 Modifier.fillMaxWidth().padding(horizontal = 16.dp).clip(RoundedCornerShape(12.dp))
                     .background(theme.colors.settings.card.background)
             ) {
-                TvSettingsRow(theme, onActivate = { vm.setEnableDiscover(!settings.enableDiscover) }) {
+                TvSettingsRow(
+                    theme = theme, 
+                    onActivate = { vm.setEnableDiscover(!settings.enableDiscover) },
+                    modifier = if (firstItemFocusRequester != null) Modifier.focusRequester(firstItemFocusRequester) else Modifier
+                ) {
                     TvSwitchContent("Discover", "Show discover section on home", settings.enableDiscover, enabled = !settings.enableLowPerformanceMode)
                 }
                 if (settings.enableDiscover && !settings.enableLowPerformanceMode) {
@@ -1387,8 +1441,15 @@ private fun OutlinedSubtitleText(
 }
 
 @Composable
-private fun SubtitlesSettingsContent(settings: SettingsEntity, theme: ZStreamTheme, vm: SettingsViewModel, isTv: Boolean = false) {
+private fun SubtitlesSettingsContent(
+    settings: SettingsEntity, 
+    theme: ZStreamTheme, 
+    vm: SettingsViewModel, 
+    isTv: Boolean = false,
+    firstItemFocusRequester: FocusRequester? = null,
+) {
     val currentPreset = remember(settings) {
+// ... (omitted for brevity, assume full function body matches)
         when {
             // Netflix: white, no background, drop shadow, not bold, condensed font
             settings.subtitleColor.equals("#ffffff", true) &&
@@ -1454,7 +1515,9 @@ private fun SubtitlesSettingsContent(settings: SettingsEntity, theme: ZStreamThe
                         outlineWidth = 2.dp,
                         gap = 2.dp,
                         visible = presetFocused,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier
+                            .weight(1f)
+                            .then(if (isSelected && firstItemFocusRequester != null) Modifier.focusRequester(firstItemFocusRequester) else Modifier),
                     ) {
                         Box(
                             modifier = Modifier
@@ -2204,7 +2267,13 @@ private fun ColorRow(title: String, value: String, onChange: (String) -> Unit, t
 //  Connections Section 
 
 @Composable
-private fun ConnectionsSection(settings: SettingsEntity, theme: ZStreamTheme, vm: SettingsViewModel, isTv: Boolean = false) {
+private fun ConnectionsSection(
+    settings: SettingsEntity, 
+    theme: ZStreamTheme, 
+    vm: SettingsViewModel, 
+    isTv: Boolean = false,
+    firstItemFocusRequester: FocusRequester? = null,
+) {
     if (isTv) {
         Column(Modifier.padding(bottom = 32.dp).padding(top = 16.dp)) {
             Spacer(Modifier.height(8.dp))
@@ -2213,7 +2282,11 @@ private fun ConnectionsSection(settings: SettingsEntity, theme: ZStreamTheme, vm
                 Modifier.fillMaxWidth().padding(horizontal = 16.dp).clip(RoundedCornerShape(12.dp))
                     .background(theme.colors.settings.card.background)
             ) {
-                TvSettingsRow(theme, onActivate = { vm.setProxyTmdb(!settings.proxyTmdb) }) {
+                TvSettingsRow(
+                    theme = theme, 
+                    onActivate = { vm.setProxyTmdb(!settings.proxyTmdb) },
+                    modifier = if (firstItemFocusRequester != null) Modifier.focusRequester(firstItemFocusRequester) else Modifier
+                ) {
                     TvSwitchContent("Proxy TMDB (unimplemented)", "Route TMDB requests through proxy", settings.proxyTmdb)
                 }
             }
