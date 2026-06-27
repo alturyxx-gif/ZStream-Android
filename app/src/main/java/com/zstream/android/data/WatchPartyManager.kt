@@ -30,6 +30,8 @@ sealed class WatchPartyAction {
         val mediaType: String,
         val season: Int?,
         val episode: Int?,
+        val seasonId: String?,
+        val episodeId: String?,
         val title: String,
         val year: Int?,
         val poster: String?
@@ -406,17 +408,17 @@ class WatchPartyManager @Inject constructor(
         val hostType = if (host.type.equals("tv", true)) "show" else "movie"
         val hostKey = if (host.tmdbId != null) {
             if (hostType == "show") {
-                "show:${host.tmdbId}:${host.seasonId}:${host.episodeId}"
+                "show:${host.tmdbId}:${host.seasonNumber}:${host.episodeNumber}"
             } else {
                 "movie:${host.tmdbId}"
             }
         } else null
         
         val localMeta = lastLocalContent
-        val localType = if (localMeta?.type?.equals("TV Show", true) == true) "show" else "movie"
+        val localType = if (localMeta?.type?.equals("TV Show", true) == true || localMeta?.type?.equals("tv", true) == true) "show" else "movie"
         val localKey = if (localMeta?.tmdbId != null) {
             if (localType == "show") {
-                "show:${localMeta.tmdbId}:${localMeta.seasonId}:${localMeta.episodeId}"
+                "show:${localMeta.tmdbId}:${localMeta.seasonNumber}:${localMeta.episodeNumber}"
             } else {
                 "movie:${localMeta.tmdbId}"
             }
@@ -432,6 +434,8 @@ class WatchPartyManager @Inject constructor(
                     mediaType = host.type ?: "movie",
                     season = host.seasonNumber,
                     episode = host.episodeNumber,
+                    seasonId = host.seasonId,
+                    episodeId = host.episodeId,
                     title = host.title.orEmpty(),
                     year = host.year,
                     poster = host.poster

@@ -401,7 +401,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                         com.zstream.android.di.RepositoryEntryPoint::class.java
                     )
                 }
-                val activity = LocalContext.current as? ComponentActivity
+                val activity = context as? ComponentActivity
                 val pipProvider = activity as? OnPictureInPictureModeChangedProvider
                 var isInPip by remember { mutableStateOf(activity?.isInPictureInPictureMode == true) }
                 val configuration = LocalConfiguration.current
@@ -579,7 +579,24 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                                 Log.d("PlayerScreen", "Executing pause()")
                                 player.pause()
                             }
-                            else -> {}
+                            is WatchPartyAction.Navigate -> {
+                                Log.d("PlayerScreen", "Received Navigate: $action")
+                                val base = "player/${action.mediaType}/${action.tmdbId}"
+                                val params = buildList {
+                                    if (action.season != null) add("season=${action.season}")
+                                    if (action.episode != null) add("episode=${action.episode}")
+                                    if (action.seasonId != null) add("seasonId=${action.seasonId}")
+                                    if (action.episodeId != null) add("episodeId=${action.episodeId}")
+                                    if (action.title.isNotBlank()) add("title=${Uri.encode(action.title)}")
+                                    if (action.year != null) add("year=${action.year}")
+                                    if (!action.poster.isNullOrBlank()) add("poster=${Uri.encode(action.poster)}")
+                                }
+                                val route = if (params.isEmpty()) base else "$base?${params.joinToString("&")}"
+                                nav.navigate(route) {
+                                    popUpTo("home") { inclusive = false }
+                                    launchSingleTop = true
+                                }
+                            }
                         }
                     }
                 }
@@ -955,6 +972,13 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     onJoinWatchParty = { vm.watchPartyManager.joinRoom(it) },
                     onUpdateRoomCode = vm.watchPartyManager::updateRoomCode,
                     onManualSync = vm.watchPartyManager::manualSync,
+                    onLegacyWatchParty = {
+                        val encoded = Uri.encode(s.streamUrl)
+                        val wpUrl = "https://www.watchparty.me/create?video=$encoded"
+                        (context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager)?.let {
+                            it.setPrimaryClip(android.content.ClipData.newPlainText("Legacy Watch Party", wpUrl))
+                        }
+                    }
                 )
 
                 AnimatedVisibility(
@@ -1219,6 +1243,15 @@ private fun applyVideoAdjustments(
     }
 }
 
+@OptIn(UnstableApi::class)
+private fun String.slugify(): String {
+    return this.lowercase()
+        .replace(Regex("[^a-z0-9\\s-]"), "")
+        .replace(Regex("\\s+"), "-")
+        .trim('-')
+}
+
+@OptIn(UnstableApi::class)
 @Composable
 private fun PlayerControls(
     player: ExoPlayer,
@@ -1270,6 +1303,7 @@ private fun PlayerControls(
     onJoinWatchParty: (String) -> Unit,
     onUpdateRoomCode: (String) -> Unit,
     onManualSync: () -> Unit,
+    onLegacyWatchParty: () -> Unit,
 ) {
     val theme = LocalZStreamTheme.current
     val focusManager = LocalFocusManager.current
@@ -1767,11 +1801,13 @@ private fun PlayerControls(
                         onJoinWatchParty = onJoinWatchParty,
                         onUpdateRoomCode = onUpdateRoomCode,
                         onManualSync = onManualSync,
+                        onLegacyWatchParty = onLegacyWatchParty,
                         isRegistering = isRegistering,
                         mediaType = mediaType,
                         tmdbId = tmdbId,
                         seasonId = seasonId,
-                        episodeId = episodeId
+                        episodeId = episodeId,
+                        streamUrl = readyState.streamUrl
                     )
                 }
             }
@@ -2224,6 +2260,7 @@ private fun SkipSegmentOverlay(
     }
 }
 
+@OptIn(UnstableApi::class)
 @Composable
 private fun PlayerMenuContent(
     page: PlayerMenuPage,
@@ -2280,16 +2317,19 @@ private fun PlayerMenuContent(
     onJoinWatchParty: (String) -> Unit,
     onUpdateRoomCode: (String) -> Unit,
     onManualSync: () -> Unit,
+    onLegacyWatchParty: () -> Unit,
     mediaType: String,
     tmdbId: Int,
     seasonId: String?,
     episodeId: String?,
+    streamUrl: String?,
 ) {
     val theme = LocalZStreamTheme.current
     val focusManager = LocalFocusManager.current
     var isJoiningRoom by remember { mutableStateOf(false) }
     var joinRoomCode by remember { mutableStateOf("") }
     val joinFocusRequester = remember { FocusRequester() }
+    var isLegacyCopied by remember { mutableStateOf(false) }
 
     // Auto-switch to room details when joined
     LaunchedEffect(roomCode) {
@@ -2655,11 +2695,20 @@ private fun PlayerMenuContent(
                                 }
 
                                 ZsButton(
-                                    text = "Use Legacy Watch Party",
-                                    onClick = { /* TODO: Stubbed */ },
-                                    variant = ZsButtonVariant.Secondary,
+                                    text = if (isLegacyCopied) "Link Copied!" else "Use Legacy Watch Party",
+                                    onClick = {
+                                        onLegacyWatchParty()
+                                        isLegacyCopied = true
+                                    },
+                                    variant = if (isLegacyCopied) ZsButtonVariant.Secondary else ZsButtonVariant.Secondary,
                                     modifier = Modifier.height(52.dp).padding(horizontal = 16.dp)
                                 )
+                                LaunchedEffect(isLegacyCopied) {
+                                    if (isLegacyCopied) {
+                                        delay(2000)
+                                        isLegacyCopied = false
+                                    }
+                                }
                                 Text(
                                     text = "Legacy Watch Party might not be available for some sources",
                                     color = playerMenuMutedText(),
@@ -2827,10 +2876,12 @@ private fun PlayerMenuContent(
                                                     .weight(1f)
                                                     .clickable { 
                                                         val baseUrl = "https://zstream.mov/media/"
+                                                        val slug = title.slugify()
+                                                        val typeKey = if (mediaType == "movie") "movie" else "tv"
                                                         val mediaPath = if (mediaType == "movie") {
-                                                            "tmdb-movie-$tmdbId"
+                                                            "tmdb-$typeKey-$tmdbId-$slug"
                                                         } else {
-                                                            "tmdb-tv-$tmdbId/${seasonId ?: ""}/${episodeId ?: ""}"
+                                                            "tmdb-$typeKey-$tmdbId-$slug/${seasonId ?: ""}/${episodeId ?: ""}"
                                                         }
                                                         val fullUrl = "$baseUrl$mediaPath?watchparty=${roomCode ?: ""}"
                                                         clipboard.setText(AnnotatedString(fullUrl))
@@ -3736,7 +3787,8 @@ private fun ColumnScope.PlayerTvInfoContent(
                 posterPath = detail.posterPath,
                 nav = nav,
                 theme = theme,
-                episodeProgress = progressMap[episode.episodeNumber]
+                episodeProgress = progressMap[episode.episodeNumber],
+                seasonId = selectedSeason.id
             )
         }
     }
@@ -4015,6 +4067,7 @@ private fun openPlayerInfoCastProfile(context: android.content.Context, castId: 
     context.startActivity(intent)
 }
 
+@UnstableApi
 private fun collectQualityOptions(tracks: Tracks): List<QualityOption> {
     return tracks.groups
         .filter { it.type == C.TRACK_TYPE_VIDEO }
@@ -4046,6 +4099,7 @@ private fun collectQualityOptions(tracks: Tracks): List<QualityOption> {
         .sortedByDescending { it.height }
 }
 
+@UnstableApi
 private fun collectAudioOptions(tracks: Tracks): List<AudioOption> {
     return tracks.groups
         .filter { it.type == C.TRACK_TYPE_AUDIO }

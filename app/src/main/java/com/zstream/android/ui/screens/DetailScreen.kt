@@ -363,6 +363,7 @@ internal fun SharedEpisodeRow(
     nav: NavController,
     theme: com.zstream.android.theme.ZStreamTheme,
     episodeProgress: com.zstream.android.data.local.entity.ProgressEntity?,
+    seasonId: Int? = null,
     enableWatchActions: Boolean = false,
     onMarkWatched: () -> Unit = {},
     onClearHistory: () -> Unit = {},
@@ -381,14 +382,7 @@ internal fun SharedEpisodeRow(
                 .clip(RoundedCornerShape(12.dp))
                 .background(theme.colors.modal.background)
                 .clickable {
-                    val sId = ep.seasonNumber.let { sNum -> 
-                        // Note: Season ID might not be directly available here without a lookup, 
-                        // but we can pass it if we have it in a context or fetch it.
-                        // For now, using the episode's season number as a placeholder if id isn't in scope.
-                        // However, ep has season_number, not season_id.
-                        // Actually, ep is an Episode object which doesn't have season_id in our model.
-                        null 
-                    }
+                    val sId = seasonId?.toString()
                     nav.navigate("player/tv/$showId?season=${ep.seasonNumber}&episode=${ep.episodeNumber}&seasonId=$sId&episodeId=${ep.id}&title=${title.encode()}&year=${ep.airDate?.take(4)?.toIntOrNull() ?: 0}&poster=${posterPath?.encode() ?: ""}")
                 }
         ) {
