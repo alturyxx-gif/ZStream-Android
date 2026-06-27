@@ -113,8 +113,8 @@ fun MovieDetailModal(
     }
 
     LaunchedEffect(firstItemFocusRequester) {
-        if (firstItemFocusRequester != null && isTv && !showPlayButton) {
-            android.util.Log.d("PlayerFocus", "MovieDetailModal requesting focus on firstItemFocusRequester inside composition")
+        if (firstItemFocusRequester != null && isTv) {
+            kotlinx.coroutines.delay(100)
             firstItemFocusRequester.requestFocus()
         }
     }
@@ -139,7 +139,6 @@ fun MovieDetailModal(
             firstItemFocusRequester = firstItemFocusRequester,
             specActions = { },
         ) { requester ->
-            android.util.Log.d("PlayerFocus", "DetailModal received requester: $requester, showPlayButton=$showPlayButton, isTv=$isTv")
             if (showPlayButton) {
                 var playFocused by remember { mutableStateOf(false) }
                 ZsOutlinedWrapper(
@@ -162,7 +161,6 @@ fun MovieDetailModal(
                             .then(if (requester != null) Modifier.focusRequester(requester) else Modifier)
                             .onFocusChanged { 
                                 playFocused = it.isFocused
-                                android.util.Log.d("PlayerFocus", "Play button focused: ${it.isFocused}")
                                 if (it.isFocused && isTv) {
                                     scrollRequestId++
                                 }
@@ -256,8 +254,8 @@ fun TvDetailModal(
     }
 
     LaunchedEffect(firstItemFocusRequester) {
-        if (firstItemFocusRequester != null && isTv && !showPlayButton) {
-            android.util.Log.d("PlayerFocus", "TvDetailModal requesting focus on firstItemFocusRequester inside composition")
+        if (firstItemFocusRequester != null && isTv) {
+            kotlinx.coroutines.delay(100)
             firstItemFocusRequester.requestFocus()
         }
     }
@@ -287,7 +285,6 @@ fun TvDetailModal(
             firstItemFocusRequester = firstItemFocusRequester,
             specActions = { },
         ) { requester ->
-            android.util.Log.d("PlayerFocus", "TvDetailModal received requester: $requester, showPlayButton=$showPlayButton, isTv=$isTv")
             if (showPlayButton) {
                 var playFocused by remember { mutableStateOf(false) }
 
@@ -328,7 +325,6 @@ fun TvDetailModal(
                             .then(if (requester != null) Modifier.focusRequester(requester) else Modifier)
                             .onFocusChanged { 
                                 playFocused = it.isFocused
-                                android.util.Log.d("PlayerFocus", "TV Play button focused: ${it.isFocused}")
                                 if (it.isFocused && isTv) {
                                     scrollRequestId++
                                 }
@@ -1153,7 +1149,6 @@ internal fun SharedActionPill(
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .onFocusChanged { 
                 isFocused = it.isFocused
-                android.util.Log.d("PlayerFocus", "SharedActionPill focused: ${it.isFocused}, focusRequester=$focusRequester")
                 onFocusChanged?.invoke(it.isFocused)
             }
     ) {

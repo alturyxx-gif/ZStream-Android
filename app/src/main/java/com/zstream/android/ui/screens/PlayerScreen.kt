@@ -1028,6 +1028,13 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                 val infoSheetFocusRequester = remember { FocusRequester() }
                 val infoSheetFirstItemFocusRequester = remember { FocusRequester() }
 
+                LaunchedEffect(showInfoSheet) {
+                    if (showInfoSheet && isTv) {
+                        delay(200)
+                        infoSheetFirstItemFocusRequester.requestFocus()
+                    }
+                }
+
                 AnimatedVisibility(
                     visible = showInfoSheet,
                     enter = fadeIn() + slideInVertically(initialOffsetY = { it / 2 }),
