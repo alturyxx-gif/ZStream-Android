@@ -47,4 +47,11 @@ class WatchPartyRepository @Inject constructor(
     suspend fun getUserId(): String? {
         return accountRepo.session.first()?.userId
     }
+
+    /**
+     * Helper to get a unique guest ID if not logged in.
+     */
+    suspend fun getGuestId(): String {
+        return accountRepo.getOrCreateGuestId()
+    }
 }

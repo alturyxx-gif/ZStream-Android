@@ -210,13 +210,13 @@ interface BackendApi {
                                @Header("Authorization") auth: String)
 
     // Watch Party
-    @POST("player/status")
+    @POST("api/player/status")
     suspend fun sendPlayerStatus(
         @Header("Authorization") auth: String?,
         @Body body: WatchPartyStatusRequest
     ): WatchPartyStatusResponse
 
-    @GET("player/status")
+    @GET("api/player/status")
     suspend fun getRoomStatuses(
         @Header("Authorization") auth: String?,
         @Query("roomCode") roomCode: String
@@ -228,11 +228,13 @@ interface BackendApi {
 data class WatchPartyContentDto(
     val title: String,
     val type: String,
-    val tmdbId: Int?,
-    val seasonId: Int? = null,
-    val episodeId: Int? = null,
+    val tmdbId: String?,
+    val seasonId: String? = null,
+    val episodeId: String? = null,
     val seasonNumber: Int? = null,
     val episodeNumber: Int? = null,
+    val year: Int? = null,
+    val poster: String? = null,
 )
 
 data class WatchPartyPlayerDto(

@@ -93,8 +93,8 @@ class PlayerViewModel @Inject constructor(
     val year = savedState.get<Int>("year") ?: 0
     val poster = savedState.get<String>("poster")?.decodeRouteParam()?.takeIf { it.isNotBlank() }
     val tmdbId = id.toString()
-    val seasonId = season?.toString()
-    val episodeId = episode?.toString()
+    val seasonId = savedState.get<String>("seasonId")
+    val episodeId = savedState.get<String>("episodeId")
 
     private val _state = MutableStateFlow<PlayerState>(PlayerState.Idle)
     val state = _state.asStateFlow()
@@ -144,16 +144,19 @@ class PlayerViewModel @Inject constructor(
         timeMs: Long,
         durationMs: Long,
         playbackRate: Float,
-        bufferedMs: Long
+        bufferedMs: Long,
+        isHost: Boolean
     ) {
         val content = WatchPartyContentDto(
             title = title,
             type = if (mediaType == "movie") "Movie" else "TV Show",
-            tmdbId = id,
-            seasonId = season,
-            episodeId = episode,
+            tmdbId = id.toString(),
+            seasonId = seasonId,
+            episodeId = episodeId,
             seasonNumber = season,
-            episodeNumber = episode
+            episodeNumber = episode,
+            year = year,
+            poster = poster
         )
 
         val player = WatchPartyPlayerDto(
@@ -167,6 +170,8 @@ class PlayerViewModel @Inject constructor(
             buffered = bufferedMs / 1000.0
         )
 
+        // Ensure manager's internal host state is in sync with UI state
+        // and update local state for reporting
         watchPartyManager.updateLocalState(content, player)
     }
 

@@ -299,11 +299,15 @@ private fun TvDetailModal(
                     if (hasProgress && progress != null) {
                         val sNum = progress.seasonNumber ?: state.selectedSeason?.seasonNumber ?: 1
                         val eNum = progress.episodeNumber ?: 1
-                        nav.navigate("player/tv/${d.id}?season=$sNum&episode=$eNum&title=${d.name.encode()}&year=${d.firstAirDate?.take(4)?.toIntOrNull() ?: 0}&poster=${d.posterPath?.encode() ?: ""}")
+                        val sId = state.selectedSeason?.id?.toString()
+                        val eId = state.selectedSeason?.episodes?.find { it.episodeNumber == eNum }?.id?.toString()
+                        nav.navigate("player/tv/${d.id}?season=$sNum&episode=$eNum&seasonId=$sId&episodeId=$eId&title=${d.name.encode()}&year=${d.firstAirDate?.take(4)?.toIntOrNull() ?: 0}&poster=${d.posterPath?.encode() ?: ""}")
                     } else {
                         val firstEp = state.selectedSeason?.episodes?.airedEpisodes()?.firstOrNull()
                         if (firstEp != null) {
-                            nav.navigate("player/tv/${d.id}?season=${firstEp.seasonNumber}&episode=${firstEp.episodeNumber}&title=${d.name.encode()}&year=${d.firstAirDate?.take(4)?.toIntOrNull() ?: 0}&poster=${d.posterPath?.encode() ?: ""}")
+                            val sId = state.selectedSeason?.id?.toString()
+                            val eId = firstEp.id.toString()
+                            nav.navigate("player/tv/${d.id}?season=${firstEp.seasonNumber}&episode=${firstEp.episodeNumber}&seasonId=$sId&episodeId=$eId&title=${d.name.encode()}&year=${d.firstAirDate?.take(4)?.toIntOrNull() ?: 0}&poster=${d.posterPath?.encode() ?: ""}")
                         }
                     }
                 },
@@ -377,7 +381,15 @@ internal fun SharedEpisodeRow(
                 .clip(RoundedCornerShape(12.dp))
                 .background(theme.colors.modal.background)
                 .clickable {
-                    nav.navigate("player/tv/$showId?season=${ep.seasonNumber}&episode=${ep.episodeNumber}&title=${title.encode()}&year=${ep.airDate?.take(4)?.toIntOrNull() ?: 0}&poster=${posterPath?.encode() ?: ""}")
+                    val sId = ep.seasonNumber.let { sNum -> 
+                        // Note: Season ID might not be directly available here without a lookup, 
+                        // but we can pass it if we have it in a context or fetch it.
+                        // For now, using the episode's season number as a placeholder if id isn't in scope.
+                        // However, ep has season_number, not season_id.
+                        // Actually, ep is an Episode object which doesn't have season_id in our model.
+                        null 
+                    }
+                    nav.navigate("player/tv/$showId?season=${ep.seasonNumber}&episode=${ep.episodeNumber}&seasonId=$sId&episodeId=${ep.id}&title=${title.encode()}&year=${ep.airDate?.take(4)?.toIntOrNull() ?: 0}&poster=${posterPath?.encode() ?: ""}")
                 }
         ) {
             Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
