@@ -152,11 +152,16 @@ private fun TvSettingsScreen(
     }
 
     val tabs = listOf("Account", "Preferences", "Appearance", "Subtitles", "Connections")
-    val accountTabFocusRequester = remember { FocusRequester() }
+    val tabFocusRequesters = remember { List(tabs.size) { FocusRequester() } }
     val contentFirstItemFocusRequester = remember { FocusRequester() }
+    var isContentFocused by remember { mutableStateOf(false) }
+
+    BackHandler(enabled = isContentFocused) {
+        tabFocusRequesters[currentTab].requestFocus()
+    }
 
     LaunchedEffect(Unit) {
-        accountTabFocusRequester.requestFocus()
+        tabFocusRequesters[0].requestFocus()
     }
 
     Box(Modifier.fillMaxSize().background(theme.colors.background.main)) {
@@ -228,7 +233,7 @@ private fun TvSettingsScreen(
                         selected = currentTab == index,
                         theme = theme,
                         onSelect = { vm.setTab(index) },
-                        focusRequester = if (index == 0) accountTabFocusRequester else null,
+                        focusRequester = tabFocusRequesters[index],
                         contentFocusRequester = contentFirstItemFocusRequester,
                     )
                 }
@@ -305,37 +310,43 @@ private fun TvSettingsScreen(
 
             // ── Right content area ─────────────────────────────────────────
             val subtitlesSettingsTabIndex = 3
-            if (currentTab == subtitlesSettingsTabIndex) {
-                Column(Modifier.weight(1f).fillMaxHeight()) {
-                    SubtitlePreview(settings, theme, vm, isTv = true)
-                    Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(vertical = 16.dp)) {
-                        SubtitlesSettingsContent(
-                            settings = settings,
-                            theme = theme,
-                            vm = vm,
-                            isTv = true,
-                            firstItemFocusRequester = contentFirstItemFocusRequester
-                        )
+            Box(
+                Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .onFocusChanged { isContentFocused = it.hasFocus }
+            ) {
+                if (currentTab == subtitlesSettingsTabIndex) {
+                    Column(Modifier.fillMaxSize()) {
+                        SubtitlePreview(settings, theme, vm, isTv = true)
+                        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(vertical = 16.dp)) {
+                            SubtitlesSettingsContent(
+                                settings = settings,
+                                theme = theme,
+                                vm = vm,
+                                isTv = true,
+                                firstItemFocusRequester = contentFirstItemFocusRequester
+                            )
+                        }
                     }
-                }
-            } else {
-                Box(
-                    Modifier
-                        .weight(1f)
-                        .fillMaxHeight()
-                        .verticalScroll(rememberScrollState())
-                ) {
-                    when (currentTab) {
-                        0 -> AccountSection(
-                            session, theme, vm, accountVm, showLogoutConfirm,
-                            { showLogoutConfirm = it }, nav,
-                            onExport = { exportLauncher.launch("zstream_backup_${System.currentTimeMillis()}.json") },
-                            isTv = true,
-                            firstItemFocusRequester = contentFirstItemFocusRequester,
-                        )
-                        1 -> PreferencesSection(settings, theme, vm, isTv = true, firstItemFocusRequester = contentFirstItemFocusRequester)
-                        2 -> AppearanceSection(settings, theme, vm, isTv = true, firstItemFocusRequester = contentFirstItemFocusRequester)
-                        4 -> ConnectionsSection(settings, theme, vm, isTv = true, firstItemFocusRequester = contentFirstItemFocusRequester)
+                } else {
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        when (currentTab) {
+                            0 -> AccountSection(
+                                session, theme, vm, accountVm, showLogoutConfirm,
+                                { showLogoutConfirm = it }, nav,
+                                onExport = { exportLauncher.launch("zstream_backup_${System.currentTimeMillis()}.json") },
+                                isTv = true,
+                                firstItemFocusRequester = contentFirstItemFocusRequester,
+                            )
+                            1 -> PreferencesSection(settings, theme, vm, isTv = true, firstItemFocusRequester = contentFirstItemFocusRequester)
+                            2 -> AppearanceSection(settings, theme, vm, isTv = true, firstItemFocusRequester = contentFirstItemFocusRequester)
+                            4 -> ConnectionsSection(settings, theme, vm, isTv = true, firstItemFocusRequester = contentFirstItemFocusRequester)
+                        }
                     }
                 }
             }
@@ -394,7 +405,12 @@ private fun TvSettingsTabItem(
                         )
                     } else Modifier
                 )
-                .onFocusChanged { isFocused = it.isFocused }
+                .onFocusChanged { 
+                    isFocused = it.isFocused 
+                    if (it.isFocused && !selected) {
+                        onSelect()
+                    }
+                }
                 .clickable { onSelect() }
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -451,11 +467,16 @@ private fun PhoneSettingsScreen(
     }
 
     val tabs = listOf("Account", "Preferences", "Appearance", "Subtitles", "Connections")
-    val accountTabFocusRequester = remember { FocusRequester() }
+    val tabFocusRequesters = remember { List(tabs.size) { FocusRequester() } }
     val contentFirstItemFocusRequester = remember { FocusRequester() }
+    var isContentFocused by remember { mutableStateOf(false) }
+
+    BackHandler(enabled = isContentFocused) {
+        tabFocusRequesters[currentTab].requestFocus()
+    }
 
     LaunchedEffect(Unit) {
-        accountTabFocusRequester.requestFocus()
+        tabFocusRequesters[0].requestFocus()
     }
 
     Box(Modifier.fillMaxSize().background(theme.colors.background.main)) {
