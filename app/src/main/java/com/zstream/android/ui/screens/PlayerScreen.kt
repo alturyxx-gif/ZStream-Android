@@ -525,7 +525,6 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                                     Player.EVENT_POSITION_DISCONTINUITY,
                                     Player.EVENT_PLAYBACK_PARAMETERS_CHANGED
                                 )) {
-                                Log.d("PlayerScreen", "ExoPlayer Event: playWhenReady=${player.playWhenReady}, playbackState=${player.playbackState}, pos=${player.currentPosition}")
                                 vm.reportPlayerState(
                                     isPlaying = player.isPlaying,
                                     isPaused = !player.playWhenReady,
@@ -568,15 +567,12 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                         Log.d("PlayerScreen", "Received WatchPartyAction: $action")
                         when (action) {
                             is WatchPartyAction.Seek -> {
-                                Log.d("PlayerScreen", "Executing seekTo(${action.timeMs})")
                                 player.seekTo(action.timeMs)
                             }
                             is WatchPartyAction.Play -> {
-                                Log.d("PlayerScreen", "Executing play()")
                                 player.play()
                             }
                             is WatchPartyAction.Pause -> {
-                                Log.d("PlayerScreen", "Executing pause()")
                                 player.pause()
                             }
                             is WatchPartyAction.Navigate -> {
