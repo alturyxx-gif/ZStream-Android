@@ -5,6 +5,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.*
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -47,6 +48,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
@@ -134,7 +136,6 @@ private fun TvSettingsScreen(
     val onBack = rememberSafeNavigateBack(nav, scope)
     val session by accountVm.session.collectAsState()
     val settings by vm.settings.collectAsStateWithLifecycle()
-    val dirty by vm.dirty.collectAsStateWithLifecycle()
     val currentTab by vm.currentTab.collectAsStateWithLifecycle()
     var showLogoutConfirm by remember { mutableStateOf(false) }
 
@@ -164,7 +165,9 @@ private fun TvSettingsScreen(
         tabFocusRequesters[0].requestFocus()
     }
 
-    Box(Modifier.fillMaxSize().background(theme.colors.background.main)) {
+    Box(Modifier
+        .fillMaxSize()
+        .background(theme.colors.background.main)) {
         Row(Modifier.fillMaxSize()) {
             // ── Left side-nav ──────────────────────────────────────────────
             Column(
@@ -187,7 +190,8 @@ private fun TvSettingsScreen(
                     shape = RoundedCornerShape(10.dp),
                     outlineColor = Color.White,
                     outlineWidth = 2.dp,
-                    gap = 4.dp,
+                    horizontal = (-18).dp,
+                    vertical = 0.dp,
                     visible = backFocused,
                 ) {
                     Row(
@@ -239,65 +243,6 @@ private fun TvSettingsScreen(
                 }
 
                 Spacer(Modifier.weight(1f))
-
-                // Save indicator
-                if (dirty) {
-                    Text(
-                        "● Unsaved changes",
-                        color = theme.colors.type.danger,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
-                    )
-                    Row(
-                        Modifier.padding(horizontal = 20.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        var saveFocused by remember { mutableStateOf(false) }
-                        var resetFocused by remember { mutableStateOf(false) }
-                        ZsOutlinedWrapper(
-                            shape = RoundedCornerShape(8.dp),
-                            outlineColor = Color.White,
-                            outlineWidth = 2.dp,
-                            gap = 3.dp,
-                            visible = saveFocused,
-                        ) {
-                            Box(
-                                Modifier
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(theme.colors.global.accentA)
-                                    .clickable { vm.saveToRemote() }
-                                    .onFocusChanged { saveFocused = it.isFocused }
-                                    .focusable()
-                                    .padding(horizontal = 14.dp, vertical = 8.dp),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Text("Save", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                        ZsOutlinedWrapper(
-                            shape = RoundedCornerShape(8.dp),
-                            outlineColor = Color.White,
-                            outlineWidth = 2.dp,
-                            gap = 3.dp,
-                            visible = resetFocused,
-                        ) {
-                            Box(
-                                Modifier
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(theme.colors.background.secondary)
-                                    .clickable { vm.resetToLocal() }
-                                    .onFocusChanged { resetFocused = it.isFocused }
-                                    .focusable()
-                                    .padding(horizontal = 14.dp, vertical = 8.dp),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Text("Reset", color = theme.colors.type.secondary, fontSize = 12.sp)
-                            }
-                        }
-                    }
-                    Spacer(Modifier.height(8.dp))
-                }
             }
 
             // Divider
@@ -319,7 +264,10 @@ private fun TvSettingsScreen(
                 if (currentTab == subtitlesSettingsTabIndex) {
                     Column(Modifier.fillMaxSize()) {
                         SubtitlePreview(settings, theme, vm, isTv = true)
-                        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(vertical = 16.dp)) {
+                        Column(Modifier
+                            .weight(1f)
+                            .verticalScroll(rememberScrollState())
+                            .padding(vertical = 16.dp)) {
                             SubtitlesSettingsContent(
                                 settings = settings,
                                 theme = theme,
@@ -376,8 +324,9 @@ private fun TvSettingsTabItem(
         if (selected || isFocused) theme.colors.type.emphasis else theme.colors.type.dimmed
     )
 
+    // Vertical Tab Item
     ZsOutlinedWrapper(
-        shape = RoundedCornerShape(10.dp),
+        shape = RoundedCornerShape(14.dp),
         outlineColor = Color.White,
         outlineWidth = 2.dp,
         gap = 4.dp,
@@ -385,7 +334,9 @@ private fun TvSettingsTabItem(
         modifier = Modifier
             .padding(horizontal = 16.dp, vertical = 3.dp)
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
-            .then(if (contentFocusRequester != null) Modifier.focusProperties { right = contentFocusRequester } else Modifier),
+            .then(if (contentFocusRequester != null) Modifier.focusProperties {
+                right = contentFocusRequester
+            } else Modifier),
     ) {
         Row(
             Modifier
@@ -396,7 +347,10 @@ private fun TvSettingsTabItem(
                     if (selected) Modifier.drawBehind {
                         drawRoundRect(
                             color = theme.colors.global.accentA,
-                            size = androidx.compose.ui.geometry.Size(4.dp.toPx(), size.height * 0.6f),
+                            size = androidx.compose.ui.geometry.Size(
+                                4.dp.toPx(),
+                                size.height * 0.6f
+                            ),
                             cornerRadius = CornerRadius(2.dp.toPx()),
                             topLeft = androidx.compose.ui.geometry.Offset(
                                 x = 0f,
@@ -405,8 +359,8 @@ private fun TvSettingsTabItem(
                         )
                     } else Modifier
                 )
-                .onFocusChanged { 
-                    isFocused = it.isFocused 
+                .onFocusChanged {
+                    isFocused = it.isFocused
                     if (it.isFocused && !selected) {
                         onSelect()
                     }
@@ -449,7 +403,6 @@ private fun PhoneSettingsScreen(
     val onBack = rememberSafeNavigateBack(nav, scope)
     val session by accountVm.session.collectAsState()
     val settings by vm.settings.collectAsStateWithLifecycle()
-    val dirty by vm.dirty.collectAsStateWithLifecycle()
     val currentTab by vm.currentTab.collectAsStateWithLifecycle()
     var showLogoutConfirm by remember { mutableStateOf(false) }
 
@@ -479,16 +432,19 @@ private fun PhoneSettingsScreen(
         tabFocusRequesters[0].requestFocus()
     }
 
-    Box(Modifier.fillMaxSize().background(theme.colors.background.main)) {
+    Box(Modifier
+        .fillMaxSize()
+        .background(theme.colors.background.main)) {
         Column(
             Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
-                .padding(bottom = if (dirty) 72.dp else 0.dp)
         ) {
             // Top bar
             Row(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(onClick = onBack) {
@@ -505,13 +461,17 @@ private fun PhoneSettingsScreen(
             val subtitlesSettingsTabIndex = 3
             if (currentTab == subtitlesSettingsTabIndex) {
                 Column(Modifier.fillMaxSize()) {
-                    SubtitlePreview(settings, theme, vm, isTv = true)
-                    Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
+                    SubtitlePreview(settings, theme, vm, isTv = false)
+                    Column(Modifier
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState())) {
                         SubtitlesSettingsContent(settings, theme, vm)
                     }
                 }
             } else {
-                Box(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                Box(Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())) {
                     when (currentTab) {
                         0 -> AccountSection(session, theme, vm, accountVm, showLogoutConfirm, { showLogoutConfirm = it }, nav, onExport = {
                             exportLauncher.launch("zstream_backup_${System.currentTimeMillis()}.json")
@@ -522,16 +482,6 @@ private fun PhoneSettingsScreen(
                     }
                 }
             }
-        }
-
-        // Save bar
-        AnimatedVisibility(
-            visible = dirty,
-            enter = slideInVertically { it },
-            exit = slideOutVertically { it },
-            modifier = Modifier.align(Alignment.BottomCenter)
-        ) {
-            SaveBar(theme, vm)
         }
     }
 }
@@ -582,7 +532,10 @@ private fun SectionLabel(text: String, theme: ZStreamTheme) {
 @Composable
 private fun SettingsCard(theme: ZStreamTheme, content: @Composable ColumnScope.() -> Unit) {
     Column(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp).clip(RoundedCornerShape(12.dp))
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .clip(RoundedCornerShape(12.dp))
             .background(theme.colors.settings.card.background),
         content = content
     )
@@ -591,7 +544,9 @@ private fun SettingsCard(theme: ZStreamTheme, content: @Composable ColumnScope.(
 @Composable
 private fun SettingsRow(label: String, value: String, theme: ZStreamTheme) {
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 14.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -615,66 +570,45 @@ private fun TvSettingsRow(
     content: @Composable RowScope.() -> Unit,
 ) {
     var isFocused by remember { mutableStateOf(false) }
+    val interactionSource = remember { MutableInteractionSource() }
     val bgColor by animateColorAsState(
         if (isFocused) theme.colors.background.secondary.copy(alpha = 0.5f) else Color.Transparent
     )
     ZsOutlinedWrapper(
-        shape = RoundedCornerShape(8.dp),
+        shape = RoundedCornerShape(12.dp),
         outlineColor = Color.White,
         outlineWidth = 2.dp,
-        horizontal = 4.dp,
-        vertical = 2.dp,
+        horizontal = 11.dp,
+        vertical = 1.dp,
         visible = isFocused,
-        modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(bgColor, RoundedCornerShape(8.dp))
+            .padding(horizontal = 12.dp, vertical = 2.dp)
+            .onFocusChanged { isFocused = it.isFocused }
+            .then(modifier)
+            .then(
+                if (onActivate != null) {
+                    Modifier.clickable(
+                        interactionSource = interactionSource,
+                        indication = null,
+                        role = Role.Button,
+                        onClick = { onActivate() },
+                    )
+                } else {
+                    Modifier.focusable()
+
+                }
+            ),
     ) {
         Row(
             Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(8.dp))
-                .background(bgColor)
-                .onFocusChanged { isFocused = it.isFocused }
-                .then(modifier)
-                .then(
-                    if (onActivate != null) {
-                        Modifier.clickable { onActivate() }
-                    } else {
-                        Modifier.focusable()
-                    }
-                )
-                .padding(horizontal = 4.dp, vertical = 2.dp),
+                .padding(horizontal = 16.dp, vertical = 2.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
             content = content,
         )
-    }
-}
-
-//  Save Bar 
-
-@Composable
-private fun SaveBar(theme: ZStreamTheme, vm: SettingsViewModel) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .background(theme.colors.settings.saveBar.background)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text("Unsaved changes", color = theme.colors.type.danger, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            TextButton(onClick = vm::resetToLocal) {
-                Text("Reset", color = theme.colors.type.secondary, fontSize = 13.sp)
-            }
-            Button(
-                onClick = vm::saveToRemote,
-                colors = ButtonDefaults.buttonColors(containerColor = theme.colors.global.accentA),
-                border = BorderStroke(1.dp, theme.colors.type.divider.copy(alpha = 0.3f)),
-                shape = RoundedCornerShape(8.dp),
-            ) {
-                Text("Save", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-            }
-        }
     }
 }
 
@@ -696,14 +630,19 @@ private fun AccountSection(
     var nickname by remember(session) { mutableStateOf(session?.nickname ?: "") }
     val scope = rememberCoroutineScope()
 
-    Column(Modifier.padding(bottom = 32.dp).padding(top = if (isTv) 16.dp else 0.dp)) {
+    Column(Modifier
+        .padding(bottom = 32.dp)
+        .padding(top = if (isTv) 16.dp else 0.dp)
+        .padding(horizontal = 16.dp)) {
         Spacer(Modifier.height(8.dp))
         SectionLabel("Account", theme)
 
         if (session != null) {
             if (isTv) {
                 Column(
-                    Modifier.fillMaxWidth().padding(horizontal = 16.dp).clip(RoundedCornerShape(12.dp))
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
                         .background(theme.colors.settings.card.background)
                 ) {
                     TvSettingsRow(
@@ -721,21 +660,17 @@ private fun AccountSection(
                     HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                     TvSettingsRow(theme) {
                         Text("User ID", color = theme.colors.type.text, fontSize = 14.sp, modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 12.dp))
-                        Text(session.userId, color = theme.colors.type.secondary, fontSize = 13.sp, maxLines = 1, modifier = Modifier.widthIn(max = 200.dp).padding(end = 12.dp))
+                        Text(session.userId, color = theme.colors.type.secondary, fontSize = 13.sp, maxLines = 1, modifier = Modifier
+                            .widthIn(max = 200.dp)
+                            .padding(end = 12.dp))
                     }
                 }
                 Spacer(Modifier.height(12.dp))
+                // No export data button on TV
                 Column(
-                    Modifier.fillMaxWidth().padding(horizontal = 16.dp).clip(RoundedCornerShape(12.dp))
-                        .background(theme.colors.settings.card.background)
-                ) {
-                    TvSettingsRow(theme, onActivate = onExport) {
-                        Text("Export Data", color = theme.colors.type.link, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 12.dp, top = 14.dp, bottom = 14.dp))
-                    }
-                }
-                Spacer(Modifier.height(12.dp))
-                Column(
-                    Modifier.fillMaxWidth().padding(horizontal = 16.dp).clip(RoundedCornerShape(12.dp))
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
                         .background(theme.colors.settings.card.background)
                 ) {
                     TvSettingsRow(theme, onActivate = { onLogoutConfirmChange(true) }) {
@@ -754,7 +689,9 @@ private fun AccountSection(
                 SettingsCard(theme) {
                     TextButton(
                         onClick = onExport,
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 4.dp)
                     ) {
                         Text("Export Data", color = theme.colors.type.link, fontWeight = FontWeight.SemiBold)
                     }
@@ -763,7 +700,9 @@ private fun AccountSection(
                 SettingsCard(theme) {
                     TextButton(
                         onClick = { onLogoutConfirmChange(true) },
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 4.dp)
                     ) {
                         Text("Log out", color = theme.colors.buttons.danger, fontWeight = FontWeight.SemiBold)
                     }
@@ -772,7 +711,9 @@ private fun AccountSection(
         } else {
             if (isTv) {
                 Column(
-                    Modifier.fillMaxWidth().padding(horizontal = 16.dp).clip(RoundedCornerShape(12.dp))
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
                         .background(theme.colors.settings.card.background)
                 ) {
                     TvSettingsRow(
@@ -787,7 +728,9 @@ private fun AccountSection(
                 SettingsCard(theme) {
                     TextButton(
                         onClick = { nav.navigate("login") },
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 4.dp)
                     ) {
                         Text("Log in / Register", color = theme.colors.type.link, fontWeight = FontWeight.SemiBold)
                     }
@@ -799,12 +742,16 @@ private fun AccountSection(
         SectionLabel("App Info", theme)
         if (isTv) {
             Column(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp).clip(RoundedCornerShape(12.dp))
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
                     .background(theme.colors.settings.card.background)
             ) {
                 TvSettingsRow(theme) {
                     Text("Backend URL", color = theme.colors.type.text, fontSize = 14.sp, modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 12.dp))
-                    Text(com.zstream.android.Urls.BACKEND.removePrefix("https://").removePrefix("http://"), color = theme.colors.type.secondary, fontSize = 13.sp, maxLines = 1, modifier = Modifier.widthIn(max = 260.dp).padding(end = 12.dp))
+                    Text(com.zstream.android.Urls.BACKEND.removePrefix("https://").removePrefix("http://"), color = theme.colors.type.secondary, fontSize = 13.sp, maxLines = 1, modifier = Modifier
+                        .widthIn(max = 260.dp)
+                        .padding(end = 12.dp))
                 }
                 HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                 TvSettingsRow(theme) {
@@ -858,16 +805,20 @@ private fun AccountSection(
 private fun PreferencesSection(
     settings: SettingsEntity, 
     theme: ZStreamTheme, 
-    vm: SettingsViewModel, 
+    vm: SettingsViewModel,
     isTv: Boolean = false,
     firstItemFocusRequester: FocusRequester? = null,
 ) {
-    Column(Modifier.padding(bottom = 32.dp).padding(top = if (isTv) 16.dp else 0.dp)) {
+    Column(Modifier
+        .padding(bottom = 32.dp, top = if (isTv) 16.dp else 0.dp)
+        .padding(horizontal = 16.dp)) {
         Spacer(Modifier.height(8.dp))
         SectionLabel("Language", theme)
         if (isTv) {
             Column(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp).clip(RoundedCornerShape(12.dp))
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
                     .background(theme.colors.settings.card.background)
             ) {
                 TvSettingsRow(
@@ -888,7 +839,9 @@ private fun PreferencesSection(
         SectionLabel("Playback", theme)
         if (isTv) {
             Column(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp).clip(RoundedCornerShape(12.dp))
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
                     .background(theme.colors.settings.card.background)
             ) {
                 TvSettingsRow(theme, onActivate = { vm.setEnableAutoplay(!settings.enableAutoplay) }) {
@@ -917,7 +870,7 @@ private fun PreferencesSection(
                     checked = settings.enableAutoplay,
                     onCheckedChange = vm::setEnableAutoplay,
                     enabled = !settings.enableLowPerformanceMode,
-                    modifier = Modifier.padding(horizontal = 16.dp),
+                    modifier = Modifier,
                 )
                 if (settings.enableAutoplay && !settings.enableLowPerformanceMode) {
                     HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
@@ -935,7 +888,7 @@ private fun PreferencesSection(
                     subtitle = "Disable animations and visual effects",
                     checked = settings.enableLowPerformanceMode,
                     onCheckedChange = vm::setEnableLowPerformanceMode,
-                    modifier = Modifier.padding(horizontal = 16.dp),
+                    modifier = Modifier,
                 )
                 HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                 ZsSwitchRow(
@@ -943,7 +896,7 @@ private fun PreferencesSection(
                     subtitle = "Use native subtitle renderer",
                     checked = settings.enableNativeSubtitles,
                     onCheckedChange = vm::setEnableNativeSubtitles,
-                    modifier = Modifier.padding(horizontal = 16.dp),
+                    modifier = Modifier,
                 )
             }
         }
@@ -952,7 +905,9 @@ private fun PreferencesSection(
         SectionLabel("Input", theme)
         if (isTv) {
             Column(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp).clip(RoundedCornerShape(12.dp))
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
                     .background(theme.colors.settings.card.background)
             ) {
                 TvSettingsRow(theme, onActivate = { vm.setEnableNativeKeyboard(!settings.enableNativeKeyboard) }) {
@@ -966,7 +921,7 @@ private fun PreferencesSection(
                     subtitle = "Hide virtual keyboard and use system input",
                     checked = settings.enableNativeKeyboard,
                     onCheckedChange = vm::setEnableNativeKeyboard,
-                    modifier = Modifier.padding(horizontal = 16.dp),
+                    modifier = Modifier,
                 )
             }
         }
@@ -975,7 +930,9 @@ private fun PreferencesSection(
         SectionLabel("Player Controls", theme)
         if (isTv) {
             Column(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp).clip(RoundedCornerShape(12.dp))
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
                     .background(theme.colors.settings.card.background)
             ) {
                 TvSettingsRow(theme, onActivate = { vm.setEnableHoldToBoost(!settings.enableHoldToBoost) }) {
@@ -993,7 +950,7 @@ private fun PreferencesSection(
                     subtitle = "Hold to increase playback speed",
                     checked = settings.enableHoldToBoost,
                     onCheckedChange = vm::setEnableHoldToBoost,
-                    modifier = Modifier.padding(horizontal = 16.dp),
+                    modifier = Modifier,
                 )
                 HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                 ZsSwitchRow(
@@ -1001,7 +958,7 @@ private fun PreferencesSection(
                     subtitle = "Double-tap to seek forward/backward",
                     checked = settings.enableDoubleClickToSeek,
                     onCheckedChange = vm::setEnableDoubleClickToSeek,
-                    modifier = Modifier.padding(horizontal = 16.dp),
+                    modifier = Modifier,
                 )
             }
         }
@@ -1010,7 +967,9 @@ private fun PreferencesSection(
         SectionLabel("Sources", theme)
         if (isTv) {
             Column(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp).clip(RoundedCornerShape(12.dp))
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
                     .background(theme.colors.settings.card.background)
             ) {
                 TvSettingsRow(theme, onActivate = { vm.setManualSourceSelection(!settings.manualSourceSelection) }) {
@@ -1028,7 +987,7 @@ private fun PreferencesSection(
                     subtitle = "Choose sources manually",
                     checked = settings.manualSourceSelection,
                     onCheckedChange = vm::setManualSourceSelection,
-                    modifier = Modifier.padding(horizontal = 16.dp),
+                    modifier = Modifier,
                 )
                 HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                 ZsSwitchRow(
@@ -1036,7 +995,7 @@ private fun PreferencesSection(
                     subtitle = "Automatically try next source on playback error",
                     checked = settings.enableAutoResumeOnPlaybackError,
                     onCheckedChange = vm::setEnableAutoResumeOnPlaybackError,
-                    modifier = Modifier.padding(horizontal = 16.dp),
+                    modifier = Modifier,
                 )
             }
         }
@@ -1092,12 +1051,17 @@ private fun AppearanceSection(
     val allThemes = ThemeRegistry.allThemes
     val activeTheme = ThemeRegistry.getThemeById(settings.applicationTheme)
 
-    Column(Modifier.padding(bottom = 32.dp).padding(top = if (isTv) 16.dp else 0.dp)) {
+    Column(Modifier
+        .padding(bottom = 32.dp)
+        .padding(top = if (isTv) 16.dp else 0.dp)) {
         Spacer(Modifier.height(8.dp))
         SectionLabel("Home Page", theme)
         if (isTv) {
             Column(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp).clip(RoundedCornerShape(12.dp))
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .clip(RoundedCornerShape(12.dp))
                     .background(theme.colors.settings.card.background)
             ) {
                 TvSettingsRow(
@@ -1213,7 +1177,10 @@ private fun AppearanceSection(
         SectionLabel("Player UI", theme)
         if (isTv) {
             Column(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp).clip(RoundedCornerShape(12.dp))
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .clip(RoundedCornerShape(12.dp))
                     .background(theme.colors.settings.card.background)
             ) {
                 TvSettingsRow(theme, onActivate = { vm.setEnablePauseOverlay(!settings.enablePauseOverlay) }) {
@@ -1250,7 +1217,10 @@ private fun AppearanceSection(
         SectionLabel("Theme", theme)
         if (isTv) {
             Column(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp).clip(RoundedCornerShape(12.dp))
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .clip(RoundedCornerShape(12.dp))
                     .background(theme.colors.settings.card.background)
             ) {
                 TvSettingsRow(theme) {
@@ -1363,7 +1333,9 @@ private fun SubtitlePreview(settings: SettingsEntity, theme: ZStreamTheme, vm: S
             modifier = Modifier.fillMaxSize()
         )
         // Dark scrim
-        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.4f)))
+        Box(Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.4f)))
 
         // Drag tip
         if (!isTv) {
@@ -1371,7 +1343,9 @@ private fun SubtitlePreview(settings: SettingsEntity, theme: ZStreamTheme, vm: S
                 "Drag text to reposition",
                 color = Color.White.copy(alpha = 0.4f),
                 fontSize = 10.sp,
-                modifier = Modifier.align(Alignment.TopCenter).padding(top = 8.dp)
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 8.dp)
             )
         }
 
@@ -1561,7 +1535,11 @@ private fun SubtitlesSettingsContent(
                         visible = presetFocused,
                         modifier = Modifier
                             .weight(1f)
-                            .then(if (isSelected && firstItemFocusRequester != null) Modifier.focusRequester(firstItemFocusRequester) else Modifier),
+                            .then(
+                                if (isSelected && firstItemFocusRequester != null) Modifier.focusRequester(
+                                    firstItemFocusRequester
+                                ) else Modifier
+                            ),
                     ) {
                         Box(
                             modifier = Modifier
@@ -1599,7 +1577,10 @@ private fun SubtitlesSettingsContent(
             Spacer(Modifier.height(8.dp))
             SectionLabel("Behavior", theme)
             Column(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp).clip(RoundedCornerShape(12.dp))
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .clip(RoundedCornerShape(12.dp))
                     .background(theme.colors.settings.card.background)
             ) {
                 TvSettingsRow(theme, onActivate = { vm.setEnableNativeSubtitles(!settings.enableNativeSubtitles) }) {
@@ -1611,7 +1592,10 @@ private fun SubtitlesSettingsContent(
                 Spacer(Modifier.height(8.dp))
                 SectionLabel("Background", theme)
                 Column(
-                    Modifier.fillMaxWidth().padding(horizontal = 16.dp).clip(RoundedCornerShape(12.dp))
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp)
+                        .clip(RoundedCornerShape(12.dp))
                         .background(theme.colors.settings.card.background)
                 ) {
                     TvSliderRow("Background Opacity", settings.subtitleBackgroundOpacity * 100, 0f, 100f, { "${it.toInt()}%" }, { vm.setSubtitleBackgroundOpacity(it / 100f) }, theme)
@@ -1628,7 +1612,10 @@ private fun SubtitlesSettingsContent(
                 Spacer(Modifier.height(8.dp))
                 SectionLabel("Text", theme)
                 Column(
-                    Modifier.fillMaxWidth().padding(horizontal = 16.dp).clip(RoundedCornerShape(12.dp))
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp)
+                        .clip(RoundedCornerShape(12.dp))
                         .background(theme.colors.settings.card.background)
                 ) {
                     TvSliderRow("Text Size", settings.subtitleSize * 100, 1f, 200f, { "${it.toInt()}%" }, { vm.setSubtitleSize(it / 100f) }, theme)
@@ -1651,7 +1638,9 @@ private fun SubtitlesSettingsContent(
 
                     TvSettingsRow(theme, onActivate = { showColorPicker = true }) {
                         Row(
-                            Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 12.dp),
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 12.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
@@ -1663,9 +1652,15 @@ private fun SubtitlesSettingsContent(
                                     fontSize = 12.sp
                                 )
                                 Box(
-                                    Modifier.size(24.dp).clip(CircleShape)
+                                    Modifier
+                                        .size(24.dp)
+                                        .clip(CircleShape)
                                         .background(currentSubColor)
-                                        .border(1.dp, theme.colors.utils.divider.copy(alpha = 0.4f), CircleShape)
+                                        .border(
+                                            1.dp,
+                                            theme.colors.utils.divider.copy(alpha = 0.4f),
+                                            CircleShape
+                                        )
                                 )
                             }
                         }
@@ -1687,7 +1682,10 @@ private fun SubtitlesSettingsContent(
                 Spacer(Modifier.height(8.dp))
                 SectionLabel("Layout", theme)
                 Column(
-                    Modifier.fillMaxWidth().padding(horizontal = 16.dp).clip(RoundedCornerShape(12.dp))
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp)
+                        .clip(RoundedCornerShape(12.dp))
                         .background(theme.colors.settings.card.background)
                 ) {
                     TvSliderRow("Vertical Position", settings.subtitleVerticalPosition, 0f, 30f, { "${it.toInt()}" }, { vm.setSubtitleVerticalPosition(it) }, theme)
@@ -1846,9 +1844,15 @@ private fun SubtitlesSettingsContent(
                                 fontSize = 12.sp
                             )
                             Box(
-                                Modifier.size(24.dp).clip(CircleShape)
+                                Modifier
+                                    .size(24.dp)
+                                    .clip(CircleShape)
                                     .background(currentSubColor)
-                                    .border(1.dp, theme.colors.utils.divider.copy(alpha = 0.4f), CircleShape)
+                                    .border(
+                                        1.dp,
+                                        theme.colors.utils.divider.copy(alpha = 0.4f),
+                                        CircleShape
+                                    )
                             )
                         }
                     }
@@ -1964,7 +1968,9 @@ private fun SliderRow(
     steps: Int = 0) {
     var sliderValue by remember { mutableFloatStateOf(value) }
     LaunchedEffect(value) { sliderValue = value }
-    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+    Column(Modifier
+        .fillMaxWidth()
+        .padding(horizontal = 16.dp, vertical = 8.dp)) {
         Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
             Text(label, color = theme.colors.type.text, fontSize = 13.sp)
             Text(display(sliderValue), color = theme.colors.type.secondary, fontSize = 12.sp)
@@ -1978,7 +1984,9 @@ private fun SliderRow(
             onValueChangeFinished = { /* no‑op */ },
             valueRange = rangeStart..rangeEnd,
             steps = steps,
-            modifier = Modifier.fillMaxWidth().height(24.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(24.dp),
             colors = SliderDefaults.colors(
                 thumbColor = Color.White,
                 activeTrackColor = theme.colors.global.accentA,
@@ -2029,8 +2037,8 @@ private fun TvSliderRow(
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(8.dp))
                 .background(bgColor)
-                .onFocusChanged { 
-                    isFocused = it.isFocused 
+                .onFocusChanged {
+                    isFocused = it.isFocused
                     if (!it.isFocused) isAdjusting = false
                 }
                 .focusable()
@@ -2045,6 +2053,7 @@ private fun TvSliderRow(
                                 onValueChange(newVal)
                                 true
                             }
+
                             Key.DirectionLeft -> {
                                 val step = (rangeEnd - rangeStart) * 0.05f
                                 val newVal = (sliderValue - step).coerceIn(rangeStart, rangeEnd)
@@ -2052,13 +2061,16 @@ private fun TvSliderRow(
                                 onValueChange(newVal)
                                 true
                             }
+
                             Key.DirectionCenter, Key.Enter, Key.Back -> {
                                 isAdjusting = false
                                 true
                             }
+
                             Key.DirectionUp, Key.DirectionDown -> {
                                 true // Consume navigation keys while adjusting
                             }
+
                             else -> false
                         }
                     } else {
@@ -2071,7 +2083,10 @@ private fun TvSliderRow(
                 .padding(horizontal = 4.dp, vertical = 2.dp),
         ) {
             Row(
-                Modifier.fillMaxWidth().padding(horizontal = 12.dp).padding(top = 12.dp),
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp)
+                    .padding(top = 12.dp),
                 Arrangement.SpaceBetween,
                 Alignment.CenterVertically
             ) {
@@ -2085,7 +2100,11 @@ private fun TvSliderRow(
                 onValueChangeFinished = { },
                 valueRange = rangeStart..rangeEnd,
                 steps = steps,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp).padding(bottom = 8.dp).height(24.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp)
+                    .padding(bottom = 8.dp)
+                    .height(24.dp),
                 colors = SliderDefaults.colors(
                     thumbColor = if (isAdjusting) Color.White else theme.colors.type.dimmed,
                     activeTrackColor = if (isAdjusting) theme.colors.global.accentA else theme.colors.global.accentA.copy(alpha = 0.6f),
@@ -2103,7 +2122,10 @@ private fun TvSliderRow(
 private fun DropdownRow(title: String, options: List<String>, selected: String, onSelect: (String) -> Unit, theme: ZStreamTheme) {
     var expanded by remember { mutableStateOf(false) }
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp).clickable { expanded = true },
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 14.dp)
+            .clickable { expanded = true },
         Arrangement.SpaceBetween,
         Alignment.CenterVertically
     ) {
@@ -2198,6 +2220,12 @@ private fun TvTextField(
 ) {
     var isEditing by remember { mutableStateOf(false) }
     var isFocused by remember { mutableStateOf(false) }
+    val interactionSource = remember { MutableInteractionSource() }
+    val textFieldFocusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(isEditing) {
+        if (isEditing) textFieldFocusRequester.requestFocus()
+    }
 
     if (isEditing) {
         BackHandler { isEditing = false }
@@ -2216,35 +2244,46 @@ private fun TvTextField(
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(8.dp))
                 .background(theme.colors.background.secondary)
-                .border(1.dp, theme.colors.type.divider.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
-                .onFocusChanged { 
-                    isFocused = it.isFocused 
-                    if (!it.isFocused) isEditing = false
-                }
-                .focusable()
-                .onKeyEvent { event ->
-                    if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
-                    when {
-                        !isEditing && (event.key == Key.DirectionCenter || event.key == Key.Enter) -> {
-                            isEditing = true
-                            true
-                        }
-                        isEditing && (event.key == Key.Back) -> {
-                            isEditing = false
-                            true
-                        }
-                        isEditing && (event.key == Key.DirectionUp || event.key == Key.DirectionDown) -> {
-                            true // Consume navigation keys while editing
-                        }
-                        else -> false
-                    }
-                }
+                .border(
+                    1.dp,
+                    theme.colors.type.divider.copy(alpha = 0.3f),
+                    RoundedCornerShape(8.dp)
+                )
+                .onFocusChanged { isFocused = it.isFocused }
+                .clickable(
+                    interactionSource = interactionSource,
+                    indication = null,
+                    role = Role.Button,
+                    onClick = { isEditing = true },
+                )
                 .padding(horizontal = 12.dp, vertical = 10.dp),
         ) {
             BasicTextField(
                 value = value,
                 onValueChange = onValueChange,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusRequester(textFieldFocusRequester)
+                    .onFocusChanged {
+                        if (!it.isFocused) isEditing = false
+                    }
+                    .onKeyEvent { event ->
+                        if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
+                        when {
+                            !isEditing && (event.key == Key.DirectionCenter || event.key == Key.Enter) -> {
+                                isEditing = true
+                                true
+                            }
+
+                            isEditing && (event.key == Key.Back) -> {
+                                isEditing = false
+                                true
+                            }
+
+                            isEditing && (event.key == Key.DirectionUp || event.key == Key.DirectionDown) -> true
+                            else -> false
+                        }
+                    },
                 textStyle = TextStyle(color = theme.colors.type.text, fontSize = 12.sp),
                 visualTransformation = visualTransformation,
                 readOnly = !isEditing,
@@ -2270,7 +2309,9 @@ private fun ColorRow(title: String, value: String, onChange: (String) -> Unit, t
     var hexInput by remember { mutableStateOf("") }
 
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 10.dp),
         Arrangement.SpaceBetween,
         Alignment.CenterVertically
     ) {
@@ -2278,9 +2319,15 @@ private fun ColorRow(title: String, value: String, onChange: (String) -> Unit, t
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             subtitleColorPresets.forEach { color ->
                 Box(
-                    Modifier.size(22.dp).clip(CircleShape)
+                    Modifier
+                        .size(22.dp)
+                        .clip(CircleShape)
                         .background(Color(android.graphics.Color.parseColor(color)))
-                        .border(if (value.equals(color, true)) 2.dp else 0.dp, Color.White, CircleShape)
+                        .border(
+                            if (value.equals(color, true)) 2.dp else 0.dp,
+                            Color.White,
+                            CircleShape
+                        )
                         .clickable { onChange(color) }
                 )
             }
@@ -2288,7 +2335,11 @@ private fun ColorRow(title: String, value: String, onChange: (String) -> Unit, t
                 BasicTextField(
                     value = hexInput,
                     onValueChange = { hexInput = it.take(6).filter { c -> c.isDigit() || (c in 'a'..'f') || (c in 'A'..'F') } },
-                    modifier = Modifier.width(60.dp).clip(RoundedCornerShape(4.dp)).background(theme.colors.background.secondary).padding(horizontal = 6.dp, vertical = 4.dp),
+                    modifier = Modifier
+                        .width(60.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(theme.colors.background.secondary)
+                        .padding(horizontal = 6.dp, vertical = 4.dp),
                     textStyle = TextStyle(color = theme.colors.type.text, fontSize = 11.sp),
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
@@ -2298,7 +2349,11 @@ private fun ColorRow(title: String, value: String, onChange: (String) -> Unit, t
                     showCustom = false
                 }
                 Spacer(Modifier.width(4.dp))
-                Box(Modifier.size(22.dp).clip(CircleShape).background(if (hexInput.length == 6) Color(android.graphics.Color.parseColor("#$hexInput")) else Color.Transparent).border(1.dp, theme.colors.utils.divider, CircleShape))
+                Box(Modifier
+                    .size(22.dp)
+                    .clip(CircleShape)
+                    .background(if (hexInput.length == 6) Color(android.graphics.Color.parseColor("#$hexInput")) else Color.Transparent)
+                    .border(1.dp, theme.colors.utils.divider, CircleShape))
             } else {
                 IconButton(onClick = { showCustom = true; hexInput = "" }, modifier = Modifier.size(28.dp)) {
                     Icon(Icons.Default.Brush, null, tint = theme.colors.type.dimmed, modifier = Modifier.size(16.dp))
@@ -2319,11 +2374,16 @@ private fun ConnectionsSection(
     firstItemFocusRequester: FocusRequester? = null,
 ) {
     if (isTv) {
-        Column(Modifier.padding(bottom = 32.dp).padding(top = 16.dp)) {
+        Column(Modifier
+            .padding(bottom = 32.dp)
+            .padding(top = 16.dp)) {
             Spacer(Modifier.height(8.dp))
             SectionLabel("Proxy", theme)
             Column(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp).clip(RoundedCornerShape(12.dp))
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .clip(RoundedCornerShape(12.dp))
                     .background(theme.colors.settings.card.background)
             ) {
                 TvSettingsRow(
@@ -2338,7 +2398,10 @@ private fun ConnectionsSection(
             Spacer(Modifier.height(16.dp))
             SectionLabel("TMDB API Key", theme)
             Column(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp).clip(RoundedCornerShape(12.dp))
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .clip(RoundedCornerShape(12.dp))
                     .background(theme.colors.settings.card.background)
             ) {
                 Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
@@ -2431,9 +2494,9 @@ private fun ConnectionsSection(
                                             true
                                         } else false
                                     }
-                                    .clickable { 
+                                    .clickable {
                                         tmdbInput = ""
-                                        vm.setTmdbApiKey(null) 
+                                        vm.setTmdbApiKey(null)
                                     }
                                     .padding(horizontal = 8.dp, vertical = 6.dp),
                             ) {
@@ -2477,18 +2540,25 @@ private fun ConnectionsSection(
             Spacer(Modifier.height(16.dp))
             SectionLabel("Febbox / Aurora API", theme)
             Column(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp).clip(RoundedCornerShape(12.dp))
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .clip(RoundedCornerShape(12.dp))
                     .background(theme.colors.settings.card.background)
             ) {
                 var showInstructions by remember { mutableStateOf(settings.febboxKey != null) }
                 var instrFocused by remember { mutableStateOf(false) }
 
                 Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.Top,
                 ) {
-                    Column(Modifier.weight(1f).padding(end = 12.dp)) {
+                    Column(Modifier
+                        .weight(1f)
+                        .padding(end = 12.dp)) {
                         Text("Aurora API (4K) (unimplemented)", color = theme.colors.type.text, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                         Spacer(Modifier.height(4.dp))
                         Text(
@@ -2508,20 +2578,25 @@ private fun ConnectionsSection(
                         gap = 2.dp,
                         visible = instrFocused,
                     ) {
-                        Switch(
-                            checked = showInstructions,
-                            onCheckedChange = { showInstructions = it },
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = theme.colors.type.emphasis,
-                                checkedTrackColor = theme.colors.global.accentA,
-                                uncheckedThumbColor = theme.colors.type.dimmed,
-                                uncheckedTrackColor = theme.colors.background.secondary,
+                    Switch(
+                        checked = showInstructions,
+                        onCheckedChange = { showInstructions = it },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = theme.colors.type.emphasis,
+                            checkedTrackColor = theme.colors.global.accentA,
+                            uncheckedThumbColor = theme.colors.type.dimmed,
+                            uncheckedTrackColor = theme.colors.background.secondary,
+                        ),
+                        modifier = Modifier
+                            .onFocusChanged { instrFocused = it.isFocused }
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                                role = Role.Switch,
+                                onClick = { showInstructions = !showInstructions },
                             ),
-                            modifier = Modifier
-                                .onFocusChanged { instrFocused = it.isFocused }
-                                .focusable(),
-                        )
-                    }
+                    )
+                }
                 }
 
                 if (showInstructions) {
@@ -2597,146 +2672,168 @@ private fun ConnectionsSection(
 
             Spacer(Modifier.height(16.dp))
             SectionLabel("External Services", theme)
-            Column(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp).clip(RoundedCornerShape(12.dp))
-                    .background(theme.colors.settings.card.background)
+            ZsBottomSheetSectionCard(
+                title = "TheIntroDB (optional)",
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
             ) {
-                    ZsBottomSheetSectionCard(
-                        title = "TheIntroDB (optional)",
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                    ) {
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            "Add your TheIntroDB API key to submit new skip segments from the player.",
-                            color = theme.colors.type.dimmed, fontSize = 11.sp, lineHeight = 16.sp,
-                        )
-                        Spacer(Modifier.height(10.dp))
-                        var tokenVisible by remember { mutableStateOf(false) }
-                        var tidbInput by remember(settings.tidbKey) { mutableStateOf(settings.tidbKey ?: "") }
-                        var tidbValidationState by remember { mutableStateOf<TokenValidationState>(TokenValidationState.Idle) }
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "Add your TheIntroDB API key to submit new skip segments from the player.",
+                    color = theme.colors.type.dimmed, fontSize = 11.sp, lineHeight = 16.sp,
+                )
+                Spacer(Modifier.height(10.dp))
+                var tokenVisible by remember { mutableStateOf(false) }
+                var tidbInput by remember(settings.tidbKey) {
+                    mutableStateOf(
+                        settings.tidbKey ?: ""
+                    )
+                }
+                var tidbValidationState by remember {
+                    mutableStateOf<TokenValidationState>(
+                        TokenValidationState.Idle
+                    )
+                }
 
-                        LaunchedEffect(tidbInput) {
-                            if (tidbInput.isBlank()) {
-                                tidbValidationState = TokenValidationState.Idle
-                                vm.setTidbKey(null)
-                                return@LaunchedEffect
+                LaunchedEffect(tidbInput) {
+                    if (tidbInput.isBlank()) {
+                        tidbValidationState = TokenValidationState.Idle
+                        vm.setTidbKey(null)
+                        return@LaunchedEffect
+                    }
+                    tidbValidationState = TokenValidationState.Checking
+                    delay(600)
+                    val result = vm.validateTidbKey(tidbInput)
+                    tidbValidationState = result.fold(
+                        onSuccess = { isValid ->
+                            if (isValid) {
+                                vm.setTidbKey(tidbInput)
+                                TokenValidationState.Valid
+                            } else {
+                                vm.setTidbKey(null) // Prevent saving invalid key
+                                TokenValidationState.Invalid("Key was rejected by TheIntroDB.")
                             }
-                            tidbValidationState = TokenValidationState.Checking
-                            delay(600)
-                            val result = vm.validateTidbKey(tidbInput)
-                            tidbValidationState = result.fold(
-                                onSuccess = { isValid ->
-                                    if (isValid) {
-                                        vm.setTidbKey(tidbInput)
-                                        TokenValidationState.Valid
-                                    } else {
-                                        vm.setTidbKey(null) // Prevent saving invalid key
-                                        TokenValidationState.Invalid("Key was rejected by TheIntroDB.")
-                                    }
-                                },
-                                onFailure = { TokenValidationState.Invalid(it.message ?: "Validation failed.") }
+                        },
+                        onFailure = {
+                            TokenValidationState.Invalid(
+                                it.message ?: "Validation failed."
                             )
                         }
-                        TvTextField(
-                            value = tidbInput,
-                            onValueChange = { tidbInput = it },
-                            placeholder = "theintrodb:user...",
-                            visualTransformation = if (tokenVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                            theme = theme,
-                        )
-                        Spacer(Modifier.height(6.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            var showFocused by remember { mutableStateOf(false) }
-                            ZsOutlinedWrapper(
-                                shape = RoundedCornerShape(6.dp),
-                                outlineColor = Color.White,
-                                outlineWidth = 2.dp,
-                                gap = 2.dp,
-                                visible = showFocused,
-                            ) {
-                                Box(
-                                    Modifier
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .onFocusChanged { showFocused = it.isFocused }
-                                        .focusable()
-                                        .onKeyEvent { event ->
-                                            if (event.key == Key.DirectionCenter || event.key == Key.Enter) {
-                                                tokenVisible = !tokenVisible
-                                                true
-                                            } else false
-                                        }
-                                        .clickable { tokenVisible = !tokenVisible }
-                                        .padding(horizontal = 8.dp, vertical = 6.dp),
-                                ) {
-                                    Text(if (tokenVisible) "Hide" else "Show",
-                                        color = theme.colors.global.accentA, fontSize = 11.sp)
+                    )
+                }
+                TvTextField(
+                    value = tidbInput,
+                    onValueChange = { tidbInput = it },
+                    placeholder = "theintrodb:user...",
+                    visualTransformation = if (tokenVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                    theme = theme,
+                )
+                Spacer(Modifier.height(6.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    var showFocused by remember { mutableStateOf(false) }
+                    ZsOutlinedWrapper(
+                        shape = RoundedCornerShape(6.dp),
+                        outlineColor = Color.White,
+                        outlineWidth = 2.dp,
+                        gap = 2.dp,
+                        visible = showFocused,
+                    ) {
+                        Box(
+                            Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .onFocusChanged { showFocused = it.isFocused }
+                                .focusable()
+                                .onKeyEvent { event ->
+                                    if (event.key == Key.DirectionCenter || event.key == Key.Enter) {
+                                        tokenVisible = !tokenVisible
+                                        true
+                                    } else false
                                 }
-                            }
-                            var clearFocused by remember { mutableStateOf(false) }
-                            ZsOutlinedWrapper(
-                                shape = RoundedCornerShape(6.dp),
-                                outlineColor = Color.White,
-                                outlineWidth = 2.dp,
-                                gap = 2.dp,
-                                visible = clearFocused,
-                            ) {
-                                Box(
-                                    Modifier
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .onFocusChanged { clearFocused = it.isFocused }
-                                        .focusable()
-                                        .onKeyEvent { event ->
-                                            if ((event.key == Key.DirectionCenter || event.key == Key.Enter) && tidbInput.isNotEmpty()) {
-                                                tidbInput = ""
-                                                vm.setTidbKey(null)
-                                                true
-                                            } else false
-                                        }
-                                        .clickable { 
-                                            tidbInput = ""
-                                            vm.setTidbKey(null) 
-                                        }
-                                        .padding(horizontal = 8.dp, vertical = 6.dp),
-                                ) {
-                                    Text("Clear",
-                                        color = if (tidbInput.isNotEmpty()) theme.colors.buttons.danger else theme.colors.type.dimmed,
-                                        fontSize = 11.sp)
-                                }
-                            }
-                        }
-                        when (val state = tidbValidationState) {
-                            TokenValidationState.Idle -> Unit
-                            TokenValidationState.Checking -> {
-                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(12.dp),
-                                        strokeWidth = 2.dp,
-                                        color = theme.colors.global.accentA,
-                                    )
-                                    Spacer(Modifier.width(8.dp))
-                                    Text("Checking key…", color = theme.colors.type.dimmed, fontSize = 11.sp)
-                                }
-                            }
-                            TokenValidationState.Valid -> {
-                                ZsStatusBanner(
-                                    message = "Key accepted by TheIntroDB.",
-                                    variant = ZsStatusBannerVariant.Success,
-                                    modifier = Modifier.padding(top = 4.dp)
-                                )
-                            }
-                            is TokenValidationState.Invalid -> {
-                                ZsStatusBanner(
-                                    message = state.message,
-                                    variant = ZsStatusBannerVariant.Error,
-                                    modifier = Modifier.padding(top = 4.dp)
-                                )
-                            }
+                                .clickable { tokenVisible = !tokenVisible }
+                                .padding(horizontal = 8.dp, vertical = 6.dp),
+                        ) {
+                            Text(
+                                if (tokenVisible) "Hide" else "Show",
+                                color = theme.colors.global.accentA, fontSize = 11.sp
+                            )
                         }
                     }
+                    var clearFocused by remember { mutableStateOf(false) }
+                    ZsOutlinedWrapper(
+                        shape = RoundedCornerShape(6.dp),
+                        outlineColor = Color.White,
+                        outlineWidth = 2.dp,
+                        gap = 2.dp,
+                        visible = clearFocused,
+                    ) {
+                        Box(
+                            Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .onFocusChanged { clearFocused = it.isFocused }
+                                .focusable()
+                                .onKeyEvent { event ->
+                                    if ((event.key == Key.DirectionCenter || event.key == Key.Enter) && tidbInput.isNotEmpty()) {
+                                        tidbInput = ""
+                                        vm.setTidbKey(null)
+                                        true
+                                    } else false
+                                }
+                                .clickable {
+                                    tidbInput = ""
+                                    vm.setTidbKey(null)
+                                }
+                                .padding(horizontal = 8.dp, vertical = 6.dp),
+                        ) {
+                            Text(
+                                "Clear",
+                                color = if (tidbInput.isNotEmpty()) theme.colors.buttons.danger else theme.colors.type.dimmed,
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+                }
+                when (val state = tidbValidationState) {
+                    TokenValidationState.Idle -> Unit
+                    TokenValidationState.Checking -> {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(top = 4.dp)
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(12.dp),
+                                strokeWidth = 2.dp,
+                                color = theme.colors.global.accentA,
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                "Checking key…",
+                                color = theme.colors.type.dimmed,
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+
+                    TokenValidationState.Valid -> {
+                        ZsStatusBanner(
+                            message = "Key accepted by TheIntroDB.",
+                            variant = ZsStatusBannerVariant.Success,
+                            modifier = Modifier.padding(top = 4.dp)
+                        )
+                    }
+
+                    is TokenValidationState.Invalid -> {
+                        ZsStatusBanner(
+                            message = state.message,
+                            variant = ZsStatusBannerVariant.Error,
+                            modifier = Modifier.padding(top = 4.dp)
+                        )
+                    }
+                }
             }
         }
     } else {
-        Column(Modifier.padding(bottom = 32.dp).padding(top = if (isTv) 16.dp else 0.dp)) {
+        Column(Modifier
+            .padding(bottom = 32.dp)
+            .padding(top = if (isTv) 16.dp else 0.dp)) {
             Spacer(Modifier.height(8.dp))
             SectionLabel("Proxy", theme)
             SettingsCard(theme) {
@@ -2796,7 +2893,11 @@ private fun ConnectionsSection(
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(8.dp))
                             .background(theme.colors.background.secondary)
-                            .border(1.dp, theme.colors.type.divider.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+                            .border(
+                                1.dp,
+                                theme.colors.type.divider.copy(alpha = 0.3f),
+                                RoundedCornerShape(8.dp)
+                            )
                             .padding(horizontal = 12.dp, vertical = 10.dp),
                         textStyle = TextStyle(color = theme.colors.type.text, fontSize = 12.sp),
                         visualTransformation = if (tokenVisible) VisualTransformation.None else PasswordVisualTransformation(),
@@ -2871,11 +2972,15 @@ private fun ConnectionsSection(
                 var showInstructions by remember { mutableStateOf(settings.febboxKey != null) }
 
                 Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.Top,
                 ) {
-                    Column(Modifier.weight(1f).padding(end = 12.dp)) {
+                    Column(Modifier
+                        .weight(1f)
+                        .padding(end = 12.dp)) {
                         Text("Aurora API (4K) (unimplemented)", color = theme.colors.type.text, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                         Spacer(Modifier.height(4.dp))
                         Text(
@@ -2945,7 +3050,11 @@ private fun ConnectionsSection(
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(8.dp))
                                 .background(theme.colors.background.secondary)
-                                .border(1.dp, theme.colors.type.divider.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+                                .border(
+                                    1.dp,
+                                    theme.colors.type.divider.copy(alpha = 0.3f),
+                                    RoundedCornerShape(8.dp)
+                                )
                                 .padding(horizontal = 12.dp, vertical = 10.dp),
                             textStyle = textStyle,
                             visualTransformation = if (tokenVisible) VisualTransformation.None
@@ -3024,7 +3133,11 @@ private fun ConnectionsSection(
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(8.dp))
                             .background(theme.colors.background.secondary)
-                            .border(1.dp, theme.colors.type.divider.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+                            .border(
+                                1.dp,
+                                theme.colors.type.divider.copy(alpha = 0.3f),
+                                RoundedCornerShape(8.dp)
+                            )
                             .padding(horizontal = 12.dp, vertical = 10.dp),
                         textStyle = TextStyle(color = theme.colors.type.text, fontSize = 12.sp),
                         visualTransformation = if (tokenVisible) VisualTransformation.None else PasswordVisualTransformation(),

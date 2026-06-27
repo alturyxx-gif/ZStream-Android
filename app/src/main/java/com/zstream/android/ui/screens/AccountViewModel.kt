@@ -6,7 +6,6 @@ import androidx.lifecycle.viewModelScope
 import com.zstream.android.data.*
 import com.zstream.android.data.local.preferences.SettingsPreferences
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -39,7 +38,6 @@ class AccountViewModel @Inject constructor(
     val progress = progressRepo.observeAllProgress()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    private var settingsSyncJob: Job? = null
     private var lastSyncedSettingsJson: String? = null
 
     init {
@@ -55,29 +53,28 @@ class AccountViewModel @Inject constructor(
     }
 
     /**
-     * Watch local settings changes and push to backend after a 2-second debounce.
+     * Watch local settings changes and push to backend after a 1-second debounce.
      * Only reacts when backend-syncable fields change (not subtitle styling, which is local-only).
      * Mirrors p-stream's SettingsSyncer pattern.
      */
+    @OptIn(kotlinx.coroutines.FlowPreview::class)
     private fun launchSettingsSync() {
-        settingsSyncJob?.cancel()
-        settingsSyncJob = viewModelScope.launch {
-            settingsPrefs.settings
-                .map { it.toSyncableJsonString() to it }
-                .distinctUntilChanged { old, new -> old.first == new.first }
-                .debounce(2000)
-                .collect { (syncableJson, settings) ->
-                    // Skip push if the change was from syncAllFromRemote (not user-initiated)
-                    if (syncableJson == lastSyncedSettingsJson) return@collect
-                    Log.d("AccountVM", "Settings changed locally, syncing to remote")
-                    runCatching {
-                        syncManager.syncSettingsToRemote()
-                        lastSyncedSettingsJson = settings.toSyncableJsonString()
-                    }.onFailure { e ->
-                        Log.e("AccountVM", "Failed to sync settings to remote", e)
-                    }
+        settingsPrefs.settings
+            .map { it.toSyncableJsonString() to it }
+            .distinctUntilChanged { old, new -> old.first == new.first }
+            .debounce(1000)
+            .onEach { (syncableJson, settings) ->
+                // Skip push if the change was from syncAllFromRemote (not user-initiated)
+                if (syncableJson == lastSyncedSettingsJson) return@onEach
+                Log.d("AccountVM", "Settings changed locally, syncing to remote")
+                runCatching {
+                    syncManager.syncSettingsToRemote()
+                    lastSyncedSettingsJson = settings.toSyncableJsonString()
+                }.onFailure { e ->
+                    Log.e("AccountVM", "Failed to sync settings to remote", e)
                 }
-        }
+            }
+            .launchIn(viewModelScope)
     }
 
     fun login(passphrase: String, device: String = "Android") = launch {

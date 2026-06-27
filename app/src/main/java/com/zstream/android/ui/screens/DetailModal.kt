@@ -142,11 +142,12 @@ fun MovieDetailModal(
             if (showPlayButton) {
                 var playFocused by remember { mutableStateOf(false) }
                 ZsOutlinedWrapper(
-                    shape = RoundedCornerShape(6.dp),
+                    shape = RoundedCornerShape(8.dp),
                     visible = playFocused && isTv,
                     outlineColor = Color.White,
                     outlineWidth = 2.dp,
-                    gap = 2.dp,
+                    horizontal = 3.dp,
+                    vertical = (-1).dp,
                 ) {
                     Button(
                         onClick = { nav.navigate("player/movie/${detail.id}?title=${detail.title.encode()}&year=${detail.releaseDate?.take(4)?.toIntOrNull() ?: 0}&poster=${detail.posterPath?.encode() ?: ""}") },
@@ -295,11 +296,12 @@ fun TvDetailModal(
                 } else "Play"
                 
                 ZsOutlinedWrapper(
-                    shape = RoundedCornerShape(6.dp),
+                    shape = RoundedCornerShape(8.dp),
                     visible = playFocused && isTv,
                     outlineColor = Color.White,
                     outlineWidth = 2.dp,
-                    gap = 2.dp,
+                    horizontal = 3.dp,
+                    vertical = (-1).dp,
                 ) {
                     Button(
                         onClick = {
@@ -504,7 +506,7 @@ internal fun SharedEpisodeRow(
         var isFocused by remember { mutableStateOf(false) }
 
         ZsOutlinedWrapper(
-            shape = RoundedCornerShape(12.dp),
+            shape = RoundedCornerShape(16.dp),
             visible = isFocused && isTv,
             outlineColor = Color.White,
             outlineWidth = 2.dp,
@@ -1065,11 +1067,12 @@ internal fun ColumnScope.SharedTvDetailContent(
             val isSelected = season.seasonNumber == selectedSeason?.seasonNumber
 
             ZsOutlinedWrapper(
-                shape = RoundedCornerShape(8.dp),
+                shape = RoundedCornerShape(12.dp),
                 visible = isFocused && isTv,
                 outlineColor = Color.White,
                 outlineWidth = 2.dp,
-                gap = 2.dp,
+                horizontal = 3.dp,
+                vertical = (-5).dp,
             ) {
                 FilterChip(
                     selected = isSelected,

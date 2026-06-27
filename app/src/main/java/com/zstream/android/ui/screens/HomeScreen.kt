@@ -496,7 +496,7 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
                     Spacer(Modifier.height(12.dp))
                     ZsOutlinedWrapper(
                         visible = retryFocused,
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(14.dp),
                         outlineColor = theme.colors.global.accentA.copy(alpha = 0.6f),
                         gap = 4.dp
                     ) {
@@ -3371,13 +3371,14 @@ private fun TvHomeScreenContent(
     val topBarFocusRequester = remember { FocusRequester() }
 
     LaunchedEffect(Unit) {
-        if (state.loading) return@LaunchedEffect
+        if (state.loading || state.initialFocusRequested) return@LaunchedEffect
         delay(600) // Wait for content and layout to settle
         if (isFeaturedActive) {
             carouselPlayButtonRequester.requestFocus()
         } else {
             searchBarFocusRequester.requestFocus()
         }
+        vm.markFocusRequested()
     }
 
     var tvScrollRequestId by remember { mutableStateOf(0) }

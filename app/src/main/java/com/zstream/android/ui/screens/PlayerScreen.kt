@@ -34,16 +34,12 @@ import androidx.compose.foundation.focusable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -65,7 +61,6 @@ import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.PictureInPictureAlt
-import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -134,17 +129,14 @@ import com.zstream.android.ui.components.themed.ZsOutlinedWrapper
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import dagger.hilt.android.EntryPointAccessors
-import com.zstream.android.Urls
 import com.zstream.android.data.model.MovieDetail
 import com.zstream.android.data.model.Season
 import com.zstream.android.data.model.TvDetail
-import com.zstream.android.data.model.airedEpisodes
 import com.zstream.android.theme.LocalZStreamTheme
 import com.zstream.android.theme.ZStreamTheme
 import com.zstream.android.ui.components.themed.ZsButton
 import com.zstream.android.ui.components.themed.ZsButtonVariant
 import com.zstream.android.ui.components.themed.ZsBottomSheetSectionCard
-import com.zstream.android.ui.components.themed.ZsBottomSheetSectionHeader
 import com.zstream.android.ui.components.themed.ZsCard
 import com.zstream.android.ui.components.themed.ZsCardVariant
 import com.zstream.android.ui.components.themed.ZsChip
@@ -260,6 +252,8 @@ private data class AudioOption(
     val trackIndex: Int,
     val selected: Boolean,
 )
+
+private const val PLAYER_AUTO_HIDE_DURATION = 7000L
 
 @OptIn(UnstableApi::class, ExperimentalComposeUiApi::class)
 @Composable
@@ -659,6 +653,12 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     }
                 }
 
+                var controlsVisible by remember { mutableStateOf(true) }
+                var isPlaying by remember { mutableStateOf(player.isPlaying) }
+                var menuPage by remember { mutableStateOf<PlayerMenuPage?>(null) }
+                var lastInteractionTime by remember { mutableLongStateOf(System.currentTimeMillis()) }
+                val updateActivity = { lastInteractionTime = System.currentTimeMillis() }
+
                 // Re-apply RESIZE_MODE_FIT when video size changes (codec resolution updates)
                 val playerViewRef = remember { androidx.compose.runtime.mutableStateOf<PlayerView?>(null) }
                 val videoTextureRef = remember { androidx.compose.runtime.mutableStateOf<TextureView?>(null) }
@@ -677,17 +677,36 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                                 }
                             }
                         }
+                        override fun onIsPlayingChanged(playing: Boolean) {
+                            isPlaying = playing
+                        }
                     }
                     player.addListener(listener)
                     onDispose { player.removeListener(listener) }
                 }
 
-                var controlsVisible by remember { mutableStateOf(true) }
+                LaunchedEffect(controlsVisible, isPlaying, menuPage, lastInteractionTime, showInfoSheet) {
+                    if (controlsVisible && isPlaying && !showInfoSheet) {
+                        val waitTime = PLAYER_AUTO_HIDE_DURATION
+                        val elapsed = System.currentTimeMillis() - lastInteractionTime
+                        if (elapsed < waitTime) {
+                            delay(waitTime - elapsed)
+                        }
+                        if (isPlaying && !showInfoSheet) {
+                            controlsVisible = false
+                            if (menuPage != null) menuPage = null
+                        }
+                    }
+                }
+
                 var audioSessionId by remember(player) { mutableIntStateOf(player.audioSessionId) }
-                var menuPage by remember { mutableStateOf<PlayerMenuPage?>(null) }
-                val onMenuPageChange: (PlayerMenuPage?) -> Unit = { menuPage = it }
+                val onMenuPageChange: (PlayerMenuPage?) -> Unit = { 
+                    menuPage = it
+                    updateActivity()
+                }
 
                 BackHandler(enabled = showInfoSheet || menuPage != null) {
+                    updateActivity()
                     if (showInfoSheet) {
                         showInfoSheet = false
                     } else {
@@ -709,6 +728,18 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
 
                 Box(modifier = Modifier
                     .fillMaxSize()
+                    .onPreviewKeyEvent {
+                        updateActivity()
+                        false
+                    }
+                    .pointerInput(Unit) {
+                        awaitPointerEventScope {
+                            while (true) {
+                                awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
+                                updateActivity()
+                            }
+                        }
+                    }
                     .onKeyEvent { keyEvent ->
                         if (isTv && keyEvent.type == KeyEventType.KeyDown) {
                             when (keyEvent.nativeKeyEvent.keyCode) {
@@ -719,6 +750,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                                 android.view.KeyEvent.KEYCODE_DPAD_DOWN -> {
                                     if (!controlsVisible) {
                                         controlsVisible = true
+                                        updateActivity()
                                         true
                                     } else false
                                 }
@@ -731,6 +763,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                                             )
                                         )
                                         controlsVisible = true
+                                        updateActivity()
                                         true
                                     } else false
                                 }
@@ -743,6 +776,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                                             )
                                         )
                                         controlsVisible = true
+                                        updateActivity()
                                         true
                                     } else false
                                 }
@@ -933,9 +967,15 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     settings = settings,
                     selectedSubtitleLanguage = selectedLang,
                     isBookmarked = isBookmarked != null,
-                    onToggleBookmark = vm::toggleBookmark,
+                    onToggleBookmark = {
+                        vm.toggleBookmark()
+                        updateActivity()
+                    },
                     controlsVisible = controlsVisible,
-                    onControlsVisibilityChanged = { controlsVisible = it },
+                    onControlsVisibilityChanged = { 
+                        controlsVisible = it
+                        if (it) updateActivity()
+                    },
                     subtitlesEnabled = subtitlesEnabled,
                     onToggleSubtitles = {
                         if (subtitlesEnabled) {
@@ -1022,13 +1062,14 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     },
                     showInfoSheet = showInfoSheet,
                     menuPage = menuPage,
-                    onMenuPageChange = { menuPage = it }
+                    onMenuPageChange = onMenuPageChange
                 )
 
                 val infoSheetFocusRequester = remember { FocusRequester() }
                 val infoSheetFirstItemFocusRequester = remember { FocusRequester() }
 
                 LaunchedEffect(showInfoSheet) {
+                    updateActivity()
                     if (showInfoSheet && isTv) {
                         delay(200)
                         infoSheetFirstItemFocusRequester.requestFocus()
@@ -1479,15 +1520,6 @@ private fun PlayerControls(
     LaunchedEffect(menuOpen) {
         if (menuOpen && !controlsVisible) {
             onControlsVisibilityChanged(true)
-        }
-    }
-
-    LaunchedEffect(controlsVisible, isPlaying, menuOpen) {
-        if (controlsVisible && isPlaying && !menuOpen) {
-            delay(3000)
-            if (!menuOpen) {
-                onControlsVisibilityChanged(false)
-            }
         }
     }
 

@@ -11,10 +11,12 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.zstream.android.theme.LocalZStreamTheme
+import com.zstream.android.ui.LocalIsTv
 
 @Composable
 fun ZsBottomSheetSectionHeader(
@@ -22,9 +24,12 @@ fun ZsBottomSheetSectionHeader(
     modifier: Modifier = Modifier,
 ) {
     val theme = LocalZStreamTheme.current
+    val isTv = LocalIsTv.current
     Text(
         title,
-        modifier = modifier.padding(start = 32.dp, end = 32.dp, top = 18.dp),
+        modifier = modifier
+            .padding(start = 32.dp, end = 32.dp, top = 18.dp)
+            .then(if (isTv) Modifier.focusProperties { canFocus = false } else Modifier),
         style = MaterialTheme.typography.titleMedium,
         fontWeight = FontWeight.SemiBold,
         color = theme.colors.type.emphasis,
