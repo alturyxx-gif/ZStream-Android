@@ -1,5 +1,6 @@
 package com.zstream.android.ui.screens
 
+import android.graphics.drawable.ColorDrawable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
@@ -7,9 +8,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.DialogWindowProvider
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import com.zstream.android.theme.LocalZStreamTheme
+import com.zstream.android.ui.LocalIsTv
 import com.zstream.android.ui.components.themed.ZsStatusBanner
 import com.zstream.android.ui.components.themed.ZsStatusBannerVariant
 import com.zstream.android.ui.navigation.rememberSafeNavigateBack
@@ -26,6 +29,14 @@ fun DetailScreen(nav: NavController, vm: DetailViewModel = hiltViewModel()) {
     val allProgress by vm.allProgress.collectAsState()
     val isBookmarked by vm.isBookmarked.collectAsState()
     val hasProgress = progress?.let { it.watched >= 20 } ?: false
+
+    if (!LocalIsTv.current) {
+        val d = context as? DialogWindowProvider
+        DisposableEffect(d) {
+            d?.window?.setBackgroundDrawable(ColorDrawable(android.graphics.Color.TRANSPARENT))
+            onDispose { }
+        }
+    }
 
     when (val s = state) {
         is DetailState.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {

@@ -141,8 +141,8 @@ private object TvHomeMetrics {
     val searchBarWidth = 280.dp
     val sectionTitleSize = 16.sp
     val sectionSpacing = 16.dp
-    val cardWidth = 126.dp
-    val cardHeight = 189.dp
+    val cardWidth = 110.dp
+    val cardHeight = 165.dp
     val featuredHeight = 360.dp
     val menuWidth = 320.dp
     val railItemSpacing = 12.dp
@@ -1086,7 +1086,11 @@ private fun HeroSection(
                         .then(
                             if (isTv) {
                                 Modifier
-                                    .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
+                                    .then(
+                                        if (focusRequester != null) Modifier.focusRequester(
+                                            focusRequester
+                                        ) else Modifier
+                                    )
                                     .clickable { textFieldFocusRequester.requestFocus() }
                             } else Modifier
                         ),
@@ -1113,7 +1117,11 @@ private fun HeroSection(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .focusRequester(textFieldFocusRequester)
-                                    .then(if (!isTv && focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier),
+                                    .then(
+                                        if (!isTv && focusRequester != null) Modifier.focusRequester(
+                                            focusRequester
+                                        ) else Modifier
+                                    ),
                             )
                         }
                     }
@@ -1689,51 +1697,53 @@ private fun LayoutMenuDialog(
                                                             val h = (itemHeights[idx] ?: 0).toFloat()
 
                                                             if (draggedOffset > h / 2 && idx < sections.size - 1) {
-                                                                    val temp = sections[idx]
-                                                                    sections[idx] = sections[idx + 1]
-                                                                    sections[idx + 1] = temp
-                                                                    draggedIndex = idx + 1
-                                                                    draggedOffset -= h
-                                                                } else if (draggedOffset < -(h / 2) && idx > 0) {
-                                                                    val temp = sections[idx]
-                                                                    sections[idx] = sections[idx - 1]
-                                                                    sections[idx - 1] = temp
-                                                                    draggedIndex = idx - 1
-                                                                    draggedOffset += h
-                                                                }
+                                                                val temp = sections[idx]
+                                                                sections[idx] = sections[idx + 1]
+                                                                sections[idx + 1] = temp
+                                                                draggedIndex = idx + 1
+                                                                draggedOffset -= h
+                                                            } else if (draggedOffset < -(h / 2) && idx > 0) {
+                                                                val temp = sections[idx]
+                                                                sections[idx] = sections[idx - 1]
+                                                                sections[idx - 1] = temp
+                                                                draggedIndex = idx - 1
+                                                                draggedOffset += h
                                                             }
-                                                        },
-                                                        onDragEnd = {
-                                                            onReorder(sections.map { it.id })
-                                                            draggedIndex = null
-                                                            draggedOffset = 0f
-                                                        },
-                                                        onDragCancel = {
-                                                            draggedIndex = null
-                                                            draggedOffset = 0f
-                                                        },
-                                                    )
-                                                }
-                                        )
-                                Text(
-                                    section.label,
-                                    color = theme.colors.type.text, fontSize = 13.sp,
-                                    fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f),
-                                )
-                                Switch(
-                                    checked = section.visible,
-                                    onCheckedChange = {
-                                        sections[index] = section.copy(visible = it)
-                                        onToggle(section.id, it)
-                                    },
-                                    thumbContent = null,
-                                    colors = SwitchDefaults.colors(
-                                        checkedThumbColor = theme.colors.type.emphasis,
-                                        checkedTrackColor = theme.colors.global.accentA,
-                                        uncheckedThumbColor = theme.colors.type.dimmed,
-                                        uncheckedTrackColor = theme.colors.background.secondary,
-                                    ),
-                                )
+                                                        }
+                                                    },
+                                                    onDragEnd = {
+                                                        onReorder(sections.map { it.id })
+                                                        draggedIndex = null
+                                                        draggedOffset = 0f
+                                                    },
+                                                    onDragCancel = {
+                                                        draggedIndex = null
+                                                        draggedOffset = 0f
+                                                    },
+                                                )
+                                            }
+                                    )
+                                    Text(
+                                        section.label,
+                                        color = theme.colors.type.text,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    Switch(
+                                        checked = section.visible,
+                                        onCheckedChange = {
+                                            sections[index] = section.copy(visible = it)
+                                            onToggle(section.id, it)
+                                        },
+                                        thumbContent = null,
+                                        colors = SwitchDefaults.colors(
+                                            checkedThumbColor = theme.colors.type.emphasis,
+                                            checkedTrackColor = theme.colors.global.accentA,
+                                            uncheckedThumbColor = theme.colors.type.dimmed,
+                                            uncheckedTrackColor = theme.colors.background.secondary,
+                                        ),
+                                    )
                                 }
                             }
                         }
@@ -1791,7 +1801,11 @@ private fun SandwichMenuDialog(
                 .width(TvHomeMetrics.menuWidth)
                 .clip(RoundedCornerShape(16.dp))
                 .background(theme.colors.modal.background)
-                .border(1.dp, theme.colors.type.divider.copy(alpha = 0.2f), RoundedCornerShape(16.dp))
+                .border(
+                    1.dp,
+                    theme.colors.type.divider.copy(alpha = 0.2f),
+                    RoundedCornerShape(16.dp)
+                )
                 .padding(vertical = 8.dp)) {
                 Column {
                     if (session != null) {
@@ -1991,7 +2005,11 @@ private fun SandwichMenuDialog(
                                     .size(36.dp)
                                     .clip(CircleShape)
                                     .background(theme.colors.background.secondary)
-                                    .border(1.dp, theme.colors.type.divider.copy(alpha = 0.3f), CircleShape)
+                                    .border(
+                                        1.dp,
+                                        theme.colors.type.divider.copy(alpha = 0.3f),
+                                        CircleShape
+                                    )
                                     .onFocusChanged { isLinkFocused = it.isFocused }
                                     .clickable { uriHandler.openUri(Urls.GITHUB_REPO) },
                                 contentAlignment = Alignment.Center
@@ -2060,7 +2078,11 @@ private fun SandwichMenuDialog(
                                 .size(40.dp)
                                 .clip(CircleShape)
                                 .background(theme.colors.background.secondary)
-                                .border(1.dp, theme.colors.type.divider.copy(alpha = 0.3f), CircleShape)
+                                .border(
+                                    1.dp,
+                                    theme.colors.type.divider.copy(alpha = 0.3f),
+                                    CircleShape
+                                )
                                 .clickable { uriHandler.openUri(Urls.GITHUB_REPO) },
                             contentAlignment = Alignment.Center
                         ) {
@@ -2204,7 +2226,11 @@ private fun NotificationsDialog(
     ) {
         Box(
             modifier = Modifier
-                .then(if (isTv) Modifier.width(480.dp) else Modifier.fillMaxWidth().padding(horizontal = 16.dp))
+                .then(
+                    if (isTv) Modifier.width(480.dp) else Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp)
+                )
                 .heightIn(max = if (isTv) 400.dp else 500.dp)
                 .clip(RoundedCornerShape(if (isTv) 16.dp else 20.dp))
                 .background(theme.colors.modal.background),
@@ -2328,7 +2354,11 @@ private fun NotificationCard(
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(12.dp))
                 .background(theme.colors.background.secondary.copy(alpha = 0.4f))
-                .border(1.dp, theme.colors.type.divider.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
+                .border(
+                    1.dp,
+                    theme.colors.type.divider.copy(alpha = 0.3f),
+                    RoundedCornerShape(12.dp)
+                )
                 .onFocusChanged { isFocused = it.isFocused }
                 .focusProperties {
                     if (isTv) {
@@ -2869,7 +2899,11 @@ private fun FeaturedCarousel(
                 Box(
                     Modifier
                         .fillMaxSize()
-                        .padding(start = TvHomeMetrics.screenPadding, end = TvHomeMetrics.screenPadding, bottom = if (isTv) 40.dp else 50.dp),
+                        .padding(
+                            start = TvHomeMetrics.screenPadding,
+                            end = TvHomeMetrics.screenPadding,
+                            bottom = if (isTv) 40.dp else 50.dp
+                        ),
                     contentAlignment = Alignment.BottomStart,
                 ) {
                     Column(Modifier.fillMaxWidth()) {
@@ -2879,7 +2913,7 @@ private fun FeaturedCarousel(
                                 Modifier
                                     .height(if (isTv) 60.dp else 80.dp)
                                     .fillMaxWidth(0.7f)
-                                    .padding(bottom = 8.dp)
+                                    .padding(bottom = if (isTv) 8.dp else 8.dp)
                                     .graphicsLayer { alpha = contentAlpha }
                             ) {
                                 AsyncImage(
@@ -2946,7 +2980,7 @@ private fun FeaturedCarousel(
                         }
 
                         // Overview or movie/show description
-                        current.overview?.takeIf { it.isNotBlank() && (!isTv || it.length < 200) }?.let { overview ->
+                        current.overview?.takeIf { it.isNotBlank() }?.let { overview ->
                             Spacer(Modifier.height(8.dp))
                             Text(
                                 overview,
@@ -2955,7 +2989,9 @@ private fun FeaturedCarousel(
                                 maxLines = if (isTv) 2 else 3,
                                 lineHeight = if (isTv) 18.sp else 20.sp,
                                 overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.graphicsLayer { alpha = contentAlpha },
+                                modifier = Modifier
+                                    .fillMaxWidth(if (isTv) 0.5f else 1f)
+                                    .graphicsLayer { alpha = contentAlpha },
                                 style = LocalTextStyle.current.copy(shadow = featuredCarouselTextShadow())
                             )
                         }
@@ -2966,14 +3002,14 @@ private fun FeaturedCarousel(
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                             modifier = Modifier.graphicsLayer { alpha = contentAlpha }
-                        ) {
+                        ) {4
                             // Play Now button
                             ZsOutlinedWrapper(
                                 visible = playButtonFocused,
                                 shape = RoundedCornerShape(10.dp),
                                 outlineColor = Color.White,
                                 gap = 2.dp,
-                                modifier = Modifier.weight(1f).widthIn(max = if (isTv) 160.dp else Dp.Unspecified)
+                                modifier = if (isTv) Modifier else Modifier.weight(1f)
                             ) {
                                 Button(
                                     onClick = {
@@ -3001,7 +3037,7 @@ private fun FeaturedCarousel(
                                     shape = RoundedCornerShape(10.dp),
                                     modifier = Modifier
                                         .height(if (isTv) 40.dp else 48.dp)
-                                        .fillMaxWidth()
+                                        .then(if (isTv) Modifier.widthIn(min = 140.dp) else Modifier.fillMaxWidth())
                                         .focusRequester(effectivePlayRequester)
                                         .onPreviewKeyEvent { event ->
                                             if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionLeft) {
@@ -3044,7 +3080,7 @@ private fun FeaturedCarousel(
                                 shape = RoundedCornerShape(10.dp),
                                 outlineColor = Color.White,
                                 gap = 2.dp,
-                                modifier = Modifier.weight(1f).widthIn(max = if (isTv) 160.dp else Dp.Unspecified)
+                                modifier = if (isTv) Modifier else Modifier.weight(1f)
                             ) {
                                 Button(
                                     onClick = { nav.navigate("detail/$type/${current.id}") },
@@ -3059,7 +3095,7 @@ private fun FeaturedCarousel(
                                     shape = RoundedCornerShape(10.dp),
                                     modifier = Modifier
                                         .height(if (isTv) 40.dp else 48.dp)
-                                        .fillMaxWidth()
+                                        .then(if (isTv) Modifier.widthIn(min = 140.dp) else Modifier.fillMaxWidth())
                                         .focusRequester(moreInfoButtonFocusRequester)
                                         .onPreviewKeyEvent { event ->
                                             if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionRight) {
@@ -3442,8 +3478,16 @@ private fun TvHomeScreenContent(
                                         Box(
                                             modifier = Modifier
                                                 .clip(RoundedCornerShape(35))
-                                                .background(theme.colors.background.secondary.copy(alpha = 1f))
-                                                .border(1.dp, theme.colors.type.divider.copy(alpha = 1f), RoundedCornerShape(35))
+                                                .background(
+                                                    theme.colors.background.secondary.copy(
+                                                        alpha = 1f
+                                                    )
+                                                )
+                                                .border(
+                                                    1.dp,
+                                                    theme.colors.type.divider.copy(alpha = 1f),
+                                                    RoundedCornerShape(35)
+                                                )
                                                 .onFocusChanged { isLoadMoreFocused = it.isFocused }
                                                 .clickable { vm.searchLoadMore() }
                                                 .padding(horizontal = 16.dp, vertical = 10.dp),

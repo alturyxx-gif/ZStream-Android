@@ -128,7 +128,7 @@ fun MovieDetailModal(
         rating = detail.voteAverage?.let { String.format("%.1f", it) },
         theme = theme,
         onClose = onBack,
-        modifier = if (showBackground) Modifier.background(if (isTv) Color.Black.copy(alpha = 0.5f) else theme.colors.background.main) else Modifier,
+        modifier = if (showBackground) Modifier.background(Color.Black.copy(alpha = 0.5f)) else Modifier,
         scrollState = scrollState
     ) {
         SharedMovieDetailContent(
@@ -271,7 +271,7 @@ fun TvDetailModal(
         rating = detail.voteAverage?.let { String.format("%.1f", it) },
         theme = theme,
         onClose = onBack,
-        modifier = if (showBackground) Modifier.background(if (isTv) Color.Black.copy(alpha = 0.5f) else theme.colors.background.main) else Modifier,
+        modifier = if (showBackground) Modifier.background(Color.Black.copy(alpha = 0.5f)) else Modifier,
         scrollState = scrollState
     ) {
         SharedTvDetailContent(
