@@ -494,11 +494,8 @@ class WatchPartyManager @Inject constructor(
         // Fix: needsPlayState should be true if we don't have a lastHostPlaying yet (first sync)
         val needsPlayState = confirmedHostPlaying != null && (lastHostPlaying == null || confirmedHostPlaying != lastHostPlaying)
 
-        Log.v(TAG, "Sync Check: needsInitial=$needsInitial, needsDrift=$needsDrift (drift=$drift), needsPlayState=$needsPlayState")
-
         // 6. Duration Guard
         if (host.duration > 0 && local.duration > 0 && Math.abs(host.duration - local.duration) > 30.0) {
-            Log.w(TAG, "Duration mismatch: host=${host.duration}, local=${local.duration}. Skipping sync.")
             return
         }
 
@@ -506,8 +503,6 @@ class WatchPartyManager @Inject constructor(
         if (hostIsPlayingMotion && predicted < 0.5 && host.duration > 30 && local.time > 1.0) {
             return
         }
-
-        Log.v(TAG, "Sync Check: needsInitial=$needsInitial, needsDrift=$needsDrift (drift=$drift), needsPlayState=$needsPlayState")
 
         if (needsInitial || needsDrift || needsPlayState) {
             val targetPlaying = if (needsInitial) hostIsPlayingIntent else confirmedHostPlaying ?: hostIsPlayingIntent
