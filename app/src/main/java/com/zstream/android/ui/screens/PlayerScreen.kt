@@ -1492,8 +1492,8 @@ private fun PlayerControls(
     val muteFocusRequester = remember { FocusRequester() }
     var menuSourceRequester by remember { mutableStateOf<FocusRequester?>(null) }
 
-    LaunchedEffect(controlsVisible) {
-        if (controlsVisible) {
+    LaunchedEffect(controlsVisible, playbackState) {
+        if (controlsVisible && playbackState != Player.STATE_BUFFERING) {
             delay(100)
             if (isTv) {
                 if (activeSkipSegments.isNotEmpty()) {
@@ -1513,6 +1513,16 @@ private fun PlayerControls(
             }
         }
     ) {
+        if (playbackState == Player.STATE_BUFFERING) {
+            CircularProgressIndicator(
+                color = theme.colors.global.accentA,
+                modifier = Modifier
+                    .size(if (isTv) 56.dp else 48.dp)
+                    .align(Alignment.Center),
+                strokeWidth = 3.dp
+            )
+        }
+
         AnimatedVisibility(visible = controlsVisible, enter = fadeIn(), exit = fadeOut()) {
             Box(Modifier.fillMaxSize()) {
 
@@ -1598,90 +1608,125 @@ private fun PlayerControls(
                     }
                 }
 
-                Row(modifier = Modifier.align(Alignment.Center),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(CENTER_ICON_SPACING)) {
-                    if (!isTv) {
-                        IconButton(onClick = { player.seekTo((player.currentPosition - 10_000).coerceAtLeast(0)) },
-                            modifier = Modifier.size(CENTER_BUTTON_SIZE)) {
-                            Icon(painterResource(R.drawable.ic_player_skip_back), null, tint = theme.colors.type.emphasis,
-                                modifier = Modifier
-                                    .height(CENTER_ICON_HEIGHT)
-                                    .wrapContentWidth())
-                        }
-                    }
-                    var playBtnFocused by remember { mutableStateOf(false) }
-                    if (isTv) {
-                        ZsOutlinedWrapper(
-                            visible = playBtnFocused,
-                            shape = RoundedCornerShape(50),
-                            outlineColor = Color.White,
-                            gap = 4.dp,
-                        ) {
-                            IconButton(onClick = { if (player.isPlaying) player.pause() else player.play() },
-                                modifier = Modifier
-                                    .size(CENTER_BUTTON_SIZE)
-                                    .focusRequester(playFocusRequester)
-                                    .focusProperties {
-                                        up = bookmarkFocusRequester;
-                                        down =
-                                            if (activeSkipSegments.isNotEmpty()) skipFocusRequester else ccFocusRequester
-                                        if (showInfoSheet || menuOpen) {
-                                            canFocus = false
-                                        }
-                                    }
-                                    .onKeyEvent { keyEvent ->
-                                        if (keyEvent.type == KeyEventType.KeyDown) {
-                                            when (keyEvent.nativeKeyEvent.keyCode) {
-                                                android.view.KeyEvent.KEYCODE_DPAD_LEFT -> {
-                                                    player.seekTo(
-                                                        (player.currentPosition - 10_000).coerceAtLeast(
-                                                            0
-                                                        )
-                                                    )
-                                                    true
-                                                }
-
-                                                android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                                                    player.seekTo(
-                                                        (player.currentPosition + 10_000).coerceAtMost(
-                                                            durationMs
-                                                        )
-                                                    )
-                                                    true
-                                                }
-
-                                                else -> false
-                                            }
-                                        } else false
-                                    }
-                                    .onFocusChanged { playBtnFocused = it.isFocused }
+                if (playbackState != Player.STATE_BUFFERING) {
+                    Row(
+                        modifier = Modifier.align(Alignment.Center),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(CENTER_ICON_SPACING)
+                    ) {
+                        if (!isTv) {
+                            IconButton(
+                                onClick = {
+                                    player.seekTo(
+                                        (player.currentPosition - 10_000).coerceAtLeast(
+                                            0
+                                        )
+                                    )
+                                },
+                                modifier = Modifier.size(CENTER_BUTTON_SIZE)
                             ) {
-                                Icon(painterResource(if (isPlaying) R.drawable.ic_player_pause else R.drawable.ic_player_play),
+                                Icon(
+                                    painterResource(R.drawable.ic_player_skip_back),
+                                    null,
+                                    tint = theme.colors.type.emphasis,
+                                    modifier = Modifier
+                                        .height(CENTER_ICON_HEIGHT)
+                                        .wrapContentWidth()
+                                )
+                            }
+                        }
+                        var playBtnFocused by remember { mutableStateOf(false) }
+                        if (isTv) {
+                            ZsOutlinedWrapper(
+                                visible = playBtnFocused,
+                                shape = RoundedCornerShape(50),
+                                outlineColor = Color.White,
+                                gap = 4.dp,
+                            ) {
+                                IconButton(onClick = {
+                                    if (player.isPlaying) player.pause() else player.play()
+                                },
+                                    modifier = Modifier
+                                        .size(CENTER_BUTTON_SIZE)
+                                        .focusRequester(playFocusRequester)
+                                        .focusProperties {
+                                            up = bookmarkFocusRequester;
+                                            down =
+                                                if (activeSkipSegments.isNotEmpty()) skipFocusRequester else ccFocusRequester
+                                            if (showInfoSheet || menuOpen) {
+                                                canFocus = false
+                                            }
+                                        }
+                                        .onKeyEvent { keyEvent ->
+                                            if (keyEvent.type == KeyEventType.KeyDown) {
+                                                when (keyEvent.nativeKeyEvent.keyCode) {
+                                                    android.view.KeyEvent.KEYCODE_DPAD_LEFT -> {
+                                                        player.seekTo(
+                                                            (player.currentPosition - 10_000).coerceAtLeast(
+                                                                0
+                                                            )
+                                                        )
+                                                        true
+                                                    }
+
+                                                    android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                                                        player.seekTo(
+                                                            (player.currentPosition + 10_000).coerceAtMost(
+                                                                durationMs
+                                                            )
+                                                        )
+                                                        true
+                                                    }
+
+                                                    else -> false
+                                                }
+                                            } else false
+                                        }
+                                        .onFocusChanged { playBtnFocused = it.isFocused }
+                                ) {
+                                    Icon(
+                                        painterResource(if (isPlaying) R.drawable.ic_player_pause else R.drawable.ic_player_play),
+                                        null, tint = theme.colors.type.emphasis,
+                                        modifier = Modifier
+                                            .height(CENTER_ICON_HEIGHT)
+                                            .wrapContentWidth()
+                                    )
+                                }
+                            }
+                        } else {
+                            IconButton(
+                                onClick = { if (player.isPlaying) player.pause() else player.play() },
+                                modifier = Modifier.size(CENTER_BUTTON_SIZE)
+                            ) {
+                                Icon(
+                                    painterResource(if (isPlaying) R.drawable.ic_player_pause else R.drawable.ic_player_play),
                                     null, tint = theme.colors.type.emphasis,
                                     modifier = Modifier
                                         .height(CENTER_ICON_HEIGHT)
-                                        .wrapContentWidth())
+                                        .wrapContentWidth()
+                                )
                             }
                         }
-                    } else {
-                        IconButton(onClick = { if (player.isPlaying) player.pause() else player.play() },
-                            modifier = Modifier.size(CENTER_BUTTON_SIZE)) {
-                            Icon(painterResource(if (isPlaying) R.drawable.ic_player_pause else R.drawable.ic_player_play),
-                                null, tint = theme.colors.type.emphasis,
-                                modifier = Modifier
-                                    .height(CENTER_ICON_HEIGHT)
-                                    .wrapContentWidth())
-                        }
-                    }
-
-                    if (!isTv) {
-                        IconButton(onClick = { player.seekTo((player.currentPosition + 10_000).coerceAtMost(durationMs)) },
-                            modifier = Modifier.size(CENTER_BUTTON_SIZE)) {
-                            Icon(painterResource(R.drawable.ic_player_skip_fwd), null, tint = theme.colors.type.emphasis,
-                                modifier = Modifier
-                                    .height(CENTER_ICON_HEIGHT)
-                                    .wrapContentWidth())
+                        if (!isTv) {
+                            IconButton(
+                                onClick = {
+                                    player.seekTo(
+                                        (player.currentPosition + 10_000).coerceAtMost(
+                                            durationMs
+                                        )
+                                    )
+                                },
+                                modifier = Modifier.size(CENTER_BUTTON_SIZE)
+                            ) {
+                                Icon(
+                                    painterResource(R.drawable.ic_player_skip_fwd),
+                                    null,
+                                    tint = theme.colors.type.emphasis,
+                                    modifier = Modifier
+                                        .height(CENTER_ICON_HEIGHT)
+                                        .wrapContentWidth()
+                                )
+                            }
                         }
                     }
                 }
