@@ -62,6 +62,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
@@ -2723,25 +2724,22 @@ private fun FeaturedCarousel(
     var focusedMenu by remember { mutableStateOf(false) }
     val focusMenuWidth by animateDpAsState(if (focusedMenu) 3.dp else 0.dp)
     val pagerState = rememberPagerState(pageCount = { media.size })
-    var autoScrollEnabled by remember { mutableStateOf(true) }
+    var lastInteractionTime by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    val updateActivity = { lastInteractionTime = System.currentTimeMillis() }
     val scope = rememberCoroutineScope()
 
     val isDragged by pagerState.interactionSource.collectIsDraggedAsState()
     LaunchedEffect(isDragged) {
-        Log.d(HOME_FOCUS_DEBUG_TAG, "FEATURED pager dragged changed isDragged=$isDragged autoScrollEnabled=$autoScrollEnabled")
-        if (isDragged) autoScrollEnabled = false
+        if (isDragged) updateActivity()
     }
 
     var isFocused by remember { mutableStateOf(false) }
-    var playButtonFocused by remember { mutableStateOf(false) }
-    var moreInfoButtonFocused by remember { mutableStateOf(false) }
-    val playButtonBorderWidth by animateDpAsState(if (playButtonFocused) 3.dp else 1.dp, label = "playButtonBorderWidth")
-    val moreInfoButtonBorderWidth by animateDpAsState(if (moreInfoButtonFocused) 3.dp else 1.dp, label = "moreInfoButtonBorderWidth")
+    var focusedButtonType by remember { mutableStateOf(FeaturedCarouselButtonFocus.Play) }
     var pendingButtonFocus by remember { mutableStateOf<PendingFeaturedCarouselFocus?>(null) }
 
     fun moveFeaturedPage(targetPage: Int, focusTarget: FeaturedCarouselButtonFocus) {
         if (targetPage !in media.indices) return
-        autoScrollEnabled = false
+        updateActivity()
         pendingButtonFocus = PendingFeaturedCarouselFocus(
             page = targetPage,
             button = focusTarget,
@@ -2758,20 +2756,40 @@ private fun FeaturedCarousel(
         }
     }
 
-    LaunchedEffect(autoScrollEnabled, media, isSearching, isFocused) {
-        Log.d(
-            HOME_FOCUS_DEBUG_TAG,
-            "FEATURED autoScroll effect auto=$autoScrollEnabled media=${media.size} searching=$isSearching rootFocused=$isFocused page=${pagerState.currentPage}"
-        )
-        if (autoScrollEnabled && media.isNotEmpty() && !isSearching && !isFocused) {
-            while (true) {
-                delay(6000)
-                if (media.isNotEmpty()) {
-                    val next = (pagerState.currentPage + 1) % media.size
-                    Log.d(HOME_FOCUS_DEBUG_TAG, "FEATURED autoScroll animate page ${pagerState.currentPage} -> $next")
-                    pagerState.animateScrollToPage(next)
-                }
+    LaunchedEffect(media, isSearching, isDragged, isFocused, lastInteractionTime) {
+        if (media.isEmpty() || isSearching || isDragged) {
+            Log.d(HOME_FOCUS_DEBUG_TAG, "FEATURED autoScroll inactive: empty=${media.isEmpty()} searching=$isSearching dragged=$isDragged")
+            return@LaunchedEffect
+        }
+
+        while (true) {
+            val waitTime = if (isFocused) 10000L else 6000L
+            Log.d(HOME_FOCUS_DEBUG_TAG, "FEATURED autoScroll cycle start: isFocused=$isFocused waitTime=$waitTime page=${pagerState.currentPage}")
+            
+            delay(waitTime)
+
+            val next = (pagerState.currentPage + 1) % media.size
+            Log.d(HOME_FOCUS_DEBUG_TAG, "FEATURED autoScroll TRIGGER: to=$next isFocused=$isFocused")
+
+            if (isFocused) {
+                pendingButtonFocus = PendingFeaturedCarouselFocus(
+                    page = next,
+                    button = focusedButtonType
+                )
             }
+            pagerState.animateScrollToPage(next)
+            lastInteractionTime = System.currentTimeMillis() // Reset timer after auto-scroll
+        }
+    }
+
+    val scrollProgress by produceState(initialValue = 0f, isFocused, lastInteractionTime, media) {
+        if (media.isEmpty()) { value = 0f; return@produceState }
+        val waitTime = if (isFocused) 10000L else 6000L
+        while (true) {
+            val now = System.currentTimeMillis()
+            val elapsed = now - lastInteractionTime
+            value = (elapsed.toFloat() / waitTime).coerceIn(0f, 1f)
+            delay(16)
         }
     }
 
@@ -2799,13 +2817,17 @@ private fun FeaturedCarousel(
             .onFocusChanged {
                 Log.d(
                     HOME_FOCUS_DEBUG_TAG,
-                    "FEATURED root focus hasFocus=${it.hasFocus} isFocused=${it.isFocused} before rootFocused=$isFocused play=$playButtonFocused more=$moreInfoButtonFocused page=${pagerState.currentPage}"
+                    "FEATURED root focus hasFocus=${it.hasFocus} isFocused=${it.isFocused} before rootFocused=$isFocused type=$focusedButtonType page=${pagerState.currentPage}"
                 )
+                if (it.hasFocus != isFocused) {
+                    updateActivity()
+                }
                 isFocused = it.hasFocus
             }
     ) {
         HorizontalPager(
             state = pagerState,
+            beyondViewportPageCount = 1,
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer {
@@ -2820,6 +2842,8 @@ private fun FeaturedCarousel(
             val title = current.displayTitle
             val year = current.displayDate.take(4)
             val type = current.type
+            var itemPlayButtonFocused by remember { mutableStateOf(false) }
+            var itemMoreInfoButtonFocused by remember { mutableStateOf(false) }
             val itemPlayButtonFocusRequester = remember(page) { FocusRequester() }
             val effectivePlayRequester = if (page == 0 && playButtonFocusRequester != null) playButtonFocusRequester else itemPlayButtonFocusRequester
             val moreInfoButtonFocusRequester = remember(page) { FocusRequester() }
@@ -2999,138 +3023,159 @@ private fun FeaturedCarousel(
                         Spacer(Modifier.height(if (isTv) 12.dp else 20.dp))
 
                         // Buttons Row
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            modifier = Modifier.graphicsLayer { alpha = contentAlpha }
-                        ) {4
-                            // Play Now button
-                            ZsOutlinedWrapper(
-                                visible = playButtonFocused,
-                                shape = RoundedCornerShape(10.dp),
-                                outlineColor = Color.White,
-                                gap = 2.dp,
-                                modifier = if (isTv) Modifier else Modifier.weight(1f)
+                        Column(
+                            modifier = Modifier.graphicsLayer { alpha = contentAlpha },
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
                             ) {
-                                Button(
-                                    onClick = {
-                                        val progress = progressMap[current.id.toString()]
-                                        val sParam = if (type == "tv") {
-                                            val sNum = progress?.seasonNumber ?: 1
-                                            val eNum = progress?.episodeNumber ?: 1
-                                            "&season=$sNum&episode=$eNum"
-                                        } else ""
-
-                                        val encodedTitle = java.net.URLEncoder.encode(title, "UTF-8")
-                                        val poster = java.net.URLEncoder.encode(current.posterPath ?: "", "UTF-8")
-                                        val sId = progress?.seasonId ?: ""
-                                        val eId = progress?.episodeId ?: ""
-                                        nav.navigate("player/$type/${current.id}?title=$encodedTitle&year=${year.toIntOrNull() ?: 0}&poster=$poster$sParam&seasonId=$sId&episodeId=$eId")
-                                    },
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = theme.colors.buttons.primary,
-                                        contentColor = theme.colors.buttons.primaryText,
-                                    ),
-                                    border = BorderStroke(
-                                        1.dp,
-                                        theme.colors.type.divider.copy(alpha = 0.3f)
-                                    ),
+                                // Play Now button
+                                ZsOutlinedWrapper(
+                                    visible = itemPlayButtonFocused,
                                     shape = RoundedCornerShape(10.dp),
-                                    modifier = Modifier
-                                        .height(if (isTv) 40.dp else 48.dp)
-                                        .then(if (isTv) Modifier.widthIn(min = 140.dp) else Modifier.fillMaxWidth())
-                                        .focusRequester(effectivePlayRequester)
-                                        .onPreviewKeyEvent { event ->
-                                            if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionLeft) {
-                                                if (pagerState.currentPage > 0) {
-                                                    moveFeaturedPage(
-                                                        targetPage = pagerState.currentPage - 1,
-                                                        focusTarget = FeaturedCarouselButtonFocus.MoreInfo,
-                                                    )
+                                    outlineColor = Color.White,
+                                    gap = 2.dp,
+                                    modifier = if (isTv) Modifier else Modifier.weight(1f)
+                                ) {
+                                    Button(
+                                        onClick = {
+                                            val progress = progressMap[current.id.toString()]
+                                            val sParam = if (type == "tv") {
+                                                val sNum = progress?.seasonNumber ?: 1
+                                                val eNum = progress?.episodeNumber ?: 1
+                                                "&season=$sNum&episode=$eNum"
+                                            } else ""
+
+                                            val encodedTitle = java.net.URLEncoder.encode(title, "UTF-8")
+                                            val poster = java.net.URLEncoder.encode(current.posterPath ?: "", "UTF-8")
+                                            updateActivity()
+                                            nav.navigate("player/$type/${current.id}?title=$encodedTitle&year=${year.toIntOrNull() ?: 0}&poster=$poster$sParam")
+                                        },
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = theme.colors.buttons.primary,
+                                            contentColor = theme.colors.buttons.primaryText,
+                                        ),
+                                        border = BorderStroke(
+                                            1.dp,
+                                            theme.colors.type.divider.copy(alpha = 0.3f)
+                                        ),
+                                        shape = RoundedCornerShape(10.dp),
+                                        modifier = Modifier
+                                            .height(if (isTv) 40.dp else 48.dp)
+                                            .then(if (isTv) Modifier.widthIn(min = 140.dp) else Modifier.fillMaxWidth())
+                                            .focusRequester(effectivePlayRequester)
+                                            .onPreviewKeyEvent { event ->
+                                                if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionLeft) {
+                                                    if (pagerState.currentPage > 0) {
+                                                        moveFeaturedPage(
+                                                            targetPage = pagerState.currentPage - 1,
+                                                            focusTarget = FeaturedCarouselButtonFocus.MoreInfo,
+                                                        )
+                                                    }
+                                                    true
+                                                } else {
+                                                    false
                                                 }
-                                                true
-                                            } else {
-                                                false
                                             }
-                                        }
-                                        .onFocusChanged {
-                                            Log.d(
-                                                HOME_FOCUS_DEBUG_TAG,
-                                                "FEATURED Play button focus isFocused=${it.isFocused} hasFocus=${it.hasFocus} before play=$playButtonFocused more=$moreInfoButtonFocused page=${pagerState.currentPage}"
-                                            )
-                                            playButtonFocused = it.isFocused
-                                            if (it.isFocused) {
+                                            .onFocusChanged {
                                                 Log.d(
                                                     HOME_FOCUS_DEBUG_TAG,
-                                                    "FEATURED Play button -> onFocused callback"
+                                                    "FEATURED Play button focus isFocused=${it.isFocused} hasFocus=${it.hasFocus} before play=$itemPlayButtonFocused more=$itemMoreInfoButtonFocused page=${pagerState.currentPage}"
                                                 )
-                                                onFocused()
-                                            }
-                                        },
-                                    contentPadding = PaddingValues(horizontal = 16.dp)
+                                                if (it.isFocused) {
+                                                    updateActivity()
+                                                    focusedButtonType = FeaturedCarouselButtonFocus.Play
+                                                    Log.d(
+                                                        HOME_FOCUS_DEBUG_TAG,
+                                                        "FEATURED Play button -> onFocused callback"
+                                                    )
+                                                    onFocused()
+                                                }
+                                                itemPlayButtonFocused = it.isFocused
+                                            },
+                                        contentPadding = PaddingValues(horizontal = 16.dp)
+                                    ) {
+                                        Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(if (isTv) 18.dp else 20.dp), tint = theme.colors.buttons.primaryText)
+                                        Spacer(Modifier.width(8.dp))
+                                        Text("Play Now", fontSize = if (isTv) 14.sp else 15.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+
+                                // More Info button
+                                ZsOutlinedWrapper(
+                                    visible = itemMoreInfoButtonFocused,
+                                    shape = RoundedCornerShape(10.dp),
+                                    outlineColor = Color.White,
+                                    gap = 2.dp,
+                                    modifier = if (isTv) Modifier else Modifier.weight(1f)
                                 ) {
-                                    Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(if (isTv) 18.dp else 20.dp), tint = theme.colors.buttons.primaryText)
-                                    Spacer(Modifier.width(8.dp))
-                                    Text("Play Now", fontSize = if (isTv) 14.sp else 15.sp, fontWeight = FontWeight.Bold)
+                                    Button(
+                                        onClick = {
+                                            updateActivity()
+                                            nav.navigate("detail/$type/${current.id}")
+                                        },
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = theme.colors.buttons.secondary,
+                                            contentColor = theme.colors.buttons.secondaryText,
+                                        ),
+                                        border = BorderStroke(
+                                            1.dp,
+                                            theme.colors.type.divider.copy(alpha = 0.3f)
+                                        ),
+                                        shape = RoundedCornerShape(10.dp),
+                                        modifier = Modifier
+                                            .height(if (isTv) 40.dp else 48.dp)
+                                            .then(if (isTv) Modifier.widthIn(min = 140.dp) else Modifier.fillMaxWidth())
+                                            .focusRequester(moreInfoButtonFocusRequester)
+                                            .onPreviewKeyEvent { event ->
+                                                if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionRight) {
+                                                    if (pagerState.currentPage < media.lastIndex) {
+                                                        moveFeaturedPage(
+                                                            targetPage = pagerState.currentPage + 1,
+                                                            focusTarget = FeaturedCarouselButtonFocus.Play,
+                                                        )
+                                                    }
+                                                    true
+                                                } else {
+                                                    false
+                                                }
+                                            }
+                                            .onFocusChanged {
+                                                Log.d(
+                                                    HOME_FOCUS_DEBUG_TAG,
+                                                    "FEATURED More Info button focus isFocused=${it.isFocused} hasFocus=${it.hasFocus} before play=$itemPlayButtonFocused more=$itemMoreInfoButtonFocused page=${pagerState.currentPage}"
+                                                )
+                                                if (it.isFocused) {
+                                                    updateActivity()
+                                                    focusedButtonType = FeaturedCarouselButtonFocus.MoreInfo
+                                                    Log.d(
+                                                        HOME_FOCUS_DEBUG_TAG,
+                                                        "FEATURED More Info button -> onFocused callback"
+                                                    )
+                                                    onFocused()
+                                                }
+                                                itemMoreInfoButtonFocused = it.isFocused
+                                            },
+                                        contentPadding = PaddingValues(horizontal = 16.dp)
+                                    ) {
+                                        Icon(Icons.Default.Info, contentDescription = null, modifier = Modifier.size(if (isTv) 18.dp else 20.dp), tint = theme.colors.buttons.secondaryText)
+                                        Spacer(Modifier.width(8.dp))
+                                        Text("More Info", fontSize = if (isTv) 14.sp else 15.sp, fontWeight = FontWeight.Bold)
+                                    }
                                 }
                             }
 
-                            // More Info button
-                            ZsOutlinedWrapper(
-                                visible = moreInfoButtonFocused,
-                                shape = RoundedCornerShape(10.dp),
-                                outlineColor = Color.White,
-                                gap = 2.dp,
-                                modifier = if (isTv) Modifier else Modifier.weight(1f)
-                            ) {
-                                Button(
-                                    onClick = { nav.navigate("detail/$type/${current.id}") },
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = theme.colors.buttons.secondary,
-                                        contentColor = theme.colors.buttons.secondaryText,
-                                    ),
-                                    border = BorderStroke(
-                                        1.dp,
-                                        theme.colors.type.divider.copy(alpha = 0.3f)
-                                    ),
-                                    shape = RoundedCornerShape(10.dp),
-                                    modifier = Modifier
-                                        .height(if (isTv) 40.dp else 48.dp)
-                                        .then(if (isTv) Modifier.widthIn(min = 140.dp) else Modifier.fillMaxWidth())
-                                        .focusRequester(moreInfoButtonFocusRequester)
-                                        .onPreviewKeyEvent { event ->
-                                            if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionRight) {
-                                                if (pagerState.currentPage < media.lastIndex) {
-                                                    moveFeaturedPage(
-                                                        targetPage = pagerState.currentPage + 1,
-                                                        focusTarget = FeaturedCarouselButtonFocus.Play,
-                                                    )
-                                                }
-                                                true
-                                            } else {
-                                                false
-                                            }
-                                        }
-                                        .onFocusChanged {
-                                            Log.d(
-                                                HOME_FOCUS_DEBUG_TAG,
-                                                "FEATURED More Info button focus isFocused=${it.isFocused} hasFocus=${it.hasFocus} before play=$playButtonFocused more=$moreInfoButtonFocused page=${pagerState.currentPage}"
-                                            )
-                                            moreInfoButtonFocused = it.isFocused
-                                            if (it.isFocused) {
-                                                Log.d(
-                                                    HOME_FOCUS_DEBUG_TAG,
-                                                    "FEATURED More Info button -> onFocused callback"
-                                                )
-                                                onFocused()
-                                            }
-                                        },
-                                    contentPadding = PaddingValues(horizontal = 16.dp)
-                                ) {
-                                    Icon(Icons.Default.Info, contentDescription = null, modifier = Modifier.size(if (isTv) 18.dp else 20.dp), tint = theme.colors.buttons.secondaryText)
-                                    Spacer(Modifier.width(8.dp))
-                                    Text("More Info", fontSize = if (isTv) 14.sp else 15.sp, fontWeight = FontWeight.Bold)
-                                }
-                            }
+                            LinearProgressIndicator(
+                                progress = { scrollProgress },
+                                modifier = Modifier
+                                    .then(if (isTv) Modifier.width(300.dp) else Modifier.fillMaxWidth())
+                                    .height(2.dp)
+                                    .clip(CircleShape),
+                                color = Color.White.copy(alpha = 0.8f),
+                                trackColor = Color.White.copy(alpha = 0.2f),
+                                strokeCap = StrokeCap.Round
+                            )
                         }
                     }
                 }
@@ -3162,7 +3207,7 @@ private fun FeaturedCarousel(
                                 HOME_FOCUS_DEBUG_TAG,
                                 "FEATURED dot clicked index=$i currentPage=${pagerState.currentPage}"
                             )
-                            autoScrollEnabled = false
+                            updateActivity()
                             scope.launch {
                                 pagerState.animateScrollToPage(i)
                             }
