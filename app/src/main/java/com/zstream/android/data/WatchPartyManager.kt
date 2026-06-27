@@ -9,7 +9,6 @@ import javax.inject.Singleton
 
 private const val TAG = "WatchPartyManager"
 
-// Configuration constants matching the "New" Pstream Engine
 private const val POLL_INTERVAL_MS = 2000L
 private const val BACKOFF_MAX_MS = 15000L
 private const val STALE_USER_MS = 12000L
@@ -42,6 +41,7 @@ data class Participant(
     val isHost: Boolean,
     val isPlaying: Boolean,
     val isPaused: Boolean,
+    val isLoading: Boolean,
     val time: Double,
     val duration: Double,
     val lastUpdate: Long,
@@ -82,6 +82,8 @@ class WatchPartyManager @Inject constructor(
 
     private val _isSyncing = MutableStateFlow(false)
     val isSyncing: StateFlow<Boolean> = _isSyncing.asStateFlow()
+    private val _isRegistering = MutableStateFlow(false)
+    val isRegistering: StateFlow<Boolean> = _isRegistering.asStateFlow()
 
     private val _contentMismatch = MutableStateFlow(false)
     val contentMismatch: StateFlow<Boolean> = _contentMismatch.asStateFlow()
@@ -91,6 +93,7 @@ class WatchPartyManager @Inject constructor(
 
     // --- Engine Internal Refs ---
     private var consecutiveErrors = 0
+    private var consecutiveReportingErrors = 0
     private var syncInProgress = false
     private var hasInitialSynced = false
     private var lastHostPlaying: Boolean? = null
@@ -114,6 +117,7 @@ class WatchPartyManager @Inject constructor(
         _roomCode.value = code
         _isHost.value = true
         _enabled.value = true
+        _isRegistering.value = true
         resetEngineState()
         startEngine()
         startReporter()
@@ -150,6 +154,7 @@ class WatchPartyManager @Inject constructor(
         _isHost.value = false
         _participants.value = emptyList()
         _isOffline.value = false
+        _isRegistering.value = false
         _contentMismatch.value = false
         stopEngine()
         stopReporter()
@@ -196,6 +201,7 @@ class WatchPartyManager @Inject constructor(
 
     private fun resetEngineState() {
         consecutiveErrors = 0
+        consecutiveReportingErrors = 0
         syncInProgress = false
         hasInitialSynced = false
         lastHostPlaying = null
@@ -241,6 +247,12 @@ class WatchPartyManager @Inject constructor(
                 val status = lastLocalState
 
                 if (meta != null && status != null) {
+                    // Guard: Don't report while a sync is in progress
+                    if (syncInProgress || _isSyncing.value) {
+                        delay(MIN_CHANGE_INTERVAL_MS)
+                        continue
+                    }
+
                     // Guard: Guest must have started playing at least once (mirrors web)
                     if (!_isHost.value && !status.hasPlayedOnce) {
                         delay(MIN_CHANGE_INTERVAL_MS)
@@ -273,7 +285,14 @@ class WatchPartyManager @Inject constructor(
                         repository.sendStatus(request).onSuccess {
                             lastReportTime = now
                             lastFingerprint = fingerprint
+                            consecutiveReportingErrors = 0
+                            _isOffline.value = false
+                            _isRegistering.value = false
                         }.onFailure {
+                            consecutiveReportingErrors++
+                            if (consecutiveReportingErrors >= 3) {
+                                _isOffline.value = true
+                            }
                             Log.e(TAG, "Failed to report status", it)
                         }
                     }
@@ -303,6 +322,7 @@ class WatchPartyManager @Inject constructor(
                     isHost = latest.isHost,
                     isPlaying = latest.player.isPlaying,
                     isPaused = latest.player.isPaused,
+                    isLoading = latest.player.isLoading,
                     time = latest.player.time,
                     duration = latest.player.duration,
                     lastUpdate = latest.timestamp,
@@ -338,15 +358,8 @@ class WatchPartyManager @Inject constructor(
 
     private suspend fun processGuestEngine(users: List<Participant>) {
         val host = users.find { it.isHost } ?: return
-        val local = lastLocalState ?: return
-        val localMeta = lastLocalContent ?: return
 
-        // 1. Check for sync block conditions
-        if (syncInProgress) return
-        if (System.currentTimeMillis() - lastSyncAt < SYNC_COOLDOWN_MS) return
-        if (local.isLoading) return
-
-        // 2. Content Validation & Auto-Follow
+        // 1. Content Validation & Auto-Follow (Global - works on Home screen)
         val hostType = if (host.type.equals("tv", true)) "show" else "movie"
         val hostKey = if (host.tmdbId != null) {
             if (hostType == "show") {
@@ -356,8 +369,9 @@ class WatchPartyManager @Inject constructor(
             }
         } else null
         
-        val localType = if (localMeta.type.equals("TV Show", true)) "show" else "movie"
-        val localKey = if (localMeta.tmdbId != null) {
+        val localMeta = lastLocalContent
+        val localType = if (localMeta?.type?.equals("TV Show", true) == true) "show" else "movie"
+        val localKey = if (localMeta?.tmdbId != null) {
             if (localType == "show") {
                 "show:${localMeta.tmdbId}:${localMeta.seasonId}:${localMeta.episodeId}"
             } else {
@@ -386,6 +400,14 @@ class WatchPartyManager @Inject constructor(
         _contentMismatch.value = false
         lastFollowKey = hostKey
 
+        // 2. Player-Specific Logic (Requires local playback state)
+        val local = lastLocalState ?: return
+        if (localMeta == null) return
+
+        // Check for sync block conditions
+        if (syncInProgress) return
+        if (System.currentTimeMillis() - lastSyncAt < SYNC_COOLDOWN_MS) return
+
         // 3. Play State Confirmation (Prevents jitter)
         val hostIsPlaying = host.isPlaying && !host.isPaused
         if (pendingHostPlaying == hostIsPlaying) {
@@ -399,21 +421,24 @@ class WatchPartyManager @Inject constructor(
         val elapsed = Math.max(0L, System.currentTimeMillis() - host.lastUpdate) / 1000.0
         val predicted = if (hostIsPlaying) host.time + elapsed else host.time
         
-        // 5. Duration Guard
-        if (host.duration > 0 && local.duration > 0 && Math.abs(host.duration - local.duration) > 30.0) {
-            return
-        }
-
-        // 6. Start-of-Video Sync Guard (Rubber-band protection)
-        if (hostIsPlaying && predicted < 0.5 && host.duration > 30 && local.time > 1.0) {
-            return
-        }
-
-        // 7. Drift & State Logic
+        // 5. Host Loading Guard
+        // If host is loading, their time is unstable. Ignore drift but process state changes.
         val drift = local.time - predicted
         val needsInitial = !hasInitialSynced
         val needsDrift = hasInitialSynced && Math.abs(drift) > DRIFT_THRESHOLD_SECONDS
         val needsPlayState = confirmedHostPlaying != null && lastHostPlaying != null && confirmedHostPlaying != lastHostPlaying
+
+        if (host.isLoading && !needsPlayState && !needsInitial) return
+
+        // 6. Duration Guard
+        if (host.duration > 0 && local.duration > 0 && Math.abs(host.duration - local.duration) > 30.0) {
+            return
+        }
+
+        // 7. Start-of-Video Sync Guard (Rubber-band protection)
+        if (hostIsPlaying && predicted < 0.5 && host.duration > 30 && local.time > 1.0) {
+            return
+        }
 
         if (needsInitial || needsDrift || needsPlayState) {
             val targetPlaying = if (needsInitial) hostIsPlaying else confirmedHostPlaying ?: hostIsPlaying

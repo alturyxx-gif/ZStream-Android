@@ -235,7 +235,7 @@ private fun sourceStatusColor(theme: ZStreamTheme, status: SourceStatus): Color 
 }
 
 private enum class PlayerMenuPage {
-    Root, Captions, Playback, AdvancedColor, Sources, Quality, Audio, Download, WatchParty, HostWatchParty, SkipSegments
+    Root, Captions, Playback, AdvancedColor, Sources, Quality, Audio, Download, WatchParty, SkipSegments
 }
 
 private sealed class PlayerInfoState {
@@ -269,6 +269,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
     val watchPartyEnabled by vm.watchPartyManager.enabled.collectAsState()
     val participants by vm.watchPartyManager.participants.collectAsState()
     val isSyncing by vm.watchPartyManager.isSyncing.collectAsState()
+    val isRegistering by vm.watchPartyManager.isRegistering.collectAsState()
     val contentMismatch by vm.watchPartyManager.contentMismatch.collectAsState()
     val isOffline by vm.watchPartyManager.isOffline.collectAsState()
     val isHost by vm.watchPartyManager.isHost.collectAsState()
@@ -278,21 +279,16 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
     val onBack = rememberSafeNavigateBack(nav, playerScope)
 
     DisposableEffect(Unit) {
-        val prevOrientation = activity?.requestedOrientation
-        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
         val window = activity?.window
         if (window != null) {
             WindowCompat.setDecorFitsSystemWindows(window, false)
-            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             WindowInsetsControllerCompat(window, window.decorView).apply {
                 hide(WindowInsetsCompat.Type.systemBars())
                 systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             }
         }
         onDispose {
-            prevOrientation?.let { activity.requestedOrientation = it }
             if (window != null) {
-                window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                 WindowInsetsControllerCompat(window, window.decorView).show(WindowInsetsCompat.Type.systemBars())
             }
         }
@@ -513,19 +509,49 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
 
                 LaunchedEffect(player, watchPartyEnabled, isHost) {
                     if (!watchPartyEnabled) return@LaunchedEffect
-                    while (true) {
-                        vm.reportPlayerState(
-                            isPlaying = player.isPlaying,
-                            isPaused = !player.playWhenReady,
-                            isLoading = player.playbackState == Player.STATE_BUFFERING,
-                            hasPlayedOnce = player.currentPosition > 0,
-                            timeMs = player.currentPosition,
-                            durationMs = player.duration,
-                            playbackRate = player.playbackParameters.speed,
-                            bufferedMs = player.bufferedPosition,
-                            isHost = isHost
-                        )
-                        delay(1000)
+                    
+                    val listener = object : Player.Listener {
+                        override fun onEvents(player: Player, events: Player.Events) {
+                            if (events.containsAny(
+                                    Player.EVENT_PLAY_WHEN_READY_CHANGED,
+                                    Player.EVENT_PLAYBACK_STATE_CHANGED,
+                                    Player.EVENT_POSITION_DISCONTINUITY,
+                                    Player.EVENT_PLAYBACK_PARAMETERS_CHANGED
+                                )) {
+                                vm.reportPlayerState(
+                                    isPlaying = player.isPlaying,
+                                    isPaused = !player.playWhenReady,
+                                    isLoading = player.playbackState == Player.STATE_BUFFERING,
+                                    hasPlayedOnce = player.currentPosition > 0,
+                                    timeMs = player.currentPosition,
+                                    durationMs = player.duration,
+                                    playbackRate = player.playbackParameters.speed,
+                                    bufferedMs = player.bufferedPosition,
+                                    isHost = isHost
+                                )
+                            }
+                        }
+                    }
+                    player.addListener(listener)
+                    
+                    try {
+                        // Heartbeat to ensure position is updated regularly even without events
+                        while (true) {
+                            vm.reportPlayerState(
+                                isPlaying = player.isPlaying,
+                                isPaused = !player.playWhenReady,
+                                isLoading = player.playbackState == Player.STATE_BUFFERING,
+                                hasPlayedOnce = player.currentPosition > 0,
+                                timeMs = player.currentPosition,
+                                durationMs = player.duration,
+                                playbackRate = player.playbackParameters.speed,
+                                bufferedMs = player.bufferedPosition,
+                                isHost = isHost
+                            )
+                            delay(2000)
+                        }
+                    } finally {
+                        player.removeListener(listener)
                     }
                 }
 
@@ -535,16 +561,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                             is WatchPartyAction.Seek -> player.seekTo(action.timeMs)
                             is WatchPartyAction.Play -> player.play()
                             is WatchPartyAction.Pause -> player.pause()
-                            is WatchPartyAction.Navigate -> {
-                                val encodedTitle = Uri.encode(action.title)
-                                val encodedPoster = Uri.encode(action.poster ?: "")
-                                val season = action.season ?: -1
-                                val episode = action.episode ?: -1
-                                val year = action.year ?: 0
-                                nav.navigate("player/${action.mediaType}/${action.tmdbId}?season=$season&episode=$episode&title=$encodedTitle&year=$year&poster=$encodedPoster") {
-                                    popUpTo("home")
-                                }
-                            }
+                            else -> {}
                         }
                     }
                 }
@@ -911,6 +928,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     participants = participants,
                     myUserId = session?.userId,
                     isSyncing = isSyncing,
+                    isRegistering = isRegistering,
                     contentMismatch = contentMismatch,
                     isOffline = isOffline,
                     isHost = isHost,
@@ -1225,6 +1243,7 @@ private fun PlayerControls(
     participants: List<com.zstream.android.data.Participant>,
     myUserId: String?,
     isSyncing: Boolean,
+    isRegistering: Boolean,
     contentMismatch: Boolean,
     isOffline: Boolean,
     isHost: Boolean,
@@ -1243,7 +1262,7 @@ private fun PlayerControls(
     LaunchedEffect(roomCode) {
         if (roomCode != null && isJoiningRoom) {
             isJoiningRoom = false
-            onOpenPage(PlayerMenuPage.HostWatchParty)
+            onOpenPage(PlayerMenuPage.WatchParty)
         }
     }
     var isPlaying by remember { mutableStateOf(player.isPlaying) }
@@ -1661,7 +1680,6 @@ private fun PlayerControls(
                             menuPage = when (menuPage) {
                                 null, PlayerMenuPage.Root -> null
                                 PlayerMenuPage.AdvancedColor -> PlayerMenuPage.Playback
-                                PlayerMenuPage.HostWatchParty -> PlayerMenuPage.WatchParty
                                 else -> PlayerMenuPage.Root
                             }
                         },
@@ -1721,6 +1739,7 @@ private fun PlayerControls(
                         onJoinWatchParty = onJoinWatchParty,
                         onUpdateRoomCode = onUpdateRoomCode,
                         onManualSync = onManualSync,
+                        isRegistering = isRegistering,
                         mediaType = mediaType,
                         tmdbId = tmdbId,
                         seasonId = seasonId,
@@ -2210,6 +2229,7 @@ private fun PlayerMenuContent(
     participants: List<com.zstream.android.data.Participant>,
     myUserId: String?,
     isSyncing: Boolean,
+    isRegistering: Boolean,
     contentMismatch: Boolean,
     isOffline: Boolean,
     isHost: Boolean,
@@ -2233,7 +2253,7 @@ private fun PlayerMenuContent(
     LaunchedEffect(roomCode) {
         if (roomCode != null && isJoiningRoom) {
             isJoiningRoom = false
-            onOpenPage(PlayerMenuPage.HostWatchParty)
+            onOpenPage(PlayerMenuPage.WatchParty)
         }
     }
 
@@ -2253,7 +2273,6 @@ private fun PlayerMenuContent(
                     PlayerMenuPage.Audio -> "Audio"
                     PlayerMenuPage.Download -> "Download"
                     PlayerMenuPage.WatchParty -> "Watch Party"
-                    PlayerMenuPage.HostWatchParty -> if (isHost) "Host Watch Party" else "Watch Party Details"
                     PlayerMenuPage.SkipSegments -> "Skip Segments"
                 },
                 showBack = true,
@@ -2511,352 +2530,360 @@ private fun PlayerMenuContent(
                 }
                 PlayerMenuPage.Download -> PlayerMenuStubCard("Download UI is prepared. Source-specific download API wiring is still stubbed.")
                 PlayerMenuPage.WatchParty -> {
-                    PlayerMenuSection {
-                        Column(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            ZsButton(
-                                text = "Host a Watch Party",
-                                onClick = {
-                                    onHostWatchParty()
-                                    onOpenPage(PlayerMenuPage.HostWatchParty)
-                                },
-                                variant = ZsButtonVariant.Purple,
-                                modifier = Modifier.height(52.dp).padding(horizontal = 16.dp)
-                            )
-
-                            if (isOffline) {
-                                ZsStatusBanner(
-                                    message = "Failed to connect to room",
-                                    variant = ZsStatusBannerVariant.Error,
-                                    modifier = Modifier.padding(top = 8.dp)
-                                )
-                            }
-
-                            if (isJoiningRoom) {
-                                BasicTextField(
-                                    value = joinRoomCode,
-                                    onValueChange = { input ->
-                                        val filtered = input.uppercase().filter { it.isLetterOrDigit() }
-                                        if (filtered.length <= 6) joinRoomCode = filtered
-                                    },
-                                    modifier = Modifier
-                                        .padding(top = 8.dp)
-                                        .width(160.dp)
-                                        .height(48.dp)
-                                        .background(theme.colors.modal.background, RoundedCornerShape(8.dp))
-                                        .border(1.dp, theme.colors.type.emphasis.copy(alpha = 0.1f), RoundedCornerShape(8.dp))
-                                        .focusRequester(joinFocusRequester),
-                                    textStyle = TextStyle(
-                                        color = theme.colors.type.emphasis,
-                                        fontSize = 20.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        textAlign = TextAlign.Center,
-                                        letterSpacing = 4.sp
-                                    ),
-                                    cursorBrush = SolidColor(theme.colors.buttons.purple),
-                                    keyboardOptions = KeyboardOptions(
-                                        keyboardType = KeyboardType.Text,
-                                        imeAction = ImeAction.Done
-                                    ),
-                                    keyboardActions = KeyboardActions(
-                                        onDone = {
-                                            if (joinRoomCode.length >= 4) {
-                                                onJoinWatchParty(joinRoomCode)
-                                            }
-                                            isJoiningRoom = false
-                                            focusManager.clearFocus()
-                                        }
-                                    ),
-                                    decorationBox = { innerTextField ->
-                                        Box(contentAlignment = Alignment.Center) {
-                                            if (joinRoomCode.isEmpty()) {
-                                                Text("CODE", color = playerMenuMutedText(), fontSize = 16.sp)
-                                            }
-                                            innerTextField()
-                                        }
-                                    }
-                                )
-                                LaunchedEffect(Unit) { joinFocusRequester.requestFocus() }
-                                
-                                TextButton(onClick = { isJoiningRoom = false }) {
-                                    Text("Cancel", color = theme.colors.type.secondary, fontSize = 12.sp)
-                                }
-                            } else {
+                    if (roomCode == null) {
+                        PlayerMenuSection {
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
                                 ZsButton(
-                                    text = "Join Watch Party",
-                                    onClick = { isJoiningRoom = true },
+                                    text = "Host a Watch Party",
+                                    onClick = {
+                                        onHostWatchParty()
+                                    },
+                                    variant = ZsButtonVariant.Purple,
+                                    modifier = Modifier.height(52.dp).padding(horizontal = 16.dp)
+                                )
+
+                                if (isOffline) {
+                                    ZsStatusBanner(
+                                        message = "Failed to connect to room",
+                                        variant = ZsStatusBannerVariant.Error,
+                                        modifier = Modifier.padding(top = 8.dp)
+                                    )
+                                }
+
+                                if (isJoiningRoom) {
+                                    BasicTextField(
+                                        value = joinRoomCode,
+                                        onValueChange = { input ->
+                                            val filtered = input.uppercase().filter { it.isLetterOrDigit() }
+                                            if (filtered.length <= 6) joinRoomCode = filtered
+                                        },
+                                        modifier = Modifier
+                                            .padding(top = 8.dp)
+                                            .width(160.dp)
+                                            .height(48.dp)
+                                            .background(theme.colors.modal.background, RoundedCornerShape(8.dp))
+                                            .border(1.dp, theme.colors.type.emphasis.copy(alpha = 0.1f), RoundedCornerShape(8.dp))
+                                            .focusRequester(joinFocusRequester),
+                                        textStyle = TextStyle(
+                                            color = theme.colors.type.emphasis,
+                                            fontSize = 20.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            textAlign = TextAlign.Center,
+                                            letterSpacing = 4.sp
+                                        ),
+                                        cursorBrush = SolidColor(theme.colors.buttons.purple),
+                                        keyboardOptions = KeyboardOptions(
+                                            keyboardType = KeyboardType.Text,
+                                            imeAction = ImeAction.Done
+                                        ),
+                                        keyboardActions = KeyboardActions(
+                                            onDone = {
+                                                if (joinRoomCode.length >= 4) {
+                                                    onJoinWatchParty(joinRoomCode)
+                                                }
+                                                isJoiningRoom = false
+                                                focusManager.clearFocus()
+                                            }
+                                        ),
+                                        decorationBox = { innerTextField ->
+                                            Box(contentAlignment = Alignment.Center) {
+                                                if (joinRoomCode.isEmpty()) {
+                                                    Text("CODE", color = playerMenuMutedText(), fontSize = 16.sp)
+                                                }
+                                                innerTextField()
+                                            }
+                                        }
+                                    )
+                                    LaunchedEffect(Unit) { joinFocusRequester.requestFocus() }
+                                    
+                                    TextButton(onClick = { isJoiningRoom = false }) {
+                                        Text("Cancel", color = theme.colors.type.secondary, fontSize = 12.sp)
+                                    }
+                                } else {
+                                    ZsButton(
+                                        text = "Join Watch Party",
+                                        onClick = { isJoiningRoom = true },
+                                        variant = ZsButtonVariant.Secondary,
+                                        modifier = Modifier.height(52.dp).padding(horizontal = 16.dp)
+                                    )
+                                }
+
+                                ZsButton(
+                                    text = "Use Legacy Watch Party",
+                                    onClick = { /* TODO: Stubbed */ },
                                     variant = ZsButtonVariant.Secondary,
                                     modifier = Modifier.height(52.dp).padding(horizontal = 16.dp)
                                 )
+                                Text(
+                                    text = "Legacy Watch Party might not be available for some sources",
+                                    color = playerMenuMutedText(),
+                                    fontSize = 11.sp,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
                             }
-
-                            ZsButton(
-                                text = "Use Legacy Watch Party",
-                                onClick = { /* TODO: Stubbed */ },
-                                variant = ZsButtonVariant.Secondary,
-                                modifier = Modifier.height(52.dp).padding(horizontal = 16.dp)
-                            )
-                            Text(
-                                text = "Legacy Watch Party might not be available for some sources",
-                                color = playerMenuMutedText(),
-                                fontSize = 11.sp,
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier.fillMaxWidth()
-                            )
                         }
-                    }
-                }
-                PlayerMenuPage.HostWatchParty -> {
-                    val clipboard = LocalClipboardManager.current
-                    val focusManager = LocalFocusManager.current
-                    val focusRequester = remember { FocusRequester() }
-                    var isEditing by remember { mutableStateOf(false) }
-                    var roomCodeValue by remember { mutableStateOf(TextFieldValue(roomCode ?: "")) }
+                    } else {
+                        val clipboard = LocalClipboardManager.current
+                        val focusManager = LocalFocusManager.current
+                        val focusRequester = remember { FocusRequester() }
+                        var isEditing by remember { mutableStateOf(false) }
+                        var roomCodeValue by remember { mutableStateOf(TextFieldValue(roomCode ?: "")) }
 
-                    LaunchedEffect(isEditing) {
-                        if (isEditing) {
-                            focusRequester.requestFocus()
-                        }
-                    }
-
-                    PlayerMenuSection {
-                        Column(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(16.dp)
-                        ) {
-                            // Main Action Card
-                            Surface(
-                                color = theme.colors.background.secondary.copy(alpha = 0.35f),
-                                shape = RoundedCornerShape(24.dp),
-                                border = BorderStroke(1.dp, theme.colors.type.divider.copy(alpha = 0.12f)),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Column(
-                                    modifier = Modifier.padding(18.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                                ) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(8.dp)
-                                                    .background(Color(0xFF22C55E), CircleShape)
-                                            )
-                                            Spacer(Modifier.width(8.dp))
-                                            Text(
-                                                text = if (isHost) "Hosting" else "Viewing",
-                                                color = theme.colors.type.emphasis,
-                                                fontSize = 12.sp,
-                                                fontWeight = FontWeight.Medium
-                                            )
-                                        }
-
-                                        if (isHost) {
-                                            IconButton(
-                                                onClick = {
-                                                    isEditing = !isEditing
-                                                    if (isEditing) {
-                                                        roomCodeValue = roomCodeValue.copy(
-                                                            selection = TextRange(0, roomCodeValue.text.length)
-                                                        )
-                                                    }
-                                                },
-                                                modifier = Modifier.size(32.dp)
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.Edit,
-                                                    contentDescription = "Edit",
-                                                    tint = if (isEditing) theme.colors.buttons.purple else theme.colors.type.secondary,
-                                                    modifier = Modifier.size(18.dp)
-                                                )
-                                            }
-                                        }
-                                    }
-
-                                    if (isEditing) {
-                                        BasicTextField(
-                                            value = roomCodeValue,
-                                            onValueChange = { input ->
-                                                val filtered = input.text.uppercase().filter { it.isLetterOrDigit() }
-                                                if (filtered.length <= 6) {
-                                                    roomCodeValue = input.copy(text = filtered)
-                                                }
-                                            },
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .focusRequester(focusRequester),
-                                            textStyle = TextStyle(
-                                                color = theme.colors.buttons.purple,
-                                                fontSize = 38.sp,
-                                                fontWeight = FontWeight.ExtraBold,
-                                                textAlign = TextAlign.Center
-                                            ),
-                                            cursorBrush = SolidColor(theme.colors.type.emphasis),
-                                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                                            keyboardActions = KeyboardActions(onDone = {
-                                                onUpdateRoomCode(roomCodeValue.text)
-                                                isEditing = false
-                                                focusManager.clearFocus()
-                                            }),
-                                            singleLine = true
-                                        )
-                                    } else {
-                                        Text(
-                                            text = roomCode ?: "",
-                                            color = theme.colors.buttons.purple,
-                                            fontSize = 38.sp,
-                                            fontWeight = FontWeight.ExtraBold,
-                                            textAlign = TextAlign.Center
-                                        )
-                                    }
-
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                    ) {
-                                        // Copy Code Tile
-                                        Surface(
-                                            modifier = Modifier
-                                                .weight(1f)
-                                                .clickable { clipboard.setText(AnnotatedString(roomCodeValue.text)) },
-                                            color = theme.colors.background.main.copy(alpha = 0.5f),
-                                            shape = RoundedCornerShape(14.dp),
-                                            border = BorderStroke(1.dp, theme.colors.type.divider.copy(alpha = 0.1f))
-                                        ) {
-                                            Row(
-                                                modifier = Modifier.padding(vertical = 10.dp),
-                                                horizontalArrangement = Arrangement.Center,
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.ContentCopy,
-                                                    contentDescription = null,
-                                                    tint = theme.colors.type.secondary,
-                                                    modifier = Modifier.size(14.dp)
-                                                )
-                                                Spacer(Modifier.width(8.dp))
-                                                Text(
-                                                    text = "Copy Code",
-                                                    color = theme.colors.type.secondary,
-                                                    fontSize = 12.sp,
-                                                    fontWeight = FontWeight.Medium
-                                                )
-                                            }
-                                        }
-
-                                        // Copy Link Tile
-                                        Surface(
-                                            modifier = Modifier
-                                                .weight(1f)
-                                                .clickable { 
-                                                    val baseUrl = "https://zstream.mov/media/"
-                                                    val mediaPath = if (mediaType == "movie") {
-                                                        "tmdb-movie-$tmdbId"
-                                                    } else {
-                                                        "tmdb-tv-$tmdbId/${seasonId ?: ""}/${episodeId ?: ""}"
-                                                    }
-                                                    val fullUrl = "$baseUrl$mediaPath?watchparty=${roomCode ?: ""}"
-                                                    clipboard.setText(AnnotatedString(fullUrl))
-                                                },
-                                            color = theme.colors.background.main.copy(alpha = 0.5f),
-                                            shape = RoundedCornerShape(14.dp),
-                                            border = BorderStroke(1.dp, theme.colors.type.divider.copy(alpha = 0.1f))
-                                        ) {
-                                            Row(
-                                                modifier = Modifier.padding(vertical = 10.dp),
-                                                horizontalArrangement = Arrangement.Center,
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.Link,
-                                                    contentDescription = null,
-                                                    tint = theme.colors.type.secondary,
-                                                    modifier = Modifier.size(14.dp)
-                                                )
-                                                Spacer(Modifier.width(8.dp))
-                                                Text(
-                                                    text = "Copy Link",
-                                                    color = theme.colors.type.secondary,
-                                                    fontSize = 12.sp,
-                                                    fontWeight = FontWeight.Medium
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
+                        LaunchedEffect(isEditing) {
+                            if (isEditing) {
+                                focusRequester.requestFocus()
                             }
+                        }
 
-                            PlayerMenuSectionTitle(if (participants.size <= 1) "ALONE" else "${participants.size} PARTICIPANTS")
+                        PlayerMenuSection {
                             Column(
                                 modifier = Modifier.fillMaxWidth(),
-                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(16.dp)
                             ) {
-                                participants.forEach { participant ->
-                                    val isMe = participant.userId == myUserId
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .clip(RoundedCornerShape(12.dp))
-                                            .background(theme.colors.background.secondary.copy(alpha = 0.3f))
-                                            .padding(16.dp)
+                                // Main Action Card
+                                Surface(
+                                    color = theme.colors.background.secondary.copy(alpha = 0.35f),
+                                    shape = RoundedCornerShape(24.dp),
+                                    border = BorderStroke(1.dp, theme.colors.type.divider.copy(alpha = 0.12f)),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(18.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.spacedBy(12.dp)
                                     ) {
                                         Row(
                                             modifier = Modifier.fillMaxWidth(),
                                             horizontalArrangement = Arrangement.SpaceBetween,
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                                                Icon(
-                                                    imageVector = Icons.Default.Group,
-                                                    contentDescription = null,
-                                                    tint = if (participant.isHost) Color(0xFFFFD700) else theme.colors.type.secondary,
-                                                    modifier = Modifier.size(16.dp)
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(8.dp)
+                                                        .background(Color(0xFF22C55E), CircleShape)
                                                 )
                                                 Spacer(Modifier.width(8.dp))
                                                 Text(
-                                                    text = buildString {
-                                                        if (isMe) append("You") else append(participant.userId.take(12))
-                                                        if (participant.isHost) append(" (Host)")
-                                                    },
-                                                    color = if (participant.isHost) Color(0xFFFFD700) else theme.colors.type.emphasis,
-                                                    fontSize = 13.sp,
-                                                    fontWeight = if (participant.isHost || isMe) FontWeight.Bold else FontWeight.Normal,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis
+                                                    text = if (isHost) "Hosting" else "Viewing",
+                                                    color = theme.colors.type.emphasis,
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.Medium
                                                 )
                                             }
-                                            Text(
-                                                text = if (participant.duration > 0) {
-                                                    "${((participant.time * 100) / participant.duration).toInt()}%"
-                                                } else {
-                                                    "${participant.time.toInt()}s"
+
+                                            if (isHost) {
+                                                IconButton(
+                                                    onClick = {
+                                                        isEditing = !isEditing
+                                                        if (isEditing) {
+                                                            roomCodeValue = roomCodeValue.copy(
+                                                                selection = TextRange(0, roomCodeValue.text.length)
+                                                            )
+                                                        }
+                                                    },
+                                                    modifier = Modifier.size(32.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Edit,
+                                                        contentDescription = "Edit",
+                                                        tint = if (isEditing) theme.colors.buttons.purple else theme.colors.type.secondary,
+                                                        modifier = Modifier.size(18.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+
+                                        if (isEditing) {
+                                            BasicTextField(
+                                                value = roomCodeValue,
+                                                onValueChange = { input ->
+                                                    val filtered = input.text.uppercase().filter { it.isLetterOrDigit() }
+                                                    if (filtered.length <= 6) {
+                                                        roomCodeValue = input.copy(text = filtered)
+                                                    }
                                                 },
-                                                color = playerMenuMutedText(),
-                                                fontSize = 13.sp
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .focusRequester(focusRequester),
+                                                textStyle = TextStyle(
+                                                    color = theme.colors.buttons.purple,
+                                                    fontSize = 38.sp,
+                                                    fontWeight = FontWeight.ExtraBold,
+                                                    textAlign = TextAlign.Center
+                                                ),
+                                                cursorBrush = SolidColor(theme.colors.type.emphasis),
+                                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                                                keyboardActions = KeyboardActions(onDone = {
+                                                    onUpdateRoomCode(roomCodeValue.text)
+                                                    isEditing = false
+                                                    focusManager.clearFocus()
+                                                }),
+                                                singleLine = true
                                             )
+                                        } else if (isRegistering) {
+                                            Text(
+                                                text = "Registering Watch Party...",
+                                                color = theme.colors.buttons.secondary.copy(alpha = 0.7f),
+                                                fontSize = 24.sp,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                textAlign = TextAlign.Center
+                                            )
+                                        } else {
+                                            Text(
+                                                text = roomCode ?: "",
+                                                color = theme.colors.buttons.purple,
+                                                fontSize = 38.sp,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                textAlign = TextAlign.Center
+                                            )
+                                        }
+
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                        ) {
+                                            // Copy Code Tile
+                                            Surface(
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .clickable { clipboard.setText(AnnotatedString(roomCodeValue.text)) },
+                                                color = theme.colors.background.main.copy(alpha = 0.5f),
+                                                shape = RoundedCornerShape(14.dp),
+                                                border = BorderStroke(1.dp, theme.colors.type.divider.copy(alpha = 0.1f))
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.padding(vertical = 10.dp),
+                                                    horizontalArrangement = Arrangement.Center,
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.ContentCopy,
+                                                        contentDescription = null,
+                                                        tint = theme.colors.type.secondary,
+                                                        modifier = Modifier.size(14.dp)
+                                                    )
+                                                    Spacer(Modifier.width(8.dp))
+                                                    Text(
+                                                        text = "Copy Code",
+                                                        color = theme.colors.type.secondary,
+                                                        fontSize = 12.sp,
+                                                        fontWeight = FontWeight.Medium
+                                                    )
+                                                }
+                                            }
+
+                                            // Copy Link Tile
+                                            Surface(
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .clickable { 
+                                                        val baseUrl = "https://zstream.mov/media/"
+                                                        val mediaPath = if (mediaType == "movie") {
+                                                            "tmdb-movie-$tmdbId"
+                                                        } else {
+                                                            "tmdb-tv-$tmdbId/${seasonId ?: ""}/${episodeId ?: ""}"
+                                                        }
+                                                        val fullUrl = "$baseUrl$mediaPath?watchparty=${roomCode ?: ""}"
+                                                        clipboard.setText(AnnotatedString(fullUrl))
+                                                    },
+                                                color = theme.colors.background.main.copy(alpha = 0.5f),
+                                                shape = RoundedCornerShape(14.dp),
+                                                border = BorderStroke(1.dp, theme.colors.type.divider.copy(alpha = 0.1f))
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.padding(vertical = 10.dp),
+                                                    horizontalArrangement = Arrangement.Center,
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Link,
+                                                        contentDescription = null,
+                                                        tint = theme.colors.type.secondary,
+                                                        modifier = Modifier.size(14.dp)
+                                                    )
+                                                    Spacer(Modifier.width(8.dp))
+                                                    Text(
+                                                        text = "Copy Link",
+                                                        color = theme.colors.type.secondary,
+                                                        fontSize = 12.sp,
+                                                        fontWeight = FontWeight.Medium
+                                                    )
+                                                }
+                                            }
                                         }
                                     }
                                 }
+
+                                PlayerMenuSectionTitle(if (participants.size <= 1) "ALONE" else "${participants.size} PARTICIPANTS")
+                                Column(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    participants.forEach { participant ->
+                                        val isMe = participant.userId == myUserId
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clip(RoundedCornerShape(12.dp))
+                                                .background(theme.colors.background.secondary.copy(alpha = 0.3f))
+                                                .padding(16.dp)
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Group,
+                                                        contentDescription = null,
+                                                        tint = if (participant.isHost) Color(0xFFFFD700) else theme.colors.type.secondary,
+                                                        modifier = Modifier.size(16.dp)
+                                                    )
+                                                    Spacer(Modifier.width(8.dp))
+                                                    Text(
+                                                        text = buildString {
+                                                            if (isMe) append("You") else append(participant.userId.take(12))
+                                                            if (participant.isHost) append(" (Host)")
+                                                        },
+                                                        color = if (participant.isHost) Color(0xFFFFD700) else theme.colors.type.emphasis,
+                                                        fontSize = 13.sp,
+                                                        fontWeight = if (participant.isHost || isMe) FontWeight.Bold else FontWeight.Normal,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                }
+                                                Text(
+                                                    text = if (participant.duration > 0) {
+                                                        "${((participant.time * 100) / participant.duration).toInt()}%"
+                                                    } else {
+                                                        "${participant.time.toInt()}s"
+                                                    },
+                                                    color = playerMenuMutedText(),
+                                                    fontSize = 13.sp
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                                
+                                ZsButton(
+                                    text = "Leave Watch Party",
+                                    onClick = {
+                                        onLeaveWatchParty()
+                                        onBack()
+                                    },
+                                    variant = ZsButtonVariant.Danger,
+                                    modifier = Modifier.height(52.dp).padding(horizontal = 16.dp)
+                                )
                             }
-                            
-                            ZsButton(
-                                text = "Leave Watch Party",
-                                onClick = {
-                                    onLeaveWatchParty()
-                                    onBack()
-                                },
-                                variant = ZsButtonVariant.Danger,
-                                modifier = Modifier.height(52.dp).padding(horizontal = 16.dp)
-                            )
                         }
                     }
                 }
