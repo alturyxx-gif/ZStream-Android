@@ -477,8 +477,7 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
 
     Box(modifier = Modifier
         .fillMaxSize()
-        .background(theme.colors.background.main)
-        .navigationBarsPadding()) {
+        .background(theme.colors.background.main)) {
         if (!state.enableLowPerformanceMode && !state.enableFeatured) {
             Box(Modifier.hazeSource(hazeState)) {
                 CosmicBackground()
@@ -573,7 +572,7 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
                             .fillMaxWidth()
                             .hazeSource(hazeState)
                             .animateContentSize(),
-                        contentPadding = PaddingValues(bottom = 32.dp)
+                        contentPadding = WindowInsets.navigationBars.asPaddingValues()
                     ) {
                         item {
                             if (isFeaturedActive) {
@@ -3166,16 +3165,18 @@ private fun FeaturedCarousel(
                                 }
                             }
 
-                            LinearProgressIndicator(
-                                progress = { scrollProgress },
-                                modifier = Modifier
-                                    .then(if (isTv) Modifier.width(300.dp) else Modifier.fillMaxWidth())
-                                    .height(2.dp)
-                                    .clip(CircleShape),
-                                color = Color.White.copy(alpha = 0.8f),
-                                trackColor = Color.White.copy(alpha = 0.2f),
-                                strokeCap = StrokeCap.Round
-                            )
+                            if (isTv) {
+                                LinearProgressIndicator(
+                                    progress = { scrollProgress },
+                                    modifier = Modifier
+                                        .width(300.dp)
+                                        .height(2.dp)
+                                        .clip(CircleShape),
+                                    color = Color.White.copy(alpha = 0.8f),
+                                    trackColor = Color.White.copy(alpha = 0.2f),
+                                    strokeCap = StrokeCap.Round
+                                )
+                            }
                         }
                     }
                 }
