@@ -45,7 +45,8 @@ data class HomeState(
     val error: String? = null,
     val enableCarouselView: Boolean = true,
     val gridRows: Int = 2,
-    val canLoadMore: Boolean = false
+    val canLoadMore: Boolean = false,
+    val initialFocusRequested: Boolean = false
 ) {
     val userSections: List<MediaSection> get() {
         val userContent = mutableListOf<MediaSection>()
@@ -249,6 +250,7 @@ class HomeViewModel @Inject constructor(
     fun setTab(tab: HomeTab) = _state.update { it.copy(activeTab = tab) }
     fun setGenre(id: Int?) = _state.update { it.copy(selectedGenreId = id) }
     fun setSearch(q: String) = _state.update { it.copy(searchQuery = q) }
+    fun markFocusRequested() = _state.update { it.copy(initialFocusRequested = true) }
 
     // Live search results from TMDB (separate from carousel sections)
     private val _searchResults = MutableStateFlow<List<Media>>(emptyList())

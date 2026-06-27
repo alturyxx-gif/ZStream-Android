@@ -17,12 +17,8 @@ import com.zstream.android.data.remote.SavedCustomThemeResponse
 import com.zstream.android.data.remote.ThemeTripletResponse
 import com.google.gson.Gson
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -36,21 +32,14 @@ import javax.inject.Inject
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val settingsPrefs: SettingsPreferences,
-    private val accountRepo: AccountRepository,
     private val progressRepo: ProgressRepository,
     private val bookmarkRepo: BookmarkRepository,
-    private val api: BackendApi,
 ) : ViewModel() {
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .build()
 
-    private val _dirty = MutableStateFlow(false)
-    val dirty: StateFlow<Boolean> = _dirty
-
-    // Persists the user's last hand-crafted subtitle settings so they can be
-    // restored any time they tap "Custom" after switching to a named preset.
     private val _customSubtitleSlot = MutableStateFlow<SettingsEntity?>(null)
 
     val settings: StateFlow<SettingsEntity> = settingsPrefs.settings
@@ -59,17 +48,6 @@ class SettingsViewModel @Inject constructor(
     private val _currentTab = MutableStateFlow(0)
     val currentTab: StateFlow<Int> = _currentTab
 
-    private var savedEntity: SettingsEntity = SettingsEntity()
-
-    init {
-        viewModelScope.launch {
-            settings.collect { entity ->
-                savedEntity = entity
-                _dirty.value = false
-            }
-        }
-    }
-
     fun setTab(index: Int) { _currentTab.value = index }
 
     private fun update(transform: SettingsEntity.() -> SettingsEntity) {
@@ -77,7 +55,6 @@ class SettingsViewModel @Inject constructor(
             val current = settings.value
             val updated = current.transform()
             settingsPrefs.updateSettings(updated, syncToRemote = false)
-            _dirty.value = updated != savedEntity
         }
     }
 
@@ -376,25 +353,6 @@ class SettingsViewModel @Inject constructor(
         update { slot }
     }
 
-    fun saveToRemote() {
-        viewModelScope.launch {
-            val session = accountRepo.currentSession ?: return@launch
-            val entity = settings.value
-            try {
-                api.updateSettings(session.userId, session.bearer(), entity.toResponse())
-                savedEntity = entity
-                _dirty.value = false
-            } catch (_: Exception) { }
-        }
-    }
-
-    fun resetToLocal() {
-        viewModelScope.launch {
-            settingsPrefs.updateSettings(savedEntity, syncToRemote = false)
-            _dirty.value = false
-        }
-    }
-
     suspend fun exportDataJson(): String {
         val settings = settings.value
         val progress = progressRepo.observeAllProgress().first()
@@ -413,59 +371,4 @@ class SettingsViewModel @Inject constructor(
         return Gson().toJson(exportMap)
     }
 
-    private fun SettingsEntity.toResponse() = com.zstream.android.data.remote.SettingsResponse(
-        applicationTheme = applicationTheme,
-        customTheme = customTheme?.toResponse(),
-        applicationLanguage = applicationLanguage,
-        defaultSubtitleLanguage = defaultSubtitleLanguage,
-        enableThumbnails = enableThumbnails,
-        enableAutoplay = enableAutoplay,
-        enableSkipCredits = enableSkipCredits,
-        enableDiscover = enableDiscover,
-        enableFeatured = enableFeatured,
-        enableImageLogos = enableImageLogos,
-        enableCarouselView = enableCarouselView,
-        enableMinimalCards = enableMinimalCards,
-        forceCompactEpisodeView = forceCompactEpisodeView,
-        enableLowPerformanceMode = enableLowPerformanceMode,
-        enableNativeSubtitles = enableNativeSubtitles,
-        enablePauseOverlay = enablePauseOverlay,
-        enableHoldToBoost = enableHoldToBoost,
-        manualSourceSelection = manualSourceSelection,
-        enableDoubleClickToSeek = enableDoubleClickToSeek,
-        enableAutoResumeOnPlaybackError = enableAutoResumeOnPlaybackError,
-        enableSourceOrder = enableSourceOrder,
-        enableEmbedOrder = enableEmbedOrder,
-        proxyTmdb = proxyTmdb,
-        sourceOrder = sourceOrder,
-        homeSectionOrder = homeSectionOrder,
-    )
-
-    private fun CustomThemeSettings.toResponse() = CustomThemeSettingsResponse(
-        primary = primary,
-        secondary = secondary,
-        tertiary = tertiary,
-        activeTheme = activeTheme?.let {
-            ThemeTripletResponse(
-                primary = it.primary,
-                secondary = it.secondary,
-                tertiary = it.tertiary,
-            )
-        },
-        savedCustomThemes = savedCustomThemes.map { it.toResponse() },
-        hiddenDefaultThemes = hiddenDefaultThemes,
-    )
-
-    private fun SavedCustomTheme.toResponse() = SavedCustomThemeResponse(
-        id = id,
-        name = name,
-        primary = primary,
-        secondary = secondary,
-        tertiary = tertiary,
-        customPrimaryHex = customPrimaryHex,
-        customSecondaryHex = customSecondaryHex,
-        customTertiaryHex = customTertiaryHex,
-    )
 }
-
-private fun AccountSession.bearer() = "Bearer $token"
