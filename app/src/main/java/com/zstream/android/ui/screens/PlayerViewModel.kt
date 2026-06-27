@@ -126,6 +126,7 @@ class PlayerViewModel @Inject constructor(
     init {
         load()
         observeWatchParty()
+        reportLoadingState()
     }
 
     private fun observeWatchParty() {
@@ -134,6 +135,33 @@ class PlayerViewModel @Inject constructor(
                 _watchPartyEvent.emit(action)
             }
         }
+    }
+
+    fun reportLoadingState() {
+        val content = WatchPartyContentDto(
+            title = title,
+            type = if (mediaType == "movie") "Movie" else "TV Show",
+            tmdbId = id.toString(),
+            seasonId = seasonId,
+            episodeId = episodeId,
+            seasonNumber = season,
+            episodeNumber = episode,
+            year = year,
+            poster = poster
+        )
+
+        val player = WatchPartyPlayerDto(
+            isPlaying = false,
+            isPaused = false,
+            isLoading = true,
+            hasPlayedOnce = false,
+            time = 0.0,
+            duration = 0.0,
+            playbackRate = 1.0,
+            buffered = 0.0
+        )
+
+        watchPartyManager.updateLocalState(content, player)
     }
 
     fun reportPlayerState(
@@ -164,15 +192,20 @@ class PlayerViewModel @Inject constructor(
             isPaused = isPaused,
             isLoading = isLoading,
             hasPlayedOnce = hasPlayedOnce,
-            time = timeMs / 1000.0,
-            duration = durationMs / 1000.0,
+            time = timeMs.coerceAtLeast(0) / 1000.0,
+            duration = durationMs.coerceAtLeast(0) / 1000.0,
             playbackRate = playbackRate.toDouble(),
-            buffered = bufferedMs / 1000.0
+            buffered = bufferedMs.coerceAtLeast(0) / 1000.0
         )
 
         // Ensure manager's internal host state is in sync with UI state
         // and update local state for reporting
         watchPartyManager.updateLocalState(content, player)
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        watchPartyManager.clearLocalState()
     }
 
     fun getProxyPort() = engine.proxy.port

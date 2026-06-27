@@ -298,6 +298,13 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
     val isTv = LocalIsTv.current
     val playerFocusRequester = remember { FocusRequester() }
 
+    LaunchedEffect(state, watchPartyEnabled, isHost) {
+        val s = state
+        if (watchPartyEnabled && isHost && (s is PlayerState.Scraping || s is PlayerState.ManualSourceSelection)) {
+            vm.reportLoadingState()
+        }
+    }
+
     Box(Modifier.fillMaxSize().background(Color.Black)) /* Color of the video background in the player */ {
         when (val s = state) {
             is PlayerState.Idle, is PlayerState.Scraping -> {
@@ -518,6 +525,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                                     Player.EVENT_POSITION_DISCONTINUITY,
                                     Player.EVENT_PLAYBACK_PARAMETERS_CHANGED
                                 )) {
+                                Log.d("PlayerScreen", "ExoPlayer Event: playWhenReady=${player.playWhenReady}, playbackState=${player.playbackState}, pos=${player.currentPosition}")
                                 vm.reportPlayerState(
                                     isPlaying = player.isPlaying,
                                     isPaused = !player.playWhenReady,
@@ -557,10 +565,20 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
 
                 LaunchedEffect(player) {
                     vm.watchPartyEvent.collect { action ->
+                        Log.d("PlayerScreen", "Received WatchPartyAction: $action")
                         when (action) {
-                            is WatchPartyAction.Seek -> player.seekTo(action.timeMs)
-                            is WatchPartyAction.Play -> player.play()
-                            is WatchPartyAction.Pause -> player.pause()
+                            is WatchPartyAction.Seek -> {
+                                Log.d("PlayerScreen", "Executing seekTo(${action.timeMs})")
+                                player.seekTo(action.timeMs)
+                            }
+                            is WatchPartyAction.Play -> {
+                                Log.d("PlayerScreen", "Executing play()")
+                                player.play()
+                            }
+                            is WatchPartyAction.Pause -> {
+                                Log.d("PlayerScreen", "Executing pause()")
+                                player.pause()
+                            }
                             else -> {}
                         }
                     }
@@ -1266,6 +1284,8 @@ private fun PlayerControls(
         }
     }
     var isPlaying by remember { mutableStateOf(player.isPlaying) }
+    var playWhenReady by remember { mutableStateOf(player.playWhenReady) }
+    var playbackState by remember { mutableIntStateOf(player.playbackState) }
     var positionMs by remember { mutableLongStateOf(0L) }
     var durationMs by remember { mutableLongStateOf(0L) }
     var isMuted by remember { mutableStateOf(player.volume == 0f) }
@@ -1281,6 +1301,14 @@ private fun PlayerControls(
     DisposableEffect(player) {
         val listener = object : Player.Listener {
             override fun onIsPlayingChanged(playing: Boolean) { isPlaying = playing }
+            override fun onPlayWhenReadyChanged(pwr: Boolean, reason: Int) { playWhenReady = pwr }
+            override fun onPlaybackStateChanged(state: Int) {
+                playbackState = state
+                // If buffering and we want to play, ensure we're not stuck
+                if (state == Player.STATE_BUFFERING && playWhenReady) {
+                    player.play()
+                }
+            }
             override fun onTracksChanged(tracks: Tracks) { tracksSnapshot = tracks }
             override fun onPlaybackParametersChanged(playbackParameters: PlaybackParameters) {
                 playbackSpeed = playbackParameters.speed
@@ -1419,9 +1447,9 @@ private fun PlayerControls(
                         Icon(painterResource(R.drawable.ic_player_skip_back), null, tint = theme.colors.type.emphasis,
                             modifier = Modifier.height(CENTER_ICON_HEIGHT).wrapContentWidth())
                     }
-                    IconButton(onClick = { if (player.isPlaying) player.pause() else player.play() },
+                    IconButton(onClick = { if (playWhenReady) player.pause() else player.play() },
                         modifier = Modifier.size(CENTER_BUTTON_SIZE)) {
-                        Icon(painterResource(if (isPlaying) R.drawable.ic_player_pause else R.drawable.ic_player_play),
+                        Icon(painterResource(if (playWhenReady) R.drawable.ic_player_pause else R.drawable.ic_player_play),
                             null, tint = theme.colors.type.emphasis,
                             modifier = Modifier.height(CENTER_ICON_HEIGHT).wrapContentWidth())
                     }
@@ -1520,10 +1548,10 @@ private fun PlayerControls(
                         verticalAlignment = Alignment.CenterVertically) {
                         Spacer(Modifier.width(BOTTOM_LEFT_START_PADDING))
                         DrawableControlIcon(
-                            res = if (isPlaying) R.drawable.ic_player_pause else R.drawable.ic_player_play,
+                            res = if (playWhenReady) R.drawable.ic_player_pause else R.drawable.ic_player_play,
                             theme = theme
                         ) {
-                            if (player.isPlaying) player.pause() else player.play()
+                            if (playWhenReady) player.pause() else player.play()
                         }
                         DrawableControlIcon(R.drawable.ic_player_skip_back, theme) {
                             player.seekTo((player.currentPosition - 10_000).coerceAtLeast(0))
@@ -1747,6 +1775,20 @@ private fun PlayerControls(
                     )
                 }
             }
+        }
+
+        // Buffering Spinner
+        AnimatedVisibility(
+            visible = playbackState == Player.STATE_BUFFERING && playWhenReady && !menuOpen,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.align(Alignment.Center)
+        ) {
+            CircularProgressIndicator(
+                color = theme.colors.type.emphasis,
+                modifier = Modifier.size(48.dp),
+                strokeWidth = 4.dp
+            )
         }
     }
 

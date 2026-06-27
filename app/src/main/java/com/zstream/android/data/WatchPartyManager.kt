@@ -14,8 +14,8 @@ private const val BACKOFF_MAX_MS = 15000L
 private const val STALE_USER_MS = 12000L
 private const val DRIFT_THRESHOLD_SECONDS = 5.0
 private const val SYNC_COOLDOWN_MS = 3000L
-private const val SEEK_SETTLE_MS = 250L
-private const val PLAY_SETTLE_MS = 350L
+private const val SEEK_SETTLE_MS = 500L
+private const val PLAY_SETTLE_MS = 500L
 
 private const val HOST_REPORT_INTERVAL_MS = 1500L
 private const val GUEST_REPORT_INTERVAL_MS = 3000L
@@ -137,10 +137,22 @@ class WatchPartyManager @Inject constructor(
      * Join an existing watch party.
      */
     fun joinRoom(code: String) {
+        val sameRoom = _roomCode.value == code.uppercase()
         _roomCode.value = code.uppercase()
         _isHost.value = false
         _enabled.value = true
-        resetEngineState()
+        
+        if (!sameRoom) {
+            resetEngineState()
+        }
+        
+        // Always reset these to allow "Jump to Host" to work even if the room code is the same.
+        // This ensures the engine re-evaluates the host content and triggers a Navigate action.
+        lastLocalContent = null
+        lastLocalState = null
+        lastFollowKey = null
+        hasInitialSynced = false
+
         startEngine()
         startReporter()
     }
@@ -156,6 +168,9 @@ class WatchPartyManager @Inject constructor(
         _isOffline.value = false
         _isRegistering.value = false
         _contentMismatch.value = false
+        lastLocalContent = null
+        lastLocalState = null
+        lastFollowKey = null
         stopEngine()
         stopReporter()
     }
@@ -168,26 +183,40 @@ class WatchPartyManager @Inject constructor(
         val host = _participants.value.find { it.isHost } ?: return
 
         scope.launch {
-            val hostIsPlaying = host.isPlaying && !host.isPaused
+            val hostIsPlayingMotion = host.isPlaying && !host.isPaused
+            val hostIsPlayingIntent = !host.isPaused
             val elapsed = Math.max(0L, System.currentTimeMillis() - host.lastUpdate) / 1000.0
-            val predicted = if (hostIsPlaying) host.time + elapsed else host.time
+            val predicted = if (hostIsPlayingMotion) host.time + elapsed else host.time
 
             syncInProgress = true
             _isSyncing.value = true
             lastSyncAt = System.currentTimeMillis()
 
+            Log.i(TAG, "MANUAL SYNC TRIGGERED: hostIsPlayingIntent=$hostIsPlayingIntent, predictedTime=$predicted")
+            Log.d(TAG, "Manual Sync: Emitting Seek: ${predicted * 1000}ms")
             _actions.emit(WatchPartyAction.Seek((predicted * 1000).toLong()))
             delay(SEEK_SETTLE_MS)
 
-            if (hostIsPlaying) _actions.emit(WatchPartyAction.Play)
-            else _actions.emit(WatchPartyAction.Pause)
+            if (hostIsPlayingIntent) {
+                Log.d(TAG, "Manual Sync: Emitting Play")
+                _actions.emit(WatchPartyAction.Play)
+            } else {
+                Log.d(TAG, "Manual Sync: Emitting Pause")
+                _actions.emit(WatchPartyAction.Pause)
+            }
 
             delay(PLAY_SETTLE_MS)
 
             _isSyncing.value = false
             syncInProgress = false
             hasInitialSynced = true
-            lastHostPlaying = hostIsPlaying
+            
+            // Sync engine state so it doesn't immediately "fix" our manual sync
+            lastHostPlaying = hostIsPlayingIntent
+            pendingHostPlaying = hostIsPlayingIntent
+            confirmedHostPlaying = hostIsPlayingIntent
+            
+            Log.i(TAG, "Manual Sync complete")
         }
     }
 
@@ -197,6 +226,16 @@ class WatchPartyManager @Inject constructor(
     fun updateLocalState(content: WatchPartyContentDto, player: WatchPartyPlayerDto) {
         lastLocalContent = content
         lastLocalState = player
+    }
+
+    /**
+     * Clear local state when the player is closed.
+     */
+    fun clearLocalState() {
+        lastLocalContent = null
+        lastLocalState = null
+        // We do NOT clear lastFollowKey here to prevent "Aggressive Auto-Follow" loops.
+        // Auto-follow will only trigger again if the host changes content.
     }
 
     private fun resetEngineState() {
@@ -211,6 +250,9 @@ class WatchPartyManager @Inject constructor(
         lastFollowKey = null
         lastFingerprint = ""
         lastReportTime = 0L
+        // DO NOT reset lastLocalContent/lastLocalState here.
+        // Doing so makes the engine think we have no content and immediately emits a Navigate action
+        // even if we are already in the player watching that content.
     }
 
     private fun startEngine() {
@@ -274,6 +316,7 @@ class WatchPartyManager @Inject constructor(
 
                     if (dueByChange || dueByTime) {
                         val userId = repository.getUserId() ?: repository.getGuestId()
+                        Log.d(TAG, "Reporting status: isHost=${_isHost.value}, playing=${status.isPlaying}, paused=${status.isPaused}, loading=${status.isLoading}, time=${status.time}")
                         val request = WatchPartyStatusRequest(
                             userId = userId,
                             roomCode = code,
@@ -404,59 +447,94 @@ class WatchPartyManager @Inject constructor(
         val local = lastLocalState ?: return
         if (localMeta == null) return
 
+        Log.v(TAG, "Guest Engine: Host(playing=${host.isPlaying}, paused=${host.isPaused}, loading=${host.isLoading}, time=${host.time}) " +
+                "Local(playing=${local.isPlaying}, paused=${local.isPaused}, loading=${local.isLoading}, time=${local.time}) " +
+                "InitialSynced=$hasInitialSynced")
+
         // Check for sync block conditions
-        if (syncInProgress) return
-        if (System.currentTimeMillis() - lastSyncAt < SYNC_COOLDOWN_MS) return
+        if (syncInProgress) {
+            Log.v(TAG, "Sync in progress, skipping tick")
+            return
+        }
+        if (System.currentTimeMillis() - lastSyncAt < SYNC_COOLDOWN_MS) {
+            Log.v(TAG, "Sync cooldown, skipping tick")
+            return
+        }
 
         // 3. Play State Confirmation (Prevents jitter)
-        val hostIsPlaying = host.isPlaying && !host.isPaused
-        if (pendingHostPlaying == hostIsPlaying) {
-            confirmedHostPlaying = hostIsPlaying
+        // Use Host Intent (isPaused) for sync, but Host Motion (isPlaying && !isPaused) for prediction
+        val hostIsPlayingMotion = host.isPlaying && !host.isPaused
+        val hostIsPlayingIntent = !host.isPaused
+        
+        if (hasInitialSynced) {
+            if (pendingHostPlaying == hostIsPlayingIntent) {
+                confirmedHostPlaying = hostIsPlayingIntent
+            } else {
+                Log.d(TAG, "Pending play state changed to $hostIsPlayingIntent, waiting for confirmation")
+                pendingHostPlaying = hostIsPlayingIntent
+                return // Wait for next tick to confirm
+            }
         } else {
-            pendingHostPlaying = hostIsPlaying
-            return // Wait for next tick to confirm
+            // First sync: bypass jitter protection
+            Log.d(TAG, "First sync: bypassing jitter protection for hostIsPlayingIntent=$hostIsPlayingIntent")
+            pendingHostPlaying = hostIsPlayingIntent
+            confirmedHostPlaying = hostIsPlayingIntent
         }
 
         // 4. Latency Compensation
         val elapsed = Math.max(0L, System.currentTimeMillis() - host.lastUpdate) / 1000.0
-        val predicted = if (hostIsPlaying) host.time + elapsed else host.time
+        val predicted = if (hostIsPlayingMotion) host.time + elapsed else host.time
         
-        // 5. Host Loading Guard
+        // 5. Host & Local Loading Guards
         // If host is loading, their time is unstable. Ignore drift but process state changes.
+        // If local is loading, skip drift-based syncs to prevent "Seek Loops".
         val drift = local.time - predicted
         val needsInitial = !hasInitialSynced
-        val needsDrift = hasInitialSynced && Math.abs(drift) > DRIFT_THRESHOLD_SECONDS
-        val needsPlayState = confirmedHostPlaying != null && lastHostPlaying != null && confirmedHostPlaying != lastHostPlaying
+        val needsDrift = hasInitialSynced && !local.isLoading && Math.abs(drift) > DRIFT_THRESHOLD_SECONDS
+        
+        // Fix: needsPlayState should be true if we don't have a lastHostPlaying yet (first sync)
+        val needsPlayState = confirmedHostPlaying != null && (lastHostPlaying == null || confirmedHostPlaying != lastHostPlaying)
 
-        if (host.isLoading && !needsPlayState && !needsInitial) return
+        Log.v(TAG, "Sync Check: needsInitial=$needsInitial, needsDrift=$needsDrift (drift=$drift), needsPlayState=$needsPlayState")
 
         // 6. Duration Guard
         if (host.duration > 0 && local.duration > 0 && Math.abs(host.duration - local.duration) > 30.0) {
+            Log.w(TAG, "Duration mismatch: host=${host.duration}, local=${local.duration}. Skipping sync.")
             return
         }
 
         // 7. Start-of-Video Sync Guard (Rubber-band protection)
-        if (hostIsPlaying && predicted < 0.5 && host.duration > 30 && local.time > 1.0) {
+        if (hostIsPlayingMotion && predicted < 0.5 && host.duration > 30 && local.time > 1.0) {
+            Log.d(TAG, "Rubber-band protection: host is at start, local is at ${local.time}. Skipping sync.")
             return
         }
 
+        Log.v(TAG, "Sync Check: needsInitial=$needsInitial, needsDrift=$needsDrift (drift=$drift), needsPlayState=$needsPlayState")
+
         if (needsInitial || needsDrift || needsPlayState) {
-            val targetPlaying = if (needsInitial) hostIsPlaying else confirmedHostPlaying ?: hostIsPlaying
+            val targetPlaying = if (needsInitial) hostIsPlayingIntent else confirmedHostPlaying ?: hostIsPlayingIntent
             
+            Log.i(TAG, "TRIGGERING SYNC: targetPlaying=$targetPlaying, predictedTime=$predicted")
             syncInProgress = true
             _isSyncing.value = true
             lastSyncAt = System.currentTimeMillis()
 
             // Apply sync actions
             if (needsInitial || needsDrift || needsPlayState) {
+                Log.d(TAG, "Emitting Seek: ${predicted * 1000}ms")
                 _actions.emit(WatchPartyAction.Seek((predicted * 1000).toLong()))
             }
             
             // Wait for seek to "settle" before toggling playback
             delay(SEEK_SETTLE_MS)
             
-            if (targetPlaying) _actions.emit(WatchPartyAction.Play)
-            else _actions.emit(WatchPartyAction.Pause)
+            if (targetPlaying) {
+                Log.d(TAG, "Emitting Play")
+                _actions.emit(WatchPartyAction.Play)
+            } else {
+                Log.d(TAG, "Emitting Pause")
+                _actions.emit(WatchPartyAction.Pause)
+            }
 
             // Final settle window
             delay(PLAY_SETTLE_MS)
@@ -465,6 +543,7 @@ class WatchPartyManager @Inject constructor(
             syncInProgress = false
             hasInitialSynced = true
             lastHostPlaying = targetPlaying
+            Log.i(TAG, "Sync complete")
         }
     }
 }
