@@ -56,7 +56,14 @@ class WebViewProxyServer {
         try {
             val reader = socket.getInputStream().bufferedReader()
             val requestLine = reader.readLine() ?: return
-            while (reader.readLine()?.isNotEmpty() == true) { /* drain headers */ }
+            val requestHeaders = buildMap {
+                while (true) {
+                    val line = reader.readLine() ?: break
+                    if (line.isEmpty()) break
+                    val separator = line.indexOf(':')
+                    if (separator > 0) put(line.substring(0, separator).trim(), line.substring(separator + 1).trim())
+                }
+            }
 
             val rawPath = requestLine.split(" ").getOrNull(1) ?: return
             val targetUrl = URLDecoder.decode(rawPath.trimStart('/'), "UTF-8")
@@ -65,6 +72,8 @@ class WebViewProxyServer {
 
             val reqBuilder = Request.Builder().url(targetUrl)
                 .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36")
+            requestHeaders.entries.firstOrNull { it.key.equals("Range", ignoreCase = true) }
+                ?.value?.let { reqBuilder.header("Range", it) }
             playbackHeaders.forEach { (k, v) -> reqBuilder.header(k, v) }
 
             val response = okhttp.newCall(reqBuilder.build()).execute()
@@ -90,8 +99,10 @@ class WebViewProxyServer {
                 val contentType = response.header("Content-Type") ?: "video/mp2t"
                 
                 val header = buildString {
-                    append("HTTP/1.1 200 OK\r\n")
+                    append("HTTP/1.1 ${response.code} ${response.message}\r\n")
                     if (contentLength >= 0) append("Content-Length: $contentLength\r\n")
+                    response.header("Content-Range")?.let { append("Content-Range: $it\r\n") }
+                    response.header("Accept-Ranges")?.let { append("Accept-Ranges: $it\r\n") }
                     append("Content-Type: $contentType\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n")
                 }
                 out.write(header.toByteArray())

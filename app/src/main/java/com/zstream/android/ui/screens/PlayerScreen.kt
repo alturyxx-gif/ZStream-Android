@@ -268,6 +268,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
     val contentMismatch by vm.watchPartyManager.contentMismatch.collectAsState()
     val isOffline by vm.watchPartyManager.isOffline.collectAsState()
     val isHost by vm.watchPartyManager.isHost.collectAsState()
+    val watchPartyUserId by vm.watchPartyManager.selfUserId.collectAsState()
     val context = LocalContext.current
     val activity = context as? Activity
     val playerScope = rememberCoroutineScope()
@@ -495,6 +496,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                 }
 
                 var currentPositionMs by remember { mutableLongStateOf(0L) }
+                var watchPartyHasPlayedOnce by remember(player) { mutableStateOf(false) }
 
                 // Collect player position for subtitle timing
                 LaunchedEffect(player) {
@@ -525,6 +527,9 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     
                     val listener = object : Player.Listener {
                         override fun onEvents(player: Player, events: Player.Events) {
+                            if (player.playbackState == Player.STATE_READY || player.currentPosition > 0) {
+                                watchPartyHasPlayedOnce = true
+                            }
                             if (events.containsAny(
                                     Player.EVENT_PLAY_WHEN_READY_CHANGED,
                                     Player.EVENT_PLAYBACK_STATE_CHANGED,
@@ -535,7 +540,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                                     isPlaying = player.isPlaying,
                                     isPaused = !player.playWhenReady,
                                     isLoading = player.playbackState == Player.STATE_BUFFERING,
-                                    hasPlayedOnce = player.currentPosition > 0,
+                                    hasPlayedOnce = watchPartyHasPlayedOnce,
                                     timeMs = player.currentPosition,
                                     durationMs = player.duration,
                                     playbackRate = player.playbackParameters.speed,
@@ -550,11 +555,14 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     try {
                         // Heartbeat to ensure position is updated regularly even without events
                         while (true) {
+                            if (player.playbackState == Player.STATE_READY || player.currentPosition > 0) {
+                                watchPartyHasPlayedOnce = true
+                            }
                             vm.reportPlayerState(
                                 isPlaying = player.isPlaying,
                                 isPaused = !player.playWhenReady,
                                 isLoading = player.playbackState == Player.STATE_BUFFERING,
-                                hasPlayedOnce = player.currentPosition > 0,
+                                hasPlayedOnce = watchPartyHasPlayedOnce,
                                 timeMs = player.currentPosition,
                                 durationMs = player.duration,
                                 playbackRate = player.playbackParameters.speed,
@@ -581,24 +589,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                             is WatchPartyAction.Pause -> {
                                 player.pause()
                             }
-                            is WatchPartyAction.Navigate -> {
-                                Log.d("PlayerScreen", "Received Navigate: $action")
-                                val base = "player/${action.mediaType}/${action.tmdbId}"
-                                val params = buildList {
-                                    if (action.season != null) add("season=${action.season}")
-                                    if (action.episode != null) add("episode=${action.episode}")
-                                    if (action.seasonId != null) add("seasonId=${action.seasonId}")
-                                    if (action.episodeId != null) add("episodeId=${action.episodeId}")
-                                    if (action.title.isNotBlank()) add("title=${Uri.encode(action.title)}")
-                                    if (action.year != null) add("year=${action.year}")
-                                    if (!action.poster.isNullOrBlank()) add("poster=${Uri.encode(action.poster)}")
-                                }
-                                val route = if (params.isEmpty()) base else "$base?${params.joinToString("&")}"
-                                nav.navigate(route) {
-                                    popUpTo("home") { inclusive = false }
-                                    launchSingleTop = true
-                                }
-                            }
+                            is WatchPartyAction.Navigate -> Unit
                         }
                     }
                 }
@@ -1043,7 +1034,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     },
                     roomCode = roomCode,
                     participants = participants,
-                    myUserId = session?.userId,
+                    myUserId = watchPartyUserId,
                     isSyncing = isSyncing,
                     isRegistering = isRegistering,
                     contentMismatch = contentMismatch,
