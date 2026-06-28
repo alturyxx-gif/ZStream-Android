@@ -1,17 +1,18 @@
 package com.zstream.android.ui.screens
 
+import android.net.Uri
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.BringIntoViewSpec
 import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.ScrollState
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -20,7 +21,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Done
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.RemoveRedEye
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material3.*
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
@@ -32,18 +39,23 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
@@ -67,9 +79,11 @@ import com.zstream.android.ui.components.themed.ZsStatusBanner
 import com.zstream.android.ui.components.themed.ZsStatusBannerVariant
 import kotlinx.coroutines.launch
 
+// Shared components from SharedDetailSheet
+
 internal val DETAIL_SHEET_CORNER_RADIUS = 28.dp
 internal val DETAIL_SHEET_BACKDROP_HEIGHT = 360.dp
-internal val DETAIL_SHEET_CONTENT_PADDING = 32.dp
+internal val DETAIL_SHEET_CONTENT_PADDING = 20.dp
 internal val DETAIL_SHEET_BOTTOM_SPACER = 36.dp
 internal val DETAIL_SHEET_MIN_SCROLL_EXTRA = 1.dp
 
@@ -140,7 +154,7 @@ internal fun SharedDetailSheetScaffold(
                     .fillMaxSize()
                     .verticalScroll(scrollState)
                     .onGloballyPositioned { containerCoords = it }
-                    .padding(top = if (isTv) 64.dp else 64.dp, bottom = 64.dp),
+                    .padding(top = if (isTv) 32.dp else 48.dp, bottom = 20.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Surface(
@@ -273,8 +287,9 @@ internal fun ColumnScope.SharedMovieDetailContent(
     context: android.content.Context,
     nav: NavController,
     theme: ZStreamTheme,
+    firstItemFocusRequester: FocusRequester? = null,
     specActions: @Composable ColumnScope.() -> Unit = {},
-    topActions: @Composable RowScope.() -> Unit,
+    topActions: @Composable RowScope.(firstItemFocusRequester: FocusRequester?) -> Unit,
 ) {
     val genres = detail.genres.orEmpty()
     val cast = detail.credits?.cast.orEmpty().take(8)
@@ -283,13 +298,14 @@ internal fun ColumnScope.SharedMovieDetailContent(
     Row(
         Modifier
             .fillMaxWidth()
-            .padding(horizontal = 32.dp, vertical = 14.dp),
+            .padding(horizontal = 20.dp, vertical = 14.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        content = topActions
-    )
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        topActions(firstItemFocusRequester)
+    }
 
-    Row(Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(40.dp)) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(40.dp)) {
         Column(Modifier.weight(1f)) {
             detail.overview?.takeIf { it.isNotBlank() }?.let { 
                 Text(
@@ -333,8 +349,9 @@ internal fun ColumnScope.SharedTvDetailContent(
     onSelectSeason: (Int) -> Unit,
     onMarkEpisodeWatched: (Episode) -> Unit = {},
     onClearEpisodeWatchHistory: (Episode) -> Unit = {},
+    firstItemFocusRequester: FocusRequester? = null,
     specActions: @Composable ColumnScope.() -> Unit = {},
-    topActions: @Composable RowScope.() -> Unit,
+    topActions: @Composable RowScope.(firstItemFocusRequester: FocusRequester?) -> Unit,
 ) {
     val seasons = detail.seasons.orEmpty().filter { it.seasonNumber > 0 }
     val scrollState = LocalScrollState.current
@@ -342,13 +359,14 @@ internal fun ColumnScope.SharedTvDetailContent(
     Row(
         Modifier
             .fillMaxWidth()
-            .padding(horizontal = 32.dp, vertical = 14.dp),
+            .padding(horizontal = 20.dp, vertical = 14.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        content = topActions
-    )
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        topActions(firstItemFocusRequester)
+    }
 
-    Row(Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(40.dp)) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(40.dp)) {
         Column(Modifier.weight(1f)) {
             detail.overview?.takeIf { it.isNotBlank() }?.let { 
                 Text(
@@ -376,7 +394,7 @@ internal fun ColumnScope.SharedTvDetailContent(
     val isTv = LocalIsTv.current
     LazyRow(
         horizontalArrangement = Arrangement.spacedBy(if (isTv) 12.dp else 8.dp),
-        modifier = Modifier.padding(horizontal = 32.dp),
+        modifier = Modifier.padding(horizontal = 20.dp),
         contentPadding = if (isTv) PaddingValues(4.dp) else PaddingValues(0.dp)
     ) {
         items(seasons) { season ->
@@ -384,11 +402,12 @@ internal fun ColumnScope.SharedTvDetailContent(
             val isSelected = season.seasonNumber == selectedSeason?.seasonNumber
 
             ZsOutlinedWrapper(
-                shape = RoundedCornerShape(8.dp),
+                shape = RoundedCornerShape(12.dp),
                 visible = isFocused && isTv,
                 outlineColor = Color.White,
                 outlineWidth = 2.dp,
-                gap = 2.dp,
+                horizontal = 3.dp,
+                vertical = (-5).dp,
             ) {
                 FilterChip(
                     selected = isSelected,
@@ -423,7 +442,7 @@ internal fun ColumnScope.SharedTvDetailContent(
             .associateBy { it.episodeNumber }
         ZsBottomSheetSectionHeader("Episodes")
         episodes.forEach { episode ->
-            SharedEpisodeRow(
+            com.zstream.android.ui.screens.SharedEpisodeRow(
                 ep = episode,
                 showId = detail.id,
                 title = detail.name,
@@ -431,7 +450,6 @@ internal fun ColumnScope.SharedTvDetailContent(
                 nav = nav,
                 theme = theme,
                 episodeProgress = progressMap[episode.episodeNumber],
-                seasonId = selectedSeason.id,
                 enableWatchActions = true,
                 onMarkWatched = { onMarkEpisodeWatched(episode) },
                 onClearHistory = { onClearEpisodeWatchHistory(episode) },
@@ -457,28 +475,38 @@ internal fun Modifier.onTvFocusScroll(scrollState: ScrollState): Modifier {
 internal fun SharedActionPill(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     theme: ZStreamTheme,
+    focusRequester: FocusRequester? = null,
+    onFocusChanged: ((Boolean) -> Unit)? = null,
     onClick: () -> Unit,
 ) {
     val isTv = LocalIsTv.current
     var isFocused by remember { mutableStateOf(false) }
 
-    ZsOutlinedWrapper(
-        shape = RoundedCornerShape(50.dp),
-        visible = isFocused && isTv,
-        outlineColor = Color.White,
-        outlineWidth = 2.dp,
-        gap = 4.dp,
+    Box(
+        modifier = Modifier
+            .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
+            .onFocusChanged { 
+                isFocused = it.isFocused
+                onFocusChanged?.invoke(it.isFocused)
+            }
     ) {
-        Surface(
+        ZsOutlinedWrapper(
             shape = RoundedCornerShape(50.dp),
-            color = if (isFocused && isTv) theme.colors.global.accentA.copy(alpha = 0.3f) else theme.colors.type.text.copy(alpha = 0.05f),
-            border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.type.divider.copy(alpha = 0.3f)),
-            modifier = Modifier
-                .onFocusChanged { isFocused = it.isFocused }
-                .clickable(onClick = onClick)
+            visible = isFocused && isTv,
+            outlineColor = Color.White,
+            outlineWidth = 2.dp,
+            gap = 4.dp,
         ) {
-            Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(icon, null, modifier = Modifier.size(20.dp), tint = theme.colors.type.text)
+            Surface(
+                shape = RoundedCornerShape(50.dp),
+                color = if (isFocused && isTv) theme.colors.global.accentA.copy(alpha = 0.3f) else theme.colors.type.text.copy(alpha = 0.05f),
+                border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.type.divider.copy(alpha = 0.3f)),
+                modifier = Modifier
+                    .clickable(onClick = onClick)
+            ) {
+                Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(icon, null, modifier = Modifier.size(20.dp), tint = theme.colors.type.text)
+                }
             }
         }
     }
@@ -518,7 +546,7 @@ internal fun SharedCastRow(
     val isTv = LocalIsTv.current
     LazyRow(
         horizontalArrangement = Arrangement.spacedBy(if (isTv) 12.dp else 8.dp),
-        modifier = modifier.padding(horizontal = 32.dp, vertical = 8.dp),
+        modifier = modifier.padding(horizontal = 20.dp, vertical = 8.dp),
         contentPadding = if (isTv) PaddingValues(4.dp) else PaddingValues(0.dp)
     ) {
         items(cast) { member ->
@@ -537,7 +565,7 @@ internal fun SharedCastRow(
                         .clip(RoundedCornerShape(12.dp))
                         .onFocusChanged { isFocused = it.isFocused }
                         .clickable {
-                            openCastProfile(context, member.id, member.externalIds?.imdbId)
+                            com.zstream.android.ui.screens.openCastProfile(context, member.id, member.externalIds?.imdbId)
                         }
                         .padding(vertical = 4.dp)
                 ) {
@@ -584,13 +612,13 @@ internal fun SharedTrailerGrid(
         ZsStatusBanner(
             message = "No trailers available",
             variant = ZsStatusBannerVariant.Info,
-            modifier = modifier.padding(horizontal = 32.dp, vertical = 12.dp),
+            modifier = modifier.padding(horizontal = 20.dp, vertical = 12.dp),
         )
         return
     }
 
     val isTv = LocalIsTv.current
-    Column(modifier.padding(horizontal = 32.dp, vertical = 12.dp)) {
+    Column(modifier.padding(horizontal = 20.dp, vertical = 12.dp)) {
         LazyRow(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = if (isTv) PaddingValues(4.dp) else PaddingValues(0.dp)
@@ -611,7 +639,7 @@ internal fun SharedTrailerGrid(
                             .clip(RoundedCornerShape(8.dp))
                             .background(theme.colors.modal.background)
                             .onFocusChanged { isFocused = it.isFocused }
-                            .clickable { openYoutubeTrailer(context, trailer.key) }
+                            .clickable { com.zstream.android.ui.screens.openYoutubeTrailer(context, trailer.key) }
                     ) {
                         AsyncImage(
                             model = "https://img.youtube.com/vi/${trailer.key}/0.jpg",
@@ -647,13 +675,13 @@ internal fun SharedSimilarGrid(
         ZsStatusBanner(
             message = "No similar movies available",
             variant = ZsStatusBannerVariant.Info,
-            modifier = modifier.padding(horizontal = 32.dp, vertical = 12.dp),
+            modifier = modifier.padding(horizontal = 20.dp, vertical = 12.dp),
         )
         return
     }
 
     val isTv = LocalIsTv.current
-    Column(modifier.padding(horizontal = 32.dp, vertical = 12.dp)) {
+    Column(modifier.padding(horizontal = 20.dp, vertical = 12.dp)) {
         LazyRow(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = if (isTv) PaddingValues(4.dp) else PaddingValues(0.dp)
@@ -741,3 +769,4 @@ fun SharedTmdbRating(rating: Double, theme: ZStreamTheme) {
         Text(text = "%.1f".format(rating), color = theme.colors.type.emphasis, fontSize = 12.sp)
     }
 }
+
