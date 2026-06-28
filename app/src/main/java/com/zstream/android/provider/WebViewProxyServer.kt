@@ -87,10 +87,12 @@ class WebViewProxyServer {
                 // Stream segment directly — avoids buffering entire TS chunk in memory
                 val body = response.body!!
                 val contentLength = body.contentLength()
+                val contentType = response.header("Content-Type") ?: "video/mp2t"
+                
                 val header = buildString {
                     append("HTTP/1.1 200 OK\r\n")
                     if (contentLength >= 0) append("Content-Length: $contentLength\r\n")
-                    append("Content-Type: video/mp2t\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n")
+                    append("Content-Type: $contentType\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n")
                 }
                 out.write(header.toByteArray())
                 val buf = ByteArray(65536)
@@ -103,7 +105,7 @@ class WebViewProxyServer {
                     }
                 }
                 response.close()
-                Log.d(TAG, "sent ${total}b ${targetUrl.takeLast(45)}")
+                Log.d(TAG, "sent ${total}b (type=$contentType) ${targetUrl.takeLast(45)}")
             }
         } catch (e: Exception) {
             Log.e(TAG, "handle error: ${e.message}")

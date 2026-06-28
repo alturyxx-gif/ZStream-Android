@@ -7,11 +7,16 @@ import com.zstream.android.data.local.entity.ProgressEntity
 import com.zstream.android.data.local.preferences.SettingsPreferences
 import com.zstream.android.data.local.preferences.UserPreferences
 import com.zstream.android.data.model.Media
+import com.zstream.android.data.WatchPartyAction
+import com.zstream.android.data.WatchPartyManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -70,16 +75,30 @@ class HomeViewModel @Inject constructor(
     private val bookmarkRepo: com.zstream.android.data.BookmarkRepository,
     private val settingsPrefs: SettingsPreferences,
     val userPrefs: UserPreferences,
+    private val watchPartyManager: WatchPartyManager,
 ) : ViewModel() {
     private val _state = MutableStateFlow(HomeState())
     val state = _state.asStateFlow()
     private var currentSearchPage = 1
     private var isSearchingMore = false
     private var searchGeneration = 0
+
     init { 
         load()
         observeUserContent()
         observeSettings()
+    }
+
+    val watchPartyRoomCode = watchPartyManager.roomCode
+    val watchPartyEnabled = watchPartyManager.enabled
+    val watchPartyIsOffline = watchPartyManager.isOffline
+
+    fun joinWatchParty(code: String) {
+        watchPartyManager.joinRoom(code)
+    }
+
+    fun leaveWatchParty() {
+        watchPartyManager.leaveRoom()
     }
 
     private fun observeSettings() {

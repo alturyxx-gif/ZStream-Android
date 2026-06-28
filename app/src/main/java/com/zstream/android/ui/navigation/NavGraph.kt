@@ -2,6 +2,7 @@ package com.zstream.android.ui.navigation
 
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.window.DialogProperties
+import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -11,9 +12,7 @@ import androidx.navigation.navArgument
 import com.zstream.android.ui.screens.*
 
 @Composable
-fun NavGraph() {
-    val nav = rememberNavController()
-
+fun NavGraph(nav: NavHostController) {
     NavHost(nav, startDestination = "home") {
         composable("home") { HomeScreen(nav) }
         composable("search") { SearchScreen(nav) }
@@ -30,12 +29,14 @@ fun NavGraph() {
             )
         ) { DetailScreen(nav) }
         composable(
-            "player/{mediaType}/{id}?season={season}&episode={episode}&title={title}&year={year}&poster={poster}",
+            "player/{mediaType}/{id}?season={season}&episode={episode}&seasonId={seasonId}&episodeId={episodeId}&title={title}&year={year}&poster={poster}",
             arguments = listOf(
                 navArgument("mediaType") { type = NavType.StringType },
                 navArgument("id") { type = NavType.IntType },
                 navArgument("season") { type = NavType.IntType; defaultValue = -1 },
                 navArgument("episode") { type = NavType.IntType; defaultValue = -1 },
+                navArgument("seasonId") { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument("episodeId") { type = NavType.StringType; nullable = true; defaultValue = null },
                 navArgument("title") { type = NavType.StringType; defaultValue = "" },
                 navArgument("year") { type = NavType.IntType; defaultValue = 0 },
                 navArgument("poster") { type = NavType.StringType; defaultValue = "" },

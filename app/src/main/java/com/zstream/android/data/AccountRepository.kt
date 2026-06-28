@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.flow.first
 
 private const val TAG = "AccountRepo"
 private val Context.accountStore by preferencesDataStore("account")
@@ -27,6 +28,7 @@ class AccountRepository @Inject constructor(
     private val KEY_USER_ID  = stringPreferencesKey("user_id")
     private val KEY_NICKNAME = stringPreferencesKey("nickname")
     private val KEY_DEVICE   = stringPreferencesKey("device_name")
+    private val KEY_GUEST_ID = stringPreferencesKey("guest_id")
 
     // Current session (can be null)
     var currentSession: AccountSession? = null
@@ -69,6 +71,19 @@ class AccountRepository @Inject constructor(
     }
 
     suspend fun logout() = ctx.accountStore.edit { it.clear() }
+
+    /**
+     * Get a persistent guest ID for anonymous watch party participation.
+     */
+    suspend fun getOrCreateGuestId(): String {
+        val prefs = ctx.accountStore.data.first()
+        val existing = prefs[KEY_GUEST_ID]
+        if (existing != null) return existing
+
+        val newId = java.util.UUID.randomUUID().toString()
+        ctx.accountStore.edit { it[KEY_GUEST_ID] = newId }
+        return newId
+    }
 
     //  Sync helpers 
 

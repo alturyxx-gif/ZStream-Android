@@ -27,6 +27,13 @@ import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import com.zstream.android.data.local.preferences.SettingsPreferences
 import com.zstream.android.data.local.entity.SettingsEntity
+import com.zstream.android.data.WatchPartyManager
+import com.zstream.android.data.WatchPartyAction
+import com.zstream.android.data.remote.WatchPartyContentDto
+import com.zstream.android.data.remote.WatchPartyPlayerDto
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.collect
 
 enum class SourceStatus { IDLE, TRYING, SUCCESS, FAILED }
 data class SourceResult(val id: String, val status: SourceStatus)
@@ -72,6 +79,7 @@ class PlayerViewModel @Inject constructor(
     private val settingsPrefs: SettingsPreferences,
     private val bookmarkRepo: BookmarkRepository,
     private val tmdbRepo: TmdbRepository,
+    val watchPartyManager: WatchPartyManager,
     savedState: SavedStateHandle,
 ) : ViewModel() {
     val settings = settingsPrefs.settings
@@ -85,8 +93,8 @@ class PlayerViewModel @Inject constructor(
     val year = savedState.get<Int>("year") ?: 0
     val poster = savedState.get<String>("poster")?.decodeRouteParam()?.takeIf { it.isNotBlank() }
     val tmdbId = id.toString()
-    val seasonId = season?.toString()
-    val episodeId = episode?.toString()
+    val seasonId = savedState.get<String>("seasonId")
+    val episodeId = savedState.get<String>("episodeId")
 
     private val _state = MutableStateFlow<PlayerState>(PlayerState.Idle)
     val state = _state.asStateFlow()
@@ -111,7 +119,94 @@ class PlayerViewModel @Inject constructor(
         .readTimeout(15, TimeUnit.SECONDS)
         .build()
 
-    init { load() }
+    // --- Watch Party Actions ---
+    private val _watchPartyEvent = MutableSharedFlow<WatchPartyAction>(replay = 0)
+    val watchPartyEvent = _watchPartyEvent.asSharedFlow()
+
+    init {
+        load()
+        observeWatchParty()
+        reportLoadingState()
+    }
+
+    private fun observeWatchParty() {
+        viewModelScope.launch {
+            watchPartyManager.actions.collect { action ->
+                _watchPartyEvent.emit(action)
+            }
+        }
+    }
+
+    fun reportLoadingState() {
+        val content = WatchPartyContentDto(
+            title = title,
+            type = if (mediaType == "movie") "Movie" else "TV Show",
+            tmdbId = id.toString(),
+            seasonId = seasonId,
+            episodeId = episodeId,
+            seasonNumber = season,
+            episodeNumber = episode,
+            year = year,
+            poster = poster
+        )
+
+        val player = WatchPartyPlayerDto(
+            isPlaying = false,
+            isPaused = false,
+            isLoading = true,
+            hasPlayedOnce = false,
+            time = 0.0,
+            duration = 0.0,
+            playbackRate = 1.0,
+            buffered = 0.0
+        )
+
+        watchPartyManager.updateLocalState(content, player)
+    }
+
+    fun reportPlayerState(
+        isPlaying: Boolean,
+        isPaused: Boolean,
+        isLoading: Boolean,
+        hasPlayedOnce: Boolean,
+        timeMs: Long,
+        durationMs: Long,
+        playbackRate: Float,
+        bufferedMs: Long,
+        isHost: Boolean
+    ) {
+        val content = WatchPartyContentDto(
+            title = title,
+            type = if (mediaType == "movie") "Movie" else "TV Show",
+            tmdbId = id.toString(),
+            seasonId = seasonId,
+            episodeId = episodeId,
+            seasonNumber = season,
+            episodeNumber = episode,
+            year = year,
+            poster = poster
+        )
+
+        val player = WatchPartyPlayerDto(
+            isPlaying = isPlaying,
+            isPaused = isPaused,
+            isLoading = isLoading,
+            hasPlayedOnce = hasPlayedOnce,
+            time = timeMs.coerceAtLeast(0) / 1000.0,
+            duration = durationMs.coerceAtLeast(0) / 1000.0,
+            playbackRate = playbackRate.toDouble(),
+            buffered = bufferedMs.coerceAtLeast(0) / 1000.0
+        )
+
+        // Ensure manager's internal host state is in sync with UI state
+        // and update local state for reporting
+        watchPartyManager.updateLocalState(content, player)
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        watchPartyManager.clearLocalState()
+    }
 
     fun getProxyPort() = engine.proxy.port
 

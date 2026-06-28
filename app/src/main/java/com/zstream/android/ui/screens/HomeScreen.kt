@@ -111,6 +111,7 @@ import com.zstream.android.ui.LocalIsTv
 import com.zstream.android.ui.components.themed.ZsIconButton
 import com.zstream.android.ui.components.themed.ZsIconButtonVariant
 import com.zstream.android.ui.components.themed.ZsOutlinedWrapper
+import com.zstream.android.ui.components.themed.ZsTextField
 import kotlinx.coroutines.Dispatchers
 import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
@@ -362,6 +363,10 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
     val hazeState = rememberHazeState()
     val placeholder = rememberRandomPlaceholder()
 
+    val watchPartyRoomCode by vm.watchPartyRoomCode.collectAsState()
+    val watchPartyEnabled by vm.watchPartyEnabled.collectAsState()
+    val watchPartyIsOffline by vm.watchPartyIsOffline.collectAsState()
+
     var wasKeyboardVisible by remember { mutableStateOf(false) }
     LaunchedEffect(isKeyboardVisible) {
         if (wasKeyboardVisible && !isKeyboardVisible) {
@@ -418,10 +423,14 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
         if (showSandwichMenu) {
             SandwichMenuDialog(
                 nav = nav,
+                vm = vm,
                 session = session,
                 accountVm = accountVm,
                 showHeaderActions = state.enableFeatured,
                 unreadCount = unreadCount,
+                watchPartyEnabled = watchPartyEnabled,
+                watchPartyRoomCode = watchPartyRoomCode,
+                watchPartyIsOffline = watchPartyIsOffline,
                 onDiscord = { uriHandler.openUri(Urls.DISCORD_LINK) },
                 onNotifications = { showNotifications = true },
                 onTipJar = { showTipJar = true },
@@ -1643,18 +1652,24 @@ private fun LayoutMenuDialog(
 @Composable
 private fun SandwichMenuDialog(
     nav: NavController,
+    vm: HomeViewModel,
     session: com.zstream.android.data.AccountSession?,
     accountVm: AccountViewModel,
     showHeaderActions: Boolean,
     unreadCount: Int,
+    watchPartyEnabled: Boolean,
+    watchPartyRoomCode: String?,
+    watchPartyIsOffline: Boolean,
     onDiscord: () -> Unit,
     onNotifications: () -> Unit,
     onTipJar: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val theme = LocalZStreamTheme.current
-    var focusedMenu by remember { mutableStateOf(false) }
-    val focusMenuWidth by animateDpAsState(if (focusedMenu) 3.dp else 0.dp)
+    val focusManager = LocalFocusManager.current
+    var isJoiningWatchParty by remember { mutableStateOf(false) }
+    var watchPartyCode by remember { mutableStateOf("") }
+    val focusRequester = remember { FocusRequester() }
     val uriHandler = LocalUriHandler.current
 
     val isTv = LocalIsTv.current
@@ -1697,7 +1712,7 @@ private fun SandwichMenuDialog(
                     }
                 }
                 HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp), color = theme.colors.type.divider.copy(alpha = 0.15f))
-                
+
                 val settingsModifier = if (session != null) Modifier.focusRequester(firstItemFocusRequester) else Modifier
                 SandwichItem(Icons.Default.Settings, "Settings", theme = theme, modifier = settingsModifier) { nav.navigate("settings"); onDismiss() }
                 SandwichItem(Icons.Default.History, "Watch History", theme = theme) { nav.navigate("watchHistory"); onDismiss() }
@@ -1710,7 +1725,106 @@ private fun SandwichMenuDialog(
                     SandwichItem(Icons.Default.AttachMoney, "Tip Jar", theme = theme) { onTipJar(); onDismiss() }
                 }
                 SandwichItem(Icons.Default.Explore, "Discover", theme = theme) { nav.navigate("search"); onDismiss() }
-                SandwichItem(Icons.Default.Group, "Join a Watch Party", theme = theme) { onDismiss() }
+
+                if (watchPartyEnabled) {
+                    WatchPartyActiveItem(
+                        roomCode = watchPartyRoomCode,
+                        isOffline = watchPartyIsOffline,
+                        onJump = { vm.joinWatchParty(watchPartyRoomCode ?: "") },
+                        onLeave = { vm.leaveWatchParty() },
+                        theme = theme
+                    )
+                } else {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp, vertical = 2.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .then(if (!isJoiningWatchParty) Modifier.clickable { isJoiningWatchParty = true } else Modifier)
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Icon(Icons.Default.Group, null, tint = theme.colors.type.secondary, modifier = Modifier.size(18.dp))
+
+                        Box(modifier = Modifier.weight(1f)) {
+                            AnimatedContent(
+                                targetState = isJoiningWatchParty,
+                                transitionSpec = { fadeIn() togetherWith fadeOut() },
+                                label = "joinWatchPartyInner"
+                            ) { joining ->
+                                if (joining) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .height(32.dp)
+                                                .background(theme.colors.background.secondary, RoundedCornerShape(6.dp))
+                                                .border(1.dp, theme.colors.type.divider.copy(alpha = 0.2f), RoundedCornerShape(6.dp))
+                                                .padding(horizontal = 10.dp),
+                                            contentAlignment = Alignment.CenterStart
+                                        ) {
+                                            if (watchPartyCode.isEmpty()) {
+                                                Text("Enter a Watch Party code", color = theme.colors.type.dimmed, fontSize = 13.sp)
+                                            }
+                                            BasicTextField(
+                                                value = watchPartyCode,
+                                                onValueChange = { input ->
+                                                    val filtered = input.uppercase().filter { it.isLetterOrDigit() }
+                                                    if (filtered.length <= 6) watchPartyCode = filtered
+                                                },
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .focusRequester(focusRequester),
+                                                textStyle = TextStyle(
+                                                    color = theme.colors.type.emphasis,
+                                                    fontSize = 13.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                ),
+                                                cursorBrush = SolidColor(theme.colors.global.accentA),
+                                                singleLine = true,
+                                                keyboardOptions = KeyboardOptions(
+                                                    keyboardType = KeyboardType.Text,
+                                                    imeAction = ImeAction.Go
+                                                ),
+                                                keyboardActions = KeyboardActions(
+                                                    onGo = {
+                                                        if (watchPartyCode.length >= 4) {
+                                                            vm.joinWatchParty(watchPartyCode)
+                                                            onDismiss()
+                                                        }
+                                                    }
+                                                )
+                                            )
+                                            LaunchedEffect(Unit) {
+                                                focusRequester.requestFocus()
+                                            }
+                                        }
+
+                                        ZsIconButton(
+                                            onClick = { isJoiningWatchParty = false },
+                                            icon = Icons.Default.Close,
+                                            contentDescription = "Cancel",
+                                            variant = ZsIconButtonVariant.Ghost,
+                                            containerSize = 24.dp,
+                                            iconSize = 14.dp
+                                        )
+                                    }
+                                } else {
+                                    Text(
+                                        "Join a Watch Party",
+                                        color = theme.colors.type.text,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Normal
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
 
                 HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp), color = theme.colors.type.divider.copy(alpha = 0.15f))
 
@@ -1760,6 +1874,65 @@ private fun SandwichMenuDialog(
                 Spacer(Modifier.height(8.dp))
             }
         }
+    }
+}
+
+@Composable
+private fun WatchPartyActiveItem(
+    roomCode: String?,
+    isOffline: Boolean,
+    onJump: () -> Unit,
+    onLeave: () -> Unit,
+    theme: com.zstream.android.theme.ZStreamTheme,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp, vertical = 2.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(theme.colors.background.secondary.copy(alpha = 0.5f))
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Icon(
+            Icons.Default.Group,
+            null,
+            tint = if (isOffline) theme.colors.type.danger else theme.colors.type.success,
+            modifier = Modifier.size(18.dp)
+        )
+
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                "Watch Party Active",
+                color = theme.colors.type.emphasis,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                if (isOffline) "Connection lost" else "Room: ${roomCode ?: "..."}",
+                color = if (isOffline) theme.colors.type.danger else theme.colors.type.secondary,
+                fontSize = 12.sp
+            )
+        }
+
+        ZsIconButton(
+            onClick = onJump,
+            icon = Icons.Default.PlayArrow,
+            contentDescription = "Jump to Host",
+            variant = ZsIconButtonVariant.Ghost,
+            containerSize = 32.dp,
+            iconSize = 18.dp
+        )
+
+        ZsIconButton(
+            onClick = onLeave,
+            icon = Icons.Default.Logout,
+            contentDescription = "Leave",
+            variant = ZsIconButtonVariant.Ghost,
+            containerSize = 32.dp,
+            iconSize = 18.dp
+        )
     }
 }
 
@@ -2580,7 +2753,9 @@ private fun FeaturedCarousel(
 
                                         val encodedTitle = java.net.URLEncoder.encode(title, "UTF-8")
                                         val poster = java.net.URLEncoder.encode(current.posterPath ?: "", "UTF-8")
-                                        nav.navigate("player/$type/${current.id}?title=$encodedTitle&year=${year.toIntOrNull() ?: 0}&poster=$poster$sParam")
+                                        val sId = progress?.seasonId ?: ""
+                                        val eId = progress?.episodeId ?: ""
+                                        nav.navigate("player/$type/${current.id}?title=$encodedTitle&year=${year.toIntOrNull() ?: 0}&poster=$poster$sParam&seasonId=$sId&episodeId=$eId")
                                     },
                                     colors = ButtonDefaults.buttonColors(
                                         containerColor = theme.colors.buttons.primary,
