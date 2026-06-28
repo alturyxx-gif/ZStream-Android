@@ -295,6 +295,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
     val theme = LocalZStreamTheme.current
     val isTv = LocalIsTv.current
     val playerFocusRequester = remember { FocusRequester() }
+    var isInAppPip by remember { mutableStateOf(false) }
 
     LaunchedEffect(state, watchPartyEnabled, isHost) {
         val s = state
@@ -303,9 +304,26 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
         }
     }
 
-    Box(Modifier
-        .fillMaxSize()
-        .background(Color.Black)) /* Color of the video background in the player */ {
+    Box(Modifier.fillMaxSize().background(Color.Black)) {
+        if (isInAppPip) HomeScreen(nav)
+        Box(
+            Modifier
+                .then(
+                    if (isInAppPip) {
+                        Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(32.dp)
+                            .fillMaxWidth(0.38f)
+                            .aspectRatio(16f / 9f)
+                            .clip(RoundedCornerShape(12.dp))
+                            .border(2.dp, theme.colors.global.accentA, RoundedCornerShape(12.dp))
+                            .clickable { isInAppPip = false }
+                    } else {
+                        Modifier.fillMaxSize()
+                    }
+                )
+                .background(Color.Black)
+        ) {
         when (val s = state) {
             is PlayerState.Idle, is PlayerState.Scraping -> {
                 val sources = (s as? PlayerState.Scraping)?.sources ?: emptyList()
@@ -698,6 +716,24 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     menuPage = it
                     updateActivity()
                 }
+                val enterPip = {
+                    val entered = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        runCatching {
+                            activity?.enterPictureInPictureMode(
+                                PictureInPictureParams.Builder()
+                                    .setAspectRatio(Rational(16, 9))
+                                    .build()
+                            ) == true
+                        }.getOrDefault(false)
+                    } else {
+                        false
+                    }
+                    isInPip = entered
+                    if (!entered && isTv) {
+                        controlsVisible = false
+                        isInAppPip = true
+                    }
+                }
 
                 BackHandler(enabled = showInfoSheet || menuPage != null) {
                     updateActivity()
@@ -713,18 +749,11 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                         )
                     }
                 }
-                BackHandler(enabled = isTv && !showInfoSheet && menuPage == null && !isInPip) {
+                BackHandler(enabled = isTv && !showInfoSheet && menuPage == null && !isInPip && !isInAppPip) {
                     updateActivity()
                     showInfoSheet = false
                     showResumeDialog = false
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        isInPip = true
-                        activity?.enterPictureInPictureMode(
-                            PictureInPictureParams.Builder()
-                                .setAspectRatio(Rational(16, 9))
-                                .build()
-                        )
-                    }
+                    enterPip()
                 }
 
                 if (isTv) {
@@ -1038,14 +1067,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     onPip = {
                         showInfoSheet = false
                         showResumeDialog = false
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                            isInPip = true
-                            activity?.enterPictureInPictureMode(
-                                PictureInPictureParams.Builder()
-                                    .setAspectRatio(Rational(16, 9))
-                                    .build()
-                            )
-                        }
+                        enterPip()
                     },
                     roomCode = roomCode,
                     participants = participants,
@@ -1193,6 +1215,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                         }
                     )
                 }
+            }
             }
         }
     }
