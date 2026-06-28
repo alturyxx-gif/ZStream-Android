@@ -1463,13 +1463,11 @@ private fun PlayerControls(
     val theme = LocalZStreamTheme.current
     val focusManager = LocalFocusManager.current
     var isJoiningRoom by remember { mutableStateOf(false) }
-    var menuPage by remember { mutableStateOf<PlayerMenuPage?>(null) }
-    val onOpenPage: (PlayerMenuPage) -> Unit = { menuPage = it }
     // Auto-switch to room details when joined
     LaunchedEffect(roomCode) {
         if (roomCode != null && isJoiningRoom) {
             isJoiningRoom = false
-            onOpenPage(PlayerMenuPage.WatchParty)
+            onMenuPageChange(PlayerMenuPage.WatchParty)
         }
     }
     val isTv = LocalIsTv.current
