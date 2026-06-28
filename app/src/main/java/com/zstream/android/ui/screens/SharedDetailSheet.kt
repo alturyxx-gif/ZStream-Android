@@ -431,6 +431,7 @@ internal fun ColumnScope.SharedTvDetailContent(
                 nav = nav,
                 theme = theme,
                 episodeProgress = progressMap[episode.episodeNumber],
+                seasonId = selectedSeason.id,
                 enableWatchActions = true,
                 onMarkWatched = { onMarkEpisodeWatched(episode) },
                 onClearHistory = { onClearEpisodeWatchHistory(episode) },

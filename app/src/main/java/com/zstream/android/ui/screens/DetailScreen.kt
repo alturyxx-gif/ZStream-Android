@@ -133,7 +133,7 @@ fun MovieDetailModal(
     var pendingBulkAction by remember { mutableStateOf<WatchBulkAction?>(null) }
     val isTv = LocalIsTv.current
     val scrollState = rememberScrollState()
-    
+
     var scrollRequestId by remember { mutableStateOf(0) }
     LaunchedEffect(scrollRequestId) {
         if (scrollRequestId > 0) {
@@ -161,7 +161,7 @@ fun MovieDetailModal(
             specActions = { },
         ) {
             var playFocused by remember { mutableStateOf(false) }
-            
+
             ZsOutlinedWrapper(
                 shape = RoundedCornerShape(6.dp),
                 visible = playFocused && isTv,
@@ -179,8 +179,8 @@ fun MovieDetailModal(
                     shape = RoundedCornerShape(6.dp),
                     modifier = Modifier
                         .widthIn(min = 120.dp)
-                        .onFocusChanged { 
-                            playFocused = it.isFocused 
+                        .onFocusChanged {
+                            playFocused = it.isFocused
                             if (it.isFocused && isTv) {
                                 scrollRequestId++
                             }
@@ -302,7 +302,7 @@ private fun TvDetailModal(
                 val eNum = progress.episodeNumber
                 if (sNum != null && eNum != null) "Resume S${sNum}:E${eNum}" else "Resume"
             } else "Play"
-            
+
             ZsOutlinedWrapper(
                 shape = RoundedCornerShape(6.dp),
                 visible = playFocused && isTv,
@@ -315,11 +315,15 @@ private fun TvDetailModal(
                         if (hasProgress && progress != null) {
                             val sNum = progress.seasonNumber ?: state.selectedSeason?.seasonNumber ?: 1
                             val eNum = progress.episodeNumber ?: 1
-                            nav.navigate("player/tv/${d.id}?season=$sNum&episode=$eNum&title=${d.name.encode()}&year=${d.firstAirDate?.take(4)?.toIntOrNull() ?: 0}&poster=${d.posterPath?.encode() ?: ""}")
+                            val sId = state.selectedSeason?.id?.toString()
+                            val eId = state.selectedSeason?.episodes?.find { it.episodeNumber == eNum }?.id?.toString()
+                            nav.navigate("player/tv/${d.id}?season=$sNum&episode=$eNum&seasonId=$sId&episodeId=$eId&title=${d.name.encode()}&year=${d.firstAirDate?.take(4)?.toIntOrNull() ?: 0}&poster=${d.posterPath?.encode() ?: ""}")
                         } else {
                             val firstEp = state.selectedSeason?.episodes?.airedEpisodes()?.firstOrNull()
                             if (firstEp != null) {
-                                nav.navigate("player/tv/${d.id}?season=${firstEp.seasonNumber}&episode=${firstEp.episodeNumber}&title=${d.name.encode()}&year=${d.firstAirDate?.take(4)?.toIntOrNull() ?: 0}&poster=${d.posterPath?.encode() ?: ""}")
+                                val sId = state.selectedSeason?.id?.toString()
+                                val eId = firstEp.id.toString()
+                                nav.navigate("player/tv/${d.id}?season=${firstEp.seasonNumber}&episode=${firstEp.episodeNumber}&seasonId=$sId&episodeId=$eId&title=${d.name.encode()}&year=${d.firstAirDate?.take(4)?.toIntOrNull() ?: 0}&poster=${d.posterPath?.encode() ?: ""}")
                             }
                         }
                     },
@@ -331,8 +335,8 @@ private fun TvDetailModal(
                     shape = RoundedCornerShape(6.dp),
                     modifier = Modifier
                         .widthIn(min = 120.dp)
-                        .onFocusChanged { 
-                            playFocused = it.isFocused 
+                        .onFocusChanged {
+                            playFocused = it.isFocused
                             if (it.isFocused && isTv) {
                                 scrollRequestId++
                             }
@@ -402,6 +406,7 @@ internal fun SharedEpisodeRow(
     nav: NavController,
     theme: com.zstream.android.theme.ZStreamTheme,
     episodeProgress: com.zstream.android.data.local.entity.ProgressEntity?,
+    seasonId: Int? = null,
     enableWatchActions: Boolean = false,
     onMarkWatched: () -> Unit = {},
     onClearHistory: () -> Unit = {},
@@ -434,7 +439,8 @@ internal fun SharedEpisodeRow(
                     .onFocusChanged { isFocused = it.isFocused }
                     .focusable()
                     .clickable {
-                        nav.navigate("player/tv/$showId?season=${ep.seasonNumber}&episode=${ep.episodeNumber}&title=${title.encode()}&year=${ep.airDate?.take(4)?.toIntOrNull() ?: 0}&poster=${posterPath?.encode() ?: ""}")
+                        val sId = seasonId?.toString()
+                        nav.navigate("player/tv/$showId?season=${ep.seasonNumber}&episode=${ep.episodeNumber}&seasonId=$sId&episodeId=${ep.id}&title=${title.encode()}&year=${ep.airDate?.take(4)?.toIntOrNull() ?: 0}&poster=${posterPath?.encode() ?: ""}")
                     }
             ) {
                 Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
@@ -840,12 +846,12 @@ private fun ActionPill(
         gap = 4.dp,
     ) {
         Surface(
-            shape = RoundedCornerShape(cornerRadius), 
-            color = if (isFocused && isTv) theme.colors.global.accentA.copy(alpha = 0.3f) else theme.colors.type.text.copy(alpha = 0.05f), 
+            shape = RoundedCornerShape(cornerRadius),
+            color = if (isFocused && isTv) theme.colors.global.accentA.copy(alpha = 0.3f) else theme.colors.type.text.copy(alpha = 0.05f),
             border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.type.divider.copy(alpha = 0.3f)),
             modifier = Modifier
-                .onFocusChanged { 
-                    isFocused = it.isFocused 
+                .onFocusChanged {
+                    isFocused = it.isFocused
                     if (it.isFocused) onFocused?.invoke()
                 }
                 .clickable(onClick = onClick)

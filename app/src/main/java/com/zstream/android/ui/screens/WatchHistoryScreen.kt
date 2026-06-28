@@ -90,8 +90,10 @@ fun WatchHistoryScreen(nav: NavController) {
                     WatchHistoryItem(p, theme) {
                         val mediaType = if (p.type == "show") "tv" else "movie"
                         val base = "player/$mediaType/${p.tmdbId}?title=${p.title}&year=${p.year}"
+                        val sId = p.seasonId ?: ""
+                        val eId = p.episodeId ?: ""
                         val route = if (p.seasonNumber != null && p.episodeNumber != null)
-                            "$base&season=${p.seasonNumber}&episode=${p.episodeNumber}"
+                            "$base&season=${p.seasonNumber}&episode=${p.episodeNumber}&seasonId=$sId&episodeId=$eId"
                         else base
                         nav.navigate(route)
                     }

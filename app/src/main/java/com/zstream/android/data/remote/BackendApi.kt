@@ -208,4 +208,70 @@ interface BackendApi {
     @DELETE("users/{id}/bookmarks/{tmdbId}")
     suspend fun removeBookmark(@Path("id") userId: String, @Path("tmdbId") tmdbId: String,
                                @Header("Authorization") auth: String)
+
+    // Watch Party
+    @POST("api/player/status")
+    suspend fun sendPlayerStatus(
+        @Header("Authorization") auth: String?,
+        @Body body: WatchPartyStatusRequest
+    ): WatchPartyStatusResponse
+
+    @GET("api/player/status")
+    suspend fun getRoomStatuses(
+        @Header("Authorization") auth: String?,
+        @Query("roomCode") roomCode: String
+    ): WatchPartyRoomResponse
 }
+
+// Watch Party Models
+
+data class WatchPartyContentDto(
+    val title: String,
+    val type: String,
+    val tmdbId: String?,
+    val seasonId: String? = null,
+    val episodeId: String? = null,
+    val seasonNumber: Int? = null,
+    val episodeNumber: Int? = null,
+    val year: Int? = null,
+    val poster: String? = null,
+)
+
+data class WatchPartyPlayerDto(
+    val isPlaying: Boolean,
+    val isPaused: Boolean,
+    val isLoading: Boolean,
+    val hasPlayedOnce: Boolean,
+    val time: Double,
+    val duration: Double,
+    val playbackRate: Double,
+    val buffered: Double,
+)
+
+data class WatchPartyStatusRequest(
+    val userId: String,
+    val roomCode: String,
+    val isHost: Boolean,
+    val content: WatchPartyContentDto,
+    val player: WatchPartyPlayerDto,
+)
+
+data class WatchPartyStatusResponse(
+    val success: Boolean,
+    val timestamp: Long,
+)
+
+data class WatchPartyUserStatusDto(
+    val userId: String,
+    val roomCode: String,
+    val isHost: Boolean,
+    val content: WatchPartyContentDto,
+    val player: WatchPartyPlayerDto,
+    val timestamp: Long,
+)
+
+data class WatchPartyRoomResponse(
+    val roomCode: String,
+    val users: Map<String, List<WatchPartyUserStatusDto>>,
+)
+
