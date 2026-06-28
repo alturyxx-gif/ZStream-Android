@@ -145,6 +145,7 @@ import com.zstream.android.ui.components.themed.ZsIconButton
 import com.zstream.android.ui.components.themed.ZsIconButtonVariant
 import com.zstream.android.ui.components.themed.ZsStatusBanner
 import com.zstream.android.ui.components.themed.ZsStatusBannerVariant
+import com.zstream.android.ui.components.themed.ZsTextButton
 import com.zstream.android.ui.components.themed.ZsTextField
 import com.zstream.android.ui.navigation.rememberSafeNavigateBack
 import com.zstream.android.data.WatchPartyAction
@@ -1885,6 +1886,7 @@ private fun PlayerControls(
                             theme = theme
                         ) {
                             if (playWhenReady) player.pause() else player.play()
+                        }
                         if (!isTv) {
                             DrawableControlIcon(
                                 res = if (isPlaying) R.drawable.ic_player_pause else R.drawable.ic_player_play,
@@ -2316,6 +2318,7 @@ private fun PlayerControls(
             onSubmit = onSubmitSkipSegment
         )
     }
+}
 }
 
 @Composable
@@ -4388,8 +4391,6 @@ private fun PlayerInfoSheet(
                 nav = nav,
                 context = context,
                 theme = theme,
-                episodeProgress = progressMap[episode.episodeNumber],
-                seasonId = selectedSeason.id,
                 isBookmarked = isBookmarked,
                 onToggleBookmark = onToggleBookmark,
                 hasProgress = false,
@@ -4439,7 +4440,7 @@ private fun collectQualityOptions(tracks: Tracks): List<QualityOption> {
         }
         .distinctBy { "${it.group.id}-${it.height}-${it.trackIndex}" }
         .sortedByDescending { it.height }
-}
+    }
 
 @OptIn(ExperimentalComposeUiApi::class, UnstableApi::class)
 private fun collectAudioOptions(tracks: Tracks): List<AudioOption> {

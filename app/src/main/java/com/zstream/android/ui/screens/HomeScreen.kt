@@ -1752,6 +1752,7 @@ private fun LayoutMenuDialog(
             }
         }
     }
+
 }
 
 @Composable
@@ -1788,6 +1789,11 @@ private fun SandwichMenuDialog(
     }
 
     if (isTv) {
+        val menuMaxHeight = LocalConfiguration.current.screenHeightDp.dp - TvHomeMetrics.topBarHeight - 16.dp
+        val menuScrollState = rememberScrollState()
+        LaunchedEffect(isJoiningWatchParty, menuScrollState.maxValue) {
+            if (isJoiningWatchParty) menuScrollState.scrollTo(menuScrollState.maxValue)
+        }
         Popup(
             alignment = Alignment.TopEnd,
             offset = IntOffset(
@@ -1795,10 +1801,11 @@ private fun SandwichMenuDialog(
                 y = (TvHomeMetrics.topBarHeight.value).toInt()
             ),
             onDismissRequest = onDismiss,
-            properties = PopupProperties(focusable = true)
+            properties = PopupProperties(focusable = true, clippingEnabled = false)
         ) {
             Box(Modifier
                 .width(TvHomeMetrics.menuWidth)
+                .heightIn(max = menuMaxHeight)
                 .clip(RoundedCornerShape(16.dp))
                 .background(theme.colors.modal.background)
                 .border(
@@ -1807,7 +1814,11 @@ private fun SandwichMenuDialog(
                     RoundedCornerShape(16.dp)
                 )
                 .padding(vertical = 8.dp)) {
-                Column {
+                Column(
+                    Modifier
+                        .verticalScroll(menuScrollState)
+                        .imePadding()
+                ) {
                     if (session != null) {
                         val displayName = session.nickname.ifBlank { session.deviceName.ifBlank { "Synced" } }
                         Row(
@@ -1844,142 +1855,121 @@ private fun SandwichMenuDialog(
                         SandwichItem(Icons.Default.AttachMoney, "Tip Jar", theme = theme) { onTipJar(); onDismiss() }
                     }
                     SandwichItem(Icons.Default.Explore, "Discover", theme = theme) { nav.navigate("search"); onDismiss() }
-                    SandwichItem(Icons.Default.Group, "Join a Watch Party", theme = theme) { onDismiss() }
+                    if (watchPartyEnabled) {
+                        WatchPartyActiveItem(
+                            roomCode = watchPartyRoomCode,
+                            isOffline = watchPartyIsOffline,
+                            onJump = { vm.joinWatchParty(watchPartyRoomCode ?: "") },
+                            onLeave = { vm.leaveWatchParty() },
+                            theme = theme
+                        )
+                    } else {
+                        var isWatchPartyFocused by remember { mutableStateOf(false) }
+                        ZsOutlinedWrapper(
+                            visible = isWatchPartyFocused,
+                            shape = RoundedCornerShape(10.dp),
+                            outlineColor = theme.colors.global.accentA.copy(alpha = 0.6f),
+                            gap = 2.dp,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (isWatchPartyFocused) theme.colors.background.secondary.copy(alpha = 0.4f) else Color.Transparent)
+                                    .onFocusChanged { isWatchPartyFocused = it.isFocused }
+                                    .focusProperties {
+                                        left = FocusRequester.Cancel
+                                        right = FocusRequester.Cancel
+                                    }
+                                    .then(if (!isJoiningWatchParty) Modifier.clickable { isJoiningWatchParty = true } else Modifier)
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                Icon(Icons.Default.Group, null, tint = theme.colors.type.secondary, modifier = Modifier.size(18.dp))
 
-                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp), color = theme.colors.type.divider.copy(alpha = 0.15f))
-
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        Icon(Icons.Default.CheckCircle, null, tint = theme.colors.type.success, modifier = Modifier.size(18.dp))
-                        Text("Synced: $displayName", color = theme.colors.type.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                    }
-                } else {
-                    SandwichItem(
-                        Icons.Default.Star, "Sync to Cloud", theme = theme, tint = theme.colors.global.accentA,
-                        modifier = Modifier.focusRequester(firstItemFocusRequester)
-                    ) {
-                        nav.navigate("login")
-                        onDismiss()
-                    }
-                }
-                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp), color = theme.colors.type.divider.copy(alpha = 0.15f))
-
-                val settingsModifier = if (session != null) Modifier.focusRequester(firstItemFocusRequester) else Modifier
-                SandwichItem(Icons.Default.Settings, "Settings", theme = theme, modifier = settingsModifier) { nav.navigate("settings"); onDismiss() }
-                SandwichItem(Icons.Default.History, "Watch History", theme = theme) { nav.navigate("watchHistory"); onDismiss() }
-                if (showHeaderActions) {
-                    SandwichItem(ImageVector.vectorResource(R.drawable.ic_discord), "Discord", theme = theme) { onDiscord(); onDismiss() }
-                    SandwichItem(Icons.Default.Notifications, if (unreadCount > 0) "Notifications ($unreadCount)" else "Notifications", theme = theme) {
-                        onNotifications()
-                        onDismiss()
-                    }
-                    SandwichItem(Icons.Default.AttachMoney, "Tip Jar", theme = theme) { onTipJar(); onDismiss() }
-                }
-                SandwichItem(Icons.Default.Explore, "Discover", theme = theme) { nav.navigate("search"); onDismiss() }
-
-                if (watchPartyEnabled) {
-                    WatchPartyActiveItem(
-                        roomCode = watchPartyRoomCode,
-                        isOffline = watchPartyIsOffline,
-                        onJump = { vm.joinWatchParty(watchPartyRoomCode ?: "") },
-                        onLeave = { vm.leaveWatchParty() },
-                        theme = theme
-                    )
-                } else {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 8.dp, vertical = 2.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .then(if (!isJoiningWatchParty) Modifier.clickable { isJoiningWatchParty = true } else Modifier)
-                            .padding(horizontal = 12.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        Icon(Icons.Default.Group, null, tint = theme.colors.type.secondary, modifier = Modifier.size(18.dp))
-
-                        Box(modifier = Modifier.weight(1f)) {
-                            AnimatedContent(
-                                targetState = isJoiningWatchParty,
-                                transitionSpec = { fadeIn() togetherWith fadeOut() },
-                                label = "joinWatchPartyInner"
-                            ) { joining ->
-                                if (joining) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .weight(1f)
-                                                .height(32.dp)
-                                                .background(theme.colors.background.secondary, RoundedCornerShape(6.dp))
-                                                .border(1.dp, theme.colors.type.divider.copy(alpha = 0.2f), RoundedCornerShape(6.dp))
-                                                .padding(horizontal = 10.dp),
-                                            contentAlignment = Alignment.CenterStart
+                                Box(modifier = Modifier.weight(1f)) {
+                                AnimatedContent(
+                                    targetState = isJoiningWatchParty,
+                                    transitionSpec = { fadeIn() togetherWith fadeOut() },
+                                    label = "joinWatchPartyInner"
+                                ) { joining ->
+                                    if (joining) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                                         ) {
-                                            if (watchPartyCode.isEmpty()) {
-                                                Text("Enter a Watch Party code", color = theme.colors.type.dimmed, fontSize = 13.sp)
-                                            }
-                                            BasicTextField(
-                                                value = watchPartyCode,
-                                                onValueChange = { input ->
-                                                    val filtered = input.uppercase().filter { it.isLetterOrDigit() }
-                                                    if (filtered.length <= 6) watchPartyCode = filtered
-                                                },
+                                            Box(
                                                 modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .focusRequester(focusRequester),
-                                                textStyle = TextStyle(
-                                                    color = theme.colors.type.emphasis,
-                                                    fontSize = 13.sp,
-                                                    fontWeight = FontWeight.Bold
-                                                ),
-                                                cursorBrush = SolidColor(theme.colors.global.accentA),
-                                                singleLine = true,
-                                                keyboardOptions = KeyboardOptions(
-                                                    keyboardType = KeyboardType.Text,
-                                                    imeAction = ImeAction.Go
-                                                ),
-                                                keyboardActions = KeyboardActions(
-                                                    onGo = {
-                                                        if (watchPartyCode.length >= 4) {
-                                                            vm.joinWatchParty(watchPartyCode)
-                                                            onDismiss()
+                                                    .weight(1f)
+                                                    .height(32.dp)
+                                                    .background(theme.colors.background.secondary, RoundedCornerShape(6.dp))
+                                                    .border(1.dp, theme.colors.type.divider.copy(alpha = 0.2f), RoundedCornerShape(6.dp))
+                                                    .padding(horizontal = 10.dp),
+                                                contentAlignment = Alignment.CenterStart
+                                            ) {
+                                                if (watchPartyCode.isEmpty()) {
+                                                    Text("Enter a Watch Party code", color = theme.colors.type.dimmed, fontSize = 13.sp)
+                                                }
+                                                BasicTextField(
+                                                    value = watchPartyCode,
+                                                    onValueChange = { input ->
+                                                        val filtered = input.uppercase().filter { it.isLetterOrDigit() }
+                                                        if (filtered.length <= 6) watchPartyCode = filtered
+                                                    },
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .focusRequester(focusRequester),
+                                                    textStyle = TextStyle(
+                                                        color = theme.colors.type.emphasis,
+                                                        fontSize = 13.sp,
+                                                        fontWeight = FontWeight.Bold
+                                                    ),
+                                                    cursorBrush = SolidColor(theme.colors.global.accentA),
+                                                    singleLine = true,
+                                                    keyboardOptions = KeyboardOptions(
+                                                        keyboardType = KeyboardType.Text,
+                                                        imeAction = ImeAction.Go
+                                                    ),
+                                                    keyboardActions = KeyboardActions(
+                                                        onGo = {
+                                                            if (watchPartyCode.length >= 4) {
+                                                                vm.joinWatchParty(watchPartyCode)
+                                                                onDismiss()
+                                                            }
                                                         }
-                                                    }
+                                                    )
                                                 )
-                                            )
-                                            LaunchedEffect(Unit) {
-                                                focusRequester.requestFocus()
+                                                LaunchedEffect(Unit) {
+                                                    focusRequester.requestFocus()
+                                                }
                                             }
-                                        }
 
-                                        ZsIconButton(
-                                            onClick = { isJoiningWatchParty = false },
-                                            icon = Icons.Default.Close,
-                                            contentDescription = "Cancel",
-                                            variant = ZsIconButtonVariant.Ghost,
-                                            containerSize = 24.dp,
-                                            iconSize = 14.dp
+                                            ZsIconButton(
+                                                onClick = { isJoiningWatchParty = false },
+                                                icon = Icons.Default.Close,
+                                                contentDescription = "Cancel",
+                                                variant = ZsIconButtonVariant.Ghost,
+                                                containerSize = 24.dp,
+                                                iconSize = 14.dp
+                                            )
+                                        }
+                                    } else {
+                                        Text(
+                                            "Join a Watch Party",
+                                            color = theme.colors.type.text,
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Normal
                                         )
                                     }
-                                } else {
-                                    Text(
-                                        "Join a Watch Party",
-                                        color = theme.colors.type.text,
-                                        fontSize = 14.sp,
-                                        fontWeight = FontWeight.Normal
-                                    )
+                                }
                                 }
                             }
                         }
                     }
-                }
+
+                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp), color = theme.colors.type.divider.copy(alpha = 0.15f))
 
                 HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp), color = theme.colors.type.divider.copy(alpha = 0.15f))
 
@@ -2021,6 +2011,7 @@ private fun SandwichMenuDialog(
                 }
             }
         }
+    }
     } else {
         Dialog(onDismissRequest = onDismiss) {
             Box(Modifier
@@ -2063,7 +2054,17 @@ private fun SandwichMenuDialog(
                         SandwichItem(Icons.Default.AttachMoney, "Tip Jar", theme = theme) { onTipJar(); onDismiss() }
                     }
                     SandwichItem(Icons.Default.Explore, "Discover", theme = theme) { nav.navigate("search"); onDismiss() }
-                    SandwichItem(Icons.Default.Group, "Join a Watch Party", theme = theme) { onDismiss() }
+                    if (watchPartyEnabled) {
+                        WatchPartyActiveItem(
+                            roomCode = watchPartyRoomCode,
+                            isOffline = watchPartyIsOffline,
+                            onJump = { vm.joinWatchParty(watchPartyRoomCode ?: "") },
+                            onLeave = { vm.leaveWatchParty() },
+                            theme = theme
+                        )
+                    } else {
+                        SandwichItem(Icons.Default.Group, "Join a Watch Party", theme = theme) { onDismiss() }
+                    }
 
                     HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp), color = theme.colors.type.divider.copy(alpha = 0.15f))
 
@@ -2094,7 +2095,6 @@ private fun SandwichMenuDialog(
         }
     }
 }
-
 @Composable
 private fun WatchPartyActiveItem(
     roomCode: String?,
