@@ -423,10 +423,14 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
         if (showSandwichMenu) {
             SandwichMenuDialog(
                 nav = nav,
+                vm = vm,
                 session = session,
                 accountVm = accountVm,
                 showHeaderActions = state.enableFeatured,
                 unreadCount = unreadCount,
+                watchPartyEnabled = watchPartyEnabled,
+                watchPartyRoomCode = watchPartyRoomCode,
+                watchPartyIsOffline = watchPartyIsOffline,
                 onDiscord = { uriHandler.openUri(Urls.DISCORD_LINK) },
                 onNotifications = { showNotifications = true },
                 onTipJar = { showTipJar = true },
@@ -2749,7 +2753,9 @@ private fun FeaturedCarousel(
 
                                         val encodedTitle = java.net.URLEncoder.encode(title, "UTF-8")
                                         val poster = java.net.URLEncoder.encode(current.posterPath ?: "", "UTF-8")
-                                        nav.navigate("player/$type/${current.id}?title=$encodedTitle&year=${year.toIntOrNull() ?: 0}&poster=$poster$sParam")
+                                        val sId = progress?.seasonId ?: ""
+                                        val eId = progress?.episodeId ?: ""
+                                        nav.navigate("player/$type/${current.id}?title=$encodedTitle&year=${year.toIntOrNull() ?: 0}&poster=$poster$sParam&seasonId=$sId&episodeId=$eId")
                                     },
                                     colors = ButtonDefaults.buttonColors(
                                         containerColor = theme.colors.buttons.primary,
