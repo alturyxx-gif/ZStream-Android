@@ -133,7 +133,7 @@ fun MovieDetailModal(
     var pendingBulkAction by remember { mutableStateOf<WatchBulkAction?>(null) }
     val isTv = LocalIsTv.current
     val scrollState = rememberScrollState()
-    
+
     var scrollRequestId by remember { mutableStateOf(0) }
     LaunchedEffect(scrollRequestId) {
         if (scrollRequestId > 0) {
@@ -161,7 +161,7 @@ fun MovieDetailModal(
             specActions = { },
         ) {
             var playFocused by remember { mutableStateOf(false) }
-            
+
             ZsOutlinedWrapper(
                 shape = RoundedCornerShape(6.dp),
                 visible = playFocused && isTv,
@@ -179,8 +179,8 @@ fun MovieDetailModal(
                     shape = RoundedCornerShape(6.dp),
                     modifier = Modifier
                         .widthIn(min = 120.dp)
-                        .onFocusChanged { 
-                            playFocused = it.isFocused 
+                        .onFocusChanged {
+                            playFocused = it.isFocused
                             if (it.isFocused && isTv) {
                                 scrollRequestId++
                             }
@@ -302,7 +302,7 @@ private fun TvDetailModal(
                 val eNum = progress.episodeNumber
                 if (sNum != null && eNum != null) "Resume S${sNum}:E${eNum}" else "Resume"
             } else "Play"
-            
+
             ZsOutlinedWrapper(
                 shape = RoundedCornerShape(6.dp),
                 visible = playFocused && isTv,
@@ -331,8 +331,8 @@ private fun TvDetailModal(
                     shape = RoundedCornerShape(6.dp),
                     modifier = Modifier
                         .widthIn(min = 120.dp)
-                        .onFocusChanged { 
-                            playFocused = it.isFocused 
+                        .onFocusChanged {
+                            playFocused = it.isFocused
                             if (it.isFocused && isTv) {
                                 scrollRequestId++
                             }
@@ -402,6 +402,7 @@ internal fun SharedEpisodeRow(
     nav: NavController,
     theme: com.zstream.android.theme.ZStreamTheme,
     episodeProgress: com.zstream.android.data.local.entity.ProgressEntity?,
+    seasonId: Int? = null,
     enableWatchActions: Boolean = false,
     onMarkWatched: () -> Unit = {},
     onClearHistory: () -> Unit = {},
@@ -840,12 +841,12 @@ private fun ActionPill(
         gap = 4.dp,
     ) {
         Surface(
-            shape = RoundedCornerShape(cornerRadius), 
-            color = if (isFocused && isTv) theme.colors.global.accentA.copy(alpha = 0.3f) else theme.colors.type.text.copy(alpha = 0.05f), 
+            shape = RoundedCornerShape(cornerRadius),
+            color = if (isFocused && isTv) theme.colors.global.accentA.copy(alpha = 0.3f) else theme.colors.type.text.copy(alpha = 0.05f),
             border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.type.divider.copy(alpha = 0.3f)),
             modifier = Modifier
-                .onFocusChanged { 
-                    isFocused = it.isFocused 
+                .onFocusChanged {
+                    isFocused = it.isFocused
                     if (it.isFocused) onFocused?.invoke()
                 }
                 .clickable(onClick = onClick)
