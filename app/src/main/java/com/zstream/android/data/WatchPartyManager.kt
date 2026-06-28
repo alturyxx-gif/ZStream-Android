@@ -9,17 +9,19 @@ import javax.inject.Singleton
 
 private const val TAG = "WatchPartyManager"
 
-private const val POLL_INTERVAL_MS = 2000L
+private const val POLL_INTERVAL_MS = 500L
 private const val BACKOFF_MAX_MS = 15000L
 private const val STALE_USER_MS = 12000L
+private const val HOST_GRACE_PERIOD_MS = 5000L
 private const val DRIFT_THRESHOLD_SECONDS = 5.0
-private const val SYNC_COOLDOWN_MS = 3000L
+private const val SYNC_COOLDOWN_MS = 1000L
 private const val SEEK_SETTLE_MS = 500L
-private const val PLAY_SETTLE_MS = 500L
+private const val PLAY_SETTLE_MS = 200L
 
-private const val HOST_REPORT_INTERVAL_MS = 1500L
-private const val GUEST_REPORT_INTERVAL_MS = 3000L
-private const val MIN_CHANGE_INTERVAL_MS = 250L
+private const val HOST_REPORT_INTERVAL_MS = 250L
+private const val GUEST_REPORT_INTERVAL_MS = 1500L
+private const val MIN_CHANGE_INTERVAL_MS = 150L
+private const val ACTION_DEDUP_WINDOW_MS = 750L
 
 sealed class WatchPartyAction {
     data class Seek(val timeMs: Long) : WatchPartyAction()
@@ -41,6 +43,7 @@ sealed class WatchPartyAction {
 data class Participant(
     val userId: String,
     val isHost: Boolean,
+    val isStale: Boolean = false,
     val isPlaying: Boolean,
     val isPaused: Boolean,
     val isLoading: Boolean,
@@ -91,6 +94,10 @@ class WatchPartyManager @Inject constructor(
 
     private val _contentMismatch = MutableStateFlow(false)
     val contentMismatch: StateFlow<Boolean> = _contentMismatch.asStateFlow()
+    private val _durationMismatch = MutableStateFlow(false)
+    val durationMismatch: StateFlow<Boolean> = _durationMismatch.asStateFlow()
+    private val _hostGraceDeadlineMs = MutableStateFlow<Long?>(null)
+    val hostGraceDeadlineMs: StateFlow<Long?> = _hostGraceDeadlineMs.asStateFlow()
 
     private val _selfUserId = MutableStateFlow<String?>(null)
     val selfUserId: StateFlow<String?> = _selfUserId.asStateFlow()
@@ -104,10 +111,9 @@ class WatchPartyManager @Inject constructor(
     private var syncInProgress = false
     private var hasInitialSynced = false
     private var lastHostPlaying: Boolean? = null
-    private var pendingHostPlaying: Boolean? = null
-    private var confirmedHostPlaying: Boolean? = null
     private var lastSyncAt = 0L
     private var lastFollowKey: String? = null
+    private var lastKnownHost: Participant? = null
 
     // --- Reporter Internal Refs ---
     private var lastReportTime = 0L
@@ -115,6 +121,8 @@ class WatchPartyManager @Inject constructor(
     private var lastLocalState: WatchPartyPlayerDto? = null
     private var lastLocalContent: WatchPartyContentDto? = null
     private var localStateOwner: String? = null
+    private var lastActionFingerprint = ""
+    private var lastActionAt = 0L
 
     /**
      * Start hosting a new watch party.
@@ -210,11 +218,14 @@ class WatchPartyManager @Inject constructor(
         _isSyncing.value = false
         syncInProgress = false
         _contentMismatch.value = false
+        _durationMismatch.value = false
+        _hostGraceDeadlineMs.value = null
         _selfUserId.value = null
         lastLocalContent = null
         lastLocalState = null
         localStateOwner = null
         lastFollowKey = null
+        lastKnownHost = null
         stopEngine()
         stopReporter()
     }
@@ -237,17 +248,15 @@ class WatchPartyManager @Inject constructor(
             _isSyncing.value = true
             lastSyncAt = System.currentTimeMillis()
             try {
-                _actions.emit(WatchPartyAction.Seek((predicted * 1000).toLong()))
+                emitAction(WatchPartyAction.Seek((predicted * 1000).toLong()))
                 delay(SEEK_SETTLE_MS)
 
-                if (hostIsPlayingIntent) _actions.emit(WatchPartyAction.Play)
-                else _actions.emit(WatchPartyAction.Pause)
+                if (hostIsPlayingIntent) emitAction(WatchPartyAction.Play)
+                else emitAction(WatchPartyAction.Pause)
 
                 delay(PLAY_SETTLE_MS)
                 hasInitialSynced = true
                 lastHostPlaying = hostIsPlayingIntent
-                pendingHostPlaying = hostIsPlayingIntent
-                confirmedHostPlaying = hostIsPlayingIntent
                 Log.i(TAG, "Manual Sync complete")
             } finally {
                 _isSyncing.value = false
@@ -261,7 +270,7 @@ class WatchPartyManager @Inject constructor(
      */
     fun updateLocalState(owner: String, content: WatchPartyContentDto, player: WatchPartyPlayerDto) {
         localStateOwner = owner
-        lastLocalContent = content
+        lastLocalContent = mergeLocalContent(content)
         lastLocalState = player
     }
 
@@ -284,12 +293,15 @@ class WatchPartyManager @Inject constructor(
         _isSyncing.value = false
         hasInitialSynced = false
         lastHostPlaying = null
-        pendingHostPlaying = null
-        confirmedHostPlaying = null
         lastSyncAt = 0L
         lastFollowKey = null
         lastFingerprint = ""
         lastReportTime = 0L
+        lastActionFingerprint = ""
+        lastActionAt = 0L
+        lastKnownHost = null
+        _durationMismatch.value = false
+        _hostGraceDeadlineMs.value = null
         // DO NOT reset lastLocalContent/lastLocalState here.
         // Doing so makes the engine think we have no content and immediately emits a Navigate action
         // even if we are already in the player watching that content.
@@ -396,13 +408,14 @@ class WatchPartyManager @Inject constructor(
             _isOffline.value = false
             
             val now = System.currentTimeMillis()
-            val users = response.users.mapNotNull { (_, statuses) ->
+            val freshUsers = response.users.mapNotNull { (_, statuses) ->
                 val latest = statuses.maxByOrNull { it.timestamp } ?: return@mapNotNull null
                 if ((now - latest.timestamp) > STALE_USER_MS) return@mapNotNull null
                 
                 Participant(
                     userId = latest.userId,
                     isHost = latest.isHost,
+                    isStale = false,
                     isPlaying = latest.player.isPlaying,
                     isPaused = latest.player.isPaused,
                     isLoading = latest.player.isLoading,
@@ -423,12 +436,33 @@ class WatchPartyManager @Inject constructor(
                     seasonId = latest.content.seasonId,
                     episodeId = latest.content.episodeId
                 )
-            }.sortedWith(compareByDescending<Participant> { it.isHost }.thenByDescending { it.lastUpdate })
+            }.toMutableList()
+
+            val freshHost = freshUsers.find { it.isHost }
+            if (freshHost != null) {
+                lastKnownHost = freshHost
+                _hostGraceDeadlineMs.value = null
+            } else if (!_isHost.value) {
+                val cachedHost = lastKnownHost
+                val graceDeadline = cachedHost?.lastUpdate?.plus(STALE_USER_MS + HOST_GRACE_PERIOD_MS)
+                if (cachedHost != null && graceDeadline != null && now < graceDeadline) {
+                    _hostGraceDeadlineMs.value = graceDeadline
+                    freshUsers.removeAll { it.userId == cachedHost.userId }
+                    freshUsers.add(cachedHost.copy(isStale = true))
+                } else {
+                    _hostGraceDeadlineMs.value = null
+                    lastKnownHost = null
+                }
+            } else {
+                _hostGraceDeadlineMs.value = null
+            }
+
+            val users = freshUsers.sortedWith(compareByDescending<Participant> { it.isHost }.thenByDescending { it.lastUpdate })
 
             _participants.value = users
 
-            if (!_isHost.value) {
-                processGuestEngine(users)
+            if (!_isHost.value && freshHost != null) {
+                processGuestEngine(users, freshHost)
             }
         }.onFailure {
             consecutiveErrors++
@@ -439,35 +473,20 @@ class WatchPartyManager @Inject constructor(
         }
     }
 
-    private suspend fun processGuestEngine(users: List<Participant>) {
-        val host = users.find { it.isHost } ?: return
-
+    private suspend fun processGuestEngine(users: List<Participant>, host: Participant) {
         // 1. Content Validation & Auto-Follow (Global - works on Home screen)
-        val hostType = if (host.type.equals("tv", true)) "show" else "movie"
-        val hostKey = if (host.tmdbId != null) {
-            if (hostType == "show") {
-                "show:${host.tmdbId}:${host.seasonId ?: host.seasonNumber}:${host.episodeId ?: host.episodeNumber}"
-            } else {
-                "movie:${host.tmdbId}"
-            }
-        } else null
-        
+        val hostKey = buildContentKey(host.tmdbId, host.type, host.seasonId, host.episodeId, host.seasonNumber, host.episodeNumber)
         val localMeta = lastLocalContent
-        val localType = if (localMeta?.type?.equals("TV Show", true) == true || localMeta?.type?.equals("tv", true) == true) "show" else "movie"
-        val localKey = if (localMeta?.tmdbId != null) {
-            if (localType == "show") {
-                "show:${localMeta.tmdbId}:${localMeta.seasonId ?: localMeta.seasonNumber}:${localMeta.episodeId ?: localMeta.episodeNumber}"
-            } else {
-                "movie:${localMeta.tmdbId}"
-            }
-        } else null
-        
-        if (hostKey != null && hostKey != localKey) {
+        val localKey = localMeta?.let {
+            buildContentKey(it.tmdbId, it.type, it.seasonId, it.episodeId, it.seasonNumber, it.episodeNumber)
+        }
+
+        if (!contentMatches(host, localMeta)) {
             if (lastFollowKey != hostKey) {
                 lastFollowKey = hostKey
                 val targetTmdbId = host.tmdbId ?: return
                 hasInitialSynced = false // Reset sync for new content
-                _actions.emit(WatchPartyAction.Navigate(
+                emitAction(WatchPartyAction.Navigate(
                     tmdbId = targetTmdbId,
                     mediaType = host.type ?: "movie",
                     season = host.seasonNumber,
@@ -493,27 +512,11 @@ class WatchPartyManager @Inject constructor(
         if (syncInProgress) {
             return
         }
-        if (System.currentTimeMillis() - lastSyncAt < SYNC_COOLDOWN_MS) {
-            return
-        }
 
-        // 3. Play State Confirmation (Prevents jitter)
-        // Use Host Intent (isPaused) for sync, but Host Motion (isPlaying && !isPaused) for prediction
+        // 3. Sync decisions
+        // Use Host Intent (isPaused) for play/pause, but Host Motion (isPlaying && !isPaused) for prediction.
         val hostIsPlayingMotion = host.isPlaying && !host.isPaused
         val hostIsPlayingIntent = !host.isPaused
-        
-        if (hasInitialSynced) {
-            if (pendingHostPlaying == hostIsPlayingIntent) {
-                confirmedHostPlaying = hostIsPlayingIntent
-            } else {
-                pendingHostPlaying = hostIsPlayingIntent
-                return // Wait for next tick to confirm
-            }
-        } else {
-            // First sync: bypass jitter protection
-            pendingHostPlaying = hostIsPlayingIntent
-            confirmedHostPlaying = hostIsPlayingIntent
-        }
 
         // 4. Latency Compensation
         val elapsed = Math.max(0L, System.currentTimeMillis() - host.lastUpdate) / 1000.0
@@ -531,32 +534,56 @@ class WatchPartyManager @Inject constructor(
         val drift = local.time - predicted
         val needsInitial = !hasInitialSynced
         val needsDrift = hasInitialSynced && Math.abs(drift) > DRIFT_THRESHOLD_SECONDS
-        
-        // Fix: needsPlayState should be true if we don't have a lastHostPlaying yet (first sync)
-        val needsPlayState = confirmedHostPlaying != null && (lastHostPlaying == null || confirmedHostPlaying != lastHostPlaying)
+        val needsPlayState = lastHostPlaying == null || hostIsPlayingIntent != lastHostPlaying
+        val recentlySynced = System.currentTimeMillis() - lastSyncAt < SYNC_COOLDOWN_MS
 
         // 6. Duration Guard
-        if (host.duration > 0 && local.duration > 0 && Math.abs(host.duration - local.duration) > 30.0) {
-            return
-        }
+        val hasDurationMismatch = host.duration > 0 && local.duration > 0 && Math.abs(host.duration - local.duration) > 30.0
+        _durationMismatch.value = hasDurationMismatch
 
         // 7. Start-of-Video Sync Guard (Rubber-band protection)
         if (hostIsPlayingMotion && predicted < 0.5 && host.duration > 30 && local.time > 1.0) {
             return
         }
 
+        if (recentlySynced && !needsPlayState) {
+            return
+        }
+
+        if (!needsInitial && !needsDrift && needsPlayState) {
+            syncInProgress = true
+            _isSyncing.value = true
+            lastSyncAt = System.currentTimeMillis()
+            try {
+                if (hostIsPlayingIntent) emitAction(WatchPartyAction.Play)
+                else emitAction(WatchPartyAction.Pause)
+
+                delay(PLAY_SETTLE_MS)
+                hasInitialSynced = true
+                lastHostPlaying = hostIsPlayingIntent
+            } finally {
+                _isSyncing.value = false
+                syncInProgress = false
+            }
+            return
+        }
+
+        if (hasDurationMismatch) {
+            return
+        }
+
         if (needsInitial || needsDrift || needsPlayState) {
-            val targetPlaying = if (needsInitial) hostIsPlayingIntent else confirmedHostPlaying ?: hostIsPlayingIntent
+            val targetPlaying = hostIsPlayingIntent
             
             syncInProgress = true
             _isSyncing.value = true
             lastSyncAt = System.currentTimeMillis()
             try {
-                _actions.emit(WatchPartyAction.Seek((predicted * 1000).toLong()))
+                emitAction(WatchPartyAction.Seek((predicted * 1000).toLong()))
                 delay(SEEK_SETTLE_MS)
 
-                if (targetPlaying) _actions.emit(WatchPartyAction.Play)
-                else _actions.emit(WatchPartyAction.Pause)
+                if (targetPlaying) emitAction(WatchPartyAction.Play)
+                else emitAction(WatchPartyAction.Pause)
 
                 delay(PLAY_SETTLE_MS)
                 hasInitialSynced = true
@@ -572,5 +599,82 @@ class WatchPartyManager @Inject constructor(
         scope.launch {
             _selfUserId.value = repository.getEffectiveUserId()
         }
+    }
+
+    private fun mergeLocalContent(content: WatchPartyContentDto): WatchPartyContentDto {
+        val previous = lastLocalContent ?: return content
+        if (!content.tmdbId.isNullOrBlank()) return content
+        if (!contentLooksLikeSameSelection(content, previous)) return content
+        return content.copy(
+            tmdbId = previous.tmdbId,
+            seasonId = content.seasonId ?: previous.seasonId,
+            episodeId = content.episodeId ?: previous.episodeId,
+            seasonNumber = content.seasonNumber ?: previous.seasonNumber,
+            episodeNumber = content.episodeNumber ?: previous.episodeNumber,
+            year = content.year ?: previous.year,
+            poster = content.poster ?: previous.poster
+        )
+    }
+
+    private fun contentLooksLikeSameSelection(
+        current: WatchPartyContentDto,
+        previous: WatchPartyContentDto
+    ): Boolean {
+        if (!current.title.equals(previous.title, ignoreCase = true)) return false
+        if (!current.type.equals(previous.type, ignoreCase = true)) return false
+        if (current.seasonId != null && previous.seasonId != null && current.seasonId != previous.seasonId) return false
+        if (current.episodeId != null && previous.episodeId != null && current.episodeId != previous.episodeId) return false
+        if (current.seasonNumber != null && previous.seasonNumber != null && current.seasonNumber != previous.seasonNumber) return false
+        if (current.episodeNumber != null && previous.episodeNumber != null && current.episodeNumber != previous.episodeNumber) return false
+        return true
+    }
+
+    private fun buildContentKey(
+        tmdbId: String?,
+        type: String?,
+        seasonId: String?,
+        episodeId: String?,
+        seasonNumber: Int?,
+        episodeNumber: Int?
+    ): String? {
+        val normalizedTmdbId = tmdbId ?: return null
+        val normalizedType = if (type.equals("tv", true) || type.equals("show", true) || type.equals("TV Show", true)) "show" else "movie"
+        return if (normalizedType == "show") {
+            "show:$normalizedTmdbId:${seasonId ?: seasonNumber}:${episodeId ?: episodeNumber}"
+        } else {
+            "movie:$normalizedTmdbId"
+        }
+    }
+
+    private fun contentMatches(host: Participant, local: WatchPartyContentDto?): Boolean {
+        if (local == null) return false
+        if (host.tmdbId == null || local.tmdbId == null) return false
+        if (host.tmdbId != local.tmdbId) return false
+        val hostIsShow = host.type.equals("tv", true) || host.type.equals("show", true) || host.type.equals("TV Show", true)
+        val localIsShow = local.type.equals("tv", true) || local.type.equals("show", true) || local.type.equals("TV Show", true)
+        if (hostIsShow != localIsShow) return false
+        if (!hostIsShow) return true
+        if (host.seasonId != null && local.seasonId != null && host.seasonId != local.seasonId) return false
+        if (host.episodeId != null && local.episodeId != null && host.episodeId != local.episodeId) return false
+        if (host.seasonNumber != null && local.seasonNumber != null && host.seasonNumber != local.seasonNumber) return false
+        if (host.episodeNumber != null && local.episodeNumber != null && host.episodeNumber != local.episodeNumber) return false
+        return host.seasonId != null || local.seasonId != null || host.episodeId != null || local.episodeId != null ||
+            (host.seasonNumber != null && local.seasonNumber != null && host.episodeNumber != null && local.episodeNumber != null)
+    }
+
+    private suspend fun emitAction(action: WatchPartyAction) {
+        val fingerprint = when (action) {
+            is WatchPartyAction.Seek -> "seek:${action.timeMs / 250L}"
+            WatchPartyAction.Play -> "play"
+            WatchPartyAction.Pause -> "pause"
+            is WatchPartyAction.Navigate -> "nav:${action.mediaType}:${action.tmdbId}:${action.seasonId ?: action.season}:${action.episodeId ?: action.episode}"
+        }
+        val now = System.currentTimeMillis()
+        if (fingerprint == lastActionFingerprint && now - lastActionAt < ACTION_DEDUP_WINDOW_MS) {
+            return
+        }
+        lastActionFingerprint = fingerprint
+        lastActionAt = now
+        _actions.emit(action)
     }
 }

@@ -93,6 +93,7 @@ class HomeViewModel @Inject constructor(
     val watchPartyRoomCode = watchPartyManager.roomCode
     val watchPartyEnabled = watchPartyManager.enabled
     val watchPartyIsOffline = watchPartyManager.isOffline
+    val watchPartyHostGraceDeadlineMs = watchPartyManager.hostGraceDeadlineMs
 
     fun joinWatchParty(code: String) {
         watchPartyManager.joinRoom(code)

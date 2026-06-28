@@ -266,6 +266,8 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
     val isSyncing by vm.watchPartyManager.isSyncing.collectAsState()
     val isRegistering by vm.watchPartyManager.isRegistering.collectAsState()
     val contentMismatch by vm.watchPartyManager.contentMismatch.collectAsState()
+    val durationMismatch by vm.watchPartyManager.durationMismatch.collectAsState()
+    val hostGraceDeadlineMs by vm.watchPartyManager.hostGraceDeadlineMs.collectAsState()
     val isOffline by vm.watchPartyManager.isOffline.collectAsState()
     val isHost by vm.watchPartyManager.isHost.collectAsState()
     val watchPartyUserId by vm.watchPartyManager.selfUserId.collectAsState()
@@ -1038,6 +1040,8 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     isSyncing = isSyncing,
                     isRegistering = isRegistering,
                     contentMismatch = contentMismatch,
+                    durationMismatch = durationMismatch,
+                    hostGraceDeadlineMs = hostGraceDeadlineMs,
                     isOffline = isOffline,
                     isHost = isHost,
                     onHostWatchParty = vm.watchPartyManager::hostRoom,
@@ -1405,6 +1409,8 @@ private fun PlayerControls(
     isSyncing: Boolean,
     isRegistering: Boolean,
     contentMismatch: Boolean,
+    durationMismatch: Boolean,
+    hostGraceDeadlineMs: Long?,
     isOffline: Boolean,
     isHost: Boolean,
     onHostWatchParty: () -> Unit,
@@ -2056,6 +2062,43 @@ private fun PlayerControls(
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             AnimatedVisibility(
+                visible = hostGraceDeadlineMs != null,
+                enter = fadeIn() + slideInVertically(),
+                exit = fadeOut() + slideOutVertically()
+            ) {
+                val graceProgress by produceState(initialValue = 0f, key1 = hostGraceDeadlineMs) {
+                    while (hostGraceDeadlineMs != null) {
+                        val remaining = (hostGraceDeadlineMs - System.currentTimeMillis()).coerceAtLeast(0L)
+                        value = (remaining.toFloat() / 5000f).coerceIn(0f, 1f)
+                        if (remaining == 0L) break
+                        delay(100L)
+                    }
+                }
+                Surface(
+                    color = theme.colors.modal.background.copy(alpha = 0.88f),
+                    shape = RoundedCornerShape(14.dp),
+                    border = BorderStroke(1.dp, theme.colors.type.divider.copy(alpha = 0.15f))
+                ) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = "Host connection stale. Holding room for a few seconds...",
+                            color = theme.colors.type.emphasis,
+                            fontSize = 13.sp,
+                            textAlign = TextAlign.Center
+                        )
+                        LinearProgressIndicator(
+                            progress = { graceProgress },
+                            modifier = Modifier.fillMaxWidth(),
+                            color = theme.colors.buttons.secondary,
+                            trackColor = theme.colors.background.secondary
+                        )
+                    }
+                }
+            }
+            AnimatedVisibility(
                 visible = contentMismatch,
                 enter = fadeIn() + slideInVertically(),
                 exit = fadeOut() + slideOutVertically()
@@ -2073,6 +2116,16 @@ private fun PlayerControls(
                 ZsStatusBanner(
                     message = "Connection to Watch Party lost. Reconnecting...",
                     variant = ZsStatusBannerVariant.Error
+                )
+            }
+            AnimatedVisibility(
+                visible = durationMismatch,
+                enter = fadeIn() + slideInVertically(),
+                exit = fadeOut() + slideOutVertically()
+            ) {
+                ZsStatusBanner(
+                    message = "Host stream duration differs. Play/pause sync still works, time sync is limited.",
+                    variant = ZsStatusBannerVariant.Info
                 )
             }
         }
@@ -2263,6 +2316,8 @@ private fun PlayerControls(
                         myUserId = myUserId,
                         isSyncing = isSyncing,
                         contentMismatch = contentMismatch,
+                        durationMismatch = durationMismatch,
+                        hostGraceDeadlineMs = hostGraceDeadlineMs,
                         isOffline = isOffline,
                         isHost = isHost,
                         onHostWatchParty = onHostWatchParty,
@@ -2830,6 +2885,8 @@ private fun PlayerMenuContent(
     isSyncing: Boolean,
     isRegistering: Boolean,
     contentMismatch: Boolean,
+    durationMismatch: Boolean,
+    hostGraceDeadlineMs: Long?,
     isOffline: Boolean,
     isHost: Boolean,
     onHostWatchParty: () -> Unit,
@@ -2850,6 +2907,14 @@ private fun PlayerMenuContent(
     var joinRoomCode by remember { mutableStateOf("") }
     val joinFocusRequester = remember { FocusRequester() }
     var isLegacyCopied by remember { mutableStateOf(false) }
+    val hostGraceProgress by produceState(initialValue = 0f, key1 = hostGraceDeadlineMs) {
+        while (hostGraceDeadlineMs != null) {
+            val remaining = (hostGraceDeadlineMs - System.currentTimeMillis()).coerceAtLeast(0L)
+            value = (remaining.toFloat() / 5000f).coerceIn(0f, 1f)
+            if (remaining == 0L) break
+            delay(100L)
+        }
+    }
 
     // Auto-switch to room details when joined
     LaunchedEffect(roomCode) {
@@ -3384,6 +3449,36 @@ private fun PlayerMenuContent(
                                             )
                                         }
 
+                                        if (hostGraceDeadlineMs != null) {
+                                            Column(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                Text(
+                                                    text = "Host offline grace period",
+                                                    color = theme.colors.type.secondary,
+                                                    fontSize = 11.sp,
+                                                    textAlign = TextAlign.Center,
+                                                    modifier = Modifier.fillMaxWidth()
+                                                )
+                                                LinearProgressIndicator(
+                                                    progress = { hostGraceProgress },
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    color = theme.colors.buttons.secondary,
+                                                    trackColor = theme.colors.background.main.copy(alpha = 0.4f)
+                                                )
+                                            }
+                                        }
+
+                                        if (durationMismatch) {
+                                            Text(
+                                                text = "Duration mismatch detected. Drift sync is limited.",
+                                                color = theme.colors.type.secondary,
+                                                fontSize = 11.sp,
+                                                textAlign = TextAlign.Center
+                                            )
+                                        }
+
                                         Row(
                                             modifier = Modifier.fillMaxWidth(),
                                             horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -3493,6 +3588,7 @@ private fun PlayerMenuContent(
                                                         text = buildString {
                                                             if (isMe) append("You") else append(participant.userId.take(12))
                                                             if (participant.isHost) append(" (Host)")
+                                                            if (participant.isStale) append(" - reconnecting")
                                                         },
                                                         color = if (participant.isHost) Color(0xFFFFD700) else theme.colors.type.emphasis,
                                                         fontSize = 13.sp,
