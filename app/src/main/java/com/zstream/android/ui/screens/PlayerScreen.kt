@@ -713,6 +713,19 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                         )
                     }
                 }
+                BackHandler(enabled = isTv && !showInfoSheet && menuPage == null && !isInPip) {
+                    updateActivity()
+                    showInfoSheet = false
+                    showResumeDialog = false
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        isInPip = true
+                        activity?.enterPictureInPictureMode(
+                            PictureInPictureParams.Builder()
+                                .setAspectRatio(Rational(16, 9))
+                                .build()
+                        )
+                    }
+                }
 
                 if (isTv) {
                     LaunchedEffect(Unit) {
