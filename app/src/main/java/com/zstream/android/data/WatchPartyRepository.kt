@@ -54,4 +54,8 @@ class WatchPartyRepository @Inject constructor(
     suspend fun getGuestId(): String {
         return accountRepo.getOrCreateGuestId()
     }
+
+    suspend fun getEffectiveUserId(): String {
+        return getUserId() ?: getGuestId()
+    }
 }

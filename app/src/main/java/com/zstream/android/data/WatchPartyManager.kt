@@ -26,7 +26,7 @@ sealed class WatchPartyAction {
     object Play : WatchPartyAction()
     object Pause : WatchPartyAction()
     data class Navigate(
-        val tmdbId: Int,
+        val tmdbId: String,
         val mediaType: String,
         val season: Int?,
         val episode: Int?,
@@ -90,6 +90,9 @@ class WatchPartyManager @Inject constructor(
     private val _contentMismatch = MutableStateFlow(false)
     val contentMismatch: StateFlow<Boolean> = _contentMismatch.asStateFlow()
 
+    private val _selfUserId = MutableStateFlow<String?>(null)
+    val selfUserId: StateFlow<String?> = _selfUserId.asStateFlow()
+
     private val _actions = MutableSharedFlow<WatchPartyAction>(replay = 0)
     val actions: SharedFlow<WatchPartyAction> = _actions.asSharedFlow()
 
@@ -109,6 +112,7 @@ class WatchPartyManager @Inject constructor(
     private var lastFingerprint = ""
     private var lastLocalState: WatchPartyPlayerDto? = null
     private var lastLocalContent: WatchPartyContentDto? = null
+    private var localStateOwner: String? = null
 
     /**
      * Start hosting a new watch party.
@@ -121,6 +125,7 @@ class WatchPartyManager @Inject constructor(
         _enabled.value = true
         _isRegistering.value = true
         resetEngineState()
+        refreshSelfUserId()
         startEngine()
         startReporter()
     }
@@ -129,7 +134,9 @@ class WatchPartyManager @Inject constructor(
      * Update the active room code.
      */
     fun updateRoomCode(code: String) {
-        _roomCode.value = code.uppercase()
+        val normalized = code.uppercase()
+        if (_roomCode.value == normalized) return
+        _roomCode.value = normalized
         // Reset reporter state to force immediate update to new code
         lastFingerprint = ""
         lastReportTime = 0L
@@ -155,6 +162,7 @@ class WatchPartyManager @Inject constructor(
         lastFollowKey = null
         hasInitialSynced = false
 
+        refreshSelfUserId()
         startEngine()
         startReporter()
     }
@@ -170,8 +178,10 @@ class WatchPartyManager @Inject constructor(
         _isOffline.value = false
         _isRegistering.value = false
         _contentMismatch.value = false
+        _selfUserId.value = null
         lastLocalContent = null
         lastLocalState = null
+        localStateOwner = null
         lastFollowKey = null
         stopEngine()
         stopReporter()
@@ -221,7 +231,8 @@ class WatchPartyManager @Inject constructor(
     /**
      * Called by PlayerViewModel to update local state for reporting and sync comparison.
      */
-    fun updateLocalState(content: WatchPartyContentDto, player: WatchPartyPlayerDto) {
+    fun updateLocalState(owner: String, content: WatchPartyContentDto, player: WatchPartyPlayerDto) {
+        localStateOwner = owner
         lastLocalContent = content
         lastLocalState = player
     }
@@ -229,7 +240,9 @@ class WatchPartyManager @Inject constructor(
     /**
      * Clear local state when the player is closed.
      */
-    fun clearLocalState() {
+    fun clearLocalState(owner: String) {
+        if (localStateOwner != owner) return
+        localStateOwner = null
         lastLocalContent = null
         lastLocalState = null
         // We do NOT clear lastFollowKey here to prevent "Aggressive Auto-Follow" loops.
@@ -313,7 +326,8 @@ class WatchPartyManager @Inject constructor(
                     val dueByChange = changed && (now - lastReportTime >= MIN_CHANGE_INTERVAL_MS)
 
                     if (dueByChange || dueByTime) {
-                        val userId = repository.getUserId() ?: repository.getGuestId()
+                        val userId = repository.getEffectiveUserId()
+                        _selfUserId.value = userId
                         val request = WatchPartyStatusRequest(
                             userId = userId,
                             roomCode = code,
@@ -403,7 +417,7 @@ class WatchPartyManager @Inject constructor(
         val hostType = if (host.type.equals("tv", true)) "show" else "movie"
         val hostKey = if (host.tmdbId != null) {
             if (hostType == "show") {
-                "show:${host.tmdbId}:${host.seasonNumber}:${host.episodeNumber}"
+                "show:${host.tmdbId}:${host.seasonId ?: host.seasonNumber}:${host.episodeId ?: host.episodeNumber}"
             } else {
                 "movie:${host.tmdbId}"
             }
@@ -413,7 +427,7 @@ class WatchPartyManager @Inject constructor(
         val localType = if (localMeta?.type?.equals("TV Show", true) == true || localMeta?.type?.equals("tv", true) == true) "show" else "movie"
         val localKey = if (localMeta?.tmdbId != null) {
             if (localType == "show") {
-                "show:${localMeta.tmdbId}:${localMeta.seasonNumber}:${localMeta.episodeNumber}"
+                "show:${localMeta.tmdbId}:${localMeta.seasonId ?: localMeta.seasonNumber}:${localMeta.episodeId ?: localMeta.episodeNumber}"
             } else {
                 "movie:${localMeta.tmdbId}"
             }
@@ -425,7 +439,7 @@ class WatchPartyManager @Inject constructor(
                 val targetTmdbId = host.tmdbId ?: return
                 hasInitialSynced = false // Reset sync for new content
                 _actions.emit(WatchPartyAction.Navigate(
-                    tmdbId = targetTmdbId.toIntOrNull() ?: 0,
+                    tmdbId = targetTmdbId,
                     mediaType = host.type ?: "movie",
                     season = host.seasonNumber,
                     episode = host.episodeNumber,
@@ -532,6 +546,12 @@ class WatchPartyManager @Inject constructor(
             syncInProgress = false
             hasInitialSynced = true
             lastHostPlaying = targetPlaying
+        }
+    }
+
+    private fun refreshSelfUserId() {
+        scope.launch {
+            _selfUserId.value = repository.getEffectiveUserId()
         }
     }
 }

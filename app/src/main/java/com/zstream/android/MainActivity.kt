@@ -104,6 +104,7 @@ fun WatchPartyGlobalEffect(navController: NavController, manager: WatchPartyMana
     LaunchedEffect(manager) {
         manager.actions.collect { action ->
             if (action is WatchPartyAction.Navigate) {
+                val tmdbId = action.tmdbId.toIntOrNull() ?: return@collect
                 val encodedTitle = Uri.encode(action.title)
                 val encodedPoster = Uri.encode(action.poster ?: "")
                 val season = action.season ?: -1
@@ -111,7 +112,7 @@ fun WatchPartyGlobalEffect(navController: NavController, manager: WatchPartyMana
                 val sId = action.seasonId ?: ""
                 val eId = action.episodeId ?: ""
                 val year = action.year ?: 0
-                navController.navigate("player/${action.mediaType}/${action.tmdbId}?season=$season&episode=$episode&seasonId=$sId&episodeId=$eId&title=$encodedTitle&year=$year&poster=$encodedPoster") {
+                navController.navigate("player/${action.mediaType}/$tmdbId?season=$season&episode=$episode&seasonId=$sId&episodeId=$eId&title=$encodedTitle&year=$year&poster=$encodedPoster") {
                     popUpTo("home")
                 }
             }

@@ -575,24 +575,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                             is WatchPartyAction.Pause -> {
                                 player.pause()
                             }
-                            is WatchPartyAction.Navigate -> {
-                                Log.d("PlayerScreen", "Received Navigate: $action")
-                                val base = "player/${action.mediaType}/${action.tmdbId}"
-                                val params = buildList {
-                                    if (action.season != null) add("season=${action.season}")
-                                    if (action.episode != null) add("episode=${action.episode}")
-                                    if (action.seasonId != null) add("seasonId=${action.seasonId}")
-                                    if (action.episodeId != null) add("episodeId=${action.episodeId}")
-                                    if (action.title.isNotBlank()) add("title=${Uri.encode(action.title)}")
-                                    if (action.year != null) add("year=${action.year}")
-                                    if (!action.poster.isNullOrBlank()) add("poster=${Uri.encode(action.poster)}")
-                                }
-                                val route = if (params.isEmpty()) base else "$base?${params.joinToString("&")}"
-                                nav.navigate(route) {
-                                    popUpTo("home") { inclusive = false }
-                                    launchSingleTop = true
-                                }
-                            }
+                            is WatchPartyAction.Navigate -> Unit
                         }
                     }
                 }
@@ -957,7 +940,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     },
                     roomCode = roomCode,
                     participants = participants,
-                    myUserId = session?.userId,
+                    myUserId = vm.watchPartyManager.selfUserId.collectAsState().value,
                     isSyncing = isSyncing,
                     isRegistering = isRegistering,
                     contentMismatch = contentMismatch,
