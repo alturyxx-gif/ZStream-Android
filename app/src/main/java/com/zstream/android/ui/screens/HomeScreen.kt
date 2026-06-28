@@ -1856,9 +1856,11 @@ private fun SandwichMenuDialog(
                     }
                     SandwichItem(Icons.Default.Explore, "Discover", theme = theme) { nav.navigate("search"); onDismiss() }
                     if (watchPartyEnabled) {
+                        val watchPartyHostGraceDeadlineMs by vm.watchPartyHostGraceDeadlineMs.collectAsState()
                         WatchPartyActiveItem(
                             roomCode = watchPartyRoomCode,
                             isOffline = watchPartyIsOffline,
+                            hostGraceDeadlineMs = watchPartyHostGraceDeadlineMs,
                             onJump = { vm.joinWatchParty(watchPartyRoomCode ?: "") },
                             onLeave = { vm.leaveWatchParty() },
                             theme = theme
@@ -2055,9 +2057,11 @@ private fun SandwichMenuDialog(
                     }
                     SandwichItem(Icons.Default.Explore, "Discover", theme = theme) { nav.navigate("search"); onDismiss() }
                     if (watchPartyEnabled) {
+                        val watchPartyHostGraceDeadlineMs by vm.watchPartyHostGraceDeadlineMs.collectAsState()
                         WatchPartyActiveItem(
                             roomCode = watchPartyRoomCode,
                             isOffline = watchPartyIsOffline,
+                            hostGraceDeadlineMs = watchPartyHostGraceDeadlineMs,
                             onJump = { vm.joinWatchParty(watchPartyRoomCode ?: "") },
                             onLeave = { vm.leaveWatchParty() },
                             theme = theme
@@ -2099,10 +2103,19 @@ private fun SandwichMenuDialog(
 private fun WatchPartyActiveItem(
     roomCode: String?,
     isOffline: Boolean,
+    hostGraceDeadlineMs: Long?,
     onJump: () -> Unit,
     onLeave: () -> Unit,
     theme: com.zstream.android.theme.ZStreamTheme,
 ) {
+    val hostGraceProgress by produceState(initialValue = 0f, key1 = hostGraceDeadlineMs) {
+        while (hostGraceDeadlineMs != null) {
+            val remaining = (hostGraceDeadlineMs - System.currentTimeMillis()).coerceAtLeast(0L)
+            value = (remaining.toFloat() / 5000f).coerceIn(0f, 1f)
+            if (remaining == 0L) break
+            delay(100L)
+        }
+    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -2128,10 +2141,24 @@ private fun WatchPartyActiveItem(
                 fontWeight = FontWeight.Bold
             )
             Text(
-                if (isOffline) "Connection lost" else "Room: ${roomCode ?: "..."}",
+                when {
+                    isOffline -> "Connection lost"
+                    hostGraceDeadlineMs != null -> "Host reconnect window active"
+                    else -> "Room: ${roomCode ?: "..."}"
+                },
                 color = if (isOffline) theme.colors.type.danger else theme.colors.type.secondary,
                 fontSize = 12.sp
             )
+            if (hostGraceDeadlineMs != null) {
+                LinearProgressIndicator(
+                    progress = { hostGraceProgress },
+                    modifier = Modifier
+                        .padding(top = 6.dp)
+                        .fillMaxWidth(),
+                    color = theme.colors.buttons.secondary,
+                    trackColor = theme.colors.background.main.copy(alpha = 0.4f)
+                )
+            }
         }
 
         ZsIconButton(
