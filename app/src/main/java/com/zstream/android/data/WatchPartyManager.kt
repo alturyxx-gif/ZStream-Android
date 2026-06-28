@@ -13,10 +13,11 @@ private const val POLL_INTERVAL_MS = 500L
 private const val BACKOFF_MAX_MS = 15000L
 private const val STALE_USER_MS = 12000L
 private const val HOST_GRACE_PERIOD_MS = 5000L
-private const val DRIFT_THRESHOLD_SECONDS = 5.0
+private const val DRIFT_THRESHOLD_SECONDS = 1.5
 private const val SYNC_COOLDOWN_MS = 1000L
 private const val SEEK_SETTLE_MS = 500L
 private const val PLAY_SETTLE_MS = 200L
+private const val PLAYING_SYNC_LEAD_SECONDS = 0.9
 
 private const val HOST_REPORT_INTERVAL_MS = 250L
 private const val GUEST_REPORT_INTERVAL_MS = 1500L
@@ -243,12 +244,13 @@ class WatchPartyManager @Inject constructor(
             val hostIsPlayingIntent = !host.isPaused
             val elapsed = Math.max(0L, System.currentTimeMillis() - host.lastUpdate) / 1000.0
             val predicted = if (hostIsPlayingMotion) host.time + elapsed else host.time
+            val targetTime = getSyncTargetTime(predicted, host.duration, hostIsPlayingMotion)
 
             syncInProgress = true
             _isSyncing.value = true
             lastSyncAt = System.currentTimeMillis()
             try {
-                emitAction(WatchPartyAction.Seek((predicted * 1000).toLong()))
+                emitAction(WatchPartyAction.Seek((targetTime * 1000).toLong()))
                 delay(SEEK_SETTLE_MS)
 
                 if (hostIsPlayingIntent) emitAction(WatchPartyAction.Play)
@@ -521,6 +523,7 @@ class WatchPartyManager @Inject constructor(
         // 4. Latency Compensation
         val elapsed = Math.max(0L, System.currentTimeMillis() - host.lastUpdate) / 1000.0
         val predicted = if (hostIsPlayingMotion) host.time + elapsed else host.time
+        val targetTime = getSyncTargetTime(predicted, host.duration, hostIsPlayingMotion)
         
         // 5. Host & Local Loading Guards
         // If host is loading, their time is unstable. Ignore drift but process state changes.
@@ -579,7 +582,7 @@ class WatchPartyManager @Inject constructor(
             _isSyncing.value = true
             lastSyncAt = System.currentTimeMillis()
             try {
-                emitAction(WatchPartyAction.Seek((predicted * 1000).toLong()))
+                emitAction(WatchPartyAction.Seek((targetTime * 1000).toLong()))
                 delay(SEEK_SETTLE_MS)
 
                 if (targetPlaying) emitAction(WatchPartyAction.Play)
@@ -676,5 +679,10 @@ class WatchPartyManager @Inject constructor(
         lastActionFingerprint = fingerprint
         lastActionAt = now
         _actions.emit(action)
+    }
+
+    private fun getSyncTargetTime(predicted: Double, duration: Double, hostIsPlayingMotion: Boolean): Double {
+        val adjusted = if (hostIsPlayingMotion) predicted + PLAYING_SYNC_LEAD_SECONDS else predicted
+        return if (duration > 0) adjusted.coerceIn(0.0, duration) else adjusted.coerceAtLeast(0.0)
     }
 }

@@ -571,7 +571,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                                 bufferedMs = player.bufferedPosition,
                                 isHost = isHost
                             )
-                            delay(2000)
+                            delay(500)
                         }
                     } finally {
                         player.removeListener(listener)
