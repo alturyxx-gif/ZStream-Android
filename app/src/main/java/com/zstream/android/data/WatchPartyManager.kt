@@ -26,7 +26,7 @@ sealed class WatchPartyAction {
     object Play : WatchPartyAction()
     object Pause : WatchPartyAction()
     data class Navigate(
-        val tmdbId: Int,
+        val tmdbId: String,
         val mediaType: String,
         val season: Int?,
         val episode: Int?,
@@ -65,6 +65,8 @@ class WatchPartyManager @Inject constructor(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var engineJob: Job? = null
     private var reporterJob: Job? = null
+    private var joinJob: Job? = null
+    private var manualSyncJob: Job? = null
 
     // --- State Flow ---
     private val _enabled = MutableStateFlow(false)
@@ -90,6 +92,9 @@ class WatchPartyManager @Inject constructor(
     private val _contentMismatch = MutableStateFlow(false)
     val contentMismatch: StateFlow<Boolean> = _contentMismatch.asStateFlow()
 
+    private val _selfUserId = MutableStateFlow<String?>(null)
+    val selfUserId: StateFlow<String?> = _selfUserId.asStateFlow()
+
     private val _actions = MutableSharedFlow<WatchPartyAction>(replay = 0)
     val actions: SharedFlow<WatchPartyAction> = _actions.asSharedFlow()
 
@@ -109,11 +114,16 @@ class WatchPartyManager @Inject constructor(
     private var lastFingerprint = ""
     private var lastLocalState: WatchPartyPlayerDto? = null
     private var lastLocalContent: WatchPartyContentDto? = null
+    private var localStateOwner: String? = null
 
     /**
      * Start hosting a new watch party.
      */
     fun hostRoom() {
+        joinJob?.cancel()
+        joinJob = null
+        manualSyncJob?.cancel()
+        manualSyncJob = null
         val chars = ('A'..'Z') + ('0'..'9')
         val code = (1..6).map { chars.random() }.joinToString("")
         _roomCode.value = code
@@ -121,6 +131,7 @@ class WatchPartyManager @Inject constructor(
         _enabled.value = true
         _isRegistering.value = true
         resetEngineState()
+        refreshSelfUserId()
         startEngine()
         startReporter()
     }
@@ -129,7 +140,9 @@ class WatchPartyManager @Inject constructor(
      * Update the active room code.
      */
     fun updateRoomCode(code: String) {
-        _roomCode.value = code.uppercase()
+        val normalized = code.uppercase()
+        if (_roomCode.value == normalized) return
+        _roomCode.value = normalized
         // Reset reporter state to force immediate update to new code
         lastFingerprint = ""
         lastReportTime = 0L
@@ -139,22 +152,43 @@ class WatchPartyManager @Inject constructor(
      * Join an existing watch party.
      */
     fun joinRoom(code: String) {
-        val sameRoom = _roomCode.value == code.uppercase()
-        _roomCode.value = code.uppercase()
+        val normalized = code.uppercase()
+        manualSyncJob?.cancel()
+        manualSyncJob = null
+        joinJob?.cancel()
+        _isRegistering.value = true
+        _isOffline.value = false
+        joinJob = scope.launch {
+            repository.getRoomStatuses(normalized).fold(
+                onSuccess = { response ->
+                    val cutoff = System.currentTimeMillis() - STALE_USER_MS
+                    val hasHost = response.users.values.any { statuses ->
+                        statuses.maxByOrNull { it.timestamp }?.let { it.isHost && it.timestamp >= cutoff } == true
+                    }
+                    if (hasHost) beginJoinRoom(normalized) else _isOffline.value = true
+                },
+                onFailure = { _isOffline.value = true },
+            )
+            _isRegistering.value = false
+        }
+    }
+
+    private fun beginJoinRoom(code: String) {
+        val sameRoom = _roomCode.value == code
+        _roomCode.value = code
         _isHost.value = false
         _enabled.value = true
-        
-        if (!sameRoom) {
-            resetEngineState()
-        }
-        
-        // Always reset these to allow "Jump to Host" to work even if the room code is the same.
-        // This ensures the engine re-evaluates the host content and triggers a Navigate action.
+
+        if (!sameRoom) resetEngineState()
+
+        // Force host content to be evaluated even when jumping back into the same room.
         lastLocalContent = null
         lastLocalState = null
+        localStateOwner = null
         lastFollowKey = null
         hasInitialSynced = false
 
+        refreshSelfUserId()
         startEngine()
         startReporter()
     }
@@ -163,15 +197,23 @@ class WatchPartyManager @Inject constructor(
      * Leave current watch party.
      */
     fun leaveRoom() {
+        joinJob?.cancel()
+        joinJob = null
+        manualSyncJob?.cancel()
+        manualSyncJob = null
         _enabled.value = false
         _roomCode.value = null
         _isHost.value = false
         _participants.value = emptyList()
         _isOffline.value = false
         _isRegistering.value = false
+        _isSyncing.value = false
+        syncInProgress = false
         _contentMismatch.value = false
+        _selfUserId.value = null
         lastLocalContent = null
         lastLocalState = null
+        localStateOwner = null
         lastFollowKey = null
         stopEngine()
         stopReporter()
@@ -184,7 +226,8 @@ class WatchPartyManager @Inject constructor(
         if (_isHost.value) return
         val host = _participants.value.find { it.isHost } ?: return
 
-        scope.launch {
+        manualSyncJob?.cancel()
+        manualSyncJob = scope.launch {
             val hostIsPlayingMotion = host.isPlaying && !host.isPaused
             val hostIsPlayingIntent = !host.isPaused
             val elapsed = Math.max(0L, System.currentTimeMillis() - host.lastUpdate) / 1000.0
@@ -193,35 +236,31 @@ class WatchPartyManager @Inject constructor(
             syncInProgress = true
             _isSyncing.value = true
             lastSyncAt = System.currentTimeMillis()
+            try {
+                _actions.emit(WatchPartyAction.Seek((predicted * 1000).toLong()))
+                delay(SEEK_SETTLE_MS)
 
-            _actions.emit(WatchPartyAction.Seek((predicted * 1000).toLong()))
-            delay(SEEK_SETTLE_MS)
+                if (hostIsPlayingIntent) _actions.emit(WatchPartyAction.Play)
+                else _actions.emit(WatchPartyAction.Pause)
 
-            if (hostIsPlayingIntent) {
-                _actions.emit(WatchPartyAction.Play)
-            } else {
-                _actions.emit(WatchPartyAction.Pause)
+                delay(PLAY_SETTLE_MS)
+                hasInitialSynced = true
+                lastHostPlaying = hostIsPlayingIntent
+                pendingHostPlaying = hostIsPlayingIntent
+                confirmedHostPlaying = hostIsPlayingIntent
+                Log.i(TAG, "Manual Sync complete")
+            } finally {
+                _isSyncing.value = false
+                syncInProgress = false
             }
-
-            delay(PLAY_SETTLE_MS)
-
-            _isSyncing.value = false
-            syncInProgress = false
-            hasInitialSynced = true
-            
-            // Sync engine state so it doesn't immediately "fix" our manual sync
-            lastHostPlaying = hostIsPlayingIntent
-            pendingHostPlaying = hostIsPlayingIntent
-            confirmedHostPlaying = hostIsPlayingIntent
-            
-            Log.i(TAG, "Manual Sync complete")
         }
     }
 
     /**
      * Called by PlayerViewModel to update local state for reporting and sync comparison.
      */
-    fun updateLocalState(content: WatchPartyContentDto, player: WatchPartyPlayerDto) {
+    fun updateLocalState(owner: String, content: WatchPartyContentDto, player: WatchPartyPlayerDto) {
+        localStateOwner = owner
         lastLocalContent = content
         lastLocalState = player
     }
@@ -229,7 +268,9 @@ class WatchPartyManager @Inject constructor(
     /**
      * Clear local state when the player is closed.
      */
-    fun clearLocalState() {
+    fun clearLocalState(owner: String) {
+        if (localStateOwner != owner) return
+        localStateOwner = null
         lastLocalContent = null
         lastLocalState = null
         // We do NOT clear lastFollowKey here to prevent "Aggressive Auto-Follow" loops.
@@ -240,6 +281,7 @@ class WatchPartyManager @Inject constructor(
         consecutiveErrors = 0
         consecutiveReportingErrors = 0
         syncInProgress = false
+        _isSyncing.value = false
         hasInitialSynced = false
         lastHostPlaying = null
         pendingHostPlaying = null
@@ -262,7 +304,7 @@ class WatchPartyManager @Inject constructor(
                 refreshRoomData(code)
 
                 val interval = if (consecutiveErrors > 0) {
-                    Math.min(POLL_INTERVAL_MS * (1 shl consecutiveErrors), BACKOFF_MAX_MS)
+                    minOf(POLL_INTERVAL_MS * (1L shl consecutiveErrors.coerceAtMost(3)), BACKOFF_MAX_MS)
                 } else {
                     POLL_INTERVAL_MS
                 }
@@ -313,7 +355,8 @@ class WatchPartyManager @Inject constructor(
                     val dueByChange = changed && (now - lastReportTime >= MIN_CHANGE_INTERVAL_MS)
 
                     if (dueByChange || dueByTime) {
-                        val userId = repository.getUserId() ?: repository.getGuestId()
+                        val userId = repository.getEffectiveUserId()
+                        _selfUserId.value = userId
                         val request = WatchPartyStatusRequest(
                             userId = userId,
                             roomCode = code,
@@ -403,7 +446,7 @@ class WatchPartyManager @Inject constructor(
         val hostType = if (host.type.equals("tv", true)) "show" else "movie"
         val hostKey = if (host.tmdbId != null) {
             if (hostType == "show") {
-                "show:${host.tmdbId}:${host.seasonNumber}:${host.episodeNumber}"
+                "show:${host.tmdbId}:${host.seasonId ?: host.seasonNumber}:${host.episodeId ?: host.episodeNumber}"
             } else {
                 "movie:${host.tmdbId}"
             }
@@ -413,7 +456,7 @@ class WatchPartyManager @Inject constructor(
         val localType = if (localMeta?.type?.equals("TV Show", true) == true || localMeta?.type?.equals("tv", true) == true) "show" else "movie"
         val localKey = if (localMeta?.tmdbId != null) {
             if (localType == "show") {
-                "show:${localMeta.tmdbId}:${localMeta.seasonNumber}:${localMeta.episodeNumber}"
+                "show:${localMeta.tmdbId}:${localMeta.seasonId ?: localMeta.seasonNumber}:${localMeta.episodeId ?: localMeta.episodeNumber}"
             } else {
                 "movie:${localMeta.tmdbId}"
             }
@@ -425,7 +468,7 @@ class WatchPartyManager @Inject constructor(
                 val targetTmdbId = host.tmdbId ?: return
                 hasInitialSynced = false // Reset sync for new content
                 _actions.emit(WatchPartyAction.Navigate(
-                    tmdbId = targetTmdbId.toIntOrNull() ?: 0,
+                    tmdbId = targetTmdbId,
                     mediaType = host.type ?: "movie",
                     season = host.seasonNumber,
                     episode = host.episodeNumber,
@@ -482,14 +525,12 @@ class WatchPartyManager @Inject constructor(
             return
         }
 
-        // If local is loading, skip drift-based syncs to prevent "Seek Loops".
+        // The player collector is installed only after Media3 is ready.
+        if (local.isLoading) return
+
         val drift = local.time - predicted
         val needsInitial = !hasInitialSynced
-        val needsDrift = hasInitialSynced && !local.isLoading && Math.abs(drift) > DRIFT_THRESHOLD_SECONDS
-
-        if (hasInitialSynced && local.isLoading && Math.abs(drift) > DRIFT_THRESHOLD_SECONDS) {
-            return
-        }
+        val needsDrift = hasInitialSynced && Math.abs(drift) > DRIFT_THRESHOLD_SECONDS
         
         // Fix: needsPlayState should be true if we don't have a lastHostPlaying yet (first sync)
         val needsPlayState = confirmedHostPlaying != null && (lastHostPlaying == null || confirmedHostPlaying != lastHostPlaying)
@@ -510,28 +551,26 @@ class WatchPartyManager @Inject constructor(
             syncInProgress = true
             _isSyncing.value = true
             lastSyncAt = System.currentTimeMillis()
-
-            // Apply sync actions
-            if (needsInitial || needsDrift || needsPlayState) {
+            try {
                 _actions.emit(WatchPartyAction.Seek((predicted * 1000).toLong()))
-            }
-            
-            // Wait for seek to "settle" before toggling playback
-            delay(SEEK_SETTLE_MS)
-            
-            if (targetPlaying) {
-                _actions.emit(WatchPartyAction.Play)
-            } else {
-                _actions.emit(WatchPartyAction.Pause)
-            }
+                delay(SEEK_SETTLE_MS)
 
-            // Final settle window
-            delay(PLAY_SETTLE_MS)
-            
-            _isSyncing.value = false
-            syncInProgress = false
-            hasInitialSynced = true
-            lastHostPlaying = targetPlaying
+                if (targetPlaying) _actions.emit(WatchPartyAction.Play)
+                else _actions.emit(WatchPartyAction.Pause)
+
+                delay(PLAY_SETTLE_MS)
+                hasInitialSynced = true
+                lastHostPlaying = targetPlaying
+            } finally {
+                _isSyncing.value = false
+                syncInProgress = false
+            }
+        }
+    }
+
+    private fun refreshSelfUserId() {
+        scope.launch {
+            _selfUserId.value = repository.getEffectiveUserId()
         }
     }
 }

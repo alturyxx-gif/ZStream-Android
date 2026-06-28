@@ -23,6 +23,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URLDecoder
+import java.util.UUID
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import com.zstream.android.data.local.preferences.SettingsPreferences
@@ -122,6 +123,7 @@ class PlayerViewModel @Inject constructor(
     // --- Watch Party Actions ---
     private val _watchPartyEvent = MutableSharedFlow<WatchPartyAction>(replay = 0)
     val watchPartyEvent = _watchPartyEvent.asSharedFlow()
+    private val localStateOwner = UUID.randomUUID().toString()
 
     init {
         load()
@@ -132,7 +134,9 @@ class PlayerViewModel @Inject constructor(
     private fun observeWatchParty() {
         viewModelScope.launch {
             watchPartyManager.actions.collect { action ->
-                _watchPartyEvent.emit(action)
+                if (action !is WatchPartyAction.Navigate) {
+                    _watchPartyEvent.emit(action)
+                }
             }
         }
     }
@@ -161,7 +165,7 @@ class PlayerViewModel @Inject constructor(
             buffered = 0.0
         )
 
-        watchPartyManager.updateLocalState(content, player)
+        watchPartyManager.updateLocalState(localStateOwner, content, player)
     }
 
     fun reportPlayerState(
@@ -200,12 +204,12 @@ class PlayerViewModel @Inject constructor(
 
         // Ensure manager's internal host state is in sync with UI state
         // and update local state for reporting
-        watchPartyManager.updateLocalState(content, player)
+        watchPartyManager.updateLocalState(localStateOwner, content, player)
     }
 
     override fun onCleared() {
         super.onCleared()
-        watchPartyManager.clearLocalState()
+        watchPartyManager.clearLocalState(localStateOwner)
     }
 
     fun getProxyPort() = engine.proxy.port
