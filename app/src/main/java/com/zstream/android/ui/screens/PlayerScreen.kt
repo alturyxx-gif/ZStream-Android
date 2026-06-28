@@ -3232,6 +3232,9 @@ private fun PlayerMenuContent(
                                 ZsButton(
                                     text = "Host a Watch Party",
                                     onClick = {
+                                        isJoiningRoom = false
+                                        joinRoomCode = ""
+                                        focusManager.clearFocus()
                                         onHostWatchParty()
                                     },
                                     variant = ZsButtonVariant.Purple,
@@ -3291,9 +3294,31 @@ private fun PlayerMenuContent(
                                         }
                                     )
                                     LaunchedEffect(Unit) { joinFocusRequester.requestFocus() }
-                                    
-                                    TextButton(onClick = { isJoiningRoom = false }) {
-                                        Text("Cancel", color = theme.colors.type.secondary, fontSize = 12.sp)
+
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        TextButton(onClick = {
+                                            isJoiningRoom = false
+                                            joinRoomCode = ""
+                                            focusManager.clearFocus()
+                                        }) {
+                                            Text("Cancel", color = theme.colors.type.secondary, fontSize = 12.sp)
+                                        }
+
+                                        ZsButton(
+                                            text = "Join",
+                                            onClick = {
+                                                if (joinRoomCode.length >= 4) {
+                                                    onJoinWatchParty(joinRoomCode)
+                                                }
+                                                isJoiningRoom = false
+                                                focusManager.clearFocus()
+                                            },
+                                            variant = ZsButtonVariant.Secondary,
+                                            modifier = Modifier.height(42.dp)
+                                        )
                                     }
                                 } else {
                                     ZsButton(
@@ -3339,6 +3364,9 @@ private fun PlayerMenuContent(
                             if (isEditing) {
                                 focusRequester.requestFocus()
                             }
+                        }
+                        LaunchedEffect(roomCode) {
+                            roomCodeValue = TextFieldValue(roomCode ?: "")
                         }
 
                         PlayerMenuSection {

@@ -2067,7 +2067,60 @@ private fun SandwichMenuDialog(
                             theme = theme
                         )
                     } else {
-                        SandwichItem(Icons.Default.Group, "Join a Watch Party", theme = theme) { onDismiss() }
+                        if (isJoiningWatchParty) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 20.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Icon(Icons.Default.Group, null, tint = theme.colors.type.secondary, modifier = Modifier.size(18.dp))
+                                BasicTextField(
+                                    value = watchPartyCode,
+                                    onValueChange = { input ->
+                                        watchPartyCode = input.uppercase().filter { it.isLetterOrDigit() }.take(6)
+                                    },
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .background(theme.colors.background.secondary, RoundedCornerShape(6.dp))
+                                        .padding(horizontal = 10.dp, vertical = 8.dp)
+                                        .focusRequester(focusRequester),
+                                    textStyle = TextStyle(color = theme.colors.type.emphasis, fontSize = 14.sp),
+                                    cursorBrush = SolidColor(theme.colors.global.accentA),
+                                    singleLine = true,
+                                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
+                                    keyboardActions = KeyboardActions(onGo = {
+                                        if (watchPartyCode.length >= 4) {
+                                            vm.joinWatchParty(watchPartyCode)
+                                            onDismiss()
+                                        }
+                                    }),
+                                    decorationBox = { input ->
+                                        if (watchPartyCode.isEmpty()) {
+                                            Text("Watch Party code", color = theme.colors.type.dimmed, fontSize = 14.sp)
+                                        }
+                                        input()
+                                    },
+                                )
+                                IconButton(
+                                    onClick = {
+                                        if (watchPartyCode.length >= 4) {
+                                            vm.joinWatchParty(watchPartyCode)
+                                            onDismiss()
+                                        }
+                                    },
+                                    enabled = watchPartyCode.length >= 4,
+                                ) {
+                                    Icon(Icons.Default.ArrowForward, "Join Watch Party")
+                                }
+                            }
+                            LaunchedEffect(Unit) { focusRequester.requestFocus() }
+                        } else {
+                            SandwichItem(Icons.Default.Group, "Join a Watch Party", theme = theme) {
+                                isJoiningWatchParty = true
+                            }
+                        }
                     }
 
                     HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp), color = theme.colors.type.divider.copy(alpha = 0.15f))
