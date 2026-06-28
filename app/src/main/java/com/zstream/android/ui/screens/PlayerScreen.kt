@@ -1885,15 +1885,6 @@ private fun PlayerControls(
                             if (playWhenReady) player.pause() else player.play()
                         }
                         if (!isTv) {
-                            DrawableControlIcon(
-                                res = if (isPlaying) R.drawable.ic_player_pause else R.drawable.ic_player_play,
-                                theme = theme
-                            ) {
-                                if (player.isPlaying) 
-                                    player.pause() 
-                                else 
-                                    player.play()
-                            }
                             DrawableControlIcon(R.drawable.ic_player_skip_back, theme) {
                                 player.seekTo((player.currentPosition - 10_000).coerceAtLeast(0))
                             }
@@ -1948,17 +1939,6 @@ private fun PlayerControls(
                                 modifier = Modifier.padding(end = 8.dp)
                             )
                         }
-                        IconButton(onClick = {
-                            onControlsVisibilityChanged(true)
-                            menuPage = PlayerMenuPage.Captions
-                        }, modifier = Modifier.size(BOTTOM_BAR_MENU_BUTTON_SIZE)) {
-                            Icon(
-                                Icons.Filled.ClosedCaption,
-                                null,
-                                tint = if (subtitlesEnabled) theme.colors.type.emphasis else theme.colors.type.secondary,
-                                modifier = Modifier.size(BOTTOM_BAR_MENU_ICON_SIZE)
-                            )
-
                         var ccBtnFocused by remember { mutableStateOf(false) }
                         if (isTv) {
                             ZsOutlinedWrapper(
@@ -1987,15 +1967,6 @@ private fun PlayerControls(
                                         tint = if (subtitlesEnabled) theme.colors.type.emphasis else theme.colors.type.secondary,
                                         modifier = Modifier.size(BOTTOM_BAR_MENU_ICON_SIZE))
                                 }
-                            }
-                        } else {
-                            IconButton(onClick = {
-                                onControlsVisibilityChanged(true)
-                                onMenuPageChange(PlayerMenuPage.Captions)
-                            }, modifier = Modifier.size(BOTTOM_BAR_MENU_BUTTON_SIZE)) {
-                                Icon(Icons.Filled.ClosedCaption, null,
-                                    tint = if (subtitlesEnabled) theme.colors.type.emphasis else theme.colors.type.secondary,
-                                    modifier = Modifier.size(BOTTOM_BAR_MENU_ICON_SIZE))
                             }
                         }
 
@@ -2027,16 +1998,30 @@ private fun PlayerControls(
                                         modifier = Modifier.size(BOTTOM_BAR_MENU_ICON_SIZE))
                                 }
                             }
-                        } else {
+                        }
+                        if (!isTv) {
+                            IconButton(onClick = {
+                                onControlsVisibilityChanged(true)
+                                onMenuPageChange(PlayerMenuPage.Captions)
+                            }, modifier = Modifier.size(BOTTOM_BAR_MENU_BUTTON_SIZE)) {
+                                Icon(
+                                    Icons.Filled.ClosedCaption,
+                                    null,
+                                    tint = if (subtitlesEnabled) theme.colors.type.emphasis else theme.colors.type.secondary,
+                                    modifier = Modifier.size(BOTTOM_BAR_MENU_ICON_SIZE)
+                                )
+                            }
                             IconButton(onClick = {
                                 onControlsVisibilityChanged(true)
                                 onMenuPageChange(PlayerMenuPage.Root)
                             }, modifier = Modifier.size(BOTTOM_BAR_MENU_BUTTON_SIZE)) {
-                                Icon(Icons.Filled.Tune, null, tint = theme.colors.type.emphasis,
-                                    modifier = Modifier.size(BOTTOM_BAR_MENU_ICON_SIZE))
+                                Icon(
+                                    Icons.Filled.Tune,
+                                    null,
+                                    tint = theme.colors.type.emphasis,
+                                    modifier = Modifier.size(BOTTOM_BAR_MENU_ICON_SIZE)
+                                )
                             }
-                        }
-                        if (!isTv) {
                             IconButton(onClick = {
                                 onMenuPageChange(null)
                                 onControlsVisibilityChanged(false)
@@ -2364,7 +2349,6 @@ private fun PlayerControls(
             onSubmit = onSubmitSkipSegment
         )
     }
-}
 }
 
 @Composable
