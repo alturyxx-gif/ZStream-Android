@@ -36,6 +36,7 @@ data class HomeState(
     val progressMap: Map<String, ProgressEntity> = emptyMap(),
     val enableDiscover: Boolean = true,
     val enableFeatured: Boolean = false,
+    val enableImageLogos: Boolean = true,
     val enableLowPerformanceMode: Boolean = false,
     val featuredMedia: List<Media> = emptyList(),
     val activeTab: HomeTab = HomeTab.MOVIES,
@@ -109,6 +110,7 @@ class HomeViewModel @Inject constructor(
                 _state.update { it.copy(
                     enableDiscover = s.enableDiscover,
                     enableFeatured = s.enableFeatured,
+                    enableImageLogos = s.enableImageLogos,
                     enableLowPerformanceMode = s.enableLowPerformanceMode,
                     enableCarouselView = s.enableCarouselView,
                     gridRows = s.gridRows,

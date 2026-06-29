@@ -580,6 +580,7 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
                                     media = state.featuredMedia,
                                     nav = nav,
                                     progressMap = state.progressMap,
+                                    showImageLogos = state.enableImageLogos,
                                     isSearching = isSearching,
                                     modifier = Modifier.fillMaxWidth()
                                 )
@@ -2794,6 +2795,7 @@ private fun FeaturedCarousel(
     media: List<Media>,
     nav: NavController,
     progressMap: Map<String, ProgressEntity> = emptyMap(),
+    showImageLogos: Boolean = true,
     isSearching: Boolean = false,
     modifier: Modifier = Modifier,
     onFocused: () -> Unit = {},
@@ -3011,7 +3013,7 @@ private fun FeaturedCarousel(
                 ) {
                     Column(Modifier.fillMaxWidth()) {
                         // Title
-                        current.logoUrl()?.let { logo ->
+                        current.logoUrl()?.takeIf { showImageLogos }?.let { logo ->
                             Box(
                                 Modifier
                                     .height(if (isTv) 60.dp else 80.dp)
@@ -3520,6 +3522,7 @@ private fun TvHomeScreenContent(
                             media = state.featuredMedia,
                             nav = nav,
                             progressMap = state.progressMap,
+                            showImageLogos = state.enableImageLogos,
                             playButtonFocusRequester = carouselPlayButtonRequester,
                             modifier = Modifier
                                 .fillMaxWidth()

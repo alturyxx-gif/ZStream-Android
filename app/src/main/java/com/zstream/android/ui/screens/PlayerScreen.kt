@@ -1163,6 +1163,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                         state = infoState,
                         nav = nav,
                         allProgress = progressList,
+                        showImageLogos = settings.enableImageLogos,
                         isBookmarked = isBookmarked != null,
                         onToggleBookmark = vm::toggleBookmark,
                         onClose = { showInfoSheet = false },
@@ -4478,6 +4479,7 @@ private fun PlayerInfoSheet(
     state: PlayerInfoState?,
     nav: NavController,
     allProgress: List<com.zstream.android.data.local.entity.ProgressEntity>,
+    showImageLogos: Boolean,
     isBookmarked: Boolean,
     onToggleBookmark: () -> Unit,
     onClose: () -> Unit,
@@ -4511,6 +4513,7 @@ private fun PlayerInfoSheet(
                 onBack = onClose,
                 onMarkMovieWatched = {}, // Stubs for player sheet
                 onClearMovieWatchHistory = {},
+                showImageLogos = showImageLogos,
                 showPlayButton = false,
                 showBackground = false,
                 firstItemFocusRequester = firstItemFocusRequester
@@ -4534,6 +4537,7 @@ private fun PlayerInfoSheet(
                 onClearEpisodeWatchHistory = {},
                 onMarkSeasonWatched = {},
                 onClearSeasonWatchHistory = {},
+                showImageLogos = showImageLogos,
                 showPlayButton = false,
                 showBackground = false,
                 firstItemFocusRequester = firstItemFocusRequester
