@@ -20,6 +20,8 @@ import com.zstream.android.ui.navigation.rememberSafeNavigateBack
 @Composable
 fun DetailScreen(nav: NavController, vm: DetailViewModel = hiltViewModel()) {
     val state by vm.state.collectAsState()
+    val settingsVm: SettingsViewModel = hiltViewModel()
+    val settings by settingsVm.settings.collectAsState()
     val theme = LocalZStreamTheme.current
     val scope = rememberCoroutineScope()
     val onBack = rememberSafeNavigateBack(nav, scope)
@@ -65,6 +67,7 @@ fun DetailScreen(nav: NavController, vm: DetailViewModel = hiltViewModel()) {
                 onBack = onBack,
                 onMarkMovieWatched = vm::markMovieWatched,
                 onClearMovieWatchHistory = vm::clearMovieWatchHistory,
+                showImageLogos = settings.enableImageLogos,
             )
         }
         is DetailState.Tv -> {
@@ -85,6 +88,7 @@ fun DetailScreen(nav: NavController, vm: DetailViewModel = hiltViewModel()) {
                 onClearEpisodeWatchHistory = vm::clearEpisodeWatchHistory,
                 onMarkSeasonWatched = vm::markSeasonWatched,
                 onClearSeasonWatchHistory = vm::clearSeasonWatchHistory,
+                showImageLogos = settings.enableImageLogos,
             )
         }
     }

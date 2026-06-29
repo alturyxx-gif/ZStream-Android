@@ -109,6 +109,7 @@ internal fun SharedDetailSheetScaffold(
     title: String,
     backdropUrl: String?,
     logoUrl: String?,
+    showImageLogos: Boolean,
     posterUrl: String?,
     year: String?,
     rating: String?,
@@ -174,6 +175,7 @@ internal fun SharedDetailSheetScaffold(
                             title = title,
                             backdropUrl = backdropUrl,
                             logoUrl = logoUrl,
+                            showImageLogos = showImageLogos,
                             posterUrl = posterUrl,
                             year = year,
                             rating = rating,
@@ -200,6 +202,7 @@ internal fun SharedDetailSheetHero(
     title: String,
     backdropUrl: String?,
     logoUrl: String?,
+    showImageLogos: Boolean,
     posterUrl: String?,
     year: String?,
     rating: String?,
@@ -250,7 +253,7 @@ internal fun SharedDetailSheetHero(
                 .align(Alignment.BottomStart)
                 .padding(horizontal = DETAIL_SHEET_CONTENT_PADDING)
         ) {
-            if (logoUrl != null) {
+            if (showImageLogos && logoUrl != null) {
                 AsyncImage(
                     model = logoUrl,
                     contentDescription = title,
@@ -261,7 +264,7 @@ internal fun SharedDetailSheetHero(
                 )
             } else {
                 Text(
-                    title.uppercase(),
+                    title,
                     color = theme.colors.type.emphasis,
                     style = MaterialTheme.typography.headlineLarge,
                     fontWeight = FontWeight.ExtraBold,
@@ -769,4 +772,3 @@ fun SharedTmdbRating(rating: Double, theme: ZStreamTheme) {
         Text(text = "%.1f".format(rating), color = theme.colors.type.emphasis, fontSize = 12.sp)
     }
 }
-

@@ -96,6 +96,7 @@ fun MovieDetailModal(
     onBack: () -> Unit,
     onMarkMovieWatched: () -> Unit,
     onClearMovieWatchHistory: () -> Unit,
+    showImageLogos: Boolean = true,
     showPlayButton: Boolean = true,
     showBackground: Boolean = true,
     firstItemFocusRequester: FocusRequester? = null,
@@ -123,6 +124,7 @@ fun MovieDetailModal(
         title = detail.title,
         backdropUrl = detail.backdropUrl(),
         logoUrl = detail.logoUrl(),
+        showImageLogos = showImageLogos,
         posterUrl = detail.posterUrl(),
         year = detail.releaseDate?.take(4),
         rating = detail.voteAverage?.let { String.format("%.1f", it) },
@@ -238,6 +240,7 @@ fun TvDetailModal(
     onClearEpisodeWatchHistory: (com.zstream.android.data.model.Episode) -> Unit,
     onMarkSeasonWatched: () -> Unit,
     onClearSeasonWatchHistory: () -> Unit,
+    showImageLogos: Boolean = true,
     showPlayButton: Boolean = true,
     showBackground: Boolean = true,
     firstItemFocusRequester: FocusRequester? = null,
@@ -265,6 +268,7 @@ fun TvDetailModal(
         title = detail.name,
         backdropUrl = detail.backdropUrl(),
         logoUrl = detail.logoUrl(),
+        showImageLogos = showImageLogos,
         posterUrl = detail.posterUrl(),
         year = detail.firstAirDate?.take(4),
         rating = detail.voteAverage?.let { String.format("%.1f", it) },
@@ -743,5 +747,4 @@ private fun EpisodeSwipeBackground(
         }
     }
 }
-
 
