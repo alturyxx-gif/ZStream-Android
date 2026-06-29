@@ -144,7 +144,7 @@ class HomeViewModel @Inject constructor(
                         releaseDate = p.year?.toString(),
                         firstAirDate = p.year?.toString(),
                         voteAverage = null,
-                        mediaType = p.type,
+                        mediaType = if (p.type == "show") "tv" else p.type,
                         genreIds = null
                     )
                 }
@@ -168,7 +168,7 @@ class HomeViewModel @Inject constructor(
                         releaseDate = b.year?.toString(),
                         firstAirDate = b.year?.toString(),
                         voteAverage = null,
-                        mediaType = b.type,
+                        mediaType = if (b.type == "show") "tv" else b.type,
                         genreIds = null
                     )
                 }

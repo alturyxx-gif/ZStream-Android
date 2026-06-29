@@ -1,6 +1,5 @@
 the remaining settings to wire are:
 
- 1. enableAutoplay — next-episode auto-play in player
  2. enableAutoResumeOnPlaybackError - should be done later when we have sources ready
  3. hidePauseOverlay
  4. proxyTmdb

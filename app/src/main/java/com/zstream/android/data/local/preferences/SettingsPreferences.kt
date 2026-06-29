@@ -61,6 +61,7 @@ class SettingsPreferences @Inject constructor(
     private val KEY_VIDEO_HUE_ROTATE = intPreferencesKey("video_hue_rotate")
     private val KEY_VOLUME_BOOST = intPreferencesKey("volume_boost")
     private val KEY_VIDEO_SCALE_MODE = stringPreferencesKey("video_scale_mode")
+    private val KEY_TV_PIP_POSITION = stringPreferencesKey("tv_pip_position")
 
     // Discover/Home Settings
     private val KEY_ENABLE_DISCOVER = booleanPreferencesKey("enable_discover")
@@ -135,6 +136,7 @@ class SettingsPreferences @Inject constructor(
             videoHueRotate = prefs[KEY_VIDEO_HUE_ROTATE] ?: 0,
             volumeBoost = prefs[KEY_VOLUME_BOOST] ?: 100,
             videoScaleMode = prefs[KEY_VIDEO_SCALE_MODE] ?: "fit",
+            tvPipPosition = prefs[KEY_TV_PIP_POSITION] ?: "bottom_end",
             enableDiscover = prefs[KEY_ENABLE_DISCOVER] ?: true,
             enableFeatured = prefs[KEY_ENABLE_FEATURED] ?: true,
             lastSuccessfulSource = prefs[KEY_LAST_SUCCESSFUL_SOURCE],
@@ -208,6 +210,7 @@ class SettingsPreferences @Inject constructor(
             prefs[KEY_VIDEO_HUE_ROTATE] = entity.videoHueRotate
             prefs[KEY_VOLUME_BOOST] = entity.volumeBoost
             prefs[KEY_VIDEO_SCALE_MODE] = entity.videoScaleMode
+            prefs[KEY_TV_PIP_POSITION] = entity.tvPipPosition
             prefs[KEY_ENABLE_DISCOVER] = entity.enableDiscover
             prefs[KEY_ENABLE_FEATURED] = entity.enableFeatured
             if (entity.lastSuccessfulSource != null) {
@@ -285,6 +288,7 @@ class SettingsPreferences @Inject constructor(
             val currentVideoHueRotate = current[KEY_VIDEO_HUE_ROTATE] ?: 0
             val currentVolumeBoost = current[KEY_VOLUME_BOOST] ?: 100
             val currentVideoScaleMode = current[KEY_VIDEO_SCALE_MODE] ?: "fit"
+            val currentTvPipPosition = current[KEY_TV_PIP_POSITION] ?: "bottom_end"
             val currentGridRows = current[KEY_GRID_ROWS] ?: 2
 
             val mappedHomeSectionOrder = remote.homeSectionOrder?.map { section ->
@@ -320,6 +324,7 @@ class SettingsPreferences @Inject constructor(
                 videoHueRotate = currentVideoHueRotate,
                 volumeBoost = currentVolumeBoost,
                 videoScaleMode = currentVideoScaleMode,
+                tvPipPosition = currentTvPipPosition,
                 enableDiscover = remote.enableDiscover ?: true,
                 enableFeatured = remote.enableFeatured ?: true,
                 lastSuccessfulSource = remote.lastSuccessfulSource,
@@ -507,6 +512,12 @@ class SettingsPreferences @Inject constructor(
     suspend fun setVideoScaleMode(value: String) {
         context.settingsStore.edit { prefs ->
             prefs[KEY_VIDEO_SCALE_MODE] = value
+        }
+    }
+
+    suspend fun setTvPipPosition(value: String) {
+        context.settingsStore.edit { prefs ->
+            prefs[KEY_TV_PIP_POSITION] = value
         }
     }
 

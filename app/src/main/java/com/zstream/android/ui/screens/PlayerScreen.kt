@@ -28,6 +28,8 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.animation.*
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.focusable
@@ -89,6 +91,7 @@ import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -262,6 +265,7 @@ private const val PLAYER_AUTO_HIDE_DURATION = 7000L
 @Composable
 fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
     val state by vm.state.collectAsState()
+    val settings by vm.settings.collectAsState()
     val roomCode by vm.watchPartyManager.roomCode.collectAsState()
     val watchPartyEnabled by vm.watchPartyManager.enabled.collectAsState()
     val participants by vm.watchPartyManager.participants.collectAsState()
@@ -298,6 +302,46 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
     val isTv = LocalIsTv.current
     val playerFocusRequester = remember { FocusRequester() }
     var isInAppPip by remember { mutableStateOf(false) }
+    var isRestoringPip by remember { mutableStateOf(false) }
+    var isClosingPip by remember { mutableStateOf(false) }
+    var pipIsPlaying by remember { mutableStateOf(false) }
+    var pipTogglePlaybackRequest by remember { mutableIntStateOf(0) }
+    var isPipDrawerExpanded by remember { mutableStateOf(false) }
+    var pipAspectRatio by remember { mutableFloatStateOf(16f / 9f) }
+    val pipExitProgress by animateFloatAsState(
+        targetValue = if (isClosingPip) 1f else 0f,
+        animationSpec = tween(300),
+        label = "TV PiP exit",
+    )
+    val screenWidthPx = with(LocalDensity.current) { LocalConfiguration.current.screenWidthDp.dp.toPx() }
+    val configuration = LocalConfiguration.current
+    val fullWidth = configuration.screenWidthDp.dp
+    val fullHeight = configuration.screenHeightDp.dp
+    val compactWidth = fullWidth * 0.38f
+    val compactHeight = compactWidth / pipAspectRatio
+    val compact = isInAppPip && !isRestoringPip
+    val boundsAnimation = if (settings.enableLowPerformanceMode) snap<Dp>() else tween<Dp>(350)
+    val pipWidth by animateDpAsState(if (compact) compactWidth else fullWidth, boundsAnimation, label = "PiP width")
+    val pipHeight by animateDpAsState(if (compact) compactHeight else fullHeight, boundsAnimation, label = "PiP height")
+    val compactOffsetX = (fullWidth - compactWidth) / 2 - 32.dp
+    val compactOffsetY = (fullHeight - compactHeight) / 2 - 32.dp
+    val pipOffsetX by animateDpAsState(
+        if (!compact) 0.dp else if (settings.tvPipPosition.endsWith("start")) -compactOffsetX else compactOffsetX,
+        boundsAnimation,
+        label = "PiP x",
+    )
+    val pipOffsetY by animateDpAsState(
+        if (!compact) 0.dp else if (settings.tvPipPosition.startsWith("top")) -compactOffsetY else compactOffsetY,
+        boundsAnimation,
+        label = "PiP y",
+    )
+
+    LaunchedEffect(isRestoringPip) {
+        if (!isRestoringPip) return@LaunchedEffect
+        delay(350)
+        isInAppPip = false
+        isRestoringPip = false
+    }
 
     LaunchedEffect(state, watchPartyEnabled, isHost) {
         val s = state
@@ -307,23 +351,46 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
     }
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
-        if (isInAppPip) HomeScreen(nav)
+        if (isInAppPip) {
+            HomeScreen(
+                nav = nav,
+                isTvPipActive = true,
+                onOpenTvPip = {
+                    isPipDrawerExpanded = false
+                    if (settings.enableLowPerformanceMode) isInAppPip = false else isRestoringPip = true
+                },
+                onMoveTvPip = {
+                    val next = when (settings.tvPipPosition) {
+                        "bottom_end" -> "bottom_start"
+                        "bottom_start" -> "top_start"
+                        "top_start" -> "top_end"
+                        else -> "bottom_end"
+                    }
+                    vm.setTvPipPosition(next)
+                },
+                isTvPipPlaying = pipIsPlaying,
+                onToggleTvPipPlayback = { pipTogglePlaybackRequest++ },
+                onCloseTvPip = { isClosingPip = true },
+                isTvPipDrawerExpanded = isPipDrawerExpanded,
+                onTvPipDrawerExpandedChange = { isPipDrawerExpanded = it },
+            )
+        }
         Box(
             Modifier
-                .then(
-                    if (isInAppPip) {
-                        Modifier
-                            .align(Alignment.BottomEnd)
-                            .padding(32.dp)
-                            .fillMaxWidth(0.38f)
-                            .aspectRatio(16f / 9f)
-                            .clip(RoundedCornerShape(12.dp))
-                            .border(2.dp, theme.colors.global.accentA, RoundedCornerShape(12.dp))
-                            .clickable { isInAppPip = false }
-                    } else {
-                        Modifier.fillMaxSize()
-                    }
-                )
+                .align(Alignment.Center)
+                .offset(pipOffsetX, pipOffsetY)
+                .width(pipWidth)
+                .height(pipHeight)
+                .graphicsLayer {
+                    translationX = pipExitProgress * screenWidthPx *
+                        if (settings.tvPipPosition.endsWith("start")) -1f else 1f
+                    alpha = 1f - pipExitProgress
+                }
+                .then(if (compact) Modifier
+                    .clip(RoundedCornerShape(12.dp))
+                    .clickable {
+                        if (settings.enableLowPerformanceMode) isInAppPip = false else isRestoringPip = true
+                    } else Modifier)
                 .background(Color.Black)
         ) {
         when (val s = state) {
@@ -423,7 +490,6 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                 val accountVm: AccountViewModel = hiltViewModel()
                 val session by accountVm.session.collectAsState()
                 val progressList by accountVm.progress.collectAsState()
-                val settings by vm.settings.collectAsState()
                 val appRepos = remember(context) {
                     EntryPointAccessors.fromApplication(
                         context.applicationContext,
@@ -496,6 +562,21 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                         prepare()
                         playWhenReady = true  // always start loading immediately
                     }
+                }
+
+                LaunchedEffect(player, pipTogglePlaybackRequest) {
+                    if (pipTogglePlaybackRequest == 0) return@LaunchedEffect
+                    if (player.isPlaying) player.pause() else player.play()
+                }
+
+                LaunchedEffect(isClosingPip) {
+                    if (!isClosingPip) return@LaunchedEffect
+                    val initialVolume = player.volume
+                    repeat(15) { step ->
+                        player.volume = initialVolume * (1f - (step + 1) / 15f)
+                        delay(20)
+                    }
+                    onBack()
                 }
 
                 // Snapshot initial progress once; playback must not mutate it behind the decision dialog.
@@ -718,6 +799,9 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     val listener = object : Player.Listener {
                         override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
                             currentVideoSize = videoSize
+                            if (videoSize.width > 0 && videoSize.height > 0) {
+                                pipAspectRatio = videoSize.width * videoSize.pixelWidthHeightRatio / videoSize.height
+                            }
                             val pv = playerViewRef.value ?: return
                             pv.resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
                             videoTextureRef.value?.let { textureView ->
@@ -728,6 +812,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                         }
                         override fun onIsPlayingChanged(playing: Boolean) {
                             isPlaying = playing
+                            pipIsPlaying = playing
                         }
                     }
                     player.addListener(listener)
@@ -1263,6 +1348,35 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
             }
             }
         }
+        if (compact) {
+            Box(
+                Modifier
+                    .matchParentSize()
+                    .border(2.dp, theme.colors.global.accentA, RoundedCornerShape(12.dp))
+            )
+        }
+    }
+    if (isInAppPip && isPipDrawerExpanded) {
+        TvPipDrawerPanel(
+            onOpenPip = {
+                isPipDrawerExpanded = false
+                if (settings.enableLowPerformanceMode) isInAppPip = false else isRestoringPip = true
+            },
+            onMovePip = {
+                val next = when (settings.tvPipPosition) {
+                    "bottom_end" -> "bottom_start"
+                    "bottom_start" -> "top_start"
+                    "top_start" -> "top_end"
+                    else -> "bottom_end"
+                }
+                vm.setTvPipPosition(next)
+            },
+            isPipPlaying = pipIsPlaying,
+            onTogglePipPlayback = { pipTogglePlaybackRequest++ },
+            onClosePip = { isClosingPip = true },
+            onDismiss = { isPipDrawerExpanded = false },
+            modifier = Modifier.align(Alignment.CenterStart),
+        )
     }
 }
 }
