@@ -96,14 +96,18 @@ class PlayerViewModel @Inject constructor(
 
     private val id = savedState.get<Int>("id") ?: 0
     val mediaType = savedState.get<String>("mediaType") ?: "movie"
-    val season = savedState.get<Int>("season").takeIf { it != -1 }
-    val episode = savedState.get<Int>("episode").takeIf { it != -1 }
+    var season = savedState.get<Int>("season").takeIf { it != -1 }
+        private set
+    var episode = savedState.get<Int>("episode").takeIf { it != -1 }
+        private set
     val title = savedState.get<String>("title")?.decodeRouteParam().orEmpty()
     val year = savedState.get<Int>("year") ?: 0
     val poster = savedState.get<String>("poster")?.decodeRouteParam()?.takeIf { it.isNotBlank() }
     val tmdbId = id.toString()
-    val seasonId = savedState.get<String>("seasonId")
-    val episodeId = savedState.get<String>("episodeId")
+    var seasonId = savedState.get<String>("seasonId")
+        private set
+    var episodeId = savedState.get<String>("episodeId")
+        private set
     val isAutoplay = savedState.get<Boolean>("autoplay") ?: false
 
     private val _state = MutableStateFlow<PlayerState>(PlayerState.Idle)
@@ -120,6 +124,12 @@ class PlayerViewModel @Inject constructor(
 
     val isBookmarked = bookmarkRepo.observeBookmark(tmdbId)
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    private val _tvDetail = MutableStateFlow<com.zstream.android.data.model.TvDetail?>(null)
+    val tvDetail = _tvDetail.asStateFlow()
+
+    private val _currentSeasonDetail = MutableStateFlow<com.zstream.android.data.model.Season?>(null)
+    val currentSeasonDetail = _currentSeasonDetail.asStateFlow()
 
     private val sources = mutableListOf<SourceResult>()
     private var skipSegmentsCacheKey: String? = null
@@ -138,6 +148,57 @@ class PlayerViewModel @Inject constructor(
         load()
         observeWatchParty()
         reportLoadingState()
+        if (mediaType == "tv") {
+            loadTvDetail()
+        }
+    }
+
+    private fun loadTvDetail() {
+        viewModelScope.launch {
+            runCatching {
+                val detail = tmdbRepo.tvDetail(id)
+                _tvDetail.value = detail
+                
+                // Load current season detail
+                val sNum = season ?: detail.seasons?.firstOrNull()?.seasonNumber ?: 1
+                loadSeason(sNum)
+            }.onFailure {
+                Log.e("PlayerVM", "Failed to load TV detail", it)
+            }
+        }
+    }
+
+    fun loadSeason(number: Int) {
+        viewModelScope.launch {
+            runCatching {
+                val sDetail = tmdbRepo.season(id, number)
+                _currentSeasonDetail.value = sDetail
+            }.onFailure {
+                Log.e("PlayerVM", "Failed to load season $number", it)
+            }
+        }
+    }
+
+    fun switchEpisode(seasonNumber: Int, episodeNumber: Int) {
+        if (mediaType != "tv") return
+        season = seasonNumber
+        episode = episodeNumber
+
+        viewModelScope.launch {
+            val sDetail = if (_currentSeasonDetail.value?.seasonNumber != seasonNumber) {
+                runCatching { tmdbRepo.season(id, seasonNumber) }.getOrNull()
+                    .also { _currentSeasonDetail.value = it }
+            } else _currentSeasonDetail.value
+
+            val ep = sDetail?.episodes?.find { it.episodeNumber == episodeNumber }
+            if (ep != null) {
+                episodeId = ep.id.toString()
+                seasonId = sDetail?.id?.toString() ?: ""
+            }
+
+            _state.value = PlayerState.Idle
+            load()
+        }
     }
 
     private fun observeWatchParty() {

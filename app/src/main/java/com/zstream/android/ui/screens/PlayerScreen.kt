@@ -41,6 +41,7 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.FlowRow
@@ -60,6 +61,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Link
@@ -90,8 +92,8 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -233,7 +235,7 @@ private fun sourceStatusColor(theme: ZStreamTheme, status: SourceStatus): Color 
 }
 
 private enum class PlayerMenuPage {
-    Root, Captions, Playback, AdvancedColor, Sources, Quality, Audio, Download, WatchParty, SkipSegments
+    Root, Captions, Playback, AdvancedColor, Sources, Quality, Audio, Download, WatchParty, SkipSegments, Seasons, Episodes
 }
 
 private sealed class PlayerInfoState {
@@ -277,6 +279,8 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
     val isOffline by vm.watchPartyManager.isOffline.collectAsState()
     val isHost by vm.watchPartyManager.isHost.collectAsState()
     val watchPartyUserId by vm.watchPartyManager.selfUserId.collectAsState()
+    val tvDetail by vm.tvDetail.collectAsState()
+    val currentSeasonDetail by vm.currentSeasonDetail.collectAsState()
     val context = LocalContext.current
     val activity = context as? Activity
     val playerScope = rememberCoroutineScope()
@@ -355,22 +359,6 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
             HomeScreen(
                 nav = nav,
                 isTvPipActive = true,
-                onOpenTvPip = {
-                    isPipDrawerExpanded = false
-                    if (settings.enableLowPerformanceMode) isInAppPip = false else isRestoringPip = true
-                },
-                onMoveTvPip = {
-                    val next = when (settings.tvPipPosition) {
-                        "bottom_end" -> "bottom_start"
-                        "bottom_start" -> "top_start"
-                        "top_start" -> "top_end"
-                        else -> "bottom_end"
-                    }
-                    vm.setTvPipPosition(next)
-                },
-                isTvPipPlaying = pipIsPlaying,
-                onToggleTvPipPlayback = { pipTogglePlaybackRequest++ },
-                onCloseTvPip = { isClosingPip = true },
                 isTvPipDrawerExpanded = isPipDrawerExpanded,
                 onTvPipDrawerExpandedChange = { isPipDrawerExpanded = it },
             )
@@ -866,6 +854,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                             when (menuPage) {
                                 PlayerMenuPage.Root, null -> null
                                 PlayerMenuPage.AdvancedColor -> PlayerMenuPage.Playback
+                                PlayerMenuPage.Episodes -> PlayerMenuPage.Seasons
                                 else -> PlayerMenuPage.Root
                             }
                         )
@@ -1115,6 +1104,9 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     }
                 }
 
+                CompositionLocalProvider(
+                    LocalIndication provides ripple(color = Color.White)
+                ) {
                 PlayerControls(
                     player = player,
                     title = vm.title,
@@ -1219,8 +1211,18 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     },
                     showInfoSheet = showInfoSheet,
                     menuPage = menuPage,
-                    onMenuPageChange = onMenuPageChange
+                    onMenuPageChange = onMenuPageChange,
+                    allProgress = progressList,
+                    currentSeason = vm.season,
+                    currentEpisode = vm.episode,
+                    onLoadSeason = vm::loadSeason,
+                    onSwitchEpisode = vm::switchEpisode,
+                    poster = vm.poster,
+                    nav = nav,
+                    tvDetail = tvDetail,
+                    currentSeasonDetail = currentSeasonDetail
                 )
+                }
 
                 val infoSheetFocusRequester = remember { FocusRequester() }
                 val infoSheetFirstItemFocusRequester = remember { FocusRequester() }
@@ -1617,6 +1619,15 @@ private fun PlayerControls(
     showInfoSheet: Boolean,
     menuPage: PlayerMenuPage?,
     onMenuPageChange: (PlayerMenuPage?) -> Unit,
+    allProgress: List<com.zstream.android.data.local.entity.ProgressEntity>,
+    currentSeason: Int?,
+    currentEpisode: Int?,
+    onLoadSeason: (Int) -> Unit,
+    onSwitchEpisode: (Int, Int) -> Unit,
+    poster: String?,
+    nav: NavController,
+    tvDetail: com.zstream.android.data.model.TvDetail?,
+    currentSeasonDetail: com.zstream.android.data.model.Season?,
 ) {
     val menuOpen = menuPage != null
     val theme = LocalZStreamTheme.current
@@ -1722,6 +1733,7 @@ private fun PlayerControls(
     val ccFocusRequester = remember { FocusRequester() }
     val bookmarkFocusRequester = remember { FocusRequester() }
     val settingsFocusRequester = remember { FocusRequester() }
+    val episodesFocusRequester = remember { FocusRequester() }
     val pipFocusRequester = remember { FocusRequester() }
     val skipFocusRequester = remember { FocusRequester() }
     val muteFocusRequester = remember { FocusRequester() }
@@ -1956,6 +1968,7 @@ private fun PlayerControls(
                                 },
                                     modifier = Modifier
                                         .size(CENTER_BUTTON_SIZE)
+                                        .background(if (playBtnFocused) Color.White.copy(alpha = 0.2f) else Color.Transparent, CircleShape)
                                         .focusRequester(playFocusRequester)
                                         .focusProperties {
                                             up = bookmarkFocusRequester;
@@ -2148,13 +2161,13 @@ private fun PlayerControls(
                         verticalAlignment = Alignment.CenterVertically) {
                         Spacer(Modifier.width(BOTTOM_LEFT_START_PADDING))
                         
-                        DrawableControlIcon(
-                            res = if (playWhenReady) R.drawable.ic_player_pause else R.drawable.ic_player_play,
-                            theme = theme
-                        ) {
-                            if (playWhenReady) player.pause() else player.play()
-                        }
                         if (!isTv) {
+                            DrawableControlIcon(
+                                res = if (playWhenReady) R.drawable.ic_player_pause else R.drawable.ic_player_play,
+                                theme = theme
+                            ) {
+                                if (playWhenReady) player.pause() else player.play()
+                            }
                             DrawableControlIcon(R.drawable.ic_player_skip_back, theme) {
                                 player.seekTo((player.currentPosition - 10_000).coerceAtLeast(0))
                             }
@@ -2174,6 +2187,7 @@ private fun PlayerControls(
                                     onClick = { isMuted = !isMuted; player.volume = if (isMuted) 0f else 1f },
                                     modifier = Modifier
                                         .size(BOTTOM_BAR_BUTTON_SIZE)
+                                        .background(if (muteBtnFocused) Color.White.copy(alpha = 0.2f) else Color.Transparent, CircleShape)
                                         .focusRequester(muteFocusRequester)
                                         .focusProperties {
                                             up =
@@ -2210,7 +2224,36 @@ private fun PlayerControls(
                             )
                         }
                         var ccBtnFocused by remember { mutableStateOf(false) }
+                        var episodesBtnFocused by remember { mutableStateOf(false) }
                         if (isTv) {
+                            if (mediaType == "tv") {
+                                ZsOutlinedWrapper(
+                                    visible = episodesBtnFocused,
+                                    shape = RoundedCornerShape(50),
+                                    outlineColor = Color.White,
+                                    gap = 4.dp,
+                                ) {
+                                    ZsTextButton(
+                                        text = "Episodes",
+                                        leadingIcon = ImageVector.vectorResource(R.drawable.ic_player_episodes),
+                                        contentColor = Color.White,
+                                        customWhiteOverlay = true,
+                                        onClick = {
+                                            onControlsVisibilityChanged(true)
+                                            onLoadSeason(currentSeason ?: 1)
+                                            onMenuPageChange(PlayerMenuPage.Episodes)
+                                            menuSourceRequester = episodesFocusRequester
+                                        },
+                                        modifier = Modifier
+                                            .focusRequester(episodesFocusRequester)
+                                            .onFocusChanged { episodesBtnFocused = it.isFocused }
+                                            .focusProperties {
+                                                up = if (activeSkipSegments.isNotEmpty()) skipFocusRequester else playFocusRequester
+                                                if (showInfoSheet || menuOpen) canFocus = false
+                                            },
+                                    )
+                                }
+                            }
                             ZsOutlinedWrapper(
                                 visible = ccBtnFocused,
                                 shape = RoundedCornerShape(50),
@@ -2223,6 +2266,7 @@ private fun PlayerControls(
                                     menuSourceRequester = ccFocusRequester
                                 }, modifier = Modifier
                                     .size(BOTTOM_BAR_MENU_BUTTON_SIZE)
+                                    .background(if (ccBtnFocused) Color.White.copy(alpha = 0.2f) else Color.Transparent, CircleShape)
                                     .focusRequester(ccFocusRequester)
                                     .focusProperties {
                                         up =
@@ -2234,7 +2278,7 @@ private fun PlayerControls(
                                     .onFocusChanged { ccBtnFocused = it.isFocused }
                                 ) {
                                     Icon(Icons.Filled.ClosedCaption, null,
-                                        tint = if (subtitlesEnabled) theme.colors.type.emphasis else theme.colors.type.secondary,
+                                        tint = Color.White,
                                         modifier = Modifier.size(BOTTOM_BAR_MENU_ICON_SIZE))
                                 }
                             }
@@ -2254,6 +2298,7 @@ private fun PlayerControls(
                                     menuSourceRequester = settingsFocusRequester
                                 }, modifier = Modifier
                                     .size(BOTTOM_BAR_MENU_BUTTON_SIZE)
+                                    .background(if (settingsBtnFocused) Color.White.copy(alpha = 0.2f) else Color.Transparent, CircleShape)
                                     .focusRequester(settingsFocusRequester)
                                     .focusProperties {
                                         up =
@@ -2284,6 +2329,7 @@ private fun PlayerControls(
                                     },
                                     modifier = Modifier
                                         .size(BOTTOM_BAR_MENU_BUTTON_SIZE)
+                                        .background(if (pipBtnFocused) Color.White.copy(alpha = 0.2f) else Color.Transparent, CircleShape)
                                         .focusRequester(pipFocusRequester)
                                         .focusProperties {
                                             up = if (activeSkipSegments.isNotEmpty()) skipFocusRequester else playFocusRequester
@@ -2301,6 +2347,19 @@ private fun PlayerControls(
                             }
                         }
                         if (!isTv) {
+                            if (mediaType == "tv") {
+                                ZsTextButton(
+                                    text = "Episodes",
+                                    leadingIcon = ImageVector.vectorResource(R.drawable.ic_player_episodes),
+                                    contentColor = Color.White,
+                                    customWhiteOverlay = true,
+                                    onClick = {
+                                        onControlsVisibilityChanged(true)
+                                        onLoadSeason(currentSeason ?: 1)
+                                        onMenuPageChange(PlayerMenuPage.Episodes)
+                                    },
+                                )
+                            }
                             IconButton(onClick = {
                                 onControlsVisibilityChanged(true)
                                 onMenuPageChange(PlayerMenuPage.Captions)
@@ -2308,7 +2367,7 @@ private fun PlayerControls(
                                 Icon(
                                     Icons.Filled.ClosedCaption,
                                     null,
-                                    tint = if (subtitlesEnabled) theme.colors.type.emphasis else theme.colors.type.secondary,
+                                    tint = Color.White,
                                     modifier = Modifier.size(BOTTOM_BAR_MENU_ICON_SIZE)
                                 )
                             }
@@ -2549,6 +2608,7 @@ private fun PlayerControls(
                                 when (menuPage) {
                                     null, PlayerMenuPage.Root -> null
                                     PlayerMenuPage.AdvancedColor -> PlayerMenuPage.Playback
+                                    PlayerMenuPage.Episodes -> PlayerMenuPage.Seasons
                                     else -> PlayerMenuPage.Root
                                 }
                             )
@@ -2617,7 +2677,16 @@ private fun PlayerControls(
                         tmdbId = tmdbId,
                         seasonId = seasonId,
                         episodeId = episodeId,
-                        streamUrl = readyState.streamUrl
+                        streamUrl = readyState.streamUrl,
+                        allProgress = allProgress,
+                        currentSeason = currentSeason,
+                        currentEpisode = currentEpisode,
+                        onLoadSeason = onLoadSeason,
+                        onSwitchEpisode = onSwitchEpisode,
+                        poster = poster,
+                        nav = nav,
+                        tvDetail = tvDetail,
+                        currentSeasonDetail = currentSeasonDetail
                     )
                 }
             }
@@ -3172,6 +3241,15 @@ private fun PlayerMenuContent(
     seasonId: String?,
     episodeId: String?,
     streamUrl: String?,
+    allProgress: List<com.zstream.android.data.local.entity.ProgressEntity>,
+    currentSeason: Int?,
+    currentEpisode: Int?,
+    onLoadSeason: (Int) -> Unit,
+    onSwitchEpisode: (Int, Int) -> Unit,
+    poster: String?,
+    nav: NavController,
+    tvDetail: com.zstream.android.data.model.TvDetail?,
+    currentSeasonDetail: com.zstream.android.data.model.Season?,
 ) {
     val theme = LocalZStreamTheme.current
     val focusManager = LocalFocusManager.current
@@ -3213,6 +3291,8 @@ private fun PlayerMenuContent(
                     PlayerMenuPage.Download -> "Download"
                     PlayerMenuPage.WatchParty -> "Watch Party"
                     PlayerMenuPage.SkipSegments -> "Skip Segments"
+                    PlayerMenuPage.Seasons -> "Seasons"
+                    PlayerMenuPage.Episodes -> currentSeason?.let { "Season $it" } ?: "Episodes"
                 },
                 showBack = true,
                 onBack = onBack,
@@ -3922,6 +4002,54 @@ private fun PlayerMenuContent(
                                 )
                             }
                         }
+                    }
+                }
+                PlayerMenuPage.Seasons -> {
+                    PlayerMenuSection {
+                        tvDetail?.seasons?.forEachIndexed { index, season ->
+                            PlayerMenuSelectableRow(
+                                title = if (season.seasonNumber == 0) "Specials" else "Season ${season.seasonNumber}",
+                                subtitle = "${season.episodeCount} Episodes",
+                                selected = season.seasonNumber == currentSeason,
+                                onClick = {
+                                    onLoadSeason(season.seasonNumber)
+                                    onOpenPage(PlayerMenuPage.Episodes)
+                                },
+                                focusRequester = if (index == 0) firstItemFocusRequester else null
+                            )
+                        }
+                    }
+                    if (tvDetail?.seasons.isNullOrEmpty()) {
+                        PlayerMenuStubCard("No seasons found.")
+                    }
+                }
+                PlayerMenuPage.Episodes -> {
+                    PlayerMenuSection {
+                        val episodes = currentSeasonDetail?.episodes.orEmpty()
+                        episodes.forEachIndexed { index, ep ->
+                            val progress = allProgress.firstOrNull { it.tmdbId == tmdbId.toString() && it.seasonNumber == ep.seasonNumber && it.episodeNumber == ep.episodeNumber }
+                            SharedEpisodeRow(
+                                ep = ep,
+                                showId = tmdbId,
+                                title = title,
+                                posterPath = poster,
+                                nav = nav,
+                                theme = theme,
+                                episodeProgress = progress,
+                                onEpisodeClick = {
+                                    onSwitchEpisode(ep.seasonNumber, ep.episodeNumber)
+                                },
+                                compact = true,
+                                horizontalPadding = 0.dp,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .then(if (index == 0 && firstItemFocusRequester != null) Modifier.focusRequester(firstItemFocusRequester) else Modifier)
+                                    .then(if (index == episodes.lastIndex) Modifier.focusProperties { down = FocusRequester.Cancel } else Modifier)
+                            )
+                        }
+                    }
+                    if (currentSeasonDetail?.episodes.isNullOrEmpty()) {
+                        PlayerMenuStubCard("No episodes found for this season.")
                     }
                 }
                 PlayerMenuPage.SkipSegments -> {

@@ -2,11 +2,19 @@ package com.zstream.android.ui.components.themed
 
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -20,6 +28,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -124,17 +134,56 @@ fun ZsTextButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    leadingIcon: ImageVector? = null,
+    contentColor: Color? = null,
+    customWhiteOverlay: Boolean = false,
 ) {
     val theme = LocalZStreamTheme.current
+    val resolvedContentColor = contentColor ?: theme.colors.buttons.secondaryText
+    val displayedContentColor = if (enabled) resolvedContentColor else resolvedContentColor.copy(alpha = 0.6f)
+    val buttonContent: @Composable () -> Unit = {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            leadingIcon?.let {
+                Icon(
+                    it,
+                    contentDescription = null,
+                    tint = displayedContentColor,
+                    modifier = Modifier.size(18.dp).align(Alignment.CenterVertically)
+                )
+            }
+            Text(text = text, color = displayedContentColor)
+        }
+    }
+    if (customWhiteOverlay) {
+        val interactionSource = remember { MutableInteractionSource() }
+        val focused by interactionSource.collectIsFocusedAsState()
+        val pressed by interactionSource.collectIsPressedAsState()
+        Box(
+            modifier = modifier
+                .clip(RoundedCornerShape(50))
+                .background(if (focused || pressed) Color.White.copy(alpha = 0.2f) else Color.Transparent)
+                .clickable(
+                    enabled = enabled,
+                    interactionSource = interactionSource,
+                    indication = null,
+                    onClick = onClick,
+                )
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            buttonContent()
+        }
+        return
+    }
     TextButton(
         onClick = onClick,
         enabled = enabled,
         modifier = modifier,
         colors = ButtonDefaults.textButtonColors(
-            contentColor = theme.colors.buttons.secondaryText,
-            disabledContentColor = theme.colors.buttons.secondaryText.copy(alpha = 0.6f),
+            contentColor = resolvedContentColor,
+            disabledContentColor = resolvedContentColor.copy(alpha = 0.6f),
         ),
     ) {
-        Text(text = text)
+        buttonContent()
     }
 }
