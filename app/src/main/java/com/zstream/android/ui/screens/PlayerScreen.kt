@@ -37,6 +37,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.drag
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -127,6 +128,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import com.zstream.android.ui.LocalIsTv
 import com.zstream.android.ui.components.themed.ZsOutlinedWrapper
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import dagger.hilt.android.EntryPointAccessors
 import com.zstream.android.data.model.MovieDetail
@@ -1463,6 +1465,7 @@ private fun PlayerControls(
     val menuOpen = menuPage != null
     val theme = LocalZStreamTheme.current
     val focusManager = LocalFocusManager.current
+    val scope = rememberCoroutineScope()
     var isJoiningRoom by remember { mutableStateOf(false) }
     // Auto-switch to room details when joined
     LaunchedEffect(roomCode) {
@@ -1485,6 +1488,9 @@ private fun PlayerControls(
     var playbackSpeed by remember { mutableFloatStateOf(player.playbackParameters.speed) }
     var showSkipSubmissionDialog by remember { mutableStateOf(false) }
     var skipSubmissionSeed by remember { mutableStateOf<SkipSegment?>(null) }
+    val enableDoubleTapToSeek = settings.enableDoubleClickToSeek
+    var pendingSingleTapJob by remember { mutableStateOf<Job?>(null) }
+    var lastTapTimeMs by remember { mutableLongStateOf(0L) }
 
     DisposableEffect(player) {
         val listener = object : Player.Listener {
@@ -1579,11 +1585,85 @@ private fun PlayerControls(
 
     Box(modifier = Modifier
         .fillMaxSize()
-        .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) {
-            if (!menuOpen) {
-                onControlsVisibilityChanged(!controlsVisible)
+        .then(
+            if (isTv) {
+                Modifier.clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) {
+                    if (!menuOpen) {
+                        onControlsVisibilityChanged(!controlsVisible)
+                    }
+                }
+            } else {
+                Modifier.pointerInput(
+                    menuOpen,
+                    controlsVisible,
+                    durationMs,
+                    roomCode,
+                    playbackSpeed,
+                    settings.enableHoldToBoost,
+                    enableDoubleTapToSeek,
+                ) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+
+                        val up = withTimeoutOrNull(300L) {
+                            waitForUpOrCancellation()
+                        }
+
+                        if (
+                            up == null &&
+                            settings.enableHoldToBoost &&
+                            roomCode == null &&
+                            player.isPlaying
+                        ) {
+                            val previousSpeed = player.playbackParameters.speed
+                            player.playbackParameters = PlaybackParameters(2f)
+                            playbackSpeed = 2f
+                            waitForUpOrCancellation()
+                            player.playbackParameters = PlaybackParameters(previousSpeed)
+                            playbackSpeed = previousSpeed
+                            return@awaitEachGesture
+                        }
+
+                        val release = up ?: return@awaitEachGesture
+                        val releaseTimeMs = release.uptimeMillis
+                        val isDoubleTap = releaseTimeMs - lastTapTimeMs <= 250L
+                        lastTapTimeMs = releaseTimeMs
+
+                        if (isDoubleTap) {
+                            pendingSingleTapJob?.cancel()
+                            pendingSingleTapJob = null
+
+                            if (enableDoubleTapToSeek) {
+                                val oneThird = size.width / 3f
+                                when {
+                                    release.position.x < oneThird -> {
+                                        player.seekTo((player.currentPosition - 10_000L).coerceAtLeast(0L))
+                                    }
+
+                                    release.position.x > oneThird * 2f -> {
+                                        player.seekTo((player.currentPosition + 10_000L).coerceAtMost(durationMs))
+                                    }
+
+                                    !menuOpen -> onControlsVisibilityChanged(!controlsVisible)
+                                }
+                            } else if (!menuOpen) {
+                                onControlsVisibilityChanged(!controlsVisible)
+                            }
+
+                            return@awaitEachGesture
+                        }
+
+                        pendingSingleTapJob?.cancel()
+                        pendingSingleTapJob = scope.launch {
+                            delay(250L)
+                            if (!menuOpen) {
+                                onControlsVisibilityChanged(!controlsVisible)
+                            }
+                        }
+                    }
+                }
             }
-        }
+        )
     ) {
         if (playbackState == Player.STATE_BUFFERING) {
             CircularProgressIndicator(
