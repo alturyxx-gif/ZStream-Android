@@ -75,6 +75,7 @@ import androidx.navigation.NavController
 import com.zstream.android.BuildConfig
 import com.zstream.android.Urls
 import com.zstream.android.data.AccountSession
+import com.zstream.android.data.TraktState
 import com.zstream.android.data.local.entity.SettingsEntity
 import com.zstream.android.theme.LocalZStreamTheme
 import com.zstream.android.theme.ThemeRegistry
@@ -299,6 +300,140 @@ private fun TvSettingsScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun IntegrationActionOutline(
+    theme: ZStreamTheme,
+    content: @Composable () -> Unit,
+) {
+    ZsOutlinedWrapper(
+        shape = RoundedCornerShape(12.dp),
+        outlineColor = theme.colors.type.divider.copy(alpha = 0.35f),
+        outlineWidth = 1.dp,
+        gap = 2.dp,
+        content = content,
+    )
+}
+
+@Composable
+private fun WyzieIntegrationCard(theme: ZStreamTheme) {
+    SettingsCard(theme) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+            Text("Wyzie Subtitles", color = theme.colors.type.text, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "Optional API key for better-synced subtitles. Get one at store.wyzie.io/redeem.",
+                color = theme.colors.type.dimmed,
+                fontSize = 11.sp,
+                lineHeight = 16.sp,
+            )
+            Spacer(Modifier.height(10.dp))
+            Text("API Key", color = theme.colors.type.text, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(6.dp))
+            UnsupportedIntegrationStatus(theme)
+        }
+    }
+}
+
+@Composable
+private fun TraktIntegrationCard(
+    trakt: TraktState,
+    theme: ZStreamTheme,
+    vm: SettingsViewModel,
+    context: android.content.Context,
+) {
+    SettingsCard(theme) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+            Text("Trakt", color = theme.colors.type.text, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(4.dp))
+            Text("Sync your watchlist and history with Trakt.", color = theme.colors.type.dimmed, fontSize = 11.sp)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "Syncing might take a few minutes to complete. Changes on Trakt may conflict with local changes, so local items are prioritized.",
+                color = theme.colors.type.dimmed,
+                fontSize = 11.sp,
+                lineHeight = 16.sp,
+            )
+            when {
+                trakt.activationCode != null -> Text("Enter code ${trakt.activationCode} at trakt.tv/activate", color = theme.colors.type.text, fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp))
+                trakt.syncing -> Text("Syncing…", color = theme.colors.type.dimmed, fontSize = 11.sp, modifier = Modifier.padding(top = 8.dp))
+                trakt.lastError != null -> Text(trakt.lastError.orEmpty(), color = theme.colors.buttons.danger, fontSize = 11.sp, modifier = Modifier.padding(top = 8.dp))
+            }
+            Spacer(Modifier.height(10.dp))
+            if (trakt.connected) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
+                        trakt.avatar?.let {
+                            coil.compose.AsyncImage(
+                                model = it,
+                                contentDescription = "Trakt profile avatar",
+                                modifier = Modifier.size(28.dp).clip(CircleShape),
+                            )
+                        }
+                        Text(trakt.name ?: trakt.username ?: "Connected", color = theme.colors.type.text, fontWeight = FontWeight.Bold, maxLines = 1)
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        IntegrationActionOutline(theme) {
+                            ZsButton(
+                                text = "Sync now",
+                                onClick = vm::syncTrakt,
+                                enabled = !trakt.syncing,
+                                loading = trakt.syncing,
+                                variant = ZsButtonVariant.Secondary,
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 7.dp),
+                            )
+                        }
+                        IntegrationActionOutline(theme) {
+                            ZsButton(
+                                text = "Disconnect",
+                                onClick = vm::disconnectTrakt,
+                                variant = ZsButtonVariant.Danger,
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 7.dp),
+                            )
+                        }
+                    }
+                }
+            } else {
+                IntegrationActionOutline(theme) {
+                    ZsButton(
+                        text = "Connect Trakt",
+                        onClick = { vm.connectTrakt(context) },
+                        variant = ZsButtonVariant.Purple,
+                        loading = trakt.syncing,
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 7.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SimklIntegrationCard(theme: ZStreamTheme) {
+    SettingsCard(theme) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+            Text("Simkl", color = theme.colors.type.text, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(4.dp))
+            Text("Sync your watchlist and history with Simkl.", color = theme.colors.type.dimmed, fontSize = 11.sp)
+            Spacer(Modifier.height(10.dp))
+            UnsupportedIntegrationStatus(theme)
+        }
+    }
+}
+
+@Composable
+private fun UnsupportedIntegrationStatus(theme: ZStreamTheme) {
+    Box(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
+            .background(theme.colors.background.secondary).padding(horizontal = 12.dp, vertical = 10.dp)
+    ) {
+        Text("Not available on Android yet", color = theme.colors.type.dimmed, fontSize = 11.sp)
     }
 }
 
@@ -2829,49 +2964,6 @@ private fun ConnectionsSection(
         Column(Modifier
             .padding(bottom = 32.dp)
             .padding(top = if (isTv) 16.dp else 0.dp)) {
-            Spacer(Modifier.height(8.dp))
-            SectionLabel("Trakt", theme)
-            SettingsCard(theme) {
-                Column(Modifier.padding(16.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        trakt.avatar?.let {
-                            coil.compose.AsyncImage(
-                                model = it,
-                                contentDescription = "Trakt profile avatar",
-                                modifier = Modifier.size(36.dp).clip(CircleShape),
-                            )
-                        }
-                        Text(
-                            if (trakt.connected) trakt.name ?: trakt.username ?: "Trakt connected" else "Sync your watchlist and history with Trakt.",
-                            color = theme.colors.type.text,
-                            fontWeight = FontWeight.Bold,
-                        )
-                    }
-                    when {
-                        trakt.activationCode != null -> Text("Enter code ${trakt.activationCode} at trakt.tv/activate", color = theme.colors.type.text, fontSize = 12.sp)
-                        trakt.syncing -> Text("Syncing…", color = theme.colors.type.dimmed, fontSize = 11.sp)
-                        trakt.lastError != null -> Text(trakt.lastError.orEmpty(), color = theme.colors.buttons.danger, fontSize = 11.sp)
-                    }
-                    Spacer(Modifier.height(10.dp))
-                    if (trakt.connected) {
-                        ZsButton(
-                            text = "Sync now",
-                            onClick = vm::syncTrakt,
-                            enabled = !trakt.syncing,
-                            loading = trakt.syncing,
-                            variant = ZsButtonVariant.Secondary,
-                        )
-                        Spacer(Modifier.height(8.dp))
-                    }
-                    ZsButton(
-                        text = if (trakt.connected) "Disconnect" else "Connect Trakt",
-                        onClick = { if (trakt.connected) vm.disconnectTrakt() else vm.connectTrakt(context) },
-                        variant = if (trakt.connected) ZsButtonVariant.Danger else ZsButtonVariant.Primary,
-                        loading = !trakt.connected && trakt.syncing,
-                    )
-                }
-            }
-
             Spacer(Modifier.height(16.dp))
             SectionLabel("Proxy", theme)
             SettingsCard(theme) {
@@ -3124,20 +3216,20 @@ private fun ConnectionsSection(
             }
 
             Spacer(Modifier.height(16.dp))
-            SectionLabel("External Services", theme)
+            SectionLabel("Integrations", theme)
             SettingsCard(theme) {
-                ZsBottomSheetSectionCard(
-                    title = "TheIntroDB (optional)",
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                ) {
+                Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                    Text("TheIntroDB", color = theme.colors.type.text, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        "Add your TheIntroDB API key to submit new skip segments from the player.",
+                        "Contribute to TheIntroDB by leaving feedback on intro, recap, and credits segments.",
                         color = theme.colors.type.dimmed,
                         fontSize = 11.sp,
                         lineHeight = 16.sp,
                     )
                     Spacer(Modifier.height(10.dp))
+                    Text("API Key", color = theme.colors.type.text, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(6.dp))
                     var tokenVisible by remember { mutableStateOf(false) }
                     var tidbInput by remember(settings.tidbKey) { mutableStateOf(settings.tidbKey ?: "") }
                     var tidbValidationState by remember { mutableStateOf<TokenValidationState>(TokenValidationState.Idle) }
@@ -3195,22 +3287,26 @@ private fun ConnectionsSection(
                     )
                     Spacer(Modifier.height(6.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        TextButton(onClick = { tokenVisible = !tokenVisible }) {
-                            Text(
-                                if (tokenVisible) "Hide" else "Show",
-                                color = theme.colors.global.accentA,
-                                fontSize = 11.sp,
-                            )
+                        IntegrationActionOutline(theme) {
+                            TextButton(onClick = { tokenVisible = !tokenVisible }) {
+                                Text(
+                                    if (tokenVisible) "Hide" else "Show",
+                                    color = theme.colors.global.accentA,
+                                    fontSize = 11.sp,
+                                )
+                            }
                         }
-                        TextButton(onClick = { 
-                            tidbInput = ""
-                            vm.setTidbKey(null) 
-                        }, enabled = tidbInput.isNotEmpty()) {
-                            Text(
-                                "Clear",
-                                color = if (tidbInput.isNotEmpty()) theme.colors.buttons.danger else theme.colors.type.dimmed,
-                                fontSize = 11.sp,
-                            )
+                        IntegrationActionOutline(theme) {
+                            TextButton(onClick = {
+                                tidbInput = ""
+                                vm.setTidbKey(null)
+                            }, enabled = tidbInput.isNotEmpty()) {
+                                Text(
+                                    "Clear",
+                                    color = if (tidbInput.isNotEmpty()) theme.colors.buttons.danger else theme.colors.type.dimmed,
+                                    fontSize = 11.sp,
+                                )
+                            }
                         }
                     }
                     when (val state = tidbValidationState) {
@@ -3243,6 +3339,12 @@ private fun ConnectionsSection(
                     }
                 }
             }
+            Spacer(Modifier.height(16.dp))
+            WyzieIntegrationCard(theme)
+            Spacer(Modifier.height(16.dp))
+            TraktIntegrationCard(trakt, theme, vm, context)
+            Spacer(Modifier.height(16.dp))
+            SimklIntegrationCard(theme)
         }
     }
 }
