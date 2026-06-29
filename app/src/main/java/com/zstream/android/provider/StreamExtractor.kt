@@ -3,6 +3,7 @@ package com.zstream.android.provider
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.util.Log
+import android.view.View
 import android.view.ViewGroup
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -100,6 +101,8 @@ class StreamExtractor(private val activity: Activity) {
     private fun createWebView(onRequest: (String) -> Boolean): WebView = WebView(activity).apply {
         isFocusable = false
         isFocusableInTouchMode = false
+        descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
+        importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
         settings.javaScriptEnabled = true
         settings.domStorageEnabled = true
         settings.userAgentString =

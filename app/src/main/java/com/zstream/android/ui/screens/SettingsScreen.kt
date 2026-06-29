@@ -631,8 +631,8 @@ private fun AccountSection(
     val scope = rememberCoroutineScope()
 
     Column(Modifier
-        .padding(bottom = 32.dp)
-        .padding(top = if (isTv) 16.dp else 0.dp)) {
+        .padding(horizontal = if (isTv) 16.dp else 0.dp)
+        .padding(bottom = 32.dp, top = if (isTv) 16.dp else 0.dp)) {
         Spacer(Modifier.height(8.dp))
         SectionLabel("Account", theme)
 
@@ -809,7 +809,7 @@ private fun PreferencesSection(
     firstItemFocusRequester: FocusRequester? = null,
 ) {
     Column(Modifier
-        .padding(bottom = 32.dp, top = if (isTv) 16.dp else 0.dp)) {
+        .padding(bottom = 32.dp, top = if (isTv) 16.dp else 0.dp).padding(horizontal = if (isTv) 16.dp else 0.dp)) {
         Spacer(Modifier.height(8.dp))
         SectionLabel("Language", theme)
         if (isTv) {
