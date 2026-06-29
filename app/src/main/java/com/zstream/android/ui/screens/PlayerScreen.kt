@@ -1033,7 +1033,11 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     onSetVideoHueRotate = vm::setVideoHueRotate,
                     onResetAdvancedColor = vm::resetAdvancedColor,
                     onSetVolumeBoost = vm::setVolumeBoost,
-                    onSetVideoScaleMode = vm::setVideoScaleMode,
+                    onSetVideoScaleMode = { mode ->
+                        vm.setVideoScaleMode(mode)
+                        val updatedSettings = settings.copy(videoScaleMode = mode.lowercase())
+                        videoTextureRef.value?.let { applyVideoAdjustments(it, updatedSettings, currentVideoSize) }
+                    },
                     onSelectSource = vm::selectSource,
                     skipSegments = skipSegments,
                     canSubmitSkipSegments = LocalConfiguration.current.smallestScreenWidthDp < 600,

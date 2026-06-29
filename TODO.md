@@ -5,7 +5,6 @@ the remaining settings to wire are:
  3. hidePauseOverlay
  4. proxyTmdb
  5. download page: UI exists, but it is only a placeholder card
- 6. Fix video mode in playback settings in TV
- 7. trakt
- 8. simkl
- 9. wyzie
+ 6. trakt
+ 7. simkl
+ 8. wyzie
