@@ -28,6 +28,7 @@ import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import com.zstream.android.data.local.preferences.SettingsPreferences
 import com.zstream.android.data.local.entity.SettingsEntity
+import com.zstream.android.data.model.airedEpisodes
 import com.zstream.android.data.WatchPartyManager
 import com.zstream.android.data.WatchPartyAction
 import com.zstream.android.data.remote.WatchPartyContentDto
@@ -74,6 +75,13 @@ data class SubtitleTrack(val label: String, val url: String, val language: Strin
 
 data class SubtitleCue(val startMs: Long, val endMs: Long, val text: String)
 
+data class AutoplayEpisodeTarget(
+    val seasonNumber: Int,
+    val episodeNumber: Int,
+    val seasonId: String,
+    val episodeId: String,
+)
+
 @HiltViewModel
 class PlayerViewModel @Inject constructor(
     private val engine: ProviderEngine,
@@ -96,6 +104,7 @@ class PlayerViewModel @Inject constructor(
     val tmdbId = id.toString()
     val seasonId = savedState.get<String>("seasonId")
     val episodeId = savedState.get<String>("episodeId")
+    val isAutoplay = savedState.get<Boolean>("autoplay") ?: false
 
     private val _state = MutableStateFlow<PlayerState>(PlayerState.Idle)
     val state = _state.asStateFlow()
@@ -511,6 +520,52 @@ class PlayerViewModel @Inject constructor(
         val normalized = value.lowercase()
         if (normalized !in setOf("fit", "fill", "stretch")) return
         viewModelScope.launch { settingsPrefs.setVideoScaleMode(normalized) }
+    }
+
+    suspend fun getAutoplayEpisodeTarget(): AutoplayEpisodeTarget? = withContext(Dispatchers.IO) {
+        if (mediaType != "tv") return@withContext null
+
+        val currentSeason = season ?: return@withContext null
+        val currentEpisode = episode ?: return@withContext null
+
+        runCatching {
+            val currentSeasonDetail = tmdbRepo.season(id, currentSeason)
+            val nextEpisode = currentSeasonDetail.episodes
+                .orEmpty()
+                .airedEpisodes()
+                .firstOrNull { it.episodeNumber == currentEpisode + 1 }
+            if (nextEpisode != null) {
+                return@withContext AutoplayEpisodeTarget(
+                    seasonNumber = currentSeason,
+                    episodeNumber = nextEpisode.episodeNumber,
+                    seasonId = currentSeasonDetail.id.toString(),
+                    episodeId = nextEpisode.id.toString(),
+                )
+            }
+
+            val showDetail = tmdbRepo.tvDetail(id)
+            val nextSeason = showDetail.seasons
+                .orEmpty()
+                .firstOrNull { it.seasonNumber == currentSeason + 1 }
+                ?: return@withContext null
+
+            val nextSeasonDetail = tmdbRepo.season(id, nextSeason.seasonNumber)
+            val firstAiredEpisode = nextSeasonDetail.episodes
+                .orEmpty()
+                .airedEpisodes()
+                .firstOrNull()
+                ?: return@withContext null
+
+            AutoplayEpisodeTarget(
+                seasonNumber = nextSeason.seasonNumber,
+                episodeNumber = firstAiredEpisode.episodeNumber,
+                seasonId = nextSeasonDetail.id.toString(),
+                episodeId = firstAiredEpisode.id.toString(),
+            )
+        }.getOrElse {
+            Log.e("PlayerVM", "Failed to resolve autoplay episode target", it)
+            null
+        }
     }
 
     private fun downloadAndParseSubtitles(tracks: List<SubtitleTrack>) {

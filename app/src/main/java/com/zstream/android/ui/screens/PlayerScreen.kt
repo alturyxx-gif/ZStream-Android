@@ -448,41 +448,22 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                 var showInfoSheet by remember { mutableStateOf(false) }
                 var infoState by remember { mutableStateOf<PlayerInfoState?>(null) }
 
-                // Find existing progress for this tmdbId (mirroring p-stream ResumePart)
-                val existingProgress = remember(progressList) {
-                    progressList.firstOrNull { p ->
-                        p.tmdbId == vm.tmdbId &&
-                        (vm.episodeId == null || p.episodeId == vm.episodeId)
+                val matchesCurrentMedia: (com.zstream.android.data.local.entity.ProgressEntity) -> Boolean = { p ->
+                    p.tmdbId == vm.tmdbId && if (vm.mediaType == "tv") {
+                        vm.episodeId?.takeIf(String::isNotBlank)?.let { p.episodeId == it }
+                            ?: (p.seasonNumber == vm.season && p.episodeNumber == vm.episode)
+                    } else {
+                        true
                     }
                 }
-                val resumeWatched = remember(existingProgress) {
-                    existingProgress?.watched?.toLong() ?: 0L
-                }
-                val resumeDuration = remember(existingProgress) {
-                    existingProgress?.duration?.toLong() ?: 0L
+                // Find existing progress for this exact movie or episode (mirroring p-stream ResumePart)
+                val existingProgress = remember(progressList) {
+                    progressList.firstOrNull(matchesCurrentMedia)
                 }
                 var showResumeDialog by remember { mutableStateOf(false) }
+                var resumeWatched by remember { mutableLongStateOf(0L) }
+                var resumeDuration by remember { mutableLongStateOf(0L) }
                 var pendingResumeMs by remember { mutableLongStateOf(-1L) }
-
-                // One-time snapshot of initial progress — prevents dialog appearing mid-playback
-                // when the first sync creates a progress entry during a new watch.
-                // Small delay ensures Room data is loaded before the 3s sync triggers.
-                LaunchedEffect(Unit) {
-                    delay(100)
-                    val found = progressList.firstOrNull { p ->
-                        p.tmdbId == vm.tmdbId && (vm.episodeId == null || p.episodeId == vm.episodeId)
-                    }
-                    val w = found?.watched?.toLong() ?: 0L
-                    val d = found?.duration?.toLong() ?: 0L
-                    if (w >= 20) {
-                        val completion = if (d > 0) w.toFloat() / d.toFloat() else 0f
-                        if (d > 0 && completion >= RESUME_DIALOG_COMPLETION_THRESHOLD) {
-                            showResumeDialog = true
-                        } else {
-                            pendingResumeMs = w * 1000
-                        }
-                    }
-                }
 
                 val player = remember {
                     val subtitleConfigs = if (settings.enableNativeSubtitles) {
@@ -517,8 +498,28 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     }
                 }
 
+                // Snapshot initial progress once; playback must not mutate it behind the decision dialog.
+                LaunchedEffect(Unit) {
+                    delay(100)
+                    val found = progressList.firstOrNull(matchesCurrentMedia)
+                    val w = found?.watched?.toLong() ?: 0L
+                    val d = found?.duration?.toLong() ?: 0L
+                    if (w >= 20) {
+                        val completion = if (d > 0) w.toFloat() / d.toFloat() else 0f
+                        if (d > 0 && completion >= RESUME_DIALOG_COMPLETION_THRESHOLD) {
+                            resumeWatched = w
+                            resumeDuration = d
+                            player.pause()
+                            showResumeDialog = true
+                        } else {
+                            pendingResumeMs = w * 1000
+                        }
+                    }
+                }
+
                 var currentPositionMs by remember { mutableLongStateOf(0L) }
                 var watchPartyHasPlayedOnce by remember(player) { mutableStateOf(false) }
+                var hasAutoplayAttempted by remember(vm.tmdbId, vm.season, vm.episode) { mutableStateOf(false) }
 
                 // Collect player position for subtitle timing
                 LaunchedEffect(player) {
@@ -543,6 +544,40 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                 }
 
                 DisposableEffect(Unit) { onDispose { player.release() } }
+
+                LaunchedEffect(
+                    settings.enableAutoplay,
+                    settings.enableSkipCredits,
+                    vm.mediaType,
+                    currentPositionMs,
+                    player.duration,
+                ) {
+                    if (!settings.enableAutoplay || vm.mediaType != "tv") return@LaunchedEffect
+
+                    val durationMs = player.duration.coerceAtLeast(0L)
+                    if (durationMs <= 0L) {
+                        hasAutoplayAttempted = false
+                        return@LaunchedEffect
+                    }
+
+                    val isEnding = if (settings.enableSkipCredits) {
+                        currentPositionMs >= durationMs - (durationMs / 100f).toLong()
+                    } else {
+                        currentPositionMs >= durationMs
+                    }
+
+                    if (!isEnding || hasAutoplayAttempted) return@LaunchedEffect
+
+                    hasAutoplayAttempted = true
+                    val target = vm.getAutoplayEpisodeTarget() ?: return@LaunchedEffect
+                    val encodedTitle = Uri.encode(vm.title)
+                    val encodedPoster = Uri.encode(vm.poster.orEmpty())
+                    nav.navigate(
+                        "player/tv/${vm.tmdbId}?season=${target.seasonNumber}&episode=${target.episodeNumber}" +
+                            "&seasonId=${target.seasonId}&episodeId=${target.episodeId}" +
+                            "&title=$encodedTitle&year=${vm.year}&poster=$encodedPoster&autoplay=true"
+                    ) { popUpTo("home") }
+                }
 
                 LaunchedEffect(player, watchPartyEnabled, isHost) {
                     if (!watchPartyEnabled) return@LaunchedEffect
@@ -627,8 +662,8 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                             if (!player.isPlaying) continue
                             val watchedSec = player.currentPosition / 1000
                             val durationSec = player.duration.let { if (it > 0) it / 1000 else 0L }
-                            if (watchedSec < 20) continue
-                            if (durationSec > 0 && (durationSec - watchedSec) < 120) continue
+                            if (!vm.isAutoplay && watchedSec < 20) continue
+                            if (!vm.isAutoplay && durationSec > 0 && (durationSec - watchedSec) < 120) continue
                             // Network call can run on IO via accountVm's viewModelScope
                             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                                 runCatching {
@@ -648,7 +683,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                         job.cancel()
                         val watchedSec = player.currentPosition / 1000
                         val durationSec = player.duration.let { if (it > 0) it / 1000 else 0L }
-                        if (watchedSec >= 20 && (durationSec <= 0 || (durationSec - watchedSec) >= 120)) {
+                        if (vm.isAutoplay || watchedSec >= 20 && (durationSec <= 0 || (durationSec - watchedSec) >= 120)) {
                             scope.launch {
                                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                                     runCatching {
@@ -719,7 +754,11 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     updateActivity()
                 }
                 val enterPip = {
-                    val entered = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    val entered = if (isTv) {
+                        controlsVisible = false
+                        isInAppPip = true
+                        false
+                    } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                         runCatching {
                             activity?.enterPictureInPictureMode(
                                 PictureInPictureParams.Builder()
@@ -731,10 +770,6 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                         false
                     }
                     isInPip = entered
-                    if (!entered && isTv) {
-                        controlsVisible = false
-                        isInAppPip = true
-                    }
                 }
 
                 BackHandler(enabled = showInfoSheet || menuPage != null) {
@@ -751,7 +786,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                         )
                     }
                 }
-                BackHandler(enabled = isTv && !showInfoSheet && menuPage == null && !isInPip && !isInAppPip) {
+                BackHandler(enabled = isTv && roomCode != null && !showInfoSheet && menuPage == null && !isInPip && !isInAppPip) {
                     updateActivity()
                     showInfoSheet = false
                     showResumeDialog = false
@@ -1206,6 +1241,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                                         pendingResumeMs = resumeWatched * 1000
                                     }
                                     showResumeDialog = false
+                                    player.play()
                                 },
                                 border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.buttons.purple.copy(alpha = 0.3f)),
                                 shape = RoundedCornerShape(8.dp)
@@ -1215,6 +1251,8 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                             TextButton(
                                 onClick = {
                                     showResumeDialog = false
+                                    player.seekTo(0)
+                                    player.play()
                                 },
                                 border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.type.emphasis.copy(alpha = 0.15f)),
                                 shape = RoundedCornerShape(8.dp)
@@ -1570,12 +1608,13 @@ private fun PlayerControls(
     val ccFocusRequester = remember { FocusRequester() }
     val bookmarkFocusRequester = remember { FocusRequester() }
     val settingsFocusRequester = remember { FocusRequester() }
+    val pipFocusRequester = remember { FocusRequester() }
     val skipFocusRequester = remember { FocusRequester() }
     val muteFocusRequester = remember { FocusRequester() }
     var menuSourceRequester by remember { mutableStateOf<FocusRequester?>(null) }
 
-    LaunchedEffect(controlsVisible, playbackState) {
-        if (controlsVisible && playbackState != Player.STATE_BUFFERING) {
+    LaunchedEffect(controlsVisible) {
+        if (controlsVisible) {
             delay(100)
             if (isTv) {
                 if (activeSkipSegments.isNotEmpty()) {
@@ -1764,8 +1803,7 @@ private fun PlayerControls(
                     }
                 }
 
-                if (playbackState != Player.STATE_BUFFERING) {
-                    Row(
+                Row(
                         modifier = Modifier.align(Alignment.Center),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(CENTER_ICON_SPACING)
@@ -1885,7 +1923,6 @@ private fun PlayerControls(
                             }
                         }
                     }
-                }
 
                 SkipSegmentOverlay(
                     theme = theme,
@@ -1917,7 +1954,7 @@ private fun PlayerControls(
                         Modifier
                             .fillMaxWidth()
                             .padding(horizontal = SCRUBBER_SIDE_PADDING)
-                            .height(28.dp)
+                            .height(22.dp)
                             .pointerInput(durationMs) {
                                 awaitEachGesture {
                                     val down = awaitFirstDown(requireUnconsumed = false)
@@ -2115,6 +2152,37 @@ private fun PlayerControls(
                                 ) {
                                     Icon(Icons.Filled.Tune, null, tint = theme.colors.type.emphasis,
                                         modifier = Modifier.size(BOTTOM_BAR_MENU_ICON_SIZE))
+                                }
+                            }
+                        }
+                        if (isTv) {
+                            var pipBtnFocused by remember { mutableStateOf(false) }
+                            ZsOutlinedWrapper(
+                                visible = pipBtnFocused,
+                                shape = RoundedCornerShape(50),
+                                outlineColor = Color.White,
+                                gap = 4.dp,
+                            ) {
+                                IconButton(
+                                    onClick = {
+                                        onControlsVisibilityChanged(false)
+                                        onPip()
+                                    },
+                                    modifier = Modifier
+                                        .size(BOTTOM_BAR_MENU_BUTTON_SIZE)
+                                        .focusRequester(pipFocusRequester)
+                                        .focusProperties {
+                                            up = if (activeSkipSegments.isNotEmpty()) skipFocusRequester else playFocusRequester
+                                            if (showInfoSheet || menuOpen) canFocus = false
+                                        }
+                                        .onFocusChanged { pipBtnFocused = it.isFocused }
+                                ) {
+                                    Icon(
+                                        Icons.Filled.PictureInPictureAlt,
+                                        "Picture in picture",
+                                        tint = theme.colors.type.emphasis,
+                                        modifier = Modifier.size(BOTTOM_BAR_MENU_ICON_SIZE)
+                                    )
                                 }
                             }
                         }
@@ -2441,19 +2509,6 @@ private fun PlayerControls(
             }
         }
 
-        // Buffering Spinner
-        AnimatedVisibility(
-            visible = playbackState == Player.STATE_BUFFERING && playWhenReady && !menuOpen,
-            enter = fadeIn(),
-            exit = fadeOut(),
-            modifier = Modifier.align(Alignment.Center)
-        ) {
-            CircularProgressIndicator(
-                color = theme.colors.type.emphasis,
-                modifier = Modifier.size(48.dp),
-                strokeWidth = 4.dp
-            )
-        }
     }
 
     if (showSkipSubmissionDialog) {

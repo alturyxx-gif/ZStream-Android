@@ -8,3 +8,4 @@ the remaining settings to wire are:
  6. trakt
  7. simkl
  8. wyzie
+ 9. episodes list button for shows
