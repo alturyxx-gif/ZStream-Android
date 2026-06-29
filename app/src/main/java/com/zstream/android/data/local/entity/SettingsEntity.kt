@@ -39,6 +39,7 @@ data class SettingsEntity(
     val videoHueRotate: Int = 0,
     val volumeBoost: Int = 100,
     val videoScaleMode: String = "fit",
+    val tvPipPosition: String = "bottom_end",
 
     // Discover/Home Settings
     val enableDiscover: Boolean = true,

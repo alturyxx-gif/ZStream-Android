@@ -57,6 +57,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.requestFocus
 import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -351,7 +352,18 @@ private fun rememberRandomPlaceholder(): String {
 }
 
 @Composable
-fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
+fun HomeScreen(
+    nav: NavController,
+    vm: HomeViewModel = hiltViewModel(),
+    isTvPipActive: Boolean = false,
+    onOpenTvPip: () -> Unit = {},
+    onMoveTvPip: () -> Unit = {},
+    isTvPipPlaying: Boolean = false,
+    onToggleTvPipPlayback: () -> Unit = {},
+    onCloseTvPip: () -> Unit = {},
+    isTvPipDrawerExpanded: Boolean = false,
+    onTvPipDrawerExpandedChange: (Boolean) -> Unit = {},
+) {
     val state by vm.state.collectAsState()
     val searchResults by vm.searchResults.collectAsState()
     val theme = LocalZStreamTheme.current
@@ -533,6 +545,15 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
                         onShowTipJar = { showTipJar = true },
                         onShowLayout = { showLayoutMenu = true },
                         onShowMenu = { showSandwichMenu = true },
+                        hazeState = hazeState,
+                        isPipActive = isTvPipActive,
+                        onOpenPip = onOpenTvPip,
+                        onMovePip = onMoveTvPip,
+                        isPipPlaying = isTvPipPlaying,
+                        onTogglePipPlayback = onToggleTvPipPlayback,
+                        onClosePip = onCloseTvPip,
+                        isPipDrawerExpanded = isTvPipDrawerExpanded,
+                        onPipDrawerExpandedChange = onTvPipDrawerExpandedChange,
                     )
 
                     HomeDialogs()
@@ -717,6 +738,7 @@ fun HomeScreen(nav: NavController, vm: HomeViewModel = hiltViewModel()) {
                                 .padding(bottom = 28.dp)
                         ) {
                             TopNavBar(
+                                hazeState = hazeState,
                                 onLayout = { showLayoutMenu = true },
                                 onMenu = { showSandwichMenu = true },
                                 onDiscord = { uriHandler.openUri(Urls.DISCORD_LINK) },
@@ -883,6 +905,7 @@ private fun ParticleOverlay() {
 
 @Composable
 private fun TopNavBar(
+    hazeState: dev.chrisbanes.haze.HazeState,
     onLayout: () -> Unit,
     onMenu: () -> Unit,
     onDiscord: () -> Unit,
@@ -892,6 +915,7 @@ private fun TopNavBar(
     unreadCount: Int = 0,
 ) {
     val theme = LocalZStreamTheme.current
+    val hazeStyle = rememberTopNavHazeStyle()
     var focusedMenu by remember { mutableStateOf(false) }
     val focusMenuWidth by animateDpAsState(if (focusedMenu) 3.dp else 0.dp)
     Row(
@@ -915,7 +939,8 @@ private fun TopNavBar(
                         .onFocusChanged { logoFocused = it.isFocused }
                         .focusable()
                         .clip(RoundedCornerShape(50))
-                        .background(theme.colors.background.secondary.copy(alpha = 0.8f))
+                        .hazeEffect(hazeState, hazeStyle)
+                        .background(theme.colors.background.secondary.copy(alpha = 0.48f))
                         .padding(horizontal = 12.dp, vertical = 7.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -936,14 +961,14 @@ private fun TopNavBar(
                 }
             }
             if (!collapseActionsIntoMenu) {
-                HeaderIconButton(icon = ImageVector.vectorResource(R.drawable.ic_discord), onClick = onDiscord)
-                HeaderIconButton(icon = Icons.Default.Notifications, onClick = onNotifications, badgeCount = unreadCount)
-                HeaderIconButton(icon = Icons.Default.AttachMoney, onClick = onTipJar)
+                HeaderIconButton(icon = ImageVector.vectorResource(R.drawable.ic_discord), hazeState = hazeState, onClick = onDiscord)
+                HeaderIconButton(icon = Icons.Default.Notifications, hazeState = hazeState, onClick = onNotifications, badgeCount = unreadCount)
+                HeaderIconButton(icon = Icons.Default.AttachMoney, hazeState = hazeState, onClick = onTipJar)
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             // Layout button — dark pill matching sandwich (just grid icon, no text)
-            HeaderIconButton(icon = Icons.Default.GridView, onClick = onLayout)
+            HeaderIconButton(icon = Icons.Default.GridView, hazeState = hazeState, onClick = onLayout)
             // Sandwich menu
             var menuFocused by remember { mutableStateOf(false) }
             ZsOutlinedWrapper(
@@ -955,7 +980,8 @@ private fun TopNavBar(
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(50))
-                        .background(theme.colors.background.secondary.copy(alpha = 0.8f))
+                        .hazeEffect(hazeState, hazeStyle)
+                        .background(theme.colors.background.secondary.copy(alpha = 0.48f))
                         .border(
                             1.dp,
                             theme.colors.type.divider.copy(alpha = 0.3f),
@@ -976,12 +1002,28 @@ private fun TopNavBar(
 }
 
 @Composable
+private fun rememberTopNavHazeStyle(): HazeStyle {
+    val background = LocalZStreamTheme.current.colors.background.main
+    return remember(background) {
+        HazeStyle(
+            backgroundColor = background,
+            tint = HazeTint(background.copy(alpha = 0.28f)),
+            blurRadius = 18.dp,
+            noiseFactor = 0.05f,
+            fallbackTint = HazeTint(background.copy(alpha = 0.58f)),
+        )
+    }
+}
+
+@Composable
 private fun HeaderIconButton(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
+    hazeState: dev.chrisbanes.haze.HazeState,
     onClick: () -> Unit,
     badgeCount: Int = 0,
 ) {
     val theme = LocalZStreamTheme.current
+    val hazeStyle = rememberTopNavHazeStyle()
     var focusedMenu by remember { mutableStateOf(false) }
     ZsOutlinedWrapper(
         visible = focusedMenu,
@@ -992,7 +1034,8 @@ private fun HeaderIconButton(
         Box(
             modifier = Modifier
                 .clip(RoundedCornerShape(50))
-                .background(theme.colors.background.secondary.copy(alpha = 0.8f))
+                .hazeEffect(hazeState, hazeStyle)
+                .background(theme.colors.background.secondary.copy(alpha = 0.48f))
                 .border(1.dp, theme.colors.type.divider.copy(alpha = 0.3f), RoundedCornerShape(50))
                 .onFocusChanged { focusedMenu = it.isFocused }
                 .clickable(onClick = onClick)
@@ -3402,6 +3445,15 @@ private fun TvHomeScreenContent(
     onShowTipJar: () -> Unit,
     onShowLayout: () -> Unit,
     onShowMenu: () -> Unit,
+    hazeState: dev.chrisbanes.haze.HazeState,
+    isPipActive: Boolean,
+    onOpenPip: () -> Unit,
+    onMovePip: () -> Unit,
+    isPipPlaying: Boolean,
+    onTogglePipPlayback: () -> Unit,
+    onClosePip: () -> Unit,
+    isPipDrawerExpanded: Boolean,
+    onPipDrawerExpandedChange: (Boolean) -> Unit,
 ) {
     val allSections = remember(state.continueWatching, state.bookmarks, state.activeTab, state.movieSections, state.tvSections, state.editorSections, showContinueWatching, showBookmarks) {
         buildList {
@@ -3451,6 +3503,16 @@ private fun TvHomeScreenContent(
     val carouselPlayButtonRequester = remember { FocusRequester() }
     val searchBarFocusRequester = remember { FocusRequester() }
     val topBarFocusRequester = remember { FocusRequester() }
+    val homeContentFocusRequester = remember { FocusRequester() }
+    var wasPipDrawerExpanded by remember { mutableStateOf(false) }
+
+    LaunchedEffect(isPipDrawerExpanded) {
+        if (wasPipDrawerExpanded && !isPipDrawerExpanded) {
+            withFrameMillis { }
+            homeContentFocusRequester.requestFocus()
+        }
+        wasPipDrawerExpanded = isPipDrawerExpanded
+    }
 
     LaunchedEffect(Unit) {
         if (state.loading || state.initialFocusRequested) return@LaunchedEffect
@@ -3499,6 +3561,12 @@ private fun TvHomeScreenContent(
     }
 
     Box(Modifier.fillMaxSize()) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .focusRequester(homeContentFocusRequester)
+                .focusRestorer()
+        ) {
         HomeBringIntoViewProvider(
             label = "TV",
             disableAutoScroll = isCarouselFocused,
@@ -3507,6 +3575,7 @@ private fun TvHomeScreenContent(
                 state = listState,
                 modifier = Modifier
                     .fillMaxSize()
+                    .hazeSource(hazeState)
                     .onFocusChanged {
                         Log.d(
                             HOME_FOCUS_DEBUG_TAG,
@@ -3676,6 +3745,7 @@ private fun TvHomeScreenContent(
                 )
         ) {
             TvTopBar(
+                hazeState = hazeState,
                 unreadCount = unreadCount,
                 collapseActionsIntoMenu = state.enableFeatured,
                 onNotifications = onShowNotifications,
@@ -3685,11 +3755,130 @@ private fun TvHomeScreenContent(
                 onSearch = { nav.navigate("search") },
             )
         }
+        }
+
+        if (isPipActive && !isPipDrawerExpanded) {
+            Box(
+                modifier = Modifier.align(Alignment.CenterStart),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .width(20.dp)
+                        .height(96.dp)
+                        .clip(RoundedCornerShape(topEnd = 18.dp, bottomEnd = 18.dp))
+                        .background(theme.colors.background.secondary.copy(alpha = 0.78f))
+                        .border(
+                            1.dp,
+                            theme.colors.type.divider.copy(alpha = 0.45f),
+                            RoundedCornerShape(topEnd = 18.dp, bottomEnd = 18.dp),
+                        )
+                        .onFocusChanged { if (it.isFocused) onPipDrawerExpandedChange(true) }
+                        .clickable { onPipDrawerExpandedChange(true) },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        "PiP controls",
+                        tint = theme.colors.type.emphasis,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+internal fun TvPipDrawerPanel(
+    onOpenPip: () -> Unit,
+    onMovePip: () -> Unit,
+    isPipPlaying: Boolean,
+    onTogglePipPlayback: () -> Unit,
+    onClosePip: () -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val theme = LocalZStreamTheme.current
+    val firstRowFocusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(Unit) { firstRowFocusRequester.requestFocus() }
+    BackHandler(onBack = onDismiss)
+
+    Box(modifier) {
+            Column(
+                modifier = Modifier
+                    .width(280.dp)
+                    .clip(RoundedCornerShape(topEnd = 18.dp, bottomEnd = 18.dp))
+                    .background(theme.colors.background.secondary.copy(alpha = 0.94f))
+                    .border(
+                        1.dp,
+                        theme.colors.type.divider.copy(alpha = 0.5f),
+                        RoundedCornerShape(topEnd = 18.dp, bottomEnd = 18.dp),
+                    )
+                    .padding(12.dp)
+                    .onPreviewKeyEvent { event ->
+                        if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionRight) {
+                            onDismiss()
+                            true
+                        } else {
+                            false
+                        }
+                    },
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    "Picture in picture",
+                    color = theme.colors.type.emphasis,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                )
+                TvPipDrawerRow("Open player", Icons.Default.OpenInFull, onOpenPip, Modifier.focusRequester(firstRowFocusRequester))
+                TvPipDrawerRow(
+                    if (isPipPlaying) "Pause" else "Play",
+                    if (isPipPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                    onTogglePipPlayback,
+                )
+                TvPipDrawerRow("Move PiP", Icons.Default.SwapHoriz, onMovePip)
+                TvPipDrawerRow("Close PiP", Icons.Default.Close, onClosePip)
+            }
+    }
+}
+
+@Composable
+private fun TvPipDrawerRow(
+    label: String,
+    icon: ImageVector,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val theme = LocalZStreamTheme.current
+    var focused by remember { mutableStateOf(false) }
+    ZsOutlinedWrapper(
+        visible = focused,
+        shape = RoundedCornerShape(10.dp),
+        outlineColor = Color.White,
+        gap = 2.dp,
+    ) {
+        Row(
+            modifier = modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(10.dp))
+                .background(if (focused) theme.colors.background.secondaryHover else Color.Transparent)
+                .onFocusChanged { focused = it.isFocused }
+                .clickable(onClick = onClick)
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Icon(icon, null, tint = theme.colors.type.secondary, modifier = Modifier.size(22.dp))
+            Text(label, color = theme.colors.type.emphasis, fontSize = 16.sp)
+        }
     }
 }
 
 @Composable
 private fun TvTopBar(
+    hazeState: dev.chrisbanes.haze.HazeState,
     unreadCount: Int,
     collapseActionsIntoMenu: Boolean,
     onNotifications: () -> Unit,
@@ -3699,6 +3888,7 @@ private fun TvTopBar(
     onSearch: () -> Unit,
 ) {
     val theme = LocalZStreamTheme.current
+    val hazeStyle = rememberTopNavHazeStyle()
     var focusedMenu by remember { mutableStateOf(false) }
     Row(
         modifier = Modifier
@@ -3712,7 +3902,8 @@ private fun TvTopBar(
             Row(
                 modifier = Modifier
                     .clip(RoundedCornerShape(50))
-                    .background(theme.colors.background.secondary.copy(alpha = 0.8f))
+                    .hazeEffect(hazeState, hazeStyle)
+                    .background(theme.colors.background.secondary.copy(alpha = 0.48f))
                     .padding(horizontal = 12.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -3729,12 +3920,12 @@ private fun TvTopBar(
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
             if (collapseActionsIntoMenu) {
-                TvHeaderButton(Icons.Default.Search, null, onClick = onSearch)
+                TvHeaderButton(Icons.Default.Search, null, hazeState, onClick = onSearch)
             } else {
-                TvHeaderButton(Icons.Default.Notifications, if (unreadCount > 0) "$unreadCount" else null, onClick = onNotifications)
-                TvHeaderButton(Icons.Default.AttachMoney, null, onClick = onTipJar)
+                TvHeaderButton(Icons.Default.Notifications, if (unreadCount > 0) "$unreadCount" else null, hazeState, onClick = onNotifications)
+                TvHeaderButton(Icons.Default.AttachMoney, null, hazeState, onClick = onTipJar)
             }
-            TvHeaderButton(Icons.Default.GridView, null, onClick = onLayout)
+            TvHeaderButton(Icons.Default.GridView, null, hazeState, onClick = onLayout)
             ZsOutlinedWrapper(
                 visible = focusedMenu && LocalIsTv.current,
                 shape = RoundedCornerShape(50),
@@ -3745,7 +3936,8 @@ private fun TvTopBar(
                     modifier = Modifier
                         .height(TvHomeMetrics.headerButtonSize)
                         .clip(RoundedCornerShape(50))
-                        .background(theme.colors.background.secondary.copy(alpha = 0.8f))
+                        .hazeEffect(hazeState, hazeStyle)
+                        .background(theme.colors.background.secondary.copy(alpha = 0.48f))
                         .border(
                             1.dp,
                             theme.colors.type.divider.copy(alpha = 0.3f),
@@ -3770,9 +3962,11 @@ private fun TvTopBar(
 private fun TvHeaderButton(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     badge: String?,
+    hazeState: dev.chrisbanes.haze.HazeState,
     onClick: () -> Unit,
 ) {
     val theme = LocalZStreamTheme.current
+    val hazeStyle = rememberTopNavHazeStyle()
     var focused by remember { mutableStateOf(false) }
 
     ZsOutlinedWrapper(
@@ -3785,7 +3979,8 @@ private fun TvHeaderButton(
             modifier = Modifier
                 .size(TvHomeMetrics.headerButtonSize)
                 .clip(RoundedCornerShape(50))
-                .background(theme.colors.background.secondary.copy(alpha = 0.8f))
+                .hazeEffect(hazeState, hazeStyle)
+                .background(theme.colors.background.secondary.copy(alpha = 0.48f))
                 .border(1.dp, theme.colors.type.divider.copy(alpha = 0.3f), RoundedCornerShape(50))
                 .onFocusChanged { focused = it.isFocused }
                 .clickable(onClick = onClick),

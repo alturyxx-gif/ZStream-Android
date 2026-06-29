@@ -522,6 +522,10 @@ class PlayerViewModel @Inject constructor(
         viewModelScope.launch { settingsPrefs.setVideoScaleMode(normalized) }
     }
 
+    fun setTvPipPosition(value: String) {
+        viewModelScope.launch { settingsPrefs.setTvPipPosition(value) }
+    }
+
     suspend fun getAutoplayEpisodeTarget(): AutoplayEpisodeTarget? = withContext(Dispatchers.IO) {
         if (mediaType != "tv") return@withContext null
 
