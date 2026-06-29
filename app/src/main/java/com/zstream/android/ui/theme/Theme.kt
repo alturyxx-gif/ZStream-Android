@@ -16,7 +16,7 @@ import com.zstream.android.theme.LocalZStreamTheme
 import com.zstream.android.theme.ThemeViewModel
 import com.zstream.android.theme.ZStreamTheme
 
-private val Lato = FontFamily(
+val LatoFontFamily = FontFamily(
     Font(R.font.lato_light, weight = FontWeight.Light),
     Font(R.font.lato_regular, weight = FontWeight.Normal),
     Font(R.font.lato_italic, weight = FontWeight.Normal, style = FontStyle.Italic),
@@ -45,21 +45,21 @@ private fun colorSchemeFor(theme: ZStreamTheme) = darkColorScheme(
 
 private val AppTypography = with(Typography()) {
     Typography(
-        displayLarge = displayLarge.copy(fontFamily = Lato),
-        displayMedium = displayMedium.copy(fontFamily = Lato),
-        displaySmall = displaySmall.copy(fontFamily = Lato),
-        headlineLarge = headlineLarge.copy(fontFamily = Lato),
-        headlineMedium = headlineMedium.copy(fontFamily = Lato),
-        headlineSmall = headlineSmall.copy(fontFamily = Lato),
-        titleLarge = titleLarge.copy(fontFamily = Lato),
-        titleMedium = titleMedium.copy(fontFamily = Lato),
-        titleSmall = titleSmall.copy(fontFamily = Lato),
-        bodyLarge = bodyLarge.copy(fontFamily = Lato),
-        bodyMedium = bodyMedium.copy(fontFamily = Lato),
-        bodySmall = bodySmall.copy(fontFamily = Lato),
-        labelLarge = labelLarge.copy(fontFamily = Lato),
-        labelMedium = labelMedium.copy(fontFamily = Lato),
-        labelSmall = labelSmall.copy(fontFamily = Lato),
+        displayLarge = displayLarge.copy(fontFamily = LatoFontFamily),
+        displayMedium = displayMedium.copy(fontFamily = LatoFontFamily),
+        displaySmall = displaySmall.copy(fontFamily = LatoFontFamily),
+        headlineLarge = headlineLarge.copy(fontFamily = LatoFontFamily),
+        headlineMedium = headlineMedium.copy(fontFamily = LatoFontFamily),
+        headlineSmall = headlineSmall.copy(fontFamily = LatoFontFamily),
+        titleLarge = titleLarge.copy(fontFamily = LatoFontFamily),
+        titleMedium = titleMedium.copy(fontFamily = LatoFontFamily),
+        titleSmall = titleSmall.copy(fontFamily = LatoFontFamily),
+        bodyLarge = bodyLarge.copy(fontFamily = LatoFontFamily),
+        bodyMedium = bodyMedium.copy(fontFamily = LatoFontFamily),
+        bodySmall = bodySmall.copy(fontFamily = LatoFontFamily),
+        labelLarge = labelLarge.copy(fontFamily = LatoFontFamily),
+        labelMedium = labelMedium.copy(fontFamily = LatoFontFamily),
+        labelSmall = labelSmall.copy(fontFamily = LatoFontFamily),
     )
 }
 

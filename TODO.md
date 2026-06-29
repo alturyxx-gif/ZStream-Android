@@ -4,7 +4,8 @@ the remaining settings to wire are:
  2. hidePauseOverlay
  3. proxyTmdb
  4. download page: UI exists, but it is only a placeholder card
- 5. trakt
- 6. simkl
- 7. wyzie
- 8. collections and groups
+ 5. simkl
+ 6. collections and groups
+ 7. discord rpc
+ 8. countdown/upcoming movies/shows section
+

@@ -19,6 +19,7 @@ import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
@@ -29,6 +30,7 @@ import javax.inject.Inject
 import com.zstream.android.data.local.preferences.SettingsPreferences
 import com.zstream.android.data.local.entity.SettingsEntity
 import com.zstream.android.data.model.airedEpisodes
+import com.google.gson.Gson
 import com.zstream.android.data.WatchPartyManager
 import com.zstream.android.data.WatchPartyAction
 import com.zstream.android.data.remote.WatchPartyContentDto
@@ -36,6 +38,8 @@ import com.zstream.android.data.remote.WatchPartyPlayerDto
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 
 enum class SourceStatus { IDLE, TRYING, SUCCESS, FAILED }
 data class SourceResult(val id: String, val status: SourceStatus)
@@ -71,7 +75,53 @@ sealed class PlayerState {
     data class Error(val message: String, val sources: List<SourceResult>) : PlayerState()
 }
 
-data class SubtitleTrack(val label: String, val url: String, val language: String, val type: String = "vtt")
+data class SubtitleTrack(
+    val label: String,
+    val url: String,
+    val language: String,
+    val type: String = "vtt",
+    val id: String = url,
+    val source: String? = null,
+    val hearingImpaired: Boolean = false,
+    val external: Boolean = false,
+)
+
+private data class WyzieSubtitleEntry(
+    val url: String? = null,
+    val language: String? = null,
+    val display: String? = null,
+    val format: String? = null,
+    val id: String? = null,
+    val source: String? = null,
+    val isHearingImpaired: Boolean? = null,
+)
+
+internal fun parseWyzieSubtitles(body: String): List<SubtitleTrack> {
+    return Gson().fromJson(body, Array<WyzieSubtitleEntry>::class.java).mapNotNull { entry ->
+        val url = entry.url?.takeIf(String::isNotBlank) ?: return@mapNotNull null
+        val language = entry.language?.takeIf(String::isNotBlank) ?: "Unknown"
+        SubtitleTrack(
+            label = entry.display?.takeIf(String::isNotBlank) ?: language,
+            url = url,
+            language = language,
+            type = entry.format?.takeIf(String::isNotBlank) ?: "srt",
+            id = entry.id?.takeIf(String::isNotBlank) ?: url,
+            source = "wyzie${entry.source?.takeIf(String::isNotBlank)?.let { " ${if (it == "opensubtitles") "opensubs" else it}" }.orEmpty()}",
+            hearingImpaired = entry.isHearingImpaired == true,
+            external = true,
+        )
+    }
+}
+
+internal fun languageCodeFromLabel(label: String): String? {
+    val name = label.replace(Regex("\\s*Hi\\d*$", RegexOption.IGNORE_CASE), "").replace(Regex("\\d+$"), "").trim()
+    return java.util.Locale.getISOLanguages().firstOrNull {
+        java.util.Locale.forLanguageTag(it).getDisplayLanguage(java.util.Locale.ENGLISH).equals(name, ignoreCase = true)
+    }
+}
+
+internal fun subtitleCandidates(tracks: List<SubtitleTrack>, language: String): List<SubtitleTrack> =
+    tracks.filter { it.language == language }
 
 data class SubtitleCue(val startMs: Long, val endMs: Long, val text: String)
 
@@ -119,6 +169,8 @@ class PlayerViewModel @Inject constructor(
 
     private val _selectedSubtitleLang = MutableStateFlow<String?>(null)
     val selectedSubtitleLang = _selectedSubtitleLang.asStateFlow()
+    private val _selectedSubtitleId = MutableStateFlow<String?>(null)
+    val selectedSubtitleId = _selectedSubtitleId.asStateFlow()
 
     private val _skipSegments = MutableStateFlow<List<SkipSegment>>(emptyList())
     val skipSegments = _skipSegments.asStateFlow()
@@ -146,6 +198,7 @@ class PlayerViewModel @Inject constructor(
     private val localStateOwner = UUID.randomUUID().toString()
     private var lastPlaybackPosition = 0L
     private var lastPlaybackDuration = 0L
+    private var subtitleSearchLanguage = "en"
 
     init {
         load()
@@ -505,25 +558,31 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
-    fun selectSubtitle(language: String) {
+    fun selectSubtitle(id: String) {
         viewModelScope.launch {
+            val state = _state.value as? PlayerState.Ready ?: return@launch
+            val track = state.subtitles.find { it.id == id } ?: return@launch
             settingsPrefs.setSubtitlesEnabled(true)
-            settingsPrefs.setDefaultSubtitleLanguage(language)
-            _selectedSubtitleLang.value = language
-            val state = _state.value
-            if (state is PlayerState.Ready) {
-                val track = state.subtitles.find { it.language == language || it.label == language }
-                if (track != null) {
-                    downloadAndParseSubtitles(listOf(track))
-                }
-            }
+            val languageChanged = subtitleSearchLanguage != track.language
+            subtitleSearchLanguage = track.language
+            _selectedSubtitleId.value = track.id
+            _selectedSubtitleLang.value = track.language
+            downloadAndParseSubtitles(listOf(track))
+            if (languageChanged) refreshExternalSubtitles(track.language)
         }
+    }
+
+    fun autoSelectSubtitle() {
+        val tracks = (_state.value as? PlayerState.Ready)?.subtitles.orEmpty()
+        val candidates = subtitleCandidates(tracks, subtitleSearchLanguage)
+        candidates.randomOrNull()?.let { selectSubtitle(it.id) }
     }
 
     fun disableSubtitles() {
         viewModelScope.launch {
             settingsPrefs.setSubtitlesEnabled(false)
             _selectedSubtitleLang.value = null
+            _selectedSubtitleId.value = null
             _subtitleCues.value = emptyList()
         }
     }
@@ -645,18 +704,18 @@ class PlayerViewModel @Inject constructor(
 
     private fun downloadAndParseSubtitles(tracks: List<SubtitleTrack>) {
         viewModelScope.launch {
-            val settingsVal = settings.value
-            val preferredLang = settingsVal.defaultSubtitleLanguage
+            val preferredLang = subtitleSearchLanguage
             val track = if (!preferredLang.isNullOrBlank()) {
                 tracks.find { it.language == preferredLang || it.label == preferredLang }
             } else null
-            val selected = track ?: tracks.firstOrNull()
+            val selected = track ?: tracks.singleOrNull()
             if (selected == null) {
                 Log.d("PlayerVM", "downloadSubtitles: no tracks available")
                 return@launch
             }
 
             _selectedSubtitleLang.value = selected.language
+            _selectedSubtitleId.value = selected.id
             Log.d("PlayerVM", "downloadSubtitles: selected lang=${selected.language} url=${selected.url}")
 
             val cues = withContext(Dispatchers.IO) {
@@ -923,17 +982,109 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
-    private fun buildReadyState(
+    private suspend fun buildReadyState(
         data: JSONObject?,
         streamUrl: String,
         sourceList: List<SourceResult> = sources.toList()
     ): PlayerState.Ready {
         val stream = data?.optJSONObject("stream")
         val headers = parseStreamHeaders(streamUrl)
-        val subtitleTracks = parseSubtitles(stream)
+        subtitleSearchLanguage = settings.value.defaultSubtitleLanguage.takeIf { it == "en" } ?: "en"
+        val subtitleTracks = (fetchExternalSubtitles(subtitleSearchLanguage) + parseSubtitles(stream)).distinctBy { it.id }
         val sourceId = data?.optString("sourceId")?.takeIf { it.isNotBlank() }
         val embedId = data?.optString("embedId")?.takeIf { it.isNotBlank() }
         return PlayerState.Ready(streamUrl, headers, subtitleTracks, sourceList, sourceId, embedId)
+    }
+
+    private suspend fun fetchExternalSubtitles(language: String): List<SubtitleTrack> = coroutineScope {
+        listOf(
+            async { fetchWyzieSubtitles(language) },
+            async { fetchOpenSubtitles(language) },
+            async { fetchGraniteSubtitles(language) },
+        ).flatMap { it.await() }.distinctBy { it.id }
+    }
+
+    private suspend fun refreshExternalSubtitles(language: String) {
+        val current = _state.value as? PlayerState.Ready ?: return
+        val external = fetchExternalSubtitles(language)
+        _state.value = current.copy(subtitles = (current.subtitles.filterNot { it.external } + external).distinctBy { it.id })
+    }
+
+    private suspend fun fetchWyzieSubtitles(language: String): List<SubtitleTrack> = withContext(Dispatchers.IO) {
+        val key = settings.value.wyzieKey ?: return@withContext emptyList()
+        val url = "https://sub.wyzie.io/search".toHttpUrl().newBuilder()
+            .addQueryParameter("id", tmdbId)
+            .addQueryParameter("key", key)
+            .addQueryParameter("encoding", "utf-8")
+            .addQueryParameter("source", "all")
+            .addQueryParameter("language", language)
+            .apply {
+                if (mediaType == "tv" && season != null && episode != null) {
+                    addQueryParameter("season", season.toString())
+                    addQueryParameter("episode", episode.toString())
+                }
+            }
+            .build()
+        runCatching {
+            httpClient.newCall(Request.Builder().url(url).build()).execute().use { response ->
+                if (!response.isSuccessful) return@use emptyList()
+                parseWyzieSubtitles(response.body?.string().orEmpty())
+            }
+        }.onFailure { Log.w("PlayerVM", "Wyzie subtitle lookup failed", it) }.getOrDefault(emptyList())
+    }
+
+    private suspend fun fetchOpenSubtitles(language: String): List<SubtitleTrack> = withContext(Dispatchers.IO) {
+        val imdbId = runCatching {
+            if (mediaType == "tv") {
+                tmdbRepo.tvDetail(id).let { it.imdbId ?: it.externalIds?.imdbId }
+            } else {
+                tmdbRepo.movieDetail(id).imdbId
+            }
+        }.getOrNull()?.removePrefix("tt") ?: return@withContext emptyList()
+        val openSubtitlesLanguage = runCatching { java.util.Locale.forLanguageTag(language).isO3Language }.getOrDefault(language)
+        val path = buildString {
+            append("https://rest.opensubtitles.org/search/")
+            if (season != null && episode != null) append("episode-$episode/")
+            append("imdbid-$imdbId")
+            if (season != null && episode != null) append("/season-$season")
+            append("/sublanguageid-$openSubtitlesLanguage")
+        }
+        runCatching {
+            httpClient.newCall(Request.Builder().url(path).header("X-User-Agent", "VLSub 0.10.2").build()).execute().use { response ->
+                if (!response.isSuccessful) return@use emptyList()
+                val entries = JSONArray(response.body?.string().orEmpty())
+                (0 until entries.length()).mapNotNull { index ->
+                    val entry = entries.optJSONObject(index) ?: return@mapNotNull null
+                    val lang = entry.optString("ISO639").lowercase().takeIf(String::isNotBlank) ?: return@mapNotNull null
+                    if (lang != language) return@mapNotNull null
+                    val url = entry.optString("SubDownloadLink").replace(".gz", "").replace("download/", "download/subencoding-utf8/")
+                        .takeIf(String::isNotBlank) ?: return@mapNotNull null
+                    SubtitleTrack(entry.optString("LanguageName", lang), url, lang, entry.optString("SubFormat", "srt"), source = "opensubs", external = true)
+                }
+            }
+        }.onFailure { Log.w("PlayerVM", "OpenSubtitles lookup failed", it) }.getOrDefault(emptyList())
+    }
+
+    private suspend fun fetchGraniteSubtitles(language: String): List<SubtitleTrack> = withContext(Dispatchers.IO) {
+        val url = if (mediaType == "tv" && season != null && episode != null) {
+            "https://sub.vdrk.site/v1/tv/$tmdbId/$season/$episode"
+        } else {
+            "https://sub.vdrk.site/v1/movie/$tmdbId"
+        }
+        runCatching {
+            httpClient.newCall(Request.Builder().url(url).build()).execute().use { response ->
+                if (!response.isSuccessful) return@use emptyList()
+                val entries = JSONArray(response.body?.string().orEmpty())
+                (0 until entries.length()).mapNotNull { index ->
+                    val entry = entries.optJSONObject(index) ?: return@mapNotNull null
+                    val label = entry.optString("label")
+                    val lang = languageCodeFromLabel(label) ?: return@mapNotNull null
+                    if (lang != language) return@mapNotNull null
+                    val file = entry.optString("file").takeIf(String::isNotBlank) ?: return@mapNotNull null
+                    SubtitleTrack(label, file, lang, "vtt", source = "granite", hearingImpaired = label.contains("Hi", true), external = true)
+                }
+            }
+        }.onFailure { Log.w("PlayerVM", "Granite subtitle lookup failed", it) }.getOrDefault(emptyList())
     }
 
     private fun findStreamUrl(stream: JSONObject): String? {
@@ -968,7 +1119,15 @@ class PlayerViewModel @Inject constructor(
             val label = obj.optString("language", "Unknown")
             val language = obj.optString("langIso").takeIf { it.isNotBlank() } ?: label
             val type = obj.optString("type", "vtt")
-            SubtitleTrack(label, url, language, type)
+            SubtitleTrack(
+                label = label,
+                url = url,
+                language = language,
+                type = type,
+                id = obj.optString("id").takeIf { it.isNotBlank() } ?: url,
+                source = obj.optString("source").takeIf { it.isNotBlank() },
+                hearingImpaired = obj.optBoolean("isHearingImpaired"),
+            )
         }
     }
 }
