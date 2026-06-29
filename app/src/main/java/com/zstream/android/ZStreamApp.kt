@@ -11,6 +11,12 @@ import dagger.hilt.components.SingletonComponent
 
 @HiltAndroidApp
 class ZStreamApp : Application(), ImageLoaderFactory {
+    @javax.inject.Inject lateinit var traktRepository: com.zstream.android.data.TraktRepository
+
+    override fun onCreate() {
+        super.onCreate()
+        traktRepository.start()
+    }
     
     @EntryPoint
     @InstallIn(SingletonComponent::class)

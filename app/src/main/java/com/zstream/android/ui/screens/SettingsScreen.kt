@@ -2356,11 +2356,23 @@ private fun ConnectionsSection(
     isTv: Boolean = false,
     firstItemFocusRequester: FocusRequester? = null,
 ) {
+    val trakt by vm.traktState.collectAsStateWithLifecycle()
+    val context = androidx.compose.ui.platform.LocalContext.current
     if (isTv) {
         Column(Modifier
             .padding(bottom = 32.dp)
             .padding(top = 16.dp)) {
             Spacer(Modifier.height(8.dp))
+            SectionLabel("Trakt", theme)
+            Column(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp).clip(RoundedCornerShape(12.dp))
+                    .background(theme.colors.settings.card.background).padding(16.dp)
+            ) {
+                Text(if (trakt.connected) "Connected${trakt.name?.let { " as $it" } ?: ""}" else "Not connected",
+                    color = theme.colors.type.text, fontWeight = FontWeight.Bold)
+                Text("Trakt connections are managed from a mobile device.", color = theme.colors.type.dimmed, fontSize = 11.sp)
+            }
+            Spacer(Modifier.height(16.dp))
             SectionLabel("Proxy", theme)
             Column(
                 Modifier
@@ -2818,6 +2830,49 @@ private fun ConnectionsSection(
             .padding(bottom = 32.dp)
             .padding(top = if (isTv) 16.dp else 0.dp)) {
             Spacer(Modifier.height(8.dp))
+            SectionLabel("Trakt", theme)
+            SettingsCard(theme) {
+                Column(Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        trakt.avatar?.let {
+                            coil.compose.AsyncImage(
+                                model = it,
+                                contentDescription = "Trakt profile avatar",
+                                modifier = Modifier.size(36.dp).clip(CircleShape),
+                            )
+                        }
+                        Text(
+                            if (trakt.connected) trakt.name ?: trakt.username ?: "Trakt connected" else "Sync your watchlist and history with Trakt.",
+                            color = theme.colors.type.text,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                    when {
+                        trakt.activationCode != null -> Text("Enter code ${trakt.activationCode} at trakt.tv/activate", color = theme.colors.type.text, fontSize = 12.sp)
+                        trakt.syncing -> Text("Syncing…", color = theme.colors.type.dimmed, fontSize = 11.sp)
+                        trakt.lastError != null -> Text(trakt.lastError.orEmpty(), color = theme.colors.buttons.danger, fontSize = 11.sp)
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    if (trakt.connected) {
+                        ZsButton(
+                            text = "Sync now",
+                            onClick = vm::syncTrakt,
+                            enabled = !trakt.syncing,
+                            loading = trakt.syncing,
+                            variant = ZsButtonVariant.Secondary,
+                        )
+                        Spacer(Modifier.height(8.dp))
+                    }
+                    ZsButton(
+                        text = if (trakt.connected) "Disconnect" else "Connect Trakt",
+                        onClick = { if (trakt.connected) vm.disconnectTrakt() else vm.connectTrakt(context) },
+                        variant = if (trakt.connected) ZsButtonVariant.Danger else ZsButtonVariant.Primary,
+                        loading = !trakt.connected && trakt.syncing,
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(16.dp))
             SectionLabel("Proxy", theme)
             SettingsCard(theme) {
                 ZsSwitchRow(

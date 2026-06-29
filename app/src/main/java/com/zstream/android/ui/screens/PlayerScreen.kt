@@ -703,6 +703,26 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                 }
 
                 LaunchedEffect(player) {
+                    val listener = object : Player.Listener {
+                        override fun onEvents(player: Player, events: Player.Events) {
+                            if (events.containsAny(
+                                    Player.EVENT_PLAY_WHEN_READY_CHANGED,
+                                    Player.EVENT_PLAYBACK_STATE_CHANGED,
+                                    Player.EVENT_POSITION_DISCONTINUITY,
+                                )) {
+                                vm.reportTraktPlayback(player.isPlaying, player.currentPosition, player.duration)
+                            }
+                        }
+                    }
+                    player.addListener(listener)
+                    try {
+                        kotlinx.coroutines.awaitCancellation()
+                    } finally {
+                        player.removeListener(listener)
+                    }
+                }
+
+                LaunchedEffect(player) {
                     vm.watchPartyEvent.collect { action ->
                         Log.d("PlayerScreen", "Received WatchPartyAction: $action")
                         when (action) {

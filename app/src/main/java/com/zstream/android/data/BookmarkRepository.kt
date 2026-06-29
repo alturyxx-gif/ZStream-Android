@@ -18,6 +18,7 @@ class BookmarkRepository @Inject constructor(
     private val accountRepo: AccountRepository,
     private val api: BackendApi,
     private val tmdbRepo: TmdbRepository,
+    private val traktRepo: TraktRepository,
 ) {
     /**
      * Get bookmark from local cache
@@ -88,7 +89,7 @@ class BookmarkRepository @Inject constructor(
         val entity = BookmarkEntity(
             tmdbId = tmdbId,
             title = title,
-            type = type,
+            type = if (type == "tv") "show" else type,
             year = year,
             posterPath = relativePoster,
             groups = groups,
@@ -97,6 +98,7 @@ class BookmarkRepository @Inject constructor(
 
         // Update local cache first
         bookmarkDao.insert(entity)
+        traktRepo.updateWatchlist(entity, add = true)
 
         // Try to sync with backend
         try {
@@ -128,6 +130,7 @@ class BookmarkRepository @Inject constructor(
      * Remove bookmark locally and sync with backend
      */
     suspend fun removeBookmark(tmdbId: String) {
+        bookmarkDao.getByTmdbId(tmdbId)?.let { traktRepo.updateWatchlist(it, add = false) }
         bookmarkDao.deleteByTmdbId(tmdbId)
 
         // Try to remove from backend
