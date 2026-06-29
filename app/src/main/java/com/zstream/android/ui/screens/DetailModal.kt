@@ -493,6 +493,9 @@ internal fun SharedEpisodeRow(
     enableWatchActions: Boolean = false,
     onMarkWatched: () -> Unit = {},
     onClearHistory: () -> Unit = {},
+    onEpisodeClick: (() -> Unit)? = null,
+    compact: Boolean = false,
+    horizontalPadding: Dp = 16.dp,
     modifier: Modifier = Modifier
 ) {
     val pct = if (episodeProgress != null && episodeProgress.duration > 0) {
@@ -525,17 +528,24 @@ internal fun SharedEpisodeRow(
                     .onFocusChanged { isFocused = it.isFocused }
                     .focusable()
                     .clickable {
-                        val encodedTitle = java.net.URLEncoder.encode(title, "UTF-8").replace("+", "%20")
-                        val encodedPoster = posterPath?.let { java.net.URLEncoder.encode(it, "UTF-8").replace("+", "%20") } ?: ""
-                        nav.navigate("player/tv/$showId?season=${ep.seasonNumber}&episode=${ep.episodeNumber}&title=$encodedTitle&year=${ep.airDate?.take(4)?.toIntOrNull() ?: 0}&poster=$encodedPoster")
+                        if (onEpisodeClick != null) {
+                            onEpisodeClick()
+                        } else {
+                            val encodedTitle = java.net.URLEncoder.encode(title, "UTF-8").replace("+", "%20")
+                            val encodedPoster = posterPath?.let { java.net.URLEncoder.encode(it, "UTF-8").replace("+", "%20") } ?: ""
+                            nav.navigate("player/tv/$showId?season=${ep.seasonNumber}&episode=${ep.episodeNumber}&title=$encodedTitle&year=${ep.airDate?.take(4)?.toIntOrNull() ?: 0}&poster=$encodedPoster")
+                        }
                     }
             ) {
-                Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .then(if (compact) Modifier.height(76.dp) else Modifier.height(IntrinsicSize.Min))
+                ) {
                     Box(
                         Modifier
-                            .width(120.dp)
+                            .width(if (compact) 112.dp else 90.dp)
                             .fillMaxHeight()
-                            .animateContentSize(animationSpec = tween(300))
                     ) {
                         AsyncImage(
                             model = ep.stillPath?.let { "https://image.tmdb.org/t/p/w780$it" },
@@ -563,7 +573,7 @@ internal fun SharedEpisodeRow(
                         }
                     }
 
-                    Column(Modifier.weight(1f).padding(12.dp).animateContentSize()) {
+                    Column(Modifier.weight(1f).padding(8.dp)) {
                         Text(
                             ep.name.orEmpty(),
                             maxLines = 1,
@@ -574,36 +584,13 @@ internal fun SharedEpisodeRow(
 
                         ep.overview?.takeIf { it.isNotBlank() }?.let { desc ->
                             Spacer(Modifier.height(4.dp))
-                            var expanded by remember { mutableStateOf(false) }
-                            var canExpand by remember(desc) { mutableStateOf(false) }
-                            val collapsedLines = 3
-                            Box(
-                                Modifier
-                                    .fillMaxWidth()
-                                    .let { modifier ->
-                                        if (canExpand && !isTv) {
-                                            modifier.clickable(
-                                                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
-                                                indication = null
-                                            ) { expanded = !expanded }
-                                        } else {
-                                            modifier
-                                        }
-                                    }
-                            ) {
-                                Text(
-                                    desc,
-                                    maxLines = if (expanded || isTv) Int.MAX_VALUE else collapsedLines,
-                                    overflow = TextOverflow.Ellipsis,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = theme.colors.type.text,
-                                    onTextLayout = { layoutResult ->
-                                        if (!expanded) {
-                                            canExpand = layoutResult.hasVisualOverflow
-                                        }
-                                    }
-                                )
-                            }
+                            Text(
+                                desc,
+                                maxLines = if (compact) 2 else 3,
+                                overflow = TextOverflow.Ellipsis,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = theme.colors.type.text,
+                            )
                             Spacer(Modifier.height(4.dp))
                         }
                     }
@@ -653,11 +640,11 @@ internal fun SharedEpisodeRow(
                     },
                 )
             },
-            modifier = Modifier.padding(horizontal = 32.dp, vertical = 4.dp),
+            modifier = Modifier.padding(horizontal = horizontalPadding, vertical = 2.dp),
             content = { rowContent() },
         )
     } else {
-        Box(modifier = Modifier.padding(horizontal = 32.dp, vertical = 4.dp)) {
+        Box(modifier = Modifier.padding(horizontal = horizontalPadding, vertical = 2.dp)) {
             rowContent()
         }
     }
@@ -747,4 +734,3 @@ private fun EpisodeSwipeBackground(
         }
     }
 }
-

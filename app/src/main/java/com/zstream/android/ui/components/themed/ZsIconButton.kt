@@ -73,7 +73,7 @@ fun ZsIconButton(
     }
 
     ZsOutlinedWrapper(
-        visible = isFocused,
+        visible = isFocused && isTv,
         shape = shape,
         outlineColor = if (isTv) Color.White else theme.colors.global.accentA.copy(alpha = 0.6f),
         gap = 4.dp,
@@ -85,7 +85,11 @@ fun ZsIconButton(
             modifier = Modifier
                 .size(containerSize)
                 .onFocusChanged { isFocused = it.isFocused },
-            color = if (enabled) containerColor else containerColor.copy(alpha = 0.45f),
+            color = when {
+                !enabled -> containerColor.copy(alpha = 0.45f)
+                isFocused -> Color.White.copy(alpha = 0.2f)
+                else -> containerColor
+            },
             contentColor = if (enabled) contentColor else contentColor.copy(alpha = 0.65f),
             shape = shape,
             border = if (borderColor.alpha > 0f) BorderStroke(1.dp, borderColor) else null,
