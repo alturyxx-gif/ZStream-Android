@@ -1,10 +1,10 @@
 the remaining settings to wire are:
 
- 2. enableAutoResumeOnPlaybackError - should be done later when we have sources ready
- 3. hidePauseOverlay
- 4. proxyTmdb
- 5. download page: UI exists, but it is only a placeholder card
- 6. trakt
- 7. simkl
- 8. wyzie
- 9. episodes list button for shows
+ 1. enableAutoResumeOnPlaybackError - should be done later when we have sources ready
+ 2. hidePauseOverlay
+ 3. proxyTmdb
+ 4. download page: UI exists, but it is only a placeholder card
+ 5. trakt
+ 6. simkl
+ 7. wyzie
+ 8. collections and groups

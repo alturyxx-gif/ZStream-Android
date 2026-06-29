@@ -19,6 +19,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -29,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
+import com.zstream.android.data.CryptoUtils
 import com.zstream.android.theme.LocalZStreamTheme
 import com.zstream.android.ui.components.themed.ZsButton
 import com.zstream.android.ui.components.themed.ZsButtonVariant
@@ -40,19 +42,6 @@ import com.zstream.android.ui.components.themed.ZsTextButton
 import com.zstream.android.ui.components.themed.ZsTextField
 import com.zstream.android.ui.navigation.rememberSafeNavigateBack
 
-private val BIP39_WORDLIST = listOf(
-    "abandon","ability","able","about","above","absent","absorb","abstract","absurd","abuse",
-    "access","accident","account","accuse","achieve","acid","acoustic","acquire","across","act",
-    "action","actor","actress","actual","adapt","add","addict","address","adjust","admit",
-    "adult","advance","advice","aerobic","afford","afraid","again","age","agent","agree",
-    "ahead","aim","air","airport","aisle","alarm","album","alcohol","alert","alien",
-    "all","alley","allow","almost","alone","alpha","already","also","alter","always",
-    "amateur","amazing","among","amount","amused","analyst","anchor","ancient","anger","angle",
-    "angry","animal","ankle","announce","annual","another","answer","antenna","antique","anxiety",
-    "apart","april","arch","arctic","area","arena","argue","arm","armed","armor",
-    "army","around","arrange","arrest","arrive","arrow","art","artefact","artist","artwork"
-) // abbreviated — we use SecureRandom word index from full list in CryptoUtils
-
 @Composable
 fun LoginScreen(nav: NavController, vm: AccountViewModel = hiltViewModel()) {
     val theme = LocalZStreamTheme.current
@@ -61,6 +50,7 @@ fun LoginScreen(nav: NavController, vm: AccountViewModel = hiltViewModel()) {
     val txt = theme.colors.type
     val scope = rememberCoroutineScope()
     val onBack = rememberSafeNavigateBack(nav, scope)
+    val context = LocalContext.current
 
     // Screens: "login" | "register_show" | "register_confirm"
     var screen by remember { mutableStateOf("login") }
@@ -91,7 +81,7 @@ fun LoginScreen(nav: NavController, vm: AccountViewModel = hiltViewModel()) {
                 bg = bg,
                 authState = authState,
                 onRegister = {
-                    generatedMnemonic = generateMnemonic()
+                    generatedMnemonic = CryptoUtils.generateMnemonic(context)
                     screen = "register_show"
                     vm.clearError()
                 },
@@ -326,43 +316,4 @@ private fun BoxScope.ConfirmRegisterPanel(
             leadingIcon = Icons.Default.Lock,
         )
     }
-}
-
-//  Mnemonic generation 
-
-private fun generateMnemonic(): String {
-    // 12-word BIP39 mnemonic from secure random — mirrors genMnemonic() in p-stream crypto.ts
-    val entropy = ByteArray(16).also { java.security.SecureRandom().nextBytes(it) }
-    // Simple word selection from a hardcoded subset for the word grid display
-    // Real BIP39 requires checksum — use the full 2048-word list approach
-    val rng = java.security.SecureRandom()
-    val fullWordList = getFullBip39WordList()
-    return (1..12).joinToString(" ") { fullWordList[rng.nextInt(fullWordList.size)] }
-}
-
-private fun getFullBip39WordList(): List<String> {
-    // Standard BIP39 English wordlist (2048 words) — first 200 shown, rest omitted for brevity
-    // In production this should be the complete list from the BIP39 spec
-    return listOf(
-        "abandon","ability","able","about","above","absent","absorb","abstract","absurd","abuse",
-        "access","accident","account","accuse","achieve","acid","acoustic","acquire","across","act",
-        "action","actor","actress","actual","adapt","add","addict","address","adjust","admit",
-        "adult","advance","advice","aerobic","afford","afraid","again","age","agent","agree",
-        "ahead","aim","air","airport","aisle","alarm","album","alcohol","alert","alien",
-        "all","alley","allow","almost","alone","alpha","already","also","alter","always",
-        "amateur","amazing","among","amount","amused","analyst","anchor","ancient","anger","angle",
-        "angry","animal","ankle","announce","annual","another","answer","antenna","antique","anxiety",
-        "apart","april","arch","arctic","area","arena","argue","arm","armed","armor",
-        "army","around","arrange","arrest","arrive","arrow","art","artefact","artist","artwork",
-        "ask","aspect","assault","asset","assist","assume","asthma","athlete","atom","attack",
-        "attend","attitude","attract","auction","audit","august","aunt","author","auto","autumn",
-        "average","avocado","avoid","awake","aware","away","awesome","awful","awkward","axis",
-        "baby","balance","bamboo","banana","banner","barely","bargain","barrel","base","basic",
-        "basket","battle","beach","bean","beauty","because","become","beef","before","begin",
-        "behave","behind","believe","below","belt","bench","benefit","best","betray","better",
-        "between","beyond","bicycle","bid","bike","bind","biology","bird","birth","bitter",
-        "black","blade","blame","blanket","blast","bleak","bless","blind","blood","blossom",
-        "blouse","blue","blur","blush","board","boat","body","boil","bomb","bone",
-        "book","boost","border","boring","borrow","boss","bottom","bounce","box","boy"
-    )
 }

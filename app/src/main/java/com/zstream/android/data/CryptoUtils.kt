@@ -11,6 +11,7 @@ import org.bouncycastle.crypto.signers.Ed25519Signer
 import org.json.JSONArray
 import org.json.JSONObject
 import java.security.SecureRandom
+import java.security.MessageDigest
 import javax.crypto.SecretKeyFactory
 import javax.crypto.spec.PBEKeySpec
 import kotlin.io.encoding.Base64
@@ -19,6 +20,7 @@ import kotlin.io.encoding.ExperimentalEncodingApi
 data class Ed25519Keys(val privateKey: ByteArray, val publicKey: ByteArray, val seed: ByteArray)
 
 object CryptoUtils {
+    @Volatile private var bip39EnglishWords: List<String>? = null
 
     /** PBKDF2-SHA256, 2048 iterations, 32 bytes — mirrors p-stream's seedFromMnemonic */
     fun pbkdf2(passphrase: String, salt: String = "mnemonic"): ByteArray {
@@ -33,6 +35,42 @@ object CryptoUtils {
     }
 
     fun keysFromPassphrase(passphrase: String): Ed25519Keys = keysFromSeed(pbkdf2(passphrase))
+
+    fun generateMnemonic(context: Context): String {
+        val entropy = ByteArray(16).also(SecureRandom()::nextBytes)
+        return mnemonicFromEntropy(entropy, bip39EnglishWords(context))
+    }
+
+    internal fun mnemonicFromEntropy(entropy: ByteArray, wordList: List<String>): String {
+        require(entropy.size == 16) { "Expected 128-bit entropy for a 12-word mnemonic" }
+        require(wordList.size == 2048) { "Expected full BIP39 English wordlist" }
+
+        val entropyBits = entropy.joinToString(separator = "") { byte ->
+            (byte.toInt() and 0xFF).toString(2).padStart(8, '0')
+        }
+        val checksumLength = entropy.size / 4
+        val checksumBits = (MessageDigest.getInstance("SHA-256").digest(entropy)[0].toInt() and 0xFF)
+            .toString(2)
+            .padStart(8, '0')
+            .take(checksumLength)
+
+        return (entropyBits + checksumBits)
+            .chunked(11)
+            .joinToString(" ") { wordList[it.toInt(2)] }
+    }
+
+    private fun bip39EnglishWords(context: Context): List<String> {
+        bip39EnglishWords?.let { return it }
+        synchronized(this) {
+            bip39EnglishWords?.let { return it }
+            val words = context.assets.open("bip39_english.txt").bufferedReader().useLines { lines ->
+                lines.filter { it.isNotBlank() }.toList()
+            }
+            require(words.size == 2048) { "Invalid BIP39 English wordlist asset" }
+            bip39EnglishWords = words
+            return words
+        }
+    }
 
     @OptIn(ExperimentalEncodingApi::class)
     fun signChallenge(challenge: String, privateKeyBytes: ByteArray): String {
