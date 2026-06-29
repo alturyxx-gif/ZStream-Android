@@ -632,8 +632,7 @@ private fun AccountSection(
 
     Column(Modifier
         .padding(bottom = 32.dp)
-        .padding(top = if (isTv) 16.dp else 0.dp)
-        .padding(horizontal = 16.dp)) {
+        .padding(top = if (isTv) 16.dp else 0.dp)) {
         Spacer(Modifier.height(8.dp))
         SectionLabel("Account", theme)
 
@@ -810,8 +809,7 @@ private fun PreferencesSection(
     firstItemFocusRequester: FocusRequester? = null,
 ) {
     Column(Modifier
-        .padding(bottom = 32.dp, top = if (isTv) 16.dp else 0.dp)
-        .padding(horizontal = 16.dp)) {
+        .padding(bottom = 32.dp, top = if (isTv) 16.dp else 0.dp)) {
         Spacer(Modifier.height(8.dp))
         SectionLabel("Language", theme)
         if (isTv) {
@@ -870,7 +868,7 @@ private fun PreferencesSection(
                     checked = settings.enableAutoplay,
                     onCheckedChange = vm::setEnableAutoplay,
                     enabled = !settings.enableLowPerformanceMode,
-                    modifier = Modifier,
+                    modifier = Modifier.padding(horizontal = 16.dp),
                 )
                 if (settings.enableAutoplay && !settings.enableLowPerformanceMode) {
                     HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
@@ -888,7 +886,7 @@ private fun PreferencesSection(
                     subtitle = "Disable animations and visual effects",
                     checked = settings.enableLowPerformanceMode,
                     onCheckedChange = vm::setEnableLowPerformanceMode,
-                    modifier = Modifier,
+                    modifier = Modifier.padding(horizontal = 16.dp),
                 )
                 HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                 ZsSwitchRow(
@@ -896,7 +894,7 @@ private fun PreferencesSection(
                     subtitle = "Use native subtitle renderer",
                     checked = settings.enableNativeSubtitles,
                     onCheckedChange = vm::setEnableNativeSubtitles,
-                    modifier = Modifier,
+                    modifier = Modifier.padding(horizontal = 16.dp),
                 )
             }
         }
@@ -921,44 +919,29 @@ private fun PreferencesSection(
                     subtitle = "Hide virtual keyboard and use system input",
                     checked = settings.enableNativeKeyboard,
                     onCheckedChange = vm::setEnableNativeKeyboard,
-                    modifier = Modifier,
+                    modifier = Modifier.padding(horizontal = 16.dp),
                 )
             }
         }
 
         Spacer(Modifier.height(16.dp))
-        SectionLabel("Player Controls", theme)
-        if (isTv) {
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(theme.colors.settings.card.background)
-            ) {
-                TvSettingsRow(theme, onActivate = { vm.setEnableHoldToBoost(!settings.enableHoldToBoost) }) {
-                    TvSwitchContent("Hold to Boost", "Hold to increase playback speed", settings.enableHoldToBoost)
-                }
-                HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
-                TvSettingsRow(theme, onActivate = { vm.setEnableDoubleClickToSeek(!settings.enableDoubleClickToSeek) }) {
-                    TvSwitchContent("Double-click to Seek", "Double-tap to seek forward/backward", settings.enableDoubleClickToSeek)
-                }
-            }
-        } else {
+        if (!isTv) {
+            SectionLabel("Player Controls", theme)
             SettingsCard(theme) {
                 ZsSwitchRow(
                     title = "Hold to Boost",
                     subtitle = "Hold to increase playback speed",
                     checked = settings.enableHoldToBoost,
                     onCheckedChange = vm::setEnableHoldToBoost,
-                    modifier = Modifier,
+                    modifier = Modifier.padding(horizontal = 16.dp),
                 )
                 HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                 ZsSwitchRow(
-                    title = "Double-click to Seek",
+                    title = "Double-tap to Seek",
                     subtitle = "Double-tap to seek forward/backward",
                     checked = settings.enableDoubleClickToSeek,
                     onCheckedChange = vm::setEnableDoubleClickToSeek,
-                    modifier = Modifier,
+                    modifier = Modifier.padding(horizontal = 16.dp),
                 )
             }
         }
@@ -987,7 +970,7 @@ private fun PreferencesSection(
                     subtitle = "Choose sources manually",
                     checked = settings.manualSourceSelection,
                     onCheckedChange = vm::setManualSourceSelection,
-                    modifier = Modifier,
+                    modifier = Modifier.padding(horizontal = 16.dp),
                 )
                 HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                 ZsSwitchRow(
@@ -995,7 +978,7 @@ private fun PreferencesSection(
                     subtitle = "Automatically try next source on playback error",
                     checked = settings.enableAutoResumeOnPlaybackError,
                     onCheckedChange = vm::setEnableAutoResumeOnPlaybackError,
-                    modifier = Modifier,
+                    modifier = Modifier.padding(horizontal = 16.dp),
                 )
             }
         }
