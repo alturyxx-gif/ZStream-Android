@@ -581,7 +581,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                         setMediaSource(DefaultMediaSourceFactory(WebViewDataSource.Factory(vm.getProxyPort())).createMediaSource(mediaItem))
                         videoScalingMode = androidx.media3.common.C.VIDEO_SCALING_MODE_SCALE_TO_FIT
                         prepare()
-                        playWhenReady = true  // always start loading immediately
+                        playWhenReady = true
                     }
                 }
 
