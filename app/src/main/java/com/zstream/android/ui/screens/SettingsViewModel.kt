@@ -4,14 +4,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.zstream.android.data.BookmarkRepository
 import com.zstream.android.data.ProgressRepository
-import com.zstream.android.data.AccountRepository
-import com.zstream.android.data.AccountSession
+import com.zstream.android.data.TraktRepository
 import com.zstream.android.data.local.entity.CustomThemeSettings
 import com.zstream.android.data.local.entity.SavedCustomTheme
 import com.zstream.android.data.local.entity.SettingsEntity
 import com.zstream.android.data.local.entity.ThemeColors
 import com.zstream.android.data.local.preferences.SettingsPreferences
-import com.zstream.android.data.remote.BackendApi
 import com.zstream.android.data.remote.CustomThemeSettingsResponse
 import com.zstream.android.data.remote.SavedCustomThemeResponse
 import com.zstream.android.data.remote.ThemeTripletResponse
@@ -34,7 +32,25 @@ class SettingsViewModel @Inject constructor(
     private val settingsPrefs: SettingsPreferences,
     private val progressRepo: ProgressRepository,
     private val bookmarkRepo: BookmarkRepository,
+    private val traktRepo: TraktRepository,
 ) : ViewModel() {
+    val traktState = traktRepo.state
+
+    fun connectTrakt(context: android.content.Context) {
+        viewModelScope.launch {
+            runCatching { traktRepo.beginDeviceAuthorization() }
+                .onSuccess {
+                    traktRepo.state.value.activationCode?.let { code ->
+                        val clipboard = context.getSystemService(android.content.ClipboardManager::class.java)
+                        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Trakt activation code", code))
+                    }
+                    context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(it)))
+                }
+        }
+    }
+
+    fun disconnectTrakt() { viewModelScope.launch { traktRepo.disconnect() } }
+    fun syncTrakt() { viewModelScope.launch { traktRepo.syncWatchlist(); traktRepo.syncHistory() } }
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)

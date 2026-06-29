@@ -87,6 +87,7 @@ class PlayerViewModel @Inject constructor(
     private val engine: ProviderEngine,
     private val settingsPrefs: SettingsPreferences,
     private val bookmarkRepo: BookmarkRepository,
+    private val traktRepository: com.zstream.android.data.TraktRepository,
     private val tmdbRepo: TmdbRepository,
     val watchPartyManager: WatchPartyManager,
     savedState: SavedStateHandle,
@@ -143,6 +144,8 @@ class PlayerViewModel @Inject constructor(
     private val _watchPartyEvent = MutableSharedFlow<WatchPartyAction>(replay = 0)
     val watchPartyEvent = _watchPartyEvent.asSharedFlow()
     private val localStateOwner = UUID.randomUUID().toString()
+    private var lastPlaybackPosition = 0L
+    private var lastPlaybackDuration = 0L
 
     init {
         load()
@@ -277,7 +280,14 @@ class PlayerViewModel @Inject constructor(
         watchPartyManager.updateLocalState(localStateOwner, content, player)
     }
 
+    fun reportTraktPlayback(isPlaying: Boolean, timeMs: Long, durationMs: Long) {
+        lastPlaybackPosition = timeMs
+        lastPlaybackDuration = durationMs
+        traktRepository.reportPlayback(mediaType, tmdbId, season, episode, isPlaying, timeMs, durationMs)
+    }
+
     override fun onCleared() {
+        traktRepository.stopPlayback(mediaType, tmdbId, season, episode, lastPlaybackPosition, lastPlaybackDuration)
         super.onCleared()
         watchPartyManager.clearLocalState(localStateOwner)
     }

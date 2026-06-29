@@ -127,6 +127,7 @@ data class SettingsResponse(
     val enableEmbedOrder: Boolean? = null,
     val proxyTmdb: Boolean? = null,
     val homeSectionOrder: List<String>? = null,
+    val traktKey: String? = null,
 )
 
 data class CustomThemeSettingsResponse(
@@ -274,4 +275,3 @@ data class WatchPartyRoomResponse(
     val roomCode: String,
     val users: Map<String, List<WatchPartyUserStatusDto>>,
 )
-
