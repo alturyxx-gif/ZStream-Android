@@ -4251,7 +4251,7 @@ private fun PlayerMenuSliderRow(
                     activeTrackColor = if (isAdjusting) theme.colors.global.accentA else theme.colors.global.accentA.copy(alpha = 0.6f),
                     inactiveTrackColor = theme.colors.progress.background.copy(alpha = 0.35f),
                 ),
-                enabled = isAdjusting,
+                enabled = !isTv || isAdjusting,
             )
         }
     }
