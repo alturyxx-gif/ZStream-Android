@@ -99,9 +99,10 @@ private data class WyzieSubtitleEntry(
 internal fun parseWyzieSubtitles(body: String): List<SubtitleTrack> {
     return Gson().fromJson(body, Array<WyzieSubtitleEntry>::class.java).mapNotNull { entry ->
         val url = entry.url?.takeIf(String::isNotBlank) ?: return@mapNotNull null
-        val language = entry.language?.takeIf(String::isNotBlank) ?: "Unknown"
+        val rawLanguage = entry.language?.takeIf(String::isNotBlank) ?: "Unknown"
+        val language = normalizeLanguageCode(rawLanguage)
         SubtitleTrack(
-            label = entry.display?.takeIf(String::isNotBlank) ?: language,
+            label = entry.display?.takeIf(String::isNotBlank) ?: rawLanguage,
             url = url,
             language = language,
             type = entry.format?.takeIf(String::isNotBlank) ?: "srt",
@@ -118,6 +119,12 @@ internal fun languageCodeFromLabel(label: String): String? {
     return java.util.Locale.getISOLanguages().firstOrNull {
         java.util.Locale.forLanguageTag(it).getDisplayLanguage(java.util.Locale.ENGLISH).equals(name, ignoreCase = true)
     }
+}
+
+internal fun normalizeLanguageCode(raw: String): String {
+    val trimmed = raw.trim()
+    if (trimmed.length == 2 && java.util.Locale.getISOLanguages().contains(trimmed)) return trimmed
+    return languageCodeFromLabel(trimmed) ?: trimmed
 }
 
 internal fun subtitleCandidates(tracks: List<SubtitleTrack>, language: String): List<SubtitleTrack> =
@@ -575,7 +582,11 @@ class PlayerViewModel @Inject constructor(
     fun autoSelectSubtitle() {
         val tracks = (_state.value as? PlayerState.Ready)?.subtitles.orEmpty()
         val candidates = subtitleCandidates(tracks, subtitleSearchLanguage)
-        candidates.randomOrNull()?.let { selectSubtitle(it.id) }
+        val pick = candidates.firstOrNull { it.source?.contains("wyzie", true) == true }
+            ?: candidates.firstOrNull { it.source?.contains("opensubs", true) == true }
+            ?: candidates.firstOrNull { it.source?.contains("granite", true) == true }
+            ?: candidates.firstOrNull()
+        pick?.let { selectSubtitle(it.id) }
     }
 
     fun disableSubtitles() {
@@ -989,7 +1000,7 @@ class PlayerViewModel @Inject constructor(
     ): PlayerState.Ready {
         val stream = data?.optJSONObject("stream")
         val headers = parseStreamHeaders(streamUrl)
-        subtitleSearchLanguage = settings.value.defaultSubtitleLanguage.takeIf { it == "en" } ?: "en"
+        subtitleSearchLanguage = settings.value.defaultSubtitleLanguage ?: "en"
         val subtitleTracks = (fetchExternalSubtitles(subtitleSearchLanguage) + parseSubtitles(stream)).distinctBy { it.id }
         val sourceId = data?.optString("sourceId")?.takeIf { it.isNotBlank() }
         val embedId = data?.optString("embedId")?.takeIf { it.isNotBlank() }
@@ -1017,7 +1028,6 @@ class PlayerViewModel @Inject constructor(
             .addQueryParameter("key", key)
             .addQueryParameter("encoding", "utf-8")
             .addQueryParameter("source", "all")
-            .addQueryParameter("language", language)
             .apply {
                 if (mediaType == "tv" && season != null && episode != null) {
                     addQueryParameter("season", season.toString())
@@ -1041,13 +1051,11 @@ class PlayerViewModel @Inject constructor(
                 tmdbRepo.movieDetail(id).imdbId
             }
         }.getOrNull()?.removePrefix("tt") ?: return@withContext emptyList()
-        val openSubtitlesLanguage = runCatching { java.util.Locale.forLanguageTag(language).isO3Language }.getOrDefault(language)
         val path = buildString {
             append("https://rest.opensubtitles.org/search/")
             if (season != null && episode != null) append("episode-$episode/")
             append("imdbid-$imdbId")
             if (season != null && episode != null) append("/season-$season")
-            append("/sublanguageid-$openSubtitlesLanguage")
         }
         runCatching {
             httpClient.newCall(Request.Builder().url(path).header("X-User-Agent", "VLSub 0.10.2").build()).execute().use { response ->
@@ -1056,7 +1064,6 @@ class PlayerViewModel @Inject constructor(
                 (0 until entries.length()).mapNotNull { index ->
                     val entry = entries.optJSONObject(index) ?: return@mapNotNull null
                     val lang = entry.optString("ISO639").lowercase().takeIf(String::isNotBlank) ?: return@mapNotNull null
-                    if (lang != language) return@mapNotNull null
                     val url = entry.optString("SubDownloadLink").replace(".gz", "").replace("download/", "download/subencoding-utf8/")
                         .takeIf(String::isNotBlank) ?: return@mapNotNull null
                     SubtitleTrack(entry.optString("LanguageName", lang), url, lang, entry.optString("SubFormat", "srt"), source = "opensubs", external = true)
@@ -1079,7 +1086,6 @@ class PlayerViewModel @Inject constructor(
                     val entry = entries.optJSONObject(index) ?: return@mapNotNull null
                     val label = entry.optString("label")
                     val lang = languageCodeFromLabel(label) ?: return@mapNotNull null
-                    if (lang != language) return@mapNotNull null
                     val file = entry.optString("file").takeIf(String::isNotBlank) ?: return@mapNotNull null
                     SubtitleTrack(label, file, lang, "vtt", source = "granite", hearingImpaired = label.contains("Hi", true), external = true)
                 }
@@ -1117,7 +1123,7 @@ class PlayerViewModel @Inject constructor(
             val obj = arr.optJSONObject(i) ?: return@mapNotNull null
             val url = obj.optString("url").takeIf { it.isNotEmpty() } ?: return@mapNotNull null
             val label = obj.optString("language", "Unknown")
-            val language = obj.optString("langIso").takeIf { it.isNotBlank() } ?: label
+            val language = normalizeLanguageCode(obj.optString("langIso").takeIf { it.isNotBlank() } ?: label)
             val type = obj.optString("type", "vtt")
             SubtitleTrack(
                 label = label,
