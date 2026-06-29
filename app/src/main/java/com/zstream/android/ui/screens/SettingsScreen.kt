@@ -82,6 +82,7 @@ import com.zstream.android.theme.ThemeRegistry
 import com.zstream.android.theme.ZStreamTheme
 import com.zstream.android.ui.LocalIsTv
 import com.zstream.android.ui.components.themed.ZsBottomSheetSectionCard
+import com.zstream.android.ui.components.themed.ZsDropdownRow
 import com.zstream.android.ui.components.themed.ZsButton
 import com.zstream.android.ui.components.themed.ZsButtonVariant
 import com.zstream.android.ui.components.themed.ZsIconButton
@@ -318,7 +319,12 @@ private fun IntegrationActionOutline(
 }
 
 @Composable
-private fun WyzieIntegrationCard(theme: ZStreamTheme) {
+private fun WyzieIntegrationCard(
+    settings: SettingsEntity,
+    theme: ZStreamTheme,
+    vm: SettingsViewModel,
+    context: android.content.Context,
+) {
     SettingsCard(theme) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
             Text("Wyzie Subtitles", color = theme.colors.type.text, fontSize = 12.sp, fontWeight = FontWeight.Bold)
@@ -332,7 +338,108 @@ private fun WyzieIntegrationCard(theme: ZStreamTheme) {
             Spacer(Modifier.height(10.dp))
             Text("API Key", color = theme.colors.type.text, fontSize = 12.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(6.dp))
-            UnsupportedIntegrationStatus(theme)
+            var tokenVisible by remember { mutableStateOf(false) }
+            var wyzieInput by remember(settings.wyzieKey) { mutableStateOf(settings.wyzieKey.orEmpty()) }
+            var validationState by remember { mutableStateOf<TokenValidationState>(TokenValidationState.Idle) }
+
+            LaunchedEffect(wyzieInput) {
+                if (wyzieInput.isBlank()) {
+                    validationState = TokenValidationState.Idle
+                    vm.setWyzieKey(null)
+                    return@LaunchedEffect
+                }
+                validationState = TokenValidationState.Checking
+                delay(600)
+                validationState = vm.validateWyzieKey(wyzieInput).fold(
+                    onSuccess = { valid ->
+                        if (valid) {
+                            vm.setWyzieKey(wyzieInput)
+                            TokenValidationState.Valid
+                        } else {
+                            vm.setWyzieKey(null)
+                            TokenValidationState.Invalid("Key was rejected by Wyzie.")
+                        }
+                    },
+                    onFailure = { TokenValidationState.Invalid(it.message ?: "Validation failed.") },
+                )
+            }
+            BasicTextField(
+                value = wyzieInput,
+                onValueChange = { wyzieInput = it },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(theme.colors.background.secondary)
+                    .border(1.dp, theme.colors.type.divider.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                textStyle = TextStyle(color = theme.colors.type.text, fontSize = 12.sp),
+                visualTransformation = if (tokenVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                singleLine = true,
+                decorationBox = { innerTextField ->
+                    Box {
+                        if (wyzieInput.isEmpty()) {
+                            Text("wyzie-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", color = theme.colors.type.dimmed, fontSize = 12.sp)
+                        }
+                        innerTextField()
+                    }
+                },
+            )
+            Spacer(Modifier.height(6.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                IntegrationActionOutline(theme) {
+                    TextButton(onClick = { tokenVisible = !tokenVisible }) {
+                        Text(if (tokenVisible) "Hide" else "Show", color = theme.colors.global.accentA, fontSize = 11.sp)
+                    }
+                }
+                IntegrationActionOutline(theme) {
+                    TextButton(
+                        onClick = {
+                            wyzieInput = ""
+                            vm.setWyzieKey(null)
+                        },
+                        enabled = wyzieInput.isNotEmpty(),
+                    ) {
+                        Text(
+                            "Clear",
+                            color = if (wyzieInput.isNotEmpty()) theme.colors.buttons.danger else theme.colors.type.dimmed,
+                            fontSize = 11.sp,
+                        )
+                    }
+                }
+                IntegrationActionOutline(theme) {
+                    TextButton(onClick = {
+                        context.startActivity(
+                            android.content.Intent(
+                                android.content.Intent.ACTION_VIEW,
+                                android.net.Uri.parse("https://store.wyzie.io/redeem"),
+                            )
+                        )
+                    }) {
+                        Text("Get API key", color = theme.colors.global.accentA, fontSize = 11.sp)
+                    }
+                }
+            }
+            when (val state = validationState) {
+                TokenValidationState.Idle -> Unit
+                TokenValidationState.Checking -> Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(top = 4.dp),
+                ) {
+                    CircularProgressIndicator(modifier = Modifier.size(12.dp), strokeWidth = 2.dp, color = theme.colors.global.accentA)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Checking key…", color = theme.colors.type.dimmed, fontSize = 11.sp)
+                }
+                TokenValidationState.Valid -> ZsStatusBanner(
+                    message = "Key accepted by Wyzie.",
+                    variant = ZsStatusBannerVariant.Success,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+                is TokenValidationState.Invalid -> ZsStatusBanner(
+                    message = state.message,
+                    variant = ZsStatusBannerVariant.Error,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
         }
     }
 }
@@ -1701,6 +1808,8 @@ private fun SubtitlesSettingsContent(
                     .clip(RoundedCornerShape(12.dp))
                     .background(theme.colors.settings.card.background)
             ) {
+                TvDropdownRow("Preferred language", listOf("English"), "English", { vm.setDefaultSubtitleLanguage("en") }, theme)
+                HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                 TvSettingsRow(theme, onActivate = { vm.setEnableNativeSubtitles(!settings.enableNativeSubtitles) }) {
                     TvSwitchContent("Native Subtitles", "Use system subtitle renderer", settings.enableNativeSubtitles)
                 }
@@ -1893,6 +2002,8 @@ private fun SubtitlesSettingsContent(
             Spacer(Modifier.height(8.dp))
             SectionLabel("Behavior", theme)
             SettingsCard(theme) {
+                ZsDropdownRow("Preferred language", listOf("English"), "English", { vm.setDefaultSubtitleLanguage("en") })
+                HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                 ZsSwitchRow(
                     title = "Native Subtitles",
                     subtitle = "Use system subtitle renderer",
@@ -1926,13 +2037,13 @@ private fun SubtitlesSettingsContent(
                 SettingsCard(theme) {
                     SliderRow("Text Size", settings.subtitleSize * 100, 1f, 200f, { "${it.toInt()}%" }, { vm.setSubtitleSize(it / 100f) }, theme)
                     HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
-                    DropdownRow("Style", listOf("default", "raised", "depressed", "Border", "dropShadow"), settings.subtitleFontStyle, vm::setSubtitleFontStyle, theme)
+                    ZsDropdownRow("Style", listOf("default", "raised", "depressed", "Border", "dropShadow"), settings.subtitleFontStyle, vm::setSubtitleFontStyle)
                     if (settings.subtitleFontStyle == "Border") {
                         HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                         SliderRow("Border Thickness", settings.subtitleBorderThickness, 0f, 10f, { "${it.toInt()}px" }, { vm.setSubtitleBorderThickness(it) }, theme)
                     }
                     HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
-                    DropdownRow("Font Family", listOf("sans-serif", "sans-serif-condensed", "serif", "monospace"), settings.subtitleFont, vm::setSubtitleFont, theme)
+                    ZsDropdownRow("Font Family", listOf("sans-serif", "sans-serif-condensed", "serif", "monospace"), settings.subtitleFont, vm::setSubtitleFont)
                     HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                     ZsSwitchRow(
                         title = "Bold",
@@ -2232,39 +2343,6 @@ private fun TvSliderRow(
                 ),
                 enabled = isAdjusting,
             )
-        }
-    }
-}
-
-@Composable
-private fun DropdownRow(title: String, options: List<String>, selected: String, onSelect: (String) -> Unit, theme: ZStreamTheme) {
-    var expanded by remember { mutableStateOf(false) }
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 14.dp)
-            .clickable { expanded = true },
-        Arrangement.SpaceBetween,
-        Alignment.CenterVertically
-    ) {
-        Text(title, color = theme.colors.type.text, fontSize = 13.sp)
-        Box {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(selected.replaceFirstChar { it.uppercase() }, color = theme.colors.type.secondary, fontSize = 12.sp)
-                Icon(Icons.Default.ArrowDropDown, null, tint = theme.colors.type.dimmed, modifier = Modifier.size(16.dp))
-            }
-            DropdownMenu(
-                expanded = expanded,
-                onDismissRequest = { expanded = false },
-                modifier = Modifier.background(theme.colors.background.secondary)
-            ) {
-                options.forEach { opt ->
-                    DropdownMenuItem(
-                        text = { Text(opt.replaceFirstChar { it.uppercase() }, color = if (opt == selected) theme.colors.global.accentA else theme.colors.type.text, fontSize = 13.sp) },
-                        onClick = { onSelect(opt); expanded = false },
-                    )
-                }
-            }
         }
     }
 }
@@ -3340,7 +3418,7 @@ private fun ConnectionsSection(
                 }
             }
             Spacer(Modifier.height(16.dp))
-            WyzieIntegrationCard(theme)
+            WyzieIntegrationCard(settings, theme, vm, context)
             Spacer(Modifier.height(16.dp))
             TraktIntegrationCard(trakt, theme, vm, context)
             Spacer(Modifier.height(16.dp))

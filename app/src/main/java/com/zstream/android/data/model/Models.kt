@@ -90,6 +90,7 @@ data class TvDetail(
     val images: ImageData? = null,
     val videos: VideoData? = null,
     val similar: SimilarShowsResponse? = null,
+    @SerializedName("external_ids") val externalIds: ExternalIds? = null,
     @SerializedName("imdb_id") val imdbId: String? = null,
 ) {
     fun posterUrl(size: String = "w500"): String? {

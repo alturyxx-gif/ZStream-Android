@@ -82,6 +82,7 @@ class SettingsPreferences @Inject constructor(
     private val KEY_DEBRID_TOKEN = stringPreferencesKey("debrid_token")
     private val KEY_DEBRID_SERVICE = stringPreferencesKey("debrid_service")
     private val KEY_TIDB_KEY = stringPreferencesKey("tidb_key")
+    private val KEY_WYZIE_KEY = stringPreferencesKey("wyzie_key")
     private val KEY_PROXY_TMDB = booleanPreferencesKey("proxy_tmdb")
     private val KEY_TMDB_API_KEY = stringPreferencesKey("tmdb_api_key")
 
@@ -151,6 +152,7 @@ class SettingsPreferences @Inject constructor(
             debridToken = prefs[KEY_DEBRID_TOKEN],
             debridService = prefs[KEY_DEBRID_SERVICE] ?: "realdebrid",
             tidbKey = prefs[KEY_TIDB_KEY],
+            wyzieKey = prefs[KEY_WYZIE_KEY],
             proxyTmdb = prefs[KEY_PROXY_TMDB] ?: false,
             tmdbApiKey = prefs[KEY_TMDB_API_KEY],
             homeSectionOrder = prefs[KEY_HOME_SECTION_ORDER]?.split(",")?.filter { it.isNotBlank() } ?: emptyList(),
@@ -229,6 +231,7 @@ class SettingsPreferences @Inject constructor(
             if (entity.debridToken != null) prefs[KEY_DEBRID_TOKEN] = entity.debridToken else prefs.remove(KEY_DEBRID_TOKEN)
             prefs[KEY_DEBRID_SERVICE] = entity.debridService
             if (entity.tidbKey != null) prefs[KEY_TIDB_KEY] = entity.tidbKey else prefs.remove(KEY_TIDB_KEY)
+            if (entity.wyzieKey != null) prefs[KEY_WYZIE_KEY] = entity.wyzieKey else prefs.remove(KEY_WYZIE_KEY)
             prefs[KEY_PROXY_TMDB] = entity.proxyTmdb
             if (entity.tmdbApiKey != null) {
                 prefs[KEY_TMDB_API_KEY] = entity.tmdbApiKey
@@ -281,6 +284,7 @@ class SettingsPreferences @Inject constructor(
             val currentLineHeight = current[KEY_SUBTITLE_LINE_HEIGHT]?.toFloatOrNull() ?: 1.5f
             val currentFont = current[KEY_SUBTITLE_FONT] ?: "sans-serif"
             val currentTmdbApiKey = current[KEY_TMDB_API_KEY]
+            val currentWyzieKey = current[KEY_WYZIE_KEY]
             val currentSubtitlesEnabled = current[KEY_SUBTITLES_ENABLED] ?: false
             val currentVideoBrightness = current[KEY_VIDEO_BRIGHTNESS] ?: 100
             val currentVideoContrast = current[KEY_VIDEO_CONTRAST] ?: 100
@@ -339,6 +343,7 @@ class SettingsPreferences @Inject constructor(
                 debridToken = remote.debridToken,
                 debridService = remote.debridService ?: "realdebrid",
                 tidbKey = remote.tidbKey,
+                wyzieKey = currentWyzieKey,
                 proxyTmdb = remote.proxyTmdb ?: false,
                 tmdbApiKey = currentTmdbApiKey,
                 homeSectionOrder = mappedHomeSectionOrder,

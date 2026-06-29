@@ -60,6 +60,7 @@ data class SettingsEntity(
     val debridToken: String? = null,
     val debridService: String = "realdebrid",
     val tidbKey: String? = null,
+    val wyzieKey: String? = null,
     val proxyTmdb: Boolean = false,
     val tmdbApiKey: String? = null,
 

@@ -234,8 +234,39 @@ private fun sourceStatusColor(theme: ZStreamTheme, status: SourceStatus): Color 
     SourceStatus.TRYING -> theme.colors.dropdown.highlightHover
 }
 
+private fun subtitleLanguageName(code: String): String =
+    java.util.Locale.forLanguageTag(code.replace('_', '-')).getDisplayLanguage(java.util.Locale.getDefault())
+        .takeIf { it.isNotBlank() && !it.equals(code, ignoreCase = true) }
+        ?: code.ifBlank { "Unknown language" }
+
+@Composable
+private fun SubtitleTrackBadges(track: SubtitleTrack) {
+    val theme = LocalZStreamTheme.current
+    val source = track.source.orEmpty()
+    val sourceColor = when {
+        source.contains("wyzie", true) -> Color(0xFF3B82F6)
+        source.equals("opensubs", true) -> Color(0xFFF97316)
+        source.equals("granite", true) -> Color(0xFF22C55E)
+        else -> theme.colors.background.secondaryHover
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        listOf(track.type.uppercase() to theme.colors.background.secondaryHover)
+            .plus(if (source.isNotBlank()) listOf(source.uppercase() to sourceColor) else emptyList())
+            .plus(if (track.hearingImpaired) listOf("HI" to theme.colors.background.secondaryHover) else emptyList())
+            .forEach { (label, color) ->
+                Text(
+                    label,
+                    color = Color.White,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(color).padding(horizontal = 5.dp, vertical = 3.dp),
+                )
+            }
+    }
+}
+
 private enum class PlayerMenuPage {
-    Root, Captions, Playback, AdvancedColor, Sources, Quality, Audio, Download, WatchParty, SkipSegments, Seasons, Episodes
+    Root, Captions, CaptionLanguage, Playback, AdvancedColor, Sources, Quality, Audio, Download, WatchParty, SkipSegments, Seasons, Episodes
 }
 
 private sealed class PlayerInfoState {
@@ -529,6 +560,8 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                             }
                             runCatching {
                                 SubtitleConfiguration.Builder(Uri.parse(track.url))
+                                    .setId(track.id)
+                                    .setLabel(track.label)
                                     .setMimeType(mimeType)
                                     .setLanguage(track.language)
                                     .setSelectionFlags(androidx.media3.common.C.SELECTION_FLAG_DEFAULT)
@@ -875,6 +908,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                                 PlayerMenuPage.Root, null -> null
                                 PlayerMenuPage.AdvancedColor -> PlayerMenuPage.Playback
                                 PlayerMenuPage.Episodes -> PlayerMenuPage.Seasons
+                                PlayerMenuPage.CaptionLanguage -> PlayerMenuPage.Captions
                                 else -> PlayerMenuPage.Root
                             }
                         )
@@ -1035,6 +1069,8 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     }
                 }
                 val selectedLang by vm.selectedSubtitleLang.collectAsState()
+                val selectedSubtitleId by vm.selectedSubtitleId.collectAsState()
+                val selectedTrackIsExternal = s.subtitles.firstOrNull { it.id == selectedSubtitleId }?.external == true
                 val skipSegments by vm.skipSegments.collectAsState()
                 val subtitlesEnabled = settings.subtitlesEnabled
 
@@ -1045,21 +1081,36 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     }
                 }
 
-                LaunchedEffect(player, settings.enableNativeSubtitles, subtitlesEnabled, selectedLang) {
-                    player.trackSelectionParameters = player.trackSelectionParameters
+                LaunchedEffect(player, settings.enableNativeSubtitles, subtitlesEnabled, selectedLang, selectedSubtitleId, selectedTrackIsExternal) {
+                    var subtitleOverride: TrackSelectionOverride? = null
+                    if (settings.enableNativeSubtitles && !selectedTrackIsExternal && subtitlesEnabled && selectedSubtitleId != null) {
+                        // ponytail: wait briefly for Media3 track discovery; use a listener if subtitle preparation exceeds 5s.
+                        for (attempt in 0 until 50) {
+                            subtitleOverride = player.currentTracks.groups.firstNotNullOfOrNull { group ->
+                                if (group.type != C.TRACK_TYPE_TEXT) return@firstNotNullOfOrNull null
+                                (0 until group.length).firstOrNull { group.getTrackFormat(it).id == selectedSubtitleId }
+                                    ?.let { TrackSelectionOverride(group.mediaTrackGroup, it) }
+                            }
+                            if (subtitleOverride != null) break
+                            delay(100)
+                        }
+                    }
+                    val builder = player.trackSelectionParameters
                         .buildUpon()
-                        .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, !settings.enableNativeSubtitles || !subtitlesEnabled)
+                        .clearOverridesOfType(C.TRACK_TYPE_TEXT)
+                        .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, !settings.enableNativeSubtitles || selectedTrackIsExternal || !subtitlesEnabled)
                         .setPreferredTextLanguage(
-                            if (settings.enableNativeSubtitles && subtitlesEnabled) {
+                            if (settings.enableNativeSubtitles && !selectedTrackIsExternal && subtitlesEnabled) {
                                 selectedLang ?: settings.defaultSubtitleLanguage
                             } else {
                                 null
                             }
                         )
-                        .build()
+                    subtitleOverride?.let(builder::addOverride)
+                    player.trackSelectionParameters = builder.build()
                 }
 
-                if (!settings.enableNativeSubtitles && subtitlesEnabled && selectedLang != null && visibleCues.isNotEmpty()) {
+                if ((!settings.enableNativeSubtitles || selectedTrackIsExternal) && subtitlesEnabled && selectedLang != null && visibleCues.isNotEmpty()) {
                     // Move subtitles up when controls overlay is shown
                     val controlsBottom = if (isInPip) 0.dp else if (controlsVisible) 80.dp else 0.dp
                     Log.d("PlayerScreen", "rendering ${visibleCues.size} cues at ${currentPositionMs}ms, " +
@@ -1136,6 +1187,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     readyState = s,
                     settings = settings,
                     selectedSubtitleLanguage = selectedLang,
+                    selectedSubtitleId = selectedSubtitleId,
                     isBookmarked = isBookmarked != null,
                     onToggleBookmark = {
                         vm.toggleBookmark()
@@ -1157,6 +1209,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                         }
                     },
                     onSelectSubtitle = vm::selectSubtitle,
+                    onAutoSelectSubtitle = vm::autoSelectSubtitle,
                     onDisableSubtitles = vm::disableSubtitles,
                     onSetEnableAutoplay = vm::setEnableAutoplay,
                     onSetVideoBrightness = vm::setVideoBrightness,
@@ -1264,7 +1317,6 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .background(Color.Black.copy(alpha = 0.34f))
                             .then(if (isTv) Modifier.focusProperties {
                                 canFocus = false
                             } else Modifier)
@@ -1590,6 +1642,7 @@ private fun PlayerControls(
     readyState: PlayerState.Ready,
     settings: com.zstream.android.data.local.entity.SettingsEntity,
     selectedSubtitleLanguage: String?,
+    selectedSubtitleId: String?,
     isBookmarked: Boolean,
     onToggleBookmark: () -> Unit,
     controlsVisible: Boolean,
@@ -1597,6 +1650,7 @@ private fun PlayerControls(
     subtitlesEnabled: Boolean = false,
     onToggleSubtitles: () -> Unit = {},
     onSelectSubtitle: (String) -> Unit,
+    onAutoSelectSubtitle: () -> Unit,
     onDisableSubtitles: () -> Unit,
     onSetEnableAutoplay: (Boolean) -> Unit,
     onSetVideoBrightness: (Int) -> Unit,
@@ -1678,6 +1732,7 @@ private fun PlayerControls(
     val enableDoubleTapToSeek = settings.enableDoubleClickToSeek
     var pendingSingleTapJob by remember { mutableStateOf<Job?>(null) }
     var lastTapTimeMs by remember { mutableLongStateOf(0L) }
+    var captionLanguage by remember { mutableStateOf<String?>(null) }
 
     DisposableEffect(player) {
         val listener = object : Player.Listener {
@@ -2549,6 +2604,7 @@ private fun PlayerControls(
                                 when (menuPage) {
                                     null, PlayerMenuPage.Root -> null
                                     PlayerMenuPage.AdvancedColor -> PlayerMenuPage.Playback
+                                    PlayerMenuPage.CaptionLanguage -> PlayerMenuPage.Captions
                                     else -> PlayerMenuPage.Root
                                 }
                             )
@@ -2563,6 +2619,7 @@ private fun PlayerControls(
                             when (menuPage) {
                                 null, PlayerMenuPage.Root -> null
                                 PlayerMenuPage.AdvancedColor -> PlayerMenuPage.Playback
+                                PlayerMenuPage.CaptionLanguage -> PlayerMenuPage.Captions
                                 else -> PlayerMenuPage.Root
                             }
                         )
@@ -2610,6 +2667,8 @@ private fun PlayerControls(
                         sourceResults = readyState.sources,
                         manualSourceSelection = settings.manualSourceSelection,
                         selectedSubtitleLanguage = selectedSubtitleLanguage,
+                        selectedSubtitleId = selectedSubtitleId,
+                        captionLanguage = captionLanguage,
                         subtitlesEnabled = subtitlesEnabled,
                         subtitleTracks = readyState.subtitles,
                         playbackSpeed = playbackSpeed,
@@ -2629,14 +2688,20 @@ private fun PlayerControls(
                                     null, PlayerMenuPage.Root -> null
                                     PlayerMenuPage.AdvancedColor -> PlayerMenuPage.Playback
                                     PlayerMenuPage.Episodes -> PlayerMenuPage.Seasons
+                                    PlayerMenuPage.CaptionLanguage -> PlayerMenuPage.Captions
                                     else -> PlayerMenuPage.Root
                                 }
                             )
                         },
                         onOpenPage = { onMenuPageChange(it) },
+                        onOpenCaptionLanguage = {
+                            captionLanguage = it
+                            onMenuPageChange(PlayerMenuPage.CaptionLanguage)
+                        },
                         onToggleSubtitles = onToggleSubtitles,
                         onDisableSubtitles = onDisableSubtitles,
                         onSelectSubtitle = onSelectSubtitle,
+                        onAutoSelectSubtitle = onAutoSelectSubtitle,
                         onSetEnableAutoplay = onSetEnableAutoplay,
                         onSetVideoBrightness = onSetVideoBrightness,
                         onSetVideoContrast = onSetVideoContrast,
@@ -3206,6 +3271,8 @@ private fun PlayerMenuContent(
     sourceResults: List<SourceResult>,
     manualSourceSelection: Boolean,
     selectedSubtitleLanguage: String?,
+    selectedSubtitleId: String?,
+    captionLanguage: String?,
     subtitlesEnabled: Boolean,
     subtitleTracks: List<SubtitleTrack>,
     playbackSpeed: Float,
@@ -3221,9 +3288,11 @@ private fun PlayerMenuContent(
     onClose: () -> Unit,
     onBack: () -> Unit,
     onOpenPage: (PlayerMenuPage) -> Unit,
+    onOpenCaptionLanguage: (String) -> Unit,
     onToggleSubtitles: () -> Unit,
     onDisableSubtitles: () -> Unit,
     onSelectSubtitle: (String) -> Unit,
+    onAutoSelectSubtitle: () -> Unit,
     onSetEnableAutoplay: (Boolean) -> Unit,
     onSetVideoBrightness: (Int) -> Unit,
     onSetVideoContrast: (Int) -> Unit,
@@ -3303,6 +3372,7 @@ private fun PlayerMenuContent(
                 title = when (page) {
                     PlayerMenuPage.Root -> ""
                     PlayerMenuPage.Captions -> "Subtitles"
+                    PlayerMenuPage.CaptionLanguage -> captionLanguage?.let(::subtitleLanguageName) ?: "Subtitles"
                     PlayerMenuPage.Playback -> "Playback"
                     PlayerMenuPage.AdvancedColor -> "Advanced Color"
                     PlayerMenuPage.Sources -> "Source"
@@ -3350,7 +3420,7 @@ private fun PlayerMenuContent(
                         items = listOf(
                             PlayerMenuTileItem("Quality", selectedQualityLabel) { onOpenPage(PlayerMenuPage.Quality) },
                             PlayerMenuTileItem("Source", sourceId ?: "Auto") { onOpenPage(PlayerMenuPage.Sources) },
-                            PlayerMenuTileItem("Subtitles", "Use CC button") {},
+                            PlayerMenuTileItem("Subtitles", selectedSubtitleLanguage?.let(::subtitleLanguageName) ?: "Off") { onOpenPage(PlayerMenuPage.Captions) },
                             PlayerMenuTileItem("Audio", selectedAudioLabel) { onOpenPage(PlayerMenuPage.Audio) },
                         )
                     )
@@ -3373,25 +3443,59 @@ private fun PlayerMenuContent(
                 }
                 PlayerMenuPage.Captions -> {
                     PlayerMenuSection {
-                        PlayerMenuToggleRow("Enable subtitles", subtitlesEnabled, focusRequester = firstItemFocusRequester, onToggle = onToggleSubtitles)
-                    }
-                    PlayerMenuSection {
                         PlayerMenuSelectableRow(
                             title = "Off",
                             selected = !subtitlesEnabled || selectedSubtitleLanguage == null,
-                            onClick = onDisableSubtitles
+                            onClick = onDisableSubtitles,
+                            focusRequester = firstItemFocusRequester,
                         )
-                        subtitleTracks.forEach { track ->
+                        if (subtitleTracks.isNotEmpty()) {
                             PlayerMenuSelectableRow(
-                                title = track.label.ifBlank { track.language },
-                                subtitle = track.type.uppercase(),
-                                selected = subtitlesEnabled && selectedSubtitleLanguage == track.language,
-                                onClick = { onSelectSubtitle(track.language) }
+                                title = "Automatically select subtitles",
+                                subtitle = if (subtitlesEnabled) "Select a different subtitle" else null,
+                                selected = subtitlesEnabled && selectedSubtitleId != null,
+                                onClick = onAutoSelectSubtitle,
                             )
                         }
                     }
                     if (subtitleTracks.isEmpty()) {
                         PlayerMenuStubCard("No subtitles were returned for this stream.")
+                    } else {
+                        val groups = subtitleTracks.groupBy { it.language }.entries.sortedWith(
+                            compareBy<Map.Entry<String, List<SubtitleTrack>>> {
+                                if (it.key == settings.applicationLanguage || it.key.startsWith("${settings.applicationLanguage}-")) 0 else 1
+                            }.thenBy { subtitleLanguageName(it.key) }
+                        )
+                        PlayerMenuSection {
+                            groups.forEach { (language, tracks) ->
+                                PlayerMenuChevronRow(
+                                    title = subtitleLanguageName(language),
+                                    value = tracks.size.toString(),
+                                    onClick = { onOpenCaptionLanguage(language) },
+                                )
+                            }
+                        }
+                    }
+                }
+                PlayerMenuPage.CaptionLanguage -> {
+                    val tracks = subtitleTracks.filter { it.language == captionLanguage }.sortedBy {
+                        when {
+                            it.source?.contains("natsuki", true) == true -> 0
+                            it.source?.contains("wyzie", true) == true -> 1
+                            it.source?.contains("opensubs", true) == true -> 2
+                            else -> 3
+                        }
+                    }
+                    PlayerMenuSection {
+                        tracks.forEachIndexed { index, track ->
+                            PlayerMenuSelectableRow(
+                                title = track.label.ifBlank { "Subtitle ${index + 1}" },
+                                selected = subtitlesEnabled && selectedSubtitleId == track.id,
+                                onClick = { onSelectSubtitle(track.id) },
+                                focusRequester = firstItemFocusRequester.takeIf { index == 0 },
+                                rightContent = { SubtitleTrackBadges(track) },
+                            )
+                        }
                     }
                 }
                 PlayerMenuPage.Playback -> {
@@ -4710,7 +4814,9 @@ private fun PlayerMenuSelectableRow(
                 }
                 if (rightContent != null) {
                     Row(verticalAlignment = Alignment.CenterVertically, content = rightContent)
-                } else if (selected) {
+                }
+                if (selected) {
+                    Spacer(Modifier.width(6.dp))
                     Icon(Icons.Filled.Check, null, tint = theme.colors.type.success, modifier = Modifier.size(18.dp))
                 }
             }
@@ -4916,7 +5022,6 @@ private fun PlayerInfoSheet(
                 onClearMovieWatchHistory = {},
                 showImageLogos = showImageLogos,
                 showPlayButton = false,
-                showBackground = false,
                 firstItemFocusRequester = firstItemFocusRequester
             )
         }
@@ -4940,7 +5045,6 @@ private fun PlayerInfoSheet(
                 onClearSeasonWatchHistory = {},
                 showImageLogos = showImageLogos,
                 showPlayButton = false,
-                showBackground = false,
                 firstItemFocusRequester = firstItemFocusRequester
             )
         }

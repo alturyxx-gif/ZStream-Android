@@ -98,7 +98,6 @@ fun MovieDetailModal(
     onClearMovieWatchHistory: () -> Unit,
     showImageLogos: Boolean = true,
     showPlayButton: Boolean = true,
-    showBackground: Boolean = true,
     firstItemFocusRequester: FocusRequester? = null,
 ) {
     var pendingBulkTarget by remember { mutableStateOf<WatchBulkTarget?>(null) }
@@ -130,7 +129,7 @@ fun MovieDetailModal(
         rating = detail.voteAverage?.let { String.format("%.1f", it) },
         theme = theme,
         onClose = onBack,
-        modifier = if (showBackground) Modifier.background(Color.Black.copy(alpha = 0.5f)) else Modifier,
+        modifier = Modifier,
         scrollState = scrollState
     ) {
         SharedMovieDetailContent(
@@ -242,7 +241,6 @@ fun TvDetailModal(
     onClearSeasonWatchHistory: () -> Unit,
     showImageLogos: Boolean = true,
     showPlayButton: Boolean = true,
-    showBackground: Boolean = true,
     firstItemFocusRequester: FocusRequester? = null,
 ) {
     var pendingBulkTarget by remember { mutableStateOf<WatchBulkTarget?>(null) }
@@ -274,7 +272,7 @@ fun TvDetailModal(
         rating = detail.voteAverage?.let { String.format("%.1f", it) },
         theme = theme,
         onClose = onBack,
-        modifier = if (showBackground) Modifier.background(Color.Black.copy(alpha = 0.5f)) else Modifier,
+        modifier = Modifier,
         scrollState = scrollState
     ) {
         SharedTvDetailContent(

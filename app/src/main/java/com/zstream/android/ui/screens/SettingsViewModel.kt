@@ -21,11 +21,18 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
+
+internal fun isAcceptedWyzieStatus(code: Int): Boolean? = when (code) {
+    200, 402, 429 -> true
+    401, 403 -> false
+    else -> null
+}
 
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
@@ -178,6 +185,10 @@ class SettingsViewModel @Inject constructor(
         update { copy(tidbKey = key) }
     }
 
+    fun setWyzieKey(key: String?) {
+        update { copy(wyzieKey = key?.trim()?.takeIf(String::isNotEmpty)) }
+    }
+
     suspend fun validateTmdbKey(key: String): Result<Boolean> = withContext(kotlinx.coroutines.Dispatchers.IO) {
         if (key.isBlank()) return@withContext Result.success(false)
 
@@ -245,6 +256,22 @@ class SettingsViewModel @Inject constructor(
                             ?: "Validation request failed (${response.code})")
                     }
                 }
+            }
+        }
+    }
+
+    suspend fun validateWyzieKey(key: String): Result<Boolean> = withContext(kotlinx.coroutines.Dispatchers.IO) {
+        if (key.isBlank()) return@withContext Result.success(false)
+        val url = "https://sub.wyzie.io/search".toHttpUrl().newBuilder()
+            .addQueryParameter("id", "286217")
+            .addQueryParameter("language", "en")
+            .addQueryParameter("key", key.trim())
+            .build()
+
+        runCatching {
+            httpClient.newCall(Request.Builder().url(url).build()).execute().use { response ->
+                isAcceptedWyzieStatus(response.code)
+                    ?: throw IllegalStateException("Validation request failed (${response.code})")
             }
         }
     }

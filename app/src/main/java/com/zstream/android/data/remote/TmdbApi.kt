@@ -22,7 +22,7 @@ interface TmdbApi {
     ): MovieDetail
     @GET("tv/{id}") suspend fun tvDetail(
         @Path("id") id: Int,
-        @Query("append_to_response") append: String = "credits,images,videos,similar",
+        @Query("append_to_response") append: String = "credits,images,videos,similar,external_ids",
         @Query("include_image_language") imageLanguage: String = "en,null"
     ): TvDetail
     @GET("tv/{id}/season/{season}") suspend fun season(@Path("id") id: Int, @Path("season") season: Int): Season
