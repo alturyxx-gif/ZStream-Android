@@ -9,6 +9,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -68,6 +69,8 @@ fun SearchScreenTV(nav: NavController, vm: SearchViewModel) {
     val results by vm.results.collectAsState()
     val popular by vm.popular.collectAsState()
     val loading by vm.loading.collectAsState()
+    val loadingMore by vm.loadingMore.collectAsState()
+    val canLoadMore by vm.canLoadMore.collectAsState()
     val error by vm.error.collectAsState()
     val theme = LocalZStreamTheme.current
     val hazeState = rememberHazeState()
@@ -83,6 +86,14 @@ fun SearchScreenTV(nav: NavController, vm: SearchViewModel) {
     
     val items = if (query.isBlank()) popular else results
     val title = if (query.isBlank()) "Popular now" else "Search results"
+    val gridState = rememberLazyGridState()
+
+    LaunchedEffect(gridState.firstVisibleItemIndex, gridState.layoutInfo.totalItemsCount, items.size, canLoadMore, loadingMore, query) {
+        val lastVisible = gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+        if (query.isNotBlank() && canLoadMore && !loadingMore && items.isNotEmpty() && lastVisible >= items.lastIndex - 6) {
+            vm.loadMore()
+        }
+    }
 
     LaunchedEffect(items) {
         if (items.isNotEmpty()) {
@@ -215,6 +226,7 @@ fun SearchScreenTV(nav: NavController, vm: SearchViewModel) {
                     ZsStatusBanner(message = "No results found for \"$query\"", variant = ZsStatusBannerVariant.Info)
                 } else {
                     LazyVerticalGrid(
+                        state = gridState,
                         columns = GridCells.Adaptive(100.dp),
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                         verticalArrangement = Arrangement.spacedBy(15.dp),
@@ -237,6 +249,16 @@ fun SearchScreenTV(nav: NavController, vm: SearchViewModel) {
                                     width = 100.dp,
                                     height = 150.dp
                                 )
+                            }
+                        }
+                        if (loadingMore) {
+                            item(span = { GridItemSpan(maxLineSpan) }) {
+                                Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
+                                    CircularProgressIndicator(color = theme.colors.global.accentA)
+                                }
+                            }
+                            item(span = { GridItemSpan(maxLineSpan) }) {
+                                Spacer(Modifier.height(24.dp))
                             }
                         }
                     }
@@ -335,7 +357,17 @@ fun SearchScreenPhone(nav: NavController, vm: SearchViewModel) {
     val query by vm.query.collectAsState()
     val results by vm.results.collectAsState()
     val loading by vm.loading.collectAsState()
+    val loadingMore by vm.loadingMore.collectAsState()
+    val canLoadMore by vm.canLoadMore.collectAsState()
     val error by vm.error.collectAsState()
+    val gridState = rememberLazyGridState()
+
+    LaunchedEffect(gridState.firstVisibleItemIndex, gridState.layoutInfo.totalItemsCount, results.size, canLoadMore, loadingMore, query) {
+        val lastVisible = gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+        if (query.isNotBlank() && canLoadMore && !loadingMore && results.isNotEmpty() && lastVisible >= results.lastIndex - 6) {
+            vm.loadMore()
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -384,6 +416,7 @@ fun SearchScreenPhone(nav: NavController, vm: SearchViewModel) {
                         .padding(horizontal = 20.dp),
                 )
                 else -> LazyVerticalGrid(
+                    state = gridState,
                     columns = GridCells.Adaptive(140.dp),
                     contentPadding = PaddingValues(16.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -391,6 +424,16 @@ fun SearchScreenPhone(nav: NavController, vm: SearchViewModel) {
                 ) {
                     items(results) { media ->
                         MediaCard(media = media, onClick = { nav.navigate("detail/${media.type}/${media.id}") })
+                    }
+                    if (loadingMore) {
+                        item(span = { GridItemSpan(maxLineSpan) }) {
+                            Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator(color = theme.colors.global.accentA)
+                            }
+                        }
+                        item(span = { GridItemSpan(maxLineSpan) }) {
+                            Spacer(Modifier.height(24.dp))
+                        }
                     }
                 }
             }

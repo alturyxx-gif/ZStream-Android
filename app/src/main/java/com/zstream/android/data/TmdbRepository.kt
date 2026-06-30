@@ -1,6 +1,7 @@
 package com.zstream.android.data
 
 import com.zstream.android.data.model.*
+import com.zstream.android.data.model.PagedResponse
 import com.zstream.android.data.remote.TmdbApi
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -15,6 +16,19 @@ class TmdbRepository @Inject constructor(private val api: TmdbApi) {
     suspend fun popularTv() = api.popularTv().results.map { it.copy(mediaType = "tv") }
     suspend fun topRatedTv() = api.topRatedTv().results.map { it.copy(mediaType = "tv") }
     suspend fun onAirTv() = api.onAirTv().results.map { it.copy(mediaType = "tv") }
+    data class PagedMediaResult(val items: List<Media>, val canLoadMore: Boolean)
+    private fun PagedResponse<Media>.toMediaResult(type: String) = PagedMediaResult(
+        items = results.map { it.copy(mediaType = type) },
+        canLoadMore = page < totalPages,
+    )
+    suspend fun popularMoviesPage(page: Int) = api.popularMovies(page).toMediaResult("movie")
+    suspend fun nowPlayingMoviesPage(page: Int) = api.nowPlayingMovies(page).toMediaResult("movie")
+    suspend fun topRatedMoviesPage(page: Int) = api.topRatedMovies(page).toMediaResult("movie")
+    suspend fun trendingMoviesPage(page: Int) = api.trendingMovies(page).toMediaResult("movie")
+    suspend fun popularTvPage(page: Int) = api.popularTv(page).toMediaResult("tv")
+    suspend fun topRatedTvPage(page: Int) = api.topRatedTv(page).toMediaResult("tv")
+    suspend fun onAirTvPage(page: Int) = api.onAirTv(page).toMediaResult("tv")
+    suspend fun trendingTvPage(page: Int) = api.trendingTv(page).toMediaResult("tv")
     suspend fun search(
         query: String,
         page: Int = 1,
@@ -24,6 +38,7 @@ class TmdbRepository @Inject constructor(private val api: TmdbApi) {
         onTotalPages?.invoke(response.totalPages)
         return response.results.filter { it.mediaType == "movie" || it.mediaType == "tv" }
     }
+    suspend fun searchPaged(query: String, page: Int = 1): com.zstream.android.data.model.PagedResponse<Media> = api.search(query, page)
     suspend fun movieDetail(id: Int) = api.movieDetail(id)
     suspend fun collection(id: Int) = api.collection(id)
     suspend fun tvDetail(id: Int) = api.tvDetail(id)

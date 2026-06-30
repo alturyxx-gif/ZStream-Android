@@ -28,7 +28,24 @@ import javax.inject.Inject
 
 enum class HomeTab { MOVIES, TV, EDITOR }
 
-data class MediaSection(val title: String, val items: List<Media>)
+enum class MediaSectionSource {
+    PopularMovies,
+    NowPlayingMovies,
+    TopRatedMovies,
+    TrendingMovies,
+    PopularTv,
+    OnAirTv,
+    TopRatedTv,
+    TrendingTv,
+    EditorMovies,
+    EditorTv,
+}
+
+data class MediaSection(
+    val title: String,
+    val items: List<Media>,
+    val source: MediaSectionSource? = null,
+)
 
 data class HomeState(
     val movieSections: List<MediaSection> = emptyList(),
@@ -312,20 +329,20 @@ class HomeViewModel @Inject constructor(
                         loading = false,
                         featuredMedia = featuredWithLogos,
                         movieSections = listOf(
-                            MediaSection("Most Popular", popularMovies.await()),
-                            MediaSection("In Cinemas", nowPlaying.await()),
-                            MediaSection("Top Rated", topMovies.await()),
-                            MediaSection("Trending", movies),
+                            MediaSection("Most Popular", popularMovies.await(), MediaSectionSource.PopularMovies),
+                            MediaSection("In Cinemas", nowPlaying.await(), MediaSectionSource.NowPlayingMovies),
+                            MediaSection("Top Rated", topMovies.await(), MediaSectionSource.TopRatedMovies),
+                            MediaSection("Trending", movies, MediaSectionSource.TrendingMovies),
                         ),
                         tvSections = listOf(
-                            MediaSection("Most Popular", popularTv.await()),
-                            MediaSection("On the Air", onAir.await()),
-                            MediaSection("Top Rated", topTv.await()),
-                            MediaSection("Trending", trendTv.await()),
+                            MediaSection("Most Popular", popularTv.await(), MediaSectionSource.PopularTv),
+                            MediaSection("On the Air", onAir.await(), MediaSectionSource.OnAirTv),
+                            MediaSection("Top Rated", topTv.await(), MediaSectionSource.TopRatedTv),
+                            MediaSection("Trending", trendTv.await(), MediaSectionSource.TrendingTv),
                         ),
                         editorSections = listOf(
-                            MediaSection("Editor Picks — Movies", topMovies.await().take(10)),
-                            MediaSection("Editor Picks — Shows", topTv.await().take(10)),
+                            MediaSection("Editor Picks — Movies", topMovies.await().take(10), MediaSectionSource.EditorMovies),
+                            MediaSection("Editor Picks — Shows", topTv.await().take(10), MediaSectionSource.EditorTv),
                         ),
                     ) }
                 }
