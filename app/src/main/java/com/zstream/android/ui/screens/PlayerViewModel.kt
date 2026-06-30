@@ -25,7 +25,6 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URLDecoder
 import java.util.UUID
-import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import com.zstream.android.data.local.preferences.SettingsPreferences
 import com.zstream.android.data.local.entity.SettingsEntity
@@ -35,6 +34,7 @@ import com.zstream.android.data.WatchPartyManager
 import com.zstream.android.data.WatchPartyAction
 import com.zstream.android.data.remote.WatchPartyContentDto
 import com.zstream.android.data.remote.WatchPartyPlayerDto
+import androidx.media3.datasource.cache.SimpleCache
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.collect
@@ -146,6 +146,8 @@ class PlayerViewModel @Inject constructor(
     private val bookmarkRepo: BookmarkRepository,
     private val traktRepository: com.zstream.android.data.TraktRepository,
     private val tmdbRepo: TmdbRepository,
+    private val httpClient: OkHttpClient,
+    val playerCache: SimpleCache,
     val watchPartyManager: WatchPartyManager,
     savedState: SavedStateHandle,
 ) : ViewModel() {
@@ -174,6 +176,8 @@ class PlayerViewModel @Inject constructor(
     private val _subtitleCues = MutableStateFlow<List<SubtitleCue>>(emptyList())
     val subtitleCues = _subtitleCues.asStateFlow()
 
+    private val subtitleCache = mutableMapOf<String, List<SubtitleCue>>()
+
     private val _selectedSubtitleLang = MutableStateFlow<String?>(null)
     val selectedSubtitleLang = _selectedSubtitleLang.asStateFlow()
     private val _selectedSubtitleId = MutableStateFlow<String?>(null)
@@ -193,11 +197,6 @@ class PlayerViewModel @Inject constructor(
 
     private val sources = mutableListOf<SourceResult>()
     private var skipSegmentsCacheKey: String? = null
-
-    private val httpClient = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(15, TimeUnit.SECONDS)
-        .build()
 
     // --- Watch Party Actions ---
     private val _watchPartyEvent = MutableSharedFlow<WatchPartyAction>(replay = 0)
@@ -729,12 +728,21 @@ class PlayerViewModel @Inject constructor(
             _selectedSubtitleId.value = selected.id
             Log.d("PlayerVM", "downloadSubtitles: selected lang=${selected.language} url=${selected.url}")
 
+            val cacheKey = "${selected.id}:${selected.url}"
+            val cached = subtitleCache[cacheKey]
+            if (cached != null) {
+                Log.d("PlayerVM", "downloadSubtitles: using cached ${cached.size} cues")
+                _subtitleCues.value = cached
+                return@launch
+            }
+
             val cues = withContext(Dispatchers.IO) {
                 try {
                     val raw = downloadSubtitleText(selected.url)
                     Log.d("PlayerVM", "downloadSubtitles: downloaded ${raw.length} chars")
                     val parsed = parseSubtitleText(raw)
                     Log.d("PlayerVM", "downloadSubtitles: parsed ${parsed.size} cues")
+                    subtitleCache[cacheKey] = parsed
                     parsed.take(5).forEach { c ->
                         Log.d("PlayerVM", "  cue: ${c.startMs}->${c.endMs} '${c.text.take(50)}'")
                     }
