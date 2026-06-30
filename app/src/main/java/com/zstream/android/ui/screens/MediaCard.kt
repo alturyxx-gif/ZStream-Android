@@ -39,11 +39,12 @@ typealias MediaCardComponent = @Composable (
     percentage: Float?,
     seriesLabel: String?,
     width: Dp?,
-    height: Dp?
+    height: Dp?,
+    editOverlay: Boolean
 ) -> Unit
 
 val LocalMediaCard = compositionLocalOf<MediaCardComponent> {
-    { m, o, p, s, w, h -> MediaCardStandard(m, o, p, s, w, h) }
+    { m, o, p, s, w, h, e -> MediaCardStandard(m, o, p, s, w, h, e) }
 }
 
 @Composable
@@ -54,8 +55,9 @@ fun MediaCard(
     seriesLabel: String? = null,
     width: Dp? = null,
     height: Dp? = null,
+    editOverlay: Boolean = false,
 ) {
-    LocalMediaCard.current(media, onClick, percentage, seriesLabel, width, height)
+    LocalMediaCard.current(media, onClick, percentage, seriesLabel, width, height, editOverlay)
 }
 
 @Composable
@@ -66,6 +68,7 @@ fun MediaCardStandard(
     seriesLabel: String? = null,
     width: Dp? = null,
     height: Dp? = null,
+    editOverlay: Boolean = false,
 ) {
     val theme = LocalZStreamTheme.current
     val posterUrl = media.posterUrl("w342")
@@ -117,6 +120,14 @@ fun MediaCardStandard(
                             contentDescription = null,
                             tint = theme.colors.type.dimmed.copy(alpha = 0.5f),
                             modifier = Modifier.size(if (isTv) 48.dp else 40.dp).align(Alignment.Center)
+                        )
+                    }
+
+                    if (editOverlay) {
+                        Box(
+                            modifier = Modifier
+                                .matchParentSize()
+                                .background(Color.Black.copy(alpha = 0.45f))
                         )
                     }
 

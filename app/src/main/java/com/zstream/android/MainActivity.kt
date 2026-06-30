@@ -29,6 +29,7 @@ import com.zstream.android.provider.ProviderEngine
 import com.zstream.android.ui.LocalIsTv
 import com.zstream.android.ui.navigation.NavGraph
 import com.zstream.android.ui.screens.LocalMediaCard
+import com.zstream.android.ui.screens.MediaCardComponent
 import com.zstream.android.ui.screens.MediaCardMinimal
 import com.zstream.android.ui.screens.MediaCardStandard
 import com.zstream.android.ui.theme.ZStreamTheme
@@ -62,7 +63,15 @@ class MainActivity : ComponentActivity() {
             val navController = rememberNavController()
             val chromeVm: AppChromeViewModel = hiltViewModel()
             val useMinimalCards by chromeVm.useMinimalCards.collectAsStateWithLifecycle()
-            val mediaCard = if (useMinimalCards) ::MediaCardMinimal else ::MediaCardStandard
+            val mediaCard: MediaCardComponent = if (useMinimalCards) {
+                @Composable { media, onClick, percentage, seriesLabel, width, height, editOverlay ->
+                    MediaCardMinimal(media, onClick, percentage, seriesLabel, width, height)
+                }
+            } else {
+                @Composable { media, onClick, percentage, seriesLabel, width, height, editOverlay ->
+                    MediaCardStandard(media, onClick, percentage, seriesLabel, width, height, editOverlay)
+                }
+            }
             
             AppBehaviorEffect(navController, isTv)
             WatchPartyGlobalEffect(navController, watchPartyManager)
