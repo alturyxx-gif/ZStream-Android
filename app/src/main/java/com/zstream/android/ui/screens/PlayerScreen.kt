@@ -1,5 +1,6 @@
 package com.zstream.android.ui.screens
 
+import androidx.compose.ui.layout.ContentScale
 import android.app.Activity
 import android.app.PictureInPictureParams
 import android.graphics.ColorMatrix
@@ -61,11 +62,16 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.LiveTv
+import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.PictureInPictureAlt
+import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -89,6 +95,8 @@ import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.PlatformTextStyle
+import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.unit.dp
@@ -1220,7 +1228,8 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     poster = vm.poster,
                     nav = nav,
                     tvDetail = tvDetail,
-                    currentSeasonDetail = currentSeasonDetail
+                    currentSeasonDetail = currentSeasonDetail,
+                    pauseMetadata = vm.pauseMetadata.collectAsState().value
                 )
                 }
 
@@ -1628,6 +1637,7 @@ private fun PlayerControls(
     nav: NavController,
     tvDetail: com.zstream.android.data.model.TvDetail?,
     currentSeasonDetail: com.zstream.android.data.model.Season?,
+    pauseMetadata: PauseMetadata?,
 ) {
     val menuOpen = menuPage != null
     val theme = LocalZStreamTheme.current
@@ -1841,6 +1851,17 @@ private fun PlayerControls(
                     .size(if (isTv) 56.dp else 48.dp)
                     .align(Alignment.Center),
                 strokeWidth = 3.dp
+            )
+        }
+        pauseMetadata?.let { metadata ->
+            PauseOverlay(
+                metadata = metadata,
+                visible = if (isTv) {
+                    !playWhenReady && playbackState == Player.STATE_READY && settings.enablePauseOverlay && controlsVisible && !menuOpen && !showInfoSheet
+                } else {
+                    !playWhenReady && playbackState == Player.STATE_READY && settings.enablePauseOverlay && !controlsVisible && !menuOpen && !showInfoSheet
+                },
+                showImageLogos = settings.enableImageLogos
             )
         }
 
@@ -4982,4 +5003,272 @@ private fun collectAudioOptions(tracks: Tracks): List<AudioOption> {
             }
         }
         .distinctBy { "${it.group.id}-${it.trackIndex}" }
+}
+
+@Composable
+private fun PauseOverlay(
+    metadata: PauseMetadata,
+    visible: Boolean,
+    showImageLogos: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val isTv = LocalIsTv.current
+
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(),
+        exit = fadeOut(),
+        modifier = modifier.fillMaxSize()
+    ) {
+        if (isTv) {
+            TvPauseOverlay(metadata, showImageLogos)
+        } else {
+            PhonePauseOverlay(metadata, showImageLogos)
+        }
+    }
+}
+
+@Composable
+private fun TvPauseOverlay(metadata: PauseMetadata, showImageLogos: Boolean) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        Color.Transparent,
+                        Color.Black.copy(alpha = 0.3f),
+                        Color.Black.copy(alpha = 0.7f)
+                    ),
+                    startY = 300f
+                )
+            )
+    ) {
+        BoxWithConstraints(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(start = 64.dp, end = 64.dp, top = 64.dp, bottom = 120.dp)
+        ) {
+            val totalHeight = maxHeight
+            // Safe height for overview text to stay below center buttons (at height/2)
+            // Center buttons are 64dp tall. Space below starts at height/2 + 32dp.
+            // Text starts at bottom-padding (120dp from bottom).
+            // Safe max height = (totalHeight - 120dp) - (totalHeight / 2 + buttonHalfSize + safetySpacing)
+            val maxOverviewHeight = (totalHeight - 120.dp) - (totalHeight / 2 + 32.dp + 32.dp)
+
+            Column(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.Bottom
+            ) {
+                // Top section: Logo or Title
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(0.30f),
+                    contentAlignment = Alignment.BottomStart
+                ) {
+                    if (showImageLogos && metadata.logoUrl != null) {
+                        AsyncImage(
+                            model = metadata.logoUrl,
+                            contentDescription = metadata.title,
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .fillMaxWidth(),
+                            contentScale = ContentScale.Fit,
+                            alignment = Alignment.BottomStart
+                        )
+                    } else {
+                        Text(
+                            text = metadata.title,
+                            color = Color.White,
+                            fontSize = 42.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            lineHeight = 48.sp,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            style = LocalTextStyle.current.copy(
+                                platformStyle = PlatformTextStyle(includeFontPadding = false)
+                            )
+                        )
+                    }
+                }
+
+                Spacer(Modifier.height(32.dp))
+
+                // Metadata Row
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    metadata.mediaLabel?.let {
+                        PausePill(
+                            icon = if (metadata.type == "movie") Icons.Filled.Movie else Icons.Filled.LiveTv,
+                            text = it
+                        )
+                    }
+
+                    metadata.year?.let {
+                        PausePill(
+                            icon = Icons.Filled.Event,
+                            text = it
+                        )
+                    }
+
+                    metadata.rating?.let {
+                        PausePill(
+                            icon = Icons.Filled.Star,
+                            text = it,
+                            iconColor = Color(0xFFFFD700)
+                        )
+                    }
+
+                    metadata.runtime?.let {
+                        PausePill(
+                            icon = Icons.Filled.Schedule,
+                            text = it
+                        )
+                    }
+                }
+
+                metadata.overview?.let {
+                    Spacer(Modifier.height(32.dp))
+                    Text(
+                        text = it,
+                        color = Color.White.copy(alpha = 0.7f),
+                        fontSize = 15.sp,
+                        lineHeight = 22.sp,
+                        maxLines = 6,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .fillMaxWidth(0.7f)
+                            .heightIn(max = maxOverviewHeight)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PhonePauseOverlay(metadata: PauseMetadata, showImageLogos: Boolean) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.45f))
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 64.dp, vertical = 48.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                contentAlignment = Alignment.BottomStart
+            ) {
+                if (showImageLogos && metadata.logoUrl != null) {
+                    AsyncImage(
+                        model = metadata.logoUrl,
+                        contentDescription = metadata.title,
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .fillMaxWidth(0.6f),
+                        contentScale = ContentScale.Fit,
+                        alignment = Alignment.BottomStart
+                    )
+                } else {
+                    Text(
+                        text = metadata.title,
+                        color = Color.White,
+                        fontSize = 36.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        lineHeight = 40.sp
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(16.dp))
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                metadata.mediaLabel?.let {
+                    PausePill(
+                        icon = if (metadata.type == "movie") Icons.Filled.Movie else Icons.Filled.LiveTv,
+                        text = it
+                    )
+                }
+
+                metadata.year?.let {
+                    PausePill(
+                        icon = Icons.Filled.Event,
+                        text = it
+                    )
+                }
+
+                metadata.rating?.let {
+                    PausePill(
+                        icon = Icons.Filled.Star,
+                        text = it,
+                        iconColor = Color(0xFFFFD700)
+                    )
+                }
+
+                metadata.runtime?.let {
+                    PausePill(
+                        icon = Icons.Filled.Schedule,
+                        text = it
+                    )
+                }
+            }
+
+            metadata.overview?.let {
+                Spacer(Modifier.height(16.dp))
+                Text(
+                    text = it,
+                    color = Color.White.copy(alpha = 0.8f),
+                    fontSize = 14.sp,
+                    lineHeight = 20.sp,
+                    maxLines = 5,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.fillMaxWidth(0.7f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PausePill(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    text: String,
+    iconColor: Color = Color.Gray.copy(alpha = 0.8f)
+) {
+    val theme = LocalZStreamTheme.current
+    Surface(
+        color = theme.colors.background.secondary.copy(alpha = 0.8f),
+        shape = RoundedCornerShape(100.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.type.divider.copy(alpha = 0.3f))
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            androidx.compose.material3.Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = iconColor,
+                modifier = Modifier.size(14.dp)
+            )
+            Text(
+                text = text,
+                color = theme.colors.type.emphasis,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium
+            )
+        }
+    }
 }
