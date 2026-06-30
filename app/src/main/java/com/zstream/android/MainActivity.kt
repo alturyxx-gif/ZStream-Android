@@ -65,7 +65,7 @@ class MainActivity : ComponentActivity() {
             val useMinimalCards by chromeVm.useMinimalCards.collectAsStateWithLifecycle()
             val mediaCard: MediaCardComponent = if (useMinimalCards) {
                 @Composable { media, onClick, percentage, seriesLabel, width, height, editOverlay ->
-                    MediaCardMinimal(media, onClick, percentage, seriesLabel, width, height)
+                    MediaCardMinimal(media, onClick, percentage, seriesLabel, width, height, editOverlay)
                 }
             } else {
                 @Composable { media, onClick, percentage, seriesLabel, width, height, editOverlay ->

@@ -11,12 +11,15 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Tv
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -27,6 +30,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import coil.compose.AsyncImage
 import com.zstream.android.data.model.Media
 import com.zstream.android.theme.LocalZStreamTheme
@@ -74,8 +80,8 @@ fun MediaCardStandard(
     val posterUrl = media.posterUrl("w342")
     val isTv = LocalIsTv.current
     var isFocused by remember { mutableStateOf(false) }
-    val cardWidth: Dp = width ?: if (isTv) 110.dp else 110.dp
-    val cardHeight: Dp = height ?: if (isTv) 165.dp else 165.dp
+    val cardWidth: Dp = width ?: if (isTv) 120.dp else 110.dp
+    val cardHeight: Dp = height ?: if (isTv) 180.dp else 165.dp
 
     ZsOutlinedWrapper(
         visible = isFocused && isTv,
@@ -129,6 +135,14 @@ fun MediaCardStandard(
                                 .matchParentSize()
                                 .background(Color.Black.copy(alpha = 0.45f))
                         )
+                        if (isTv) {
+                            Icon(
+                                Icons.Default.Edit,
+                                contentDescription = "Edit item",
+                                tint = Color.White,
+                                modifier = Modifier.align(Alignment.Center).size(36.dp),
+                            )
+                        }
                     }
 
                     if (percentage != null) {
@@ -227,7 +241,7 @@ fun MediaCardStandard(
                 }
             }
 
-            if (isFocused && isTv) {
+            if (isFocused && isTv && !editOverlay) {
                 Box(
 
                     modifier = Modifier
@@ -251,6 +265,72 @@ fun MediaCardStandard(
 }
 
 @Composable
+internal fun TvMediaEditMenu(
+    onEdit: (() -> Unit)?,
+    onRemove: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val theme = LocalZStreamTheme.current
+    val firstFocus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { firstFocus.requestFocus() }
+    Popup(
+        alignment = Alignment.CenterEnd,
+        offset = IntOffset(16, 0),
+        onDismissRequest = onDismiss,
+        properties = PopupProperties(focusable = true, clippingEnabled = false),
+    ) {
+        Surface(
+            color = theme.colors.modal.background,
+            shape = RoundedCornerShape(14.dp),
+            border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.type.divider.copy(alpha = 0.25f)),
+            shadowElevation = 10.dp,
+        ) {
+            Column(Modifier.width(170.dp).padding(8.dp)) {
+                onEdit?.let {
+                    TvMediaEditMenuItem(Icons.Default.Edit, "Edit", Modifier.focusRequester(firstFocus)) {
+                        it()
+                        onDismiss()
+                    }
+                }
+                TvMediaEditMenuItem(
+                    Icons.Default.Close,
+                    "Remove",
+                    if (onEdit == null) Modifier.focusRequester(firstFocus) else Modifier,
+                ) {
+                    onRemove()
+                    onDismiss()
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TvMediaEditMenuItem(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    val theme = LocalZStreamTheme.current
+    var focused by remember { mutableStateOf(false) }
+    ZsOutlinedWrapper(visible = focused, shape = RoundedCornerShape(10.dp)) {
+        Row(
+            modifier
+                .fillMaxWidth()
+                .onFocusChanged { focused = it.isFocused }
+                .clickable(onClick = onClick)
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Icon(icon, null, tint = theme.colors.type.emphasis, modifier = Modifier.size(20.dp))
+            Text(label, color = theme.colors.type.emphasis, fontWeight = FontWeight.SemiBold)
+        }
+    }
+}
+
+@Composable
 fun MediaCardMinimal(
     media: Media,
     onClick: () -> Unit,
@@ -258,13 +338,14 @@ fun MediaCardMinimal(
     seriesLabel: String? = null,
     width: Dp? = null,
     height: Dp? = null,
+    editOverlay: Boolean = false,
 ) {
     val theme = LocalZStreamTheme.current
     val posterUrl = media.posterUrl("w342")
     val isTv = LocalIsTv.current
     var isFocused by remember { mutableStateOf(false) }
-    val cardWidth: Dp = width ?: if (isTv) 110.dp else 110.dp
-    val cardHeight: Dp = height ?: if (isTv) 165.dp else 165.dp
+    val cardWidth: Dp = width ?: if (isTv) 120.dp else 110.dp
+    val cardHeight: Dp = height ?: if (isTv) 180.dp else 165.dp
 
     ZsOutlinedWrapper(
         visible = isFocused && isTv,
@@ -307,6 +388,22 @@ fun MediaCardMinimal(
                             tint = theme.colors.type.dimmed.copy(alpha = 0.5f),
                             modifier = Modifier.size(if (isTv) 48.dp else 40.dp).align(Alignment.Center)
                         )
+                    }
+
+                    if (editOverlay) {
+                        Box(
+                            modifier = Modifier
+                                .matchParentSize()
+                                .background(Color.Black.copy(alpha = 0.45f))
+                        )
+                        if (isTv) {
+                            Icon(
+                                Icons.Default.Edit,
+                                contentDescription = "Edit item",
+                                tint = Color.White,
+                                modifier = Modifier.align(Alignment.Center).size(36.dp),
+                            )
+                        }
                     }
 
                     if (percentage != null) {
@@ -365,7 +462,7 @@ fun MediaCardMinimal(
                 }
             }
 
-            if (isFocused && isTv) {
+            if (isFocused && isTv && !editOverlay) {
                 Box(
                     modifier = Modifier
                         .matchParentSize()
