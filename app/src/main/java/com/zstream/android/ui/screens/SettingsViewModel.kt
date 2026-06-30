@@ -164,10 +164,6 @@ class SettingsViewModel @Inject constructor(
         update { copy(enableEmbedOrder = v) }
     }
 
-    fun setProxyTmdb(v: Boolean) {
-        update { copy(proxyTmdb = v) }
-    }
-
     fun setTmdbApiKey(key: String?) {
         update { copy(tmdbApiKey = key) }
     }
