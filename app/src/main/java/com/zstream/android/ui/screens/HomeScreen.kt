@@ -116,6 +116,7 @@ import com.zstream.android.theme.LocalZStreamTheme
 import com.zstream.android.ui.LocalIsTv
 import com.zstream.android.ui.components.themed.ZsIconButton
 import com.zstream.android.ui.components.themed.ZsIconButtonVariant
+import com.zstream.android.ui.components.themed.ZsTextButton
 import com.zstream.android.ui.components.themed.ZsOutlinedWrapper
 import com.zstream.android.ui.components.themed.ZsTextField
 import kotlinx.coroutines.Dispatchers
@@ -1629,13 +1630,32 @@ private fun MediaCarouselSection(
     val theme = LocalZStreamTheme.current
     val isTv = LocalIsTv.current
     Column(modifier = modifier) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            SyncedSectionTitle(section.title)
-            Spacer(Modifier.weight(1f))
-            trailingContent?.invoke(this)
+        Column {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                SyncedSectionTitle(section.title)
+                Spacer(Modifier.weight(1f))
+                trailingContent?.invoke(this)
+            }
+            if (section.source != null && section.items.isNotEmpty()) {
+                Row(
+                    modifier = Modifier.padding(
+                        start = if (isTv) TvHomeMetrics.screenPadding else 16.dp,
+                        end = if (isTv) TvHomeMetrics.screenPadding else 16.dp,
+                        top = 0.dp,
+                        bottom = 0.dp,
+                    ),
+                    horizontalArrangement = Arrangement.Start,
+                ) {
+                    ZsTextButton(
+                        text = "View more",
+                        onClick = { nav.navigate("more/${section.source.name}") },
+                        modifier = Modifier.height(30.dp).offset(x = (-10).dp, y = (-15).dp),
+                    )
+                }
+            } else {
+                Spacer(Modifier.height(6.dp))
+            }
         }
-
-        Spacer(Modifier.height(6.dp))
 
         LazyRow(
             contentPadding = PaddingValues(horizontal = if (isTv) TvHomeMetrics.screenPadding else 16.dp),

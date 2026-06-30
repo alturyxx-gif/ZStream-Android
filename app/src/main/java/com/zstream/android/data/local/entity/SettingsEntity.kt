@@ -61,7 +61,7 @@ data class SettingsEntity(
     val debridService: String = "realdebrid",
     val tidbKey: String? = null,
     val wyzieKey: String? = null,
-    val proxyTmdb: Boolean = false, // Synced with backend, but the local UI no longer reads it.
+    val proxyTmdb: Boolean = false, // Synced with backend, but the local UI/runtime no longer reads it.
     val tmdbApiKey: String? = null,
 
     // Subtitle Styling

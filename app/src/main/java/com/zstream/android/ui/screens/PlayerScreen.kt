@@ -1098,7 +1098,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                 LaunchedEffect(player, settings.enableNativeSubtitles, subtitlesEnabled, selectedLang, selectedSubtitleId, selectedTrackIsExternal) {
                     var subtitleOverride: TrackSelectionOverride? = null
                     if (settings.enableNativeSubtitles && !selectedTrackIsExternal && subtitlesEnabled && selectedSubtitleId != null) {
-                        // ponytail: wait briefly for Media3 track discovery; use a listener if subtitle preparation exceeds 5s.
+                        // wait briefly for Media3 track discovery; use a listener if subtitle preparation exceeds 5s.
                         for (attempt in 0 until 50) {
                             subtitleOverride = player.currentTracks.groups.firstNotNullOfOrNull { group ->
                                 if (group.type != C.TRACK_TYPE_TEXT) return@firstNotNullOfOrNull null
@@ -3067,7 +3067,7 @@ private fun SkipSegmentSubmissionDialog(
                             color = theme.colors.authentication.inputBg.copy(alpha = 0.5f),
                             shape = RoundedCornerShape(18.dp),
                             border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.background.secondary)
-                        ) {
+                        )
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
