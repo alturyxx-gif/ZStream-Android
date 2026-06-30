@@ -31,6 +31,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import com.zstream.android.theme.LocalZStreamTheme
 import com.zstream.android.data.local.entity.BookmarkEntity
+import com.zstream.android.ui.LocalIsTv
 import com.zstream.android.ui.components.themed.ZsButton
 import com.zstream.android.ui.components.themed.ZsButtonVariant
 import com.zstream.android.ui.components.themed.ZsIconButton
@@ -45,10 +46,12 @@ fun MoreScreen(
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
     val theme = LocalZStreamTheme.current
+    val isTv = LocalIsTv.current
     val gridState = rememberLazyGridState()
     var editing by remember { mutableStateOf(false) }
     var editingBookmark by remember { mutableStateOf<BookmarkEntity?>(null) }
     var editingGroup by remember { mutableStateOf(false) }
+    var tvEditMediaId by remember { mutableStateOf<Int?>(null) }
     val loadMoreThreshold = 6
 
     LaunchedEffect(gridState.firstVisibleItemIndex, gridState.layoutInfo.totalItemsCount, state.media.size) {
@@ -147,10 +150,13 @@ fun MoreScreen(
                             Box {
                                 MediaCard(
                                     media = media,
-                                    onClick = { nav.navigate("detail/${media.type}/${media.id}") },
+                                    onClick = {
+                                        if (editing && isTv) tvEditMediaId = media.id
+                                        else nav.navigate("detail/${media.type}/${media.id}")
+                                    },
                                     editOverlay = editing,
                                 )
-                                if (editing) {
+                                if (editing && !isTv) {
                                     if (state.bookmarkSection) {
                                         ZsIconButton(
                                             onClick = { editingBookmark = state.bookmarks[media.id.toString()] },
@@ -170,6 +176,15 @@ fun MoreScreen(
                                         modifier = Modifier.align(Alignment.TopCenter).offset(y = 62.dp),
                                         containerSize = 40.dp,
                                         iconSize = 22.dp,
+                                    )
+                                }
+                                if (editing && isTv && tvEditMediaId == media.id) {
+                                    TvMediaEditMenu(
+                                        onEdit = if (state.bookmarkSection) {{
+                                            editingBookmark = state.bookmarks[media.id.toString()]
+                                        }} else null,
+                                        onRemove = { vm.remove(media) },
+                                        onDismiss = { tvEditMediaId = null },
                                     )
                                 }
                             }

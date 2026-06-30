@@ -1513,10 +1513,13 @@ private fun GenrePills(
 }
 
 @Composable
-private fun HomeTabs(activeTab: HomeTab, onTab: (HomeTab) -> Unit) {
+private fun HomeTabs(
+    activeTab: HomeTab,
+    onTab: (HomeTab) -> Unit,
+    onFocused: (() -> Unit)? = null,
+) {
     val theme = LocalZStreamTheme.current
-    var focusedMenu by remember { mutableStateOf(false) }
-    val focusMenuWidth by animateDpAsState(if (focusedMenu) 3.dp else 0.dp)
+    val isTv = LocalIsTv.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1527,19 +1530,40 @@ private fun HomeTabs(activeTab: HomeTab, onTab: (HomeTab) -> Unit) {
         HomeTab.entries.forEach { tab ->
             val label = when (tab) { HomeTab.MOVIES -> "Movies"; HomeTab.TV -> "TV Shows"; HomeTab.EDITOR -> "Editor Picks" }
             val active = tab == activeTab
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier
-                    .clickable { onTab(tab) }
-                    .padding(horizontal = 12.dp),
+            var isFocused by remember { mutableStateOf(false) }
+            ZsOutlinedWrapper(
+                visible = isFocused && isTv,
+                shape = RoundedCornerShape(50),
+                outlineColor = theme.colors.global.accentA.copy(alpha = 0.6f),
+                gap = 2.dp,
+                modifier = Modifier.padding(horizontal = 6.dp),
             ) {
-                Text(label, color = if (active) theme.colors.type.emphasis else theme.colors.type.dimmed,
-                    fontWeight = if (active) FontWeight.Bold else FontWeight.Normal, fontSize = 16.sp)
-                Spacer(Modifier.height(4.dp))
-                Box(Modifier
-                    .size(if (active) 6.dp else 0.dp)
-                    .clip(CircleShape)
-                    .background(theme.colors.global.accentA))
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(
+                            when {
+                                isFocused && isTv -> theme.colors.background.secondary.copy(alpha = 0.5f)
+                                active -> theme.colors.background.secondary.copy(alpha = 0.32f)
+                                else -> Color.Transparent
+                            }
+                        )
+                        .onFocusChanged {
+                            isFocused = it.isFocused
+                            if (it.isFocused) onFocused?.invoke()
+                        }
+                        .clickable { onTab(tab) }
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                ) {
+                    Text(label, color = if (active) theme.colors.type.emphasis else theme.colors.type.dimmed,
+                        fontWeight = if (active) FontWeight.Bold else FontWeight.Normal, fontSize = 16.sp)
+                    Spacer(Modifier.height(4.dp))
+                    Box(Modifier
+                        .size(if (active) 6.dp else 0.dp)
+                        .clip(CircleShape)
+                        .background(theme.colors.global.accentA))
+                }
             }
         }
     }
@@ -1630,12 +1654,19 @@ private fun MediaCarouselSection(
 ) {
     val theme = LocalZStreamTheme.current
     val isTv = LocalIsTv.current
+    var tvEditMediaId by remember { mutableStateOf<Int?>(null) }
     Column(modifier = modifier) {
         Column {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                SyncedSectionTitle(section.title)
-                Spacer(Modifier.weight(1f))
-                trailingContent?.invoke(this)
+                if (isTv) {
+                    trailingContent?.invoke(this)
+                    SyncedSectionTitle(section.title)
+                    Spacer(Modifier.weight(1f))
+                } else {
+                    SyncedSectionTitle(section.title)
+                    Spacer(Modifier.weight(1f))
+                    trailingContent?.invoke(this)
+                }
             }
             if (section.source != null && section.items.isNotEmpty()) {
                 Row(
@@ -1650,7 +1681,8 @@ private fun MediaCarouselSection(
                     ZsTextButton(
                         text = "View more",
                         onClick = { nav.navigate("more/${section.source.name}?group=${Uri.encode(section.groupKey.orEmpty())}") },
-                        modifier = Modifier.height(30.dp).offset(x = (-10).dp, y = (-15).dp),
+                        modifier = if (isTv) Modifier.height(48.dp).offset(x = (-10).dp)
+                        else Modifier.height(30.dp).offset(x = (-10).dp, y = (-15).dp),
                     )
                 }
             } else {
@@ -1668,12 +1700,15 @@ private fun MediaCarouselSection(
                 Box {
                     MediaCard(
                         media = media,
-                        onClick = { nav.navigate("detail/${media.type}/${media.id}") },
+                        onClick = {
+                            if (editable && isTv) tvEditMediaId = media.id
+                            else nav.navigate("detail/${media.type}/${media.id}")
+                        },
                         percentage = progressInfo?.first,
                         seriesLabel = progressInfo?.second,
                         editOverlay = editable,
                     )
-                    if (editable && onRemoveItem != null) {
+                    if (editable && onRemoveItem != null && !isTv) {
                         if (onEditItem != null) {
                             Box(
                                 modifier = Modifier
@@ -1701,6 +1736,13 @@ private fun MediaCarouselSection(
                             }
                         }
                     }
+                    if (editable && isTv && tvEditMediaId == media.id && onRemoveItem != null) {
+                        TvMediaEditMenu(
+                            onEdit = onEditItem?.let { { it(media) } },
+                            onRemove = { onRemoveItem(media) },
+                            onDismiss = { tvEditMediaId = null },
+                        )
+                    }
                 }
             }
         }
@@ -1721,6 +1763,8 @@ private fun MediaGridRow(
     onRemoveItem: ((Media) -> Unit)? = null,
     onEditItem: ((Media) -> Unit)? = null,
 ) {
+    val isTv = LocalIsTv.current
+    var tvEditMediaId by remember { mutableStateOf<Int?>(null) }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1733,12 +1777,15 @@ private fun MediaGridRow(
                 Box(modifier = Modifier.weight(1f)) {
                     MediaCard(
                         media = media,
-                        onClick = { nav.navigate("detail/${media.type}/${media.id}") },
+                        onClick = {
+                            if (editable && isTv) tvEditMediaId = media.id
+                            else nav.navigate("detail/${media.type}/${media.id}")
+                        },
                         percentage = progressInfo?.first,
                         seriesLabel = progressInfo?.second
                         , editOverlay = editable
                     )
-                    if (editable && onRemoveItem != null) {
+                    if (editable && onRemoveItem != null && !isTv) {
                         if (onEditItem != null) {
                             Box(
                             modifier = Modifier
@@ -1757,6 +1804,13 @@ private fun MediaGridRow(
                         onClick = { onRemoveItem(media) },
                         modifier = Modifier.align(Alignment.TopCenter).offset(y = 62.dp).size(40.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.75f)),
                     ) { Icon(Icons.Default.Close, "Remove", tint = Color.White, modifier = Modifier.size(22.dp)) }
+                }
+                if (editable && isTv && tvEditMediaId == media.id && onRemoveItem != null) {
+                    TvMediaEditMenu(
+                        onEdit = onEditItem?.let { { it(media) } },
+                        onRemove = { onRemoveItem(media) },
+                        onDismiss = { tvEditMediaId = null },
+                    )
                 }
             }
         }
@@ -3940,21 +3994,15 @@ private fun TvHomeScreenContent(
     isPipDrawerExpanded: Boolean,
     onPipDrawerExpandedChange: (Boolean) -> Unit,
 ) {
-    val allSections = remember(state.continueWatching, state.bookmarks, state.activeTab, state.movieSections, state.tvSections, state.editorSections, showContinueWatching, showBookmarks) {
+    val userSections = remember(state.continueWatching, state.bookmarks, showContinueWatching, showBookmarks) {
         buildList {
-            val seenIds = mutableSetOf<Int>()
-            if (showContinueWatching) {
-                state.continueWatching.filter { it.items.isNotEmpty() }.forEach { s ->
-                    add(s)
-                    s.items.forEach { m -> seenIds.add(m.id) }
-                }
-            }
-            if (showBookmarks) {
-                state.bookmarks.filter { it.items.isNotEmpty() }.forEach { s ->
-                    add(s)
-                    s.items.forEach { m -> seenIds.add(m.id) }
-                }
-            }
+            if (showContinueWatching) addAll(state.continueWatching.filter { it.items.isNotEmpty() })
+            if (showBookmarks) addAll(state.bookmarks.filter { it.items.isNotEmpty() })
+        }
+    }
+    val discoverSections = remember(state.activeTab, state.movieSections, state.tvSections, state.editorSections, userSections) {
+        val seenIds = userSections.flatMapTo(mutableSetOf()) { section -> section.items.map { it.id } }
+        buildList {
             val base = when (state.activeTab) {
                 HomeTab.MOVIES -> state.movieSections
                 HomeTab.TV -> state.tvSections
@@ -4188,25 +4236,64 @@ private fun TvHomeScreenContent(
                     }
                     item { Spacer(Modifier.height(24.dp)) }
                 } else {
-                    allSections.forEachIndexed { sectionIndex, section ->
-                    val sectionItemIndex = startIndexOffset + sectionIndex * 2
-                    item(key = section.title) {
-                        MediaCarouselSection(
-                            section,
-                            nav,
-                            state.progressMap,
-                            modifier = Modifier.onFocusChanged {
-                                if (it.hasFocus) {
-                                    requestTvHomeScroll(
-                                        itemIndex = sectionItemIndex,
-                                        scrollOffset = -topPaddingPx,
-                                        reason = "section-focus:${section.title}",
-                                    )
+                    userSections.forEachIndexed { sectionIndex, section ->
+                        val sectionItemIndex = startIndexOffset + sectionIndex * 2
+                        item(key = section.title) {
+                            MediaCarouselSection(
+                                section,
+                                nav,
+                                state.progressMap,
+                                modifier = Modifier.onFocusChanged {
+                                    if (it.hasFocus) {
+                                        requestTvHomeScroll(
+                                            itemIndex = sectionItemIndex,
+                                            scrollOffset = -topPaddingPx,
+                                            reason = "section-focus:${section.title}",
+                                        )
+                                    }
                                 }
-                            }
-                        )
+                            )
+                        }
+                        item { Spacer(Modifier.height(TvHomeMetrics.sectionSpacing)) }
                     }
-                    item { Spacer(Modifier.height(TvHomeMetrics.sectionSpacing)) }
+
+                    if (state.enableDiscover) {
+                        val tabsItemIndex = startIndexOffset + userSections.size * 2
+                        item {
+                            HomeTabs(
+                                activeTab = state.activeTab,
+                                onTab = vm::setTab,
+                                onFocused = {
+                                    requestTvHomeScroll(
+                                        itemIndex = tabsItemIndex,
+                                        scrollOffset = -topPaddingPx,
+                                        reason = "home-tabs-focus",
+                                    )
+                                },
+                            )
+                        }
+                        item { Spacer(Modifier.height(TvHomeMetrics.sectionSpacing)) }
+
+                        discoverSections.forEachIndexed { sectionIndex, section ->
+                            val sectionItemIndex = tabsItemIndex + 2 + sectionIndex * 2
+                            item(key = "discover-${section.title}") {
+                                MediaCarouselSection(
+                                    section,
+                                    nav,
+                                    state.progressMap,
+                                    modifier = Modifier.onFocusChanged {
+                                        if (it.hasFocus) {
+                                            requestTvHomeScroll(
+                                                itemIndex = sectionItemIndex,
+                                                scrollOffset = -topPaddingPx,
+                                                reason = "section-focus:${section.title}",
+                                            )
+                                        }
+                                    }
+                                )
+                            }
+                            item { Spacer(Modifier.height(TvHomeMetrics.sectionSpacing)) }
+                        }
                     }
                 }
             }
