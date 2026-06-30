@@ -2611,24 +2611,6 @@ private fun ConnectionsSection(
                 Text("Trakt connections are managed from a mobile device.", color = theme.colors.type.dimmed, fontSize = 11.sp)
             }
             Spacer(Modifier.height(16.dp))
-            SectionLabel("Proxy", theme)
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(theme.colors.settings.card.background)
-            ) {
-                TvSettingsRow(
-                    theme = theme, 
-                    onActivate = { vm.setProxyTmdb(!settings.proxyTmdb) },
-                    modifier = if (firstItemFocusRequester != null) Modifier.focusRequester(firstItemFocusRequester) else Modifier
-                ) {
-                    TvSwitchContent("Proxy TMDB (unimplemented)", "Route TMDB requests through proxy", settings.proxyTmdb)
-                }
-            }
-
-            Spacer(Modifier.height(16.dp))
             SectionLabel("TMDB API Key", theme)
             Column(
                 Modifier
@@ -2873,30 +2855,59 @@ private fun ConnectionsSection(
                             theme = theme,
                         )
                         Spacer(Modifier.height(6.dp))
-                        var showFocused by remember { mutableStateOf(false) }
-                        ZsOutlinedWrapper(
-                            shape = RoundedCornerShape(6.dp),
-                            outlineColor = Color.White,
-                            outlineWidth = 2.dp,
-                            gap = 2.dp,
-                            visible = showFocused,
-                        ) {
-                            Box(
-                                Modifier
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .onFocusChanged { showFocused = it.isFocused }
-                                    .focusable()
-                                    .onKeyEvent { event ->
-                                        if (event.key == Key.DirectionCenter || event.key == Key.Enter) {
-                                            tokenVisible = !tokenVisible
-                                            true
-                                        } else false
-                                    }
-                                    .clickable { tokenVisible = !tokenVisible }
-                                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            var showFocused by remember { mutableStateOf(false) }
+                            ZsOutlinedWrapper(
+                                shape = RoundedCornerShape(6.dp),
+                                outlineColor = Color.White,
+                                outlineWidth = 2.dp,
+                                gap = 2.dp,
+                                visible = showFocused,
                             ) {
-                                Text(if (tokenVisible) "Hide" else "Show",
-                                    color = theme.colors.global.accentA, fontSize = 11.sp)
+                                Box(
+                                    Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .onFocusChanged { showFocused = it.isFocused }
+                                        .focusable()
+                                        .onKeyEvent { event ->
+                                            if (event.key == Key.DirectionCenter || event.key == Key.Enter) {
+                                                tokenVisible = !tokenVisible
+                                                true
+                                            } else false
+                                        }
+                                        .clickable { tokenVisible = !tokenVisible }
+                                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                                ) {
+                                    Text(if (tokenVisible) "Hide" else "Show",
+                                        color = theme.colors.global.accentA, fontSize = 11.sp)
+                                }
+                            }
+                            var clearFocused by remember { mutableStateOf(false) }
+                            ZsOutlinedWrapper(
+                                shape = RoundedCornerShape(6.dp),
+                                outlineColor = Color.White,
+                                outlineWidth = 2.dp,
+                                gap = 2.dp,
+                                visible = clearFocused,
+                            ) {
+                                Box(
+                                    Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .onFocusChanged { clearFocused = it.isFocused }
+                                        .focusable()
+                                        .onKeyEvent { event ->
+                                            if ((event.key == Key.DirectionCenter || event.key == Key.Enter) && febboxValue.isNotEmpty()) {
+                                                vm.setFebboxKey(null)
+                                                true
+                                            } else false
+                                        }
+                                        .clickable { vm.setFebboxKey(null) }
+                                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                                ) {
+                                    Text("Clear",
+                                        color = if (febboxValue.isNotEmpty()) theme.colors.buttons.danger else theme.colors.type.dimmed,
+                                        fontSize = 11.sp)
+                                }
                             }
                         }
                     }
@@ -3067,18 +3078,6 @@ private fun ConnectionsSection(
         Column(Modifier
             .padding(bottom = 32.dp)
             .padding(top = if (isTv) 16.dp else 0.dp)) {
-            Spacer(Modifier.height(16.dp))
-            SectionLabel("Proxy", theme)
-            SettingsCard(theme) {
-                ZsSwitchRow(
-                    title = "Proxy TMDB (unimplemented)",
-                    subtitle = "Route TMDB requests through proxy",
-                    checked = settings.proxyTmdb,
-                    onCheckedChange = vm::setProxyTmdb,
-                    modifier = Modifier.padding(horizontal = 16.dp),
-                )
-            }
-
             Spacer(Modifier.height(16.dp))
             SectionLabel("TMDB API Key", theme)
             SettingsCard(theme) {
@@ -3307,12 +3306,24 @@ private fun ConnectionsSection(
                             },
                         )
                         Spacer(Modifier.height(6.dp))
-                        TextButton(onClick = { tokenVisible = !tokenVisible }) {
-                            Text(
-                                if (tokenVisible) "Hide" else "Show",
-                                color = theme.colors.global.accentA,
-                                fontSize = 11.sp,
-                            )
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                            TextButton(onClick = { tokenVisible = !tokenVisible }) {
+                                Text(
+                                    if (tokenVisible) "Hide" else "Show",
+                                    color = theme.colors.global.accentA,
+                                    fontSize = 11.sp,
+                                )
+                            }
+                            TextButton(
+                                onClick = { vm.setFebboxKey(null) },
+                                enabled = febboxValue.isNotEmpty(),
+                            ) {
+                                Text(
+                                    "Clear",
+                                    color = if (febboxValue.isNotEmpty()) theme.colors.buttons.danger else theme.colors.type.dimmed,
+                                    fontSize = 11.sp,
+                                )
+                            }
                         }
                     }
                 }
