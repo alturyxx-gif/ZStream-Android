@@ -25,7 +25,6 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
-import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
 internal fun isAcceptedWyzieStatus(code: Int): Boolean? = when (code) {
@@ -40,6 +39,7 @@ class SettingsViewModel @Inject constructor(
     private val progressRepo: ProgressRepository,
     private val bookmarkRepo: BookmarkRepository,
     private val traktRepo: TraktRepository,
+    private val httpClient: OkHttpClient,
 ) : ViewModel() {
     val traktState = traktRepo.state
 
@@ -58,11 +58,6 @@ class SettingsViewModel @Inject constructor(
 
     fun disconnectTrakt() { viewModelScope.launch { traktRepo.disconnect() } }
     fun syncTrakt() { viewModelScope.launch { traktRepo.syncWatchlist(); traktRepo.syncHistory() } }
-    private val httpClient = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(15, TimeUnit.SECONDS)
-        .build()
-
     private val _customSubtitleSlot = MutableStateFlow<SettingsEntity?>(null)
 
     val settings: StateFlow<SettingsEntity> = settingsPrefs.settings

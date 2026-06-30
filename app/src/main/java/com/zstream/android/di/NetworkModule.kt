@@ -1,5 +1,6 @@
 package com.zstream.android.di
 
+import android.content.Context
 import com.zstream.android.BuildConfig
 import com.zstream.android.Urls
 import com.zstream.android.data.remote.BackendApi
@@ -7,13 +8,16 @@ import com.zstream.android.data.remote.TmdbApi
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
+import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import okhttp3.OkHttpClient
+import okhttp3.Cache
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import javax.inject.Qualifier
 import javax.inject.Singleton
+import java.util.concurrent.TimeUnit
 
 @Qualifier @Retention(AnnotationRetention.BINARY) annotation class TmdbRetrofit
 @Qualifier @Retention(AnnotationRetention.BINARY) annotation class BackendRetrofit
@@ -23,7 +27,10 @@ import javax.inject.Singleton
 object NetworkModule {
 
     @Provides @Singleton
-    fun okHttp(): OkHttpClient = OkHttpClient.Builder()
+    fun okHttp(@ApplicationContext context: Context): OkHttpClient = OkHttpClient.Builder()
+        .cache(Cache(context.cacheDir.resolve("http_cache"), 100L * 1024 * 1024))
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(15, TimeUnit.SECONDS)
         .addInterceptor(HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.NONE })
         .build()
 

@@ -115,6 +115,8 @@ import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.datasource.cache.CacheDataSource
+import androidx.media3.datasource.cache.CacheDataSource.EventListener
 import androidx.media3.ui.PlayerView
 import androidx.navigation.NavController
 import com.zstream.android.R
@@ -577,8 +579,21 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                         .setSubtitleConfigurations(subtitleConfigs)
                         .build()
 
+                    val cacheDataSourceFactory = CacheDataSource.Factory()
+                        .setCache(vm.playerCache)
+                        .setUpstreamDataSourceFactory(WebViewDataSource.Factory(vm.getProxyPort()))
+                        .setEventListener(object : EventListener {
+                            override fun onCachedBytesRead(cacheSizeBytes: Long, cachedBytesRead: Long) {
+                                Log.d("PlayerCache", "cachedBytesRead=$cachedBytesRead cacheSizeBytes=$cacheSizeBytes")
+                            }
+
+                            override fun onCacheIgnored(reason: Int) {
+                                Log.d("PlayerCache", "cacheIgnored reason=$reason")
+                            }
+                        })
+
                     ExoPlayer.Builder(context).build().apply {
-                        setMediaSource(DefaultMediaSourceFactory(WebViewDataSource.Factory(vm.getProxyPort())).createMediaSource(mediaItem))
+                        setMediaSource(DefaultMediaSourceFactory(cacheDataSourceFactory).createMediaSource(mediaItem))
                         videoScalingMode = androidx.media3.common.C.VIDEO_SCALING_MODE_SCALE_TO_FIT
                         prepare()
                         playWhenReady = true
