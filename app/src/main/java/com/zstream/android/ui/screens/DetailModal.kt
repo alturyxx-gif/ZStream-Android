@@ -1,6 +1,8 @@
 package com.zstream.android.ui.screens
 
 import android.net.Uri
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -14,20 +16,46 @@ import androidx.compose.foundation.gestures.BringIntoViewSpec
 import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Done
+import androidx.compose.material.icons.filled.Coffee
+import androidx.compose.material.icons.filled.Campaign
+import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.Cottage
+import androidx.compose.material.icons.filled.DeviceHub
+import androidx.compose.material.icons.filled.EmojiEvents
+import androidx.compose.material.icons.filled.FlashOn
+import androidx.compose.material.icons.filled.Headphones
+import androidx.compose.material.icons.filled.LocalFireDepartment
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Groups
+import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RemoveRedEye
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.PhoneAndroid
+import androidx.compose.material.icons.filled.SmartToy
+import androidx.compose.material.icons.filled.Theaters
+import androidx.compose.material.icons.filled.Tv
+import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material3.*
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
@@ -52,6 +80,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.vectorResource
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -67,6 +96,8 @@ import com.zstream.android.data.model.CastMember
 import com.zstream.android.data.model.Episode
 import com.zstream.android.data.model.Media
 import com.zstream.android.data.model.MovieDetail
+import com.zstream.android.data.model.CollectionSummary
+import com.zstream.android.data.remote.CollectionDetails
 import com.zstream.android.data.model.Season
 import com.zstream.android.data.model.TrailerData
 import com.zstream.android.data.model.TvDetail
@@ -80,6 +111,13 @@ import com.zstream.android.ui.components.themed.ZsStatusBannerVariant
 import kotlinx.coroutines.launch
 
 private fun String.encode() = java.net.URLEncoder.encode(this, "UTF-8").replace("+", "%20")
+
+private fun normalizeGroupLabel(group: String): String = group
+    .replace(Regex("^\\[[A-Za-z0-9_]+]"), "")
+    .trim()
+
+private fun groupIconKey(group: String): String? =
+    Regex("^\\[([A-Za-z0-9_]+)]").find(group)?.groupValues?.getOrNull(1)?.uppercase()
 
 enum class WatchBulkTarget { Movie, Season }
 enum class WatchBulkAction { MarkWatched, ClearHistory }
@@ -96,12 +134,20 @@ fun MovieDetailModal(
     onBack: () -> Unit,
     onMarkMovieWatched: () -> Unit,
     onClearMovieWatchHistory: () -> Unit,
+    onBookmarkCollection: ((CollectionSummary) -> Unit)? = null,
+    onBrowseCollection: ((CollectionSummary) -> Unit)? = null,
+    onClearCollection: () -> Unit = {},
+    collectionState: CollectionState = CollectionState.Closed,
     showImageLogos: Boolean = true,
     showPlayButton: Boolean = true,
     firstItemFocusRequester: FocusRequester? = null,
+    currentGroups: List<String> = emptyList(),
+    allGroups: List<String> = emptyList(),
+    onUpdateGroups: (List<String>) -> Unit = {},
 ) {
     var pendingBulkTarget by remember { mutableStateOf<WatchBulkTarget?>(null) }
     var pendingBulkAction by remember { mutableStateOf<WatchBulkAction?>(null) }
+    var showGroupEditor by remember { mutableStateOf(false) }
     val isTv = LocalIsTv.current
     val scrollState = rememberScrollState()
     
@@ -138,66 +184,103 @@ fun MovieDetailModal(
             nav = nav,
             theme = theme,
             firstItemFocusRequester = firstItemFocusRequester,
-            specActions = { },
-        ) { requester ->
-            if (showPlayButton) {
-                var playFocused by remember { mutableStateOf(false) }
-                ZsOutlinedWrapper(
-                    shape = RoundedCornerShape(8.dp),
-                    visible = playFocused && isTv,
-                    outlineColor = Color.White,
-                    outlineWidth = 2.dp,
-                    horizontal = 3.dp,
-                    vertical = (-1).dp,
-                ) {
-                    Button(
-                        onClick = { nav.navigate("player/movie/${detail.id}?title=${detail.title.encode()}&year=${detail.releaseDate?.take(4)?.toIntOrNull() ?: 0}&poster=${detail.posterPath?.encode() ?: ""}") },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = theme.colors.buttons.purple,
-                            contentColor = theme.colors.type.emphasis,
-                        ),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.type.divider.copy(alpha = 0.3f)),
-                        shape = RoundedCornerShape(6.dp),
-                        modifier = Modifier
-                            .widthIn(min = 120.dp)
-                            .then(if (requester != null) Modifier.focusRequester(requester) else Modifier)
-                            .onFocusChanged { 
-                                playFocused = it.isFocused
-                                if (it.isFocused && isTv) {
-                                    scrollRequestId++
-                                }
-                            }
+            specActions = {
+                detail.belongsToCollection?.let { collection ->
+                    Surface(
+                        onClick = { onBrowseCollection?.invoke(collection) },
+                        color = theme.colors.background.secondary.copy(alpha = 0.8f),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Icon(Icons.Filled.PlayArrow, null, tint = theme.colors.type.emphasis)
-                        Spacer(Modifier.width(6.dp))
-                        Text(if (hasProgress) "Resume" else "Play", color = theme.colors.type.emphasis)
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(Icons.Filled.Movie, null, tint = theme.colors.type.secondary, modifier = Modifier.size(18.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text("COLLECTION", color = theme.colors.type.dimmed, fontSize = 10.sp, fontWeight = FontWeight.Medium)
+                                Text(collection.name, color = theme.colors.type.text, fontSize = 12.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = theme.colors.type.dimmed, modifier = Modifier.size(18.dp))
+                        }
                     }
                 }
-            }
+            },
+        ) { requester ->
+            Row(
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (showPlayButton) {
+                    var playFocused by remember { mutableStateOf(false) }
+                    ZsOutlinedWrapper(
+                        shape = RoundedCornerShape(8.dp),
+                        visible = playFocused && isTv,
+                        outlineColor = Color.White,
+                        outlineWidth = 2.dp,
+                        horizontal = 3.dp,
+                        vertical = (-1).dp,
+                    ) {
+                        Button(
+                            onClick = { nav.navigate("player/movie/${detail.id}?title=${detail.title.encode()}&year=${detail.releaseDate?.take(4)?.toIntOrNull() ?: 0}&poster=${detail.posterPath?.encode() ?: ""}") },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = theme.colors.buttons.purple,
+                                contentColor = theme.colors.type.emphasis,
+                            ),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.type.divider.copy(alpha = 0.3f)),
+                            shape = RoundedCornerShape(6.dp),
+                            modifier = Modifier
+                                .widthIn(min = 120.dp)
+                                .then(if (requester != null) Modifier.focusRequester(requester) else Modifier)
+                                .onFocusChanged {
+                                    playFocused = it.isFocused
+                                    if (it.isFocused && isTv) {
+                                        scrollRequestId++
+                                    }
+                                }
+                        ) {
+                            Icon(Icons.Filled.PlayArrow, null, tint = theme.colors.type.emphasis)
+                            Spacer(Modifier.width(6.dp))
+                            Text(if (hasProgress) "Resume" else "Play", color = theme.colors.type.emphasis)
+                        }
+                    }
+                }
 
-            if (!isTv) {
-                SharedActionPill(Icons.Filled.Share, theme, focusRequester = if (!showPlayButton) requester else null, onFocusChanged = { focused ->
+                if (!isTv) {
+                    SharedActionPill(Icons.Filled.Share, theme, focusRequester = if (!showPlayButton) requester else null, onFocusChanged = { focused ->
+                        if (focused && isTv) scrollRequestId++
+                    }) {
+                        openShareSheet(context, detail.title, detail.id, "movie")
+                    }
+                }
+
+                val bookmarkIcon = if (isBookmarked) ImageVector.vectorResource(R.drawable.ic_player_bookmark_filled) else ImageVector.vectorResource(R.drawable.ic_player_bookmark_outline)
+                SharedActionPill(bookmarkIcon, theme, focusRequester = if (isTv && !showPlayButton) requester else null, onFocusChanged = { focused ->
                     if (focused && isTv) scrollRequestId++
                 }) {
-                    openShareSheet(context, detail.title, detail.id, "movie")
+                    onToggleBookmark()
                 }
-            }
-            
-            val bookmarkIcon = if (isBookmarked) ImageVector.vectorResource(R.drawable.ic_player_bookmark_filled) else ImageVector.vectorResource(R.drawable.ic_player_bookmark_outline)
-            SharedActionPill(bookmarkIcon, theme, focusRequester = if (isTv && !showPlayButton) requester else null, onFocusChanged = { focused ->
-                if (focused && isTv) scrollRequestId++
-            }) {
-                onToggleBookmark()
-            }
 
-            SharedActionPill(
-                icon = Icons.Filled.RemoveRedEye,
-                theme = theme,
-                onFocusChanged = { focused ->
-                    if (focused && isTv) scrollRequestId++
-                },
-                onClick = { pendingBulkTarget = WatchBulkTarget.Movie },
-            )
+                if (isBookmarked) {
+                    SharedActionPill(
+                        icon = Icons.Filled.Edit,
+                        theme = theme,
+                        onFocusChanged = { focused -> if (focused && isTv) scrollRequestId++ },
+                        onClick = { showGroupEditor = true },
+                    )
+                }
+
+                SharedActionPill(
+                    icon = Icons.Filled.RemoveRedEye,
+                    theme = theme,
+                    onFocusChanged = { focused ->
+                        if (focused && isTv) scrollRequestId++
+                    },
+                    onClick = { pendingBulkTarget = WatchBulkTarget.Movie },
+                )
+            }
         }
     }
 
@@ -219,6 +302,321 @@ fun MovieDetailModal(
             pendingBulkAction = null
         },
     )
+
+    if (showGroupEditor) {
+        GroupEditorDialog(
+            currentGroups = currentGroups,
+            allGroups = allGroups,
+            theme = theme,
+            onUpdateGroups = onUpdateGroups,
+            onDismiss = { showGroupEditor = false },
+        )
+    }
+
+    when (val state = collectionState) {
+        CollectionState.Closed -> Unit
+        is CollectionState.Loading -> CollectionStatusDialog(state.collection.name, null, theme, onClearCollection)
+        is CollectionState.Error -> CollectionStatusDialog(state.collection.name, state.message, theme, onClearCollection)
+        is CollectionState.Loaded -> CollectionOverlayDialog(
+            collection = state.collection,
+            theme = theme,
+            nav = nav,
+            onDismiss = onClearCollection,
+            onBookmarkCollection = { onBookmarkCollection?.invoke(CollectionSummary(state.collection.id, state.collection.name, state.collection.posterPath, state.collection.backdropPath)) },
+        )
+    }
+}
+
+@Composable
+internal fun GroupEditorDialog(
+    currentGroups: List<String>,
+    allGroups: List<String>,
+    theme: ZStreamTheme,
+    onUpdateGroups: (List<String>) -> Unit,
+    onDismiss: () -> Unit,
+    showExistingGroups: Boolean = true,
+) {
+    var newGroupInput by remember { mutableStateOf("") }
+    var selectedGroupIcon by remember { mutableStateOf("BOOKMARK") }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            modifier = Modifier.widthIn(max = 384.dp),
+            shape = RoundedCornerShape(20.dp),
+            color = theme.colors.modal.background,
+            border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.type.divider.copy(alpha = 0.2f)),
+        ) {
+            Column(
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(if (showExistingGroups) "Edit groups" else "Create group", color = theme.colors.type.emphasis, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                if (showExistingGroups) {
+                    Text("Tap groups to add or remove them.", color = theme.colors.type.text, fontSize = 14.sp)
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        allGroups.forEach { group ->
+                            FilterChip(
+                                selected = group in currentGroups,
+                                onClick = {
+                                    onUpdateGroups(if (group in currentGroups) currentGroups - group else (currentGroups + group).distinct())
+                                },
+                                label = {
+                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        groupIconKey(group)?.let { Icon(groupIconPainter(it), null, modifier = Modifier.size(14.dp)) }
+                                        Text(normalizeGroupLabel(group))
+                                    }
+                                },
+                            )
+                        }
+                    }
+                }
+                OutlinedTextField(
+                    value = newGroupInput,
+                    onValueChange = { newGroupInput = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    placeholder = { Text("New group name") },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = theme.colors.type.emphasis,
+                        unfocusedTextColor = theme.colors.type.text,
+                        focusedBorderColor = theme.colors.global.accentA,
+                        unfocusedBorderColor = theme.colors.type.divider.copy(alpha = 0.4f),
+                        cursorColor = theme.colors.global.accentA,
+                    ),
+                )
+                Text("Icon", color = theme.colors.type.secondary, fontSize = 12.sp)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    groupIconOptions.forEach { (key, icon) ->
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (selectedGroupIcon == key) theme.colors.global.accentA.copy(alpha = 0.22f) else theme.colors.background.secondary,
+                            border = androidx.compose.foundation.BorderStroke(1.dp, if (selectedGroupIcon == key) theme.colors.global.accentA else theme.colors.type.divider.copy(alpha = 0.35f)),
+                            modifier = Modifier.clickable { selectedGroupIcon = key },
+                        ) {
+                            Box(Modifier.size(42.dp), contentAlignment = Alignment.Center) {
+                                Icon(painterResource(icon), key.lowercase().replace('_', ' '), modifier = Modifier.size(18.dp), tint = theme.colors.type.emphasis)
+                            }
+                        }
+                    }
+                }
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = onDismiss) { Text("Cancel", color = theme.colors.type.secondary) }
+                    TextButton(onClick = {
+                        val created = newGroupInput.trim().takeIf(String::isNotEmpty)?.let { "[${selectedGroupIcon.lowercase()}]$it" }
+                        if (created != null) onUpdateGroups((currentGroups + created).distinct())
+                        onDismiss()
+                    }) { Text("Save", color = theme.colors.global.accentA) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CollectionStatusDialog(
+    name: String,
+    error: String?,
+    theme: ZStreamTheme,
+    onDismiss: () -> Unit,
+) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.88f))
+                .padding(vertical = 18.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Surface(
+                color = theme.colors.modal.background,
+                shape = RoundedCornerShape(28.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.type.divider.copy(alpha = 0.2f)),
+                modifier = Modifier.fillMaxWidth().heightIn(min = 320.dp),
+            ) {
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        Text(name, color = theme.colors.type.emphasis, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                        IconButton(onClick = onDismiss) { Icon(Icons.Filled.Close, "Close", tint = theme.colors.type.secondary) }
+                    }
+                    Spacer(Modifier.weight(1f))
+                    if (error == null) {
+                        CircularProgressIndicator(color = theme.colors.global.accentA)
+                        Text("Loading collection...", color = theme.colors.type.secondary)
+                    } else {
+                        Icon(Icons.Filled.Error, null, tint = theme.colors.type.danger, modifier = Modifier.size(42.dp))
+                        Text("Error loading collection", color = theme.colors.type.danger, fontWeight = FontWeight.SemiBold)
+                        Text(error, color = theme.colors.type.secondary, textAlign = TextAlign.Center)
+                    }
+                    Spacer(Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CollectionOverlayDialog(
+    collection: CollectionDetails,
+    theme: ZStreamTheme,
+    nav: NavController,
+    onDismiss: () -> Unit,
+    onBookmarkCollection: () -> Unit,
+) {
+    var sortOrder by remember { mutableStateOf("release") }
+    val parts = remember(collection.parts, sortOrder) {
+        when (sortOrder) {
+            "rating" -> collection.parts.sortedByDescending { it.voteAverage ?: 0.0 }
+            else -> collection.parts.sortedBy { it.releaseDate ?: "" }
+        }
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.88f))
+                .padding(vertical = 18.dp),
+        ) {
+            Surface(
+                color = theme.colors.modal.background,
+                tonalElevation = 6.dp,
+                shadowElevation = 14.dp,
+                shape = RoundedCornerShape(28.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.Center)
+                    .heightIn(min = 420.dp, max = 720.dp),
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(collection.name, color = theme.colors.type.emphasis, fontWeight = FontWeight.Bold, fontSize = 26.sp, modifier = Modifier.weight(1f))
+                        IconButton(onClick = onDismiss) { Icon(Icons.Filled.Close, "Close", tint = theme.colors.type.secondary) }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            "${parts.size} ${if (parts.size == 1) "movie" else "movies"}",
+                            color = theme.colors.type.secondary,
+                            fontSize = 13.sp,
+                        )
+                        TextButton(
+                            onClick = onBookmarkCollection,
+                            colors = ButtonDefaults.textButtonColors(contentColor = theme.colors.type.secondary),
+                        ) {
+                            Icon(Icons.Filled.Bookmark, null, modifier = Modifier.size(15.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Bookmark All")
+                        }
+                    }
+                    if (parts.size > 1) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text("Sort by:", color = theme.colors.type.secondary, fontSize = 12.sp)
+                            FilterChip(
+                                selected = sortOrder == "release",
+                                onClick = { sortOrder = "release" },
+                                label = { Text("Release") },
+                            )
+                            FilterChip(
+                                selected = sortOrder == "rating",
+                                onClick = { sortOrder = "rating" },
+                                label = { Text("Rating") },
+                            )
+                        }
+                    }
+
+                    collection.overview?.takeIf { it.isNotBlank() }?.let {
+                        Text(it, color = theme.colors.type.text, fontSize = 13.sp, lineHeight = 18.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                    }
+
+                    if (parts.isEmpty()) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().weight(1f),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center,
+                        ) {
+                            Icon(Icons.Filled.Movie, null, tint = theme.colors.type.secondary, modifier = Modifier.size(42.dp))
+                            Spacer(Modifier.height(12.dp))
+                            Text("No movies in this collection", color = theme.colors.type.secondary)
+                        }
+                    } else {
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            items(parts, key = { it.id }) { part ->
+                                CollectionPartCard(
+                                    part = part,
+                                    theme = theme,
+                                    onClick = {
+                                        nav.navigate("detail/movie/${part.id}")
+                                        onDismiss()
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CollectionPartCard(
+    part: com.zstream.android.data.remote.CollectionPart,
+    theme: ZStreamTheme,
+    onClick: () -> Unit,
+) {
+    val poster = part.posterPath?.let { path ->
+        if (path.startsWith("http")) path else Urls.TMDB_IMAGE + "w342" + if (path.startsWith("/")) path else "/$path"
+    }
+    Column(
+        modifier = Modifier.width(128.dp).clickable(onClick = onClick),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .height(188.dp)
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(16.dp))
+                .background(theme.colors.background.secondary),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (poster != null) {
+                AsyncImage(
+                    model = poster,
+                    contentDescription = part.title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+        }
+        Text(part.title, color = theme.colors.type.text, maxLines = 2, overflow = TextOverflow.Ellipsis, fontSize = 12.sp)
+        Text(part.releaseDate.orEmpty().take(4), color = theme.colors.type.dimmed, fontSize = 11.sp)
+    }
 }
 
 @Composable
@@ -239,12 +637,20 @@ fun TvDetailModal(
     onClearEpisodeWatchHistory: (com.zstream.android.data.model.Episode) -> Unit,
     onMarkSeasonWatched: () -> Unit,
     onClearSeasonWatchHistory: () -> Unit,
+    onBookmarkCollection: ((CollectionSummary) -> Unit)? = null,
+    onBrowseCollection: ((CollectionSummary) -> Unit)? = null,
+    onClearCollection: () -> Unit = {},
+    collectionState: CollectionState = CollectionState.Closed,
     showImageLogos: Boolean = true,
     showPlayButton: Boolean = true,
     firstItemFocusRequester: FocusRequester? = null,
+    currentGroups: List<String> = emptyList(),
+    allGroups: List<String> = emptyList(),
+    onUpdateGroups: (List<String>) -> Unit = {},
 ) {
     var pendingBulkTarget by remember { mutableStateOf<WatchBulkTarget?>(null) }
     var pendingBulkAction by remember { mutableStateOf<WatchBulkAction?>(null) }
+    var showGroupEditor by remember { mutableStateOf(false) }
     val isTv = LocalIsTv.current
     val scrollState = rememberScrollState()
 
@@ -288,6 +694,11 @@ fun TvDetailModal(
             firstItemFocusRequester = firstItemFocusRequester,
             specActions = { },
         ) { requester ->
+            Row(
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
             if (showPlayButton) {
                 var playFocused by remember { mutableStateOf(false) }
 
@@ -356,6 +767,15 @@ fun TvDetailModal(
                 onToggleBookmark()
             }
 
+            if (isBookmarked) {
+                SharedActionPill(
+                    icon = Icons.Filled.Edit,
+                    theme = theme,
+                    onFocusChanged = { focused -> if (focused && isTv) scrollRequestId++ },
+                    onClick = { showGroupEditor = true },
+                )
+            }
+
             SharedActionPill(
                 icon = Icons.Filled.RemoveRedEye,
                 theme = theme,
@@ -364,6 +784,7 @@ fun TvDetailModal(
                 },
                 onClick = { pendingBulkTarget = WatchBulkTarget.Season },
             )
+            }
         }
     }
 
@@ -385,6 +806,16 @@ fun TvDetailModal(
             pendingBulkAction = null
         },
     )
+
+    if (showGroupEditor) {
+        GroupEditorDialog(
+            currentGroups = currentGroups,
+            allGroups = allGroups,
+            theme = theme,
+            onUpdateGroups = onUpdateGroups,
+            onDismiss = { showGroupEditor = false },
+        )
+    }
 }
 
 @Composable

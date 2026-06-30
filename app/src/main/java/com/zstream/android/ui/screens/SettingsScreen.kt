@@ -7,6 +7,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.*
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -18,7 +19,20 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Brush
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.Coffee
+import androidx.compose.material.icons.filled.DeviceHub
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Groups
+import androidx.compose.material.icons.filled.Headphones
+import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.SmartToy
+import androidx.compose.material.icons.filled.Theaters
+import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -27,12 +41,14 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.requestFocus
 import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Paint
@@ -42,12 +58,13 @@ import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
@@ -64,6 +81,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.res.painterResource
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalActivity
@@ -76,6 +94,7 @@ import com.zstream.android.BuildConfig
 import com.zstream.android.Urls
 import com.zstream.android.data.AccountSession
 import com.zstream.android.data.TraktState
+import com.zstream.android.data.local.entity.BookmarkEntity
 import com.zstream.android.data.local.entity.SettingsEntity
 import com.zstream.android.theme.LocalZStreamTheme
 import com.zstream.android.theme.ThemeRegistry
@@ -102,6 +121,17 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+
+private fun parseGroupLabel(group: String): Pair<String, String> {
+    val match = Regex("^\\[([A-Za-z0-9_]+)](.*)$").find(group)
+    return if (match != null) {
+        val icon = match.groupValues.getOrNull(1).orEmpty().uppercase()
+        val name = match.groupValues.getOrNull(2).orEmpty().trim()
+        icon to name.ifBlank { group }
+    } else {
+        "" to group
+    }
+}
 
 private sealed interface TokenValidationState {
     data object Idle : TokenValidationState
@@ -137,6 +167,7 @@ private fun TvSettingsScreen(
     val scope = rememberCoroutineScope()
     val onBack = rememberSafeNavigateBack(nav, scope)
     val session by accountVm.session.collectAsState()
+    val bookmarks by accountVm.bookmarks.collectAsState()
     val settings by vm.settings.collectAsStateWithLifecycle()
     val currentTab by vm.currentTab.collectAsStateWithLifecycle()
     var showLogoutConfirm by remember { mutableStateOf(false) }
@@ -293,7 +324,7 @@ private fun TvSettingsScreen(
                                 isTv = true,
                                 firstItemFocusRequester = contentFirstItemFocusRequester,
                             )
-                            1 -> PreferencesSection(settings, theme, vm, isTv = true, firstItemFocusRequester = contentFirstItemFocusRequester)
+                            1 -> PreferencesSection(settings, bookmarks, theme, vm, isTv = true, firstItemFocusRequester = contentFirstItemFocusRequester)
                             2 -> AppearanceSection(settings, theme, vm, isTv = true, firstItemFocusRequester = contentFirstItemFocusRequester)
                             4 -> ConnectionsSection(settings, theme, vm, isTv = true, firstItemFocusRequester = contentFirstItemFocusRequester)
                         }
@@ -644,6 +675,7 @@ private fun PhoneSettingsScreen(
     val scope = rememberCoroutineScope()
     val onBack = rememberSafeNavigateBack(nav, scope)
     val session by accountVm.session.collectAsState()
+    val bookmarks by accountVm.bookmarks.collectAsState()
     val settings by vm.settings.collectAsStateWithLifecycle()
     val currentTab by vm.currentTab.collectAsStateWithLifecycle()
     var showLogoutConfirm by remember { mutableStateOf(false) }
@@ -718,7 +750,7 @@ private fun PhoneSettingsScreen(
                         0 -> AccountSection(session, theme, vm, accountVm, showLogoutConfirm, { showLogoutConfirm = it }, nav, onExport = {
                             exportLauncher.launch("zstream_backup_${System.currentTimeMillis()}.json")
                         })
-                        1 -> PreferencesSection(settings, theme, vm)
+                        1 -> PreferencesSection(settings, bookmarks, theme, vm)
                         2 -> AppearanceSection(settings, theme, vm)
                         4 -> ConnectionsSection(settings, theme, vm)
                     }
@@ -1045,6 +1077,7 @@ private fun AccountSection(
 @Composable
 private fun PreferencesSection(
     settings: SettingsEntity, 
+    bookmarks: List<BookmarkEntity>,
     theme: ZStreamTheme, 
     vm: SettingsViewModel,
     isTv: Boolean = false,
@@ -1141,29 +1174,20 @@ private fun PreferencesSection(
             }
         }
 
-        Spacer(Modifier.height(16.dp))
-        SectionLabel("Input", theme)
         if (isTv) {
+            Spacer(Modifier.height(16.dp))
+            SectionLabel("Input", theme)
+
             Column(
                 Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(12.dp))
                     .background(theme.colors.settings.card.background)
-            ) {
-                TvSettingsRow(theme, onActivate = { vm.setEnableNativeKeyboard(!settings.enableNativeKeyboard) }) {
-                    TvSwitchContent("Use Native Keyboard", "Hide virtual keyboard and use system input", settings.enableNativeKeyboard)
+                ) {
+                    TvSettingsRow(theme, onActivate = { vm.setEnableNativeKeyboard(!settings.enableNativeKeyboard) }) {
+                        TvSwitchContent("Use Native Keyboard", "Hide virtual keyboard and use system input", settings.enableNativeKeyboard)
+                    }
                 }
-            }
-        } else {
-            SettingsCard(theme) {
-                ZsSwitchRow(
-                    title = "Use Native Keyboard",
-                    subtitle = "Hide virtual keyboard and use system input",
-                    checked = settings.enableNativeKeyboard,
-                    onCheckedChange = vm::setEnableNativeKeyboard,
-                    modifier = Modifier.padding(horizontal = 16.dp),
-                )
-            }
         }
 
         Spacer(Modifier.height(16.dp))
@@ -1224,6 +1248,7 @@ private fun PreferencesSection(
                 )
             }
         }
+
     }
 }
 

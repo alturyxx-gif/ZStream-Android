@@ -127,6 +127,7 @@ data class SettingsResponse(
     val enableEmbedOrder: Boolean? = null,
     val proxyTmdb: Boolean? = null,
     val homeSectionOrder: List<String>? = null,
+    val groupOrder: List<String>? = null,
     val traktKey: String? = null,
 )
 
@@ -210,6 +211,12 @@ interface BackendApi {
     suspend fun removeBookmark(@Path("id") userId: String, @Path("tmdbId") tmdbId: String,
                                @Header("Authorization") auth: String)
 
+    @GET("users/{id}/group-order")
+    suspend fun getGroupOrder(@Path("id") userId: String, @Header("Authorization") auth: String): GroupOrderResponse
+
+    @PUT("users/{id}/group-order")
+    suspend fun updateGroupOrder(@Path("id") userId: String, @Header("Authorization") auth: String, @Body body: List<String>): GroupOrderResponse
+
     // Watch Party
     @POST("api/player/status")
     suspend fun sendPlayerStatus(
@@ -223,6 +230,10 @@ interface BackendApi {
         @Query("roomCode") roomCode: String
     ): WatchPartyRoomResponse
 }
+
+data class GroupOrderResponse(
+    val groupOrder: List<String> = emptyList(),
+)
 
 // Watch Party Models
 

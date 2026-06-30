@@ -3,6 +3,8 @@ package com.zstream.android.ui.screens
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.zstream.android.data.TmdbRepository
+import com.zstream.android.data.BookmarkRepository
+import com.zstream.android.data.local.entity.BookmarkEntity
 import com.zstream.android.data.local.entity.ProgressEntity
 import com.zstream.android.data.local.preferences.SettingsPreferences
 import com.zstream.android.data.local.preferences.UserPreferences
@@ -13,6 +15,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -33,6 +36,7 @@ data class HomeState(
     val editorSections: List<MediaSection> = emptyList(),
     val continueWatching: List<MediaSection> = emptyList(),
     val bookmarks: List<MediaSection> = emptyList(),
+    val bookmarkEntities: Map<String, BookmarkEntity> = emptyMap(),
     val progressMap: Map<String, ProgressEntity> = emptyMap(),
     val enableDiscover: Boolean = true,
     val enableFeatured: Boolean = false,
@@ -70,6 +74,16 @@ data class HomeState(
     }
 }
 
+private fun normalizeGroupName(group: String): String {
+    val match = Regex("^\\[[^\\]]+]\\s*").find(group)
+    return if (match != null) group.removePrefix(match.value).trim() else group.trim()
+}
+
+private fun groupSortKey(group: String): String {
+    val label = normalizeGroupName(group)
+    return label.lowercase()
+}
+
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     private val repo: TmdbRepository,
@@ -102,6 +116,46 @@ class HomeViewModel @Inject constructor(
 
     fun leaveWatchParty() {
         watchPartyManager.leaveRoom()
+    }
+
+    fun removeBookmark(tmdbId: String) {
+        viewModelScope.launch { bookmarkRepo.removeBookmark(tmdbId) }
+    }
+
+    fun removeProgress(tmdbId: String) {
+        viewModelScope.launch { progressRepo.removeProgress(tmdbId) }
+    }
+
+    fun updateBookmarkGroups(tmdbId: String, groups: List<String>) {
+        viewModelScope.launch { bookmarkRepo.setBookmarkGroups(tmdbId, groups) }
+    }
+
+    fun renameGroup(oldGroup: String, newGroup: String) {
+        viewModelScope.launch { bookmarkRepo.renameGroup(oldGroup, newGroup) }
+    }
+
+    fun setGroupOrder(order: List<String>) {
+        viewModelScope.launch { settingsPrefs.setGroupOrder(order) }
+    }
+
+    fun updateBookmark(
+        tmdbId: String,
+        title: String,
+        type: String,
+        year: Int?,
+        posterPath: String?,
+        groups: List<String>?,
+    ) {
+        viewModelScope.launch {
+            bookmarkRepo.addBookmark(
+                tmdbId = tmdbId,
+                title = title,
+                type = type,
+                year = year,
+                posterPath = posterPath,
+                groups = groups,
+            )
+        }
     }
 
     private fun observeSettings() {
@@ -156,8 +210,11 @@ class HomeViewModel @Inject constructor(
         }
         
         viewModelScope.launch {
-            bookmarkRepo.observeAllBookmarks().collect { bookmarks ->
-                val bookmarkMedia = bookmarks.map { b ->
+            combine(bookmarkRepo.observeAllBookmarks(), settingsPrefs.settings) { bookmarks, settings ->
+                bookmarks to settings.groupOrder
+            }.collect { (bookmarkEntities, groupOrder) ->
+                val bookmarks = bookmarkEntities
+                val bookmarkMedia = bookmarks.associateBy { it.tmdbId }.mapValues { (_, b) ->
                     Media(
                         id = b.tmdbId.toIntOrNull() ?: 0,
                         title = if (b.type == "movie") b.title else null,
@@ -172,12 +229,41 @@ class HomeViewModel @Inject constructor(
                         genreIds = null
                     )
                 }
-                
-                if (bookmarkMedia.isNotEmpty()) {
-                    _state.update { it.copy(bookmarks = listOf(MediaSection("My Bookmarks", bookmarkMedia))) }
-                } else {
-                    _state.update { it.copy(bookmarks = emptyList()) }
+
+                val grouped = linkedMapOf<String, MutableList<Media>>()
+                val regular = mutableListOf<Media>()
+                bookmarkEntities.forEach { bookmark ->
+                    val media = bookmarkMedia[bookmark.tmdbId] ?: return@forEach
+                    val groups = bookmark.groups.orEmpty()
+                    if (groups.isEmpty()) {
+                        regular += media
+                    } else {
+                        groups.forEach { group ->
+                            grouped.getOrPut(group) { mutableListOf() }.add(media)
+                        }
+                    }
                 }
+
+                val availableGroups = bookmarks.asSequence()
+                    .flatMap { it.groups.orEmpty().asSequence() }
+                    .distinct()
+                    .toList()
+                val orderedGroups = groupOrder.filter { it in availableGroups } +
+                    availableGroups.filterNot { it in groupOrder }
+
+                val sectionsByGroup = buildMap<String, MediaSection> {
+                    orderedGroups.forEach { group ->
+                        grouped[group]?.takeIf { it.isNotEmpty() }?.let {
+                            put(group, MediaSection(group, it.sortedBy { media -> media.displayTitle.lowercase() }))
+                        }
+                    }
+                    if (regular.isNotEmpty()) put("bookmarks", MediaSection("My Bookmarks", regular))
+                }
+                val sectionOrder = groupOrder.filter { it in sectionsByGroup } +
+                    sectionsByGroup.keys.filterNot { it in groupOrder }
+                val sections = sectionOrder.mapNotNull(sectionsByGroup::get)
+
+                _state.update { it.copy(bookmarks = sections, bookmarkEntities = bookmarkEntities.associateBy { it.tmdbId }) }
             }
         }
     }

@@ -25,6 +25,7 @@ class TmdbRepository @Inject constructor(private val api: TmdbApi) {
         return response.results.filter { it.mediaType == "movie" || it.mediaType == "tv" }
     }
     suspend fun movieDetail(id: Int) = api.movieDetail(id)
+    suspend fun collection(id: Int) = api.collection(id)
     suspend fun tvDetail(id: Int) = api.tvDetail(id)
     suspend fun season(id: Int, season: Int) = api.season(id, season)
 }

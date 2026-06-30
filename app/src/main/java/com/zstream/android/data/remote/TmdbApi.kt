@@ -1,6 +1,7 @@
 package com.zstream.android.data.remote
 
 import com.zstream.android.data.model.*
+import com.google.gson.annotations.SerializedName
 import retrofit2.http.GET
 import retrofit2.http.Path
 import retrofit2.http.Query
@@ -26,4 +27,22 @@ interface TmdbApi {
         @Query("include_image_language") imageLanguage: String = "en,null"
     ): TvDetail
     @GET("tv/{id}/season/{season}") suspend fun season(@Path("id") id: Int, @Path("season") season: Int): Season
+    @GET("collection/{id}") suspend fun collection(@Path("id") id: Int): CollectionDetails
 }
+
+data class CollectionDetails(
+    val id: Int,
+    val name: String,
+    val overview: String?,
+    @SerializedName("poster_path") val posterPath: String?,
+    @SerializedName("backdrop_path") val backdropPath: String?,
+    val parts: List<CollectionPart> = emptyList(),
+)
+
+data class CollectionPart(
+    val id: Int,
+    val title: String,
+    @SerializedName("poster_path") val posterPath: String?,
+    @SerializedName("release_date") val releaseDate: String?,
+    @SerializedName("vote_average") val voteAverage: Double?,
+)

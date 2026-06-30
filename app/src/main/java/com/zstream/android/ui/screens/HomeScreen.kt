@@ -109,6 +109,7 @@ import coil.compose.AsyncImage
 import com.zstream.android.R
 import com.zstream.android.Urls
 import com.zstream.android.data.local.entity.ProgressEntity
+import com.zstream.android.data.local.entity.BookmarkEntity
 import com.zstream.android.data.local.preferences.UserPreferences
 import com.zstream.android.data.model.Media
 import com.zstream.android.theme.LocalZStreamTheme
@@ -150,6 +151,14 @@ private object TvHomeMetrics {
     val railItemSpacing = 12.dp
     val railVerticalSpacing = 8.dp
 }
+
+private fun normalizeGroupName(group: String): String {
+    val match = Regex("^\\[[^\\]]+]\\s*").find(group)
+    return if (match != null) group.removePrefix(match.value).trim() else group.trim()
+}
+
+private fun groupIconKey(group: String): String? =
+    Regex("^\\[([A-Za-z0-9_]+)]").find(group)?.groupValues?.getOrNull(1)?.uppercase()
 
 private fun calculateDefaultBringIntoViewScrollDistance(
     offset: Float,
@@ -261,6 +270,25 @@ private fun notificationCategoryColor(
 }
 
 private val defaultSectionOrder = listOf("continue_watching", "bookmarks")
+private val mediaSortOptions = listOf(
+    "date" to "Recently updated",
+    "title-asc" to "Title: A-Z",
+    "title-desc" to "Title: Z-A",
+    "year-asc" to "Year: oldest first",
+    "year-desc" to "Year: newest first",
+)
+
+private fun MediaSection.sorted(
+    sort: String,
+    progress: Map<String, ProgressEntity>,
+    bookmarks: Map<String, BookmarkEntity>,
+): MediaSection = copy(items = when (sort) {
+    "title-asc" -> items.sortedBy { it.displayTitle.lowercase() }
+    "title-desc" -> items.sortedByDescending { it.displayTitle.lowercase() }
+    "year-asc" -> items.sortedWith(compareBy<Media> { it.displayDate.take(4).toIntOrNull() ?: Int.MAX_VALUE }.thenBy { it.displayTitle.lowercase() })
+    "year-desc" -> items.sortedWith(compareByDescending<Media> { it.displayDate.take(4).toIntOrNull() ?: Int.MIN_VALUE }.thenBy { it.displayTitle.lowercase() })
+    else -> items.sortedByDescending { media -> maxOf(progress[media.id.toString()]?.updatedAt ?: 0L, bookmarks[media.id.toString()]?.updatedAt ?: 0L) }
+})
 
 private val tmdbGenres = mapOf(
     28 to "Action", 12 to "Adventure", 16 to "Animation", 35 to "Comedy",
@@ -373,8 +401,19 @@ fun HomeScreen(
     var showSandwichMenu by remember { mutableStateOf(false) }
     var showContinueWatching by remember { mutableStateOf(true) }
     var showBookmarks by remember { mutableStateOf(true) }
+    var hiddenGroups by remember { mutableStateOf<Set<String>>(emptySet()) }
     var showNotifications by remember { mutableStateOf(false) }
     var showTipJar by remember { mutableStateOf(false) }
+    var editingGroup by remember { mutableStateOf<String?>(null) }
+    var sectionSettings by remember { mutableStateOf<String?>(null) }
+    var editingBookmarks by remember { mutableStateOf(false) }
+    var editingBookmark by remember { mutableStateOf<BookmarkEntity?>(null) }
+    var bookmarkEditTitle by remember { mutableStateOf("") }
+    var bookmarkEditYear by remember { mutableStateOf("") }
+    var bookmarkEditGroups by remember { mutableStateOf<List<String>>(emptyList()) }
+    var showCreateGroup by remember { mutableStateOf(false) }
+    var watchingSort by remember { mutableStateOf("date") }
+    var bookmarksSort by remember { mutableStateOf("date") }
     var isSearchFocused by remember { mutableStateOf(false) }
     var notifications by remember { mutableStateOf<List<NotificationItem>>(emptyList()) }
     var readGuids by remember { mutableStateOf<Set<String>>(emptySet()) }
@@ -418,6 +457,8 @@ fun HomeScreen(
         launch {
             vm.userPrefs.sectionOrderFlow(defaultSectionOrder).collect { sectionOrder = it }
         }
+        launch { vm.userPrefs.watchingSort.collect { watchingSort = it } }
+        launch { vm.userPrefs.bookmarksSort.collect { bookmarksSort = it } }
         try {
             notifications = withContext(Dispatchers.IO) { fetchNotifications() }
         } catch (_: Exception) { }
@@ -430,14 +471,21 @@ fun HomeScreen(
     fun HomeDialogs()
     {
         if (showLayoutMenu) {
+            val allGroups = remember(state.bookmarkEntities) {
+                state.bookmarkEntities.values.flatMap { it.groups.orEmpty() }.distinct()
+            }
             LayoutMenuDialog(
                 sectionOrder = sectionOrder,
                 showContinueWatching = showContinueWatching,
                 showBookmarks = showBookmarks,
+                hiddenGroups = hiddenGroups,
+                allGroups = allGroups,
+                vm = vm,
                 onToggle = { id, visible ->
                     when (id) {
                         "continue_watching" -> showContinueWatching = visible
                         "bookmarks" -> showBookmarks = visible
+                        else -> if (id.startsWith("[")) hiddenGroups = if (visible) hiddenGroups - id else hiddenGroups + id
                     }
                 },
                 onReorder = { newOrder ->
@@ -463,6 +511,192 @@ fun HomeScreen(
                 onTipJar = { showTipJar = true },
                 onDismiss = { showSandwichMenu = false },
             )
+        }
+        editingBookmark?.let { bookmark ->
+            val allGroupNames = state.bookmarkEntities.values.flatMap { it.groups.orEmpty() }.distinct()
+            Dialog(onDismissRequest = { editingBookmark = null; showCreateGroup = false }) {
+                Surface(
+                    color = theme.colors.modal.background,
+                    shape = RoundedCornerShape(20.dp),
+                    border = BorderStroke(1.dp, theme.colors.type.divider.copy(alpha = 0.25f)),
+                    modifier = Modifier.widthIn(max = 480.dp),
+                ) {
+                    Column(Modifier.padding(horizontal = 24.dp, vertical = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text("Edit bookmark", color = theme.colors.type.emphasis, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                        OutlinedTextField(
+                            value = bookmarkEditTitle,
+                            onValueChange = { bookmarkEditTitle = it },
+                            label = { Text("Title") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        OutlinedTextField(
+                            value = bookmarkEditYear,
+                            onValueChange = { bookmarkEditYear = it.filter(Char::isDigit).take(4) },
+                            label = { Text("Year") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Text("Groups", color = theme.colors.type.secondary, fontWeight = FontWeight.SemiBold)
+                            ZsIconButton(
+                                icon = Icons.Default.Add,
+                                contentDescription = "Create group",
+                                onClick = { showCreateGroup = true },
+                                containerSize = 36.dp,
+                                iconSize = 18.dp,
+                            )
+                        }
+                        Surface(
+                            color = theme.colors.background.main,
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, theme.colors.type.divider.copy(alpha = 0.25f)),
+                            modifier = Modifier.fillMaxWidth().heightIn(max = 240.dp),
+                        ) {
+                            Column(Modifier.verticalScroll(rememberScrollState())) {
+                                allGroupNames.forEach { group ->
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        groupIconKey(group)?.let {
+                                            Icon(groupIconPainter(it), null, tint = theme.colors.global.accentA, modifier = Modifier.size(22.dp))
+                                            Spacer(Modifier.width(10.dp))
+                                        }
+                                        Text(normalizeGroupName(group), color = theme.colors.type.text, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                                        Checkbox(
+                                            checked = group in bookmarkEditGroups,
+                                            onCheckedChange = { checked ->
+                                                bookmarkEditGroups = if (checked) (bookmarkEditGroups + group).distinct() else bookmarkEditGroups - group
+                                            },
+                                            colors = CheckboxDefaults.colors(checkedColor = theme.colors.global.accentA),
+                                        )
+                                    }
+                                    HorizontalDivider(color = theme.colors.type.divider.copy(alpha = 0.15f))
+                                }
+                            }
+                        }
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                            TextButton(onClick = { editingBookmark = null; showCreateGroup = false }) { Text("Cancel", color = theme.colors.type.secondary) }
+                            TextButton(onClick = {
+                                val year = bookmarkEditYear.toIntOrNull()
+                            vm.updateBookmark(
+                                tmdbId = bookmark.tmdbId,
+                                title = bookmarkEditTitle.trim().ifBlank { bookmark.title },
+                                type = bookmark.type,
+                                year = year ?: bookmark.year,
+                                posterPath = bookmark.posterPath,
+                                groups = bookmarkEditGroups.ifEmpty { null },
+                            )
+                                editingBookmark = null
+                                showCreateGroup = false
+                            }) { Text("Save", color = theme.colors.global.accentA) }
+                        }
+                    }
+                }
+            }
+            if (showCreateGroup) {
+                GroupEditorDialog(
+                    currentGroups = bookmarkEditGroups,
+                    allGroups = allGroupNames,
+                    theme = theme,
+                    showExistingGroups = false,
+                    onUpdateGroups = { bookmarkEditGroups = it },
+                    onDismiss = { showCreateGroup = false },
+                )
+            }
+        }
+        sectionSettings?.let { section ->
+            val customGroup = section.takeIf { it.startsWith("[") }
+            val draftGroup = editingGroup ?: customGroup
+            val iconKey = draftGroup?.let(::groupIconKey) ?: "BOOKMARK"
+            val label = draftGroup?.let(::normalizeGroupName).orEmpty()
+            var showSortMenu by remember { mutableStateOf(false) }
+            val currentSort = if (section == "Continue Watching") watchingSort else bookmarksSort
+            Dialog(onDismissRequest = { sectionSettings = null; editingGroup = null }) {
+                Surface(
+                    color = theme.colors.modal.background,
+                    shape = RoundedCornerShape(20.dp),
+                    border = BorderStroke(1.dp, theme.colors.type.divider.copy(alpha = 0.25f)),
+                    modifier = Modifier.widthIn(max = 480.dp),
+                ) {
+                    Column(Modifier.padding(horizontal = 24.dp, vertical = 20.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                        Text("Section settings", color = theme.colors.type.emphasis, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                        Text("Sort", color = theme.colors.type.secondary, fontWeight = FontWeight.SemiBold)
+                        Box {
+                            OutlinedButton(onClick = { showSortMenu = true }, modifier = Modifier.fillMaxWidth()) {
+                                Text(mediaSortOptions.first { it.first == currentSort }.second, modifier = Modifier.weight(1f))
+                                Icon(Icons.Default.ArrowDropDown, null)
+                            }
+                            DropdownMenu(expanded = showSortMenu, onDismissRequest = { showSortMenu = false }) {
+                                mediaSortOptions.forEach { (value, sortLabel) ->
+                                    DropdownMenuItem(
+                                        text = { Text(sortLabel) },
+                                        leadingIcon = { if (currentSort == value) Icon(Icons.Default.Check, null) },
+                                        onClick = {
+                                            if (section == "Continue Watching") {
+                                                watchingSort = value
+                                                scope.launch { vm.userPrefs.saveWatchingSort(value) }
+                                            } else {
+                                                bookmarksSort = value
+                                                scope.launch { vm.userPrefs.saveBookmarksSort(value) }
+                                            }
+                                            showSortMenu = false
+                                        },
+                                    )
+                                }
+                            }
+                        }
+                        if (customGroup != null) {
+                            HorizontalDivider(color = theme.colors.type.divider.copy(alpha = 0.2f))
+                            Text("Edit group", color = theme.colors.type.emphasis, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                "Affects ${state.bookmarkEntities.values.count { customGroup in it.groups.orEmpty() }} bookmarks",
+                                color = theme.colors.type.secondary,
+                                fontSize = 13.sp,
+                            )
+                        OutlinedTextField(
+                            value = label,
+                            onValueChange = { editingGroup = "[${iconKey.lowercase()}]${it.trim()}" },
+                            label = { Text("Group name") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        FlowRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            groupIconOptions.forEach { (key, icon) ->
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = if (iconKey == key) theme.colors.global.accentA.copy(alpha = 0.22f) else theme.colors.background.secondary,
+                                    border = androidx.compose.foundation.BorderStroke(
+                                        1.dp,
+                                        if (iconKey == key) theme.colors.global.accentA else theme.colors.type.divider.copy(alpha = 0.35f),
+                                    ),
+                                    modifier = Modifier.clickable {
+                                        editingGroup = "[${key.lowercase()}]$label"
+                                    },
+                                ) {
+                                    Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+                                Icon(painterResource(icon), null, tint = theme.colors.type.emphasis, modifier = Modifier.size(22.dp))
+                                    }
+                                }
+                            }
+                        }
+                        }
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                            TextButton(onClick = { sectionSettings = null; editingGroup = null }) { Text("Cancel", color = theme.colors.type.secondary) }
+                            TextButton(onClick = {
+                                if (customGroup != null && draftGroup != null) vm.renameGroup(customGroup, draftGroup)
+                                sectionSettings = null
+                                editingGroup = null
+                            }) { Text("Save", color = theme.colors.global.accentA) }
+                        }
+                    }
+                }
+            }
         }
         if (showNotifications) {
             NotificationsDialog(
@@ -659,7 +893,7 @@ fun HomeScreen(
                                     val id = when (section.title) {
                                         "Continue Watching" -> "continue_watching"
                                         "My Bookmarks" -> "bookmarks"
-                                        else -> ""
+                                        else -> section.title.takeIf { it.startsWith("[") } ?: ""
                                     }
                                     sectionOrder.indexOf(id).let { if (it < 0) Int.MAX_VALUE else it }
                                 }
@@ -667,18 +901,77 @@ fun HomeScreen(
                                     when (section.title) {
                                         "Continue Watching" -> showContinueWatching
                                         "My Bookmarks" -> showBookmarks
-                                        else -> true
+                                        else -> if (section.title.startsWith("[")) section.title !in hiddenGroups else true
                                     }
                                 }
                                 .forEach { section ->
                                     val sectionId = section.title
                                     val sectionPage = sectionPages[sectionId] ?: 0
+                                    val isBookmarkSection = section.title == "My Bookmarks" || section.title.startsWith("[")
+                                    val sectionSort = if (section.title == "Continue Watching") watchingSort else bookmarksSort
+                                    val sortedSection = section.sorted(sectionSort, state.progressMap, state.bookmarkEntities)
+                                    val removeItem: (Media) -> Unit = { media ->
+                                        when (section.title) {
+                                            "Continue Watching" -> vm.removeProgress(media.id.toString())
+                                            "My Bookmarks" -> vm.removeBookmark(media.id.toString())
+                                            else -> state.bookmarkEntities[media.id.toString()]?.let { bookmark ->
+                                                vm.updateBookmarkGroups(bookmark.tmdbId, bookmark.groups.orEmpty() - section.title)
+                                            }
+                                        }
+                                    }
+                                    val editItem: ((Media) -> Unit)? = if (isBookmarkSection) {{ media ->
+                                        state.bookmarkEntities[media.id.toString()]?.let { entity ->
+                                            editingBookmark = entity
+                                            showCreateGroup = false
+                                            bookmarkEditTitle = entity.title
+                                            bookmarkEditYear = entity.year?.toString().orEmpty()
+                                            bookmarkEditGroups = entity.groups.orEmpty()
+                                        }
+                                    }} else null
                                     if (!state.enableCarouselView) {
-                                        MediaGridPages(section, nav, state.progressMap, numOfColumns = numOfColumns, numOfRows = numOfRows, currentPage = sectionPage, onPageChange = { newPage -> sectionPages = sectionPages + (sectionId to newPage) })
+                                        MediaGridPages(
+                                            sortedSection, nav, state.progressMap,
+                                            numOfColumns = numOfColumns,
+                                            numOfRows = numOfRows,
+                                            currentPage = sectionPage,
+                                            onPageChange = { newPage -> sectionPages = sectionPages + (sectionId to newPage) },
+                                            editable = editingBookmarks,
+                                            onRemoveItem = removeItem,
+                                            onEditItem = editItem,
+                                            trailingContent = {
+                                                SectionEditActions(
+                                                    editing = editingBookmarks,
+                                                    onToggleEditing = { editingBookmarks = !editingBookmarks },
+                                                    onSettings = {
+                                                        sectionSettings = section.title
+                                                        editingGroup = section.title.takeIf { it.startsWith("[") }
+                                                    },
+                                                )
+                                            },
+                                        )
                                         //MediaGridLazy(section.items, nav, state.progressMap, numOfColumns)
                                         // switch between these 2 lines to test the lazyview with the bookmarks and continue watching section
                                     } else {
-                                        item { MediaCarouselSection(section, nav, progressMap = state.progressMap) }
+                                        item {
+                                            MediaCarouselSection(
+                                                sortedSection,
+                                                nav,
+                                                progressMap = state.progressMap,
+                                                editable = editingBookmarks,
+                                                onRemoveItem = removeItem,
+                                                onEditItem = editItem,
+                                                trailingContent = {
+                                                    SectionEditActions(
+                                                        editing = editingBookmarks,
+                                                        onToggleEditing = { editingBookmarks = !editingBookmarks },
+                                                        onSettings = {
+                                                            sectionSettings = section.title
+                                                            editingGroup = section.title.takeIf { it.startsWith("[") }
+                                                        },
+                                                    )
+                                                },
+                                            )
+                                        }
                                     }
                                     item { Spacer(Modifier.height(20.dp)) }
                                 }
@@ -693,7 +986,13 @@ fun HomeScreen(
                                     else section.items
                                     section.copy(items = filtered)
                                 }.filter { it.items.isNotEmpty() }.forEach { section ->
-                                    item { MediaCarouselSection(section, nav, progressMap = state.progressMap) }
+                                    item {
+                                        MediaCarouselSection(
+                                            section,
+                                            nav,
+                                            progressMap = state.progressMap,
+                                        )
+                                    }
                                     item { Spacer(Modifier.height(20.dp)) }
                                 }
                             }
@@ -1291,28 +1590,91 @@ private fun HomeTabs(activeTab: HomeTab, onTab: (HomeTab) -> Unit) {
 private fun SyncedSectionTitle(title: String) {
     val theme = LocalZStreamTheme.current
     val isTv = LocalIsTv.current
-    Text(
-        text = title,
-        color = theme.colors.type.emphasis,
-        fontWeight = FontWeight.Bold,
-        fontSize = if (isTv) TvHomeMetrics.sectionTitleSize else 16.sp,
+    val match = Regex("^\\[([A-Za-z0-9_]+)](.*)$").find(title)
+    val iconKey = match?.groupValues?.getOrNull(1)?.uppercase()
+        ?: if (title == "My Bookmarks") "BOOKMARK" else null
+    val icon = when {
+        title == "Continue Watching" -> painterResource(R.drawable.ic_section_clock)
+        iconKey != null -> groupIconPainter(iconKey)
+        else -> null
+    }
+    val cleanTitle = match?.groupValues?.getOrNull(2)?.trim().orEmpty().ifBlank { title }
+    Row(
         modifier = Modifier.padding(
             horizontal = if (isTv) TvHomeMetrics.screenPadding else 16.dp,
             vertical = if (isTv) 6.dp else 8.dp
+        ),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        if (icon != null) {
+            Box(
+                modifier = Modifier
+                    .size(if (isTv) 22.dp else 20.dp)
+                    .clip(CircleShape)
+                    .background(theme.colors.global.accentA.copy(alpha = 0.18f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(icon, null, tint = theme.colors.global.accentA, modifier = Modifier.size(if (isTv) 16.dp else 14.dp))
+            }
+        }
+        Text(
+            text = cleanTitle,
+            color = theme.colors.type.emphasis,
+            fontWeight = FontWeight.Bold,
+            fontSize = if (isTv) TvHomeMetrics.sectionTitleSize else 16.sp,
         )
+    }
+}
+
+@Composable
+private fun SectionEditActions(
+    editing: Boolean,
+    onToggleEditing: () -> Unit,
+    onSettings: () -> Unit,
+) {
+    if (editing) {
+        ZsIconButton(
+            icon = Icons.Default.Settings,
+            contentDescription = "Section settings",
+            onClick = onSettings,
+            containerSize = 38.dp,
+            iconSize = 19.dp,
+        )
+        Spacer(Modifier.width(8.dp))
+    }
+    ZsIconButton(
+        variant = ZsIconButtonVariant.Secondary,
+        icon = if (editing) Icons.Default.Check else Icons.Default.Edit,
+        contentDescription = if (editing) "Done editing" else "Edit section",
+        onClick = onToggleEditing,
+        modifier = Modifier.padding(end = 20.dp),
+        containerSize = 38.dp,
+        iconSize = 19.dp,
     )
 }
+
 @Composable
 private fun MediaCarouselSection(
     section: MediaSection,
     nav: NavController,
     progressMap: Map<String, ProgressEntity> = emptyMap(),
+    editable: Boolean = false,
+    onRemoveItem: ((Media) -> Unit)? = null,
+    onEditItem: ((Media) -> Unit)? = null,
+    trailingContent: (@Composable RowScope.() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val theme = LocalZStreamTheme.current
     val isTv = LocalIsTv.current
     Column(modifier = modifier) {
-        SyncedSectionTitle(section.title)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            SyncedSectionTitle(section.title)
+            Spacer(Modifier.weight(1f))
+            trailingContent?.invoke(this)
+        }
+
+        Spacer(Modifier.height(6.dp))
 
         LazyRow(
             contentPadding = PaddingValues(horizontal = if (isTv) TvHomeMetrics.screenPadding else 16.dp),
@@ -1321,12 +1683,51 @@ private fun MediaCarouselSection(
             items(section.items) { media ->
                 val progress = progressMap[media.id.toString()]
                 val progressInfo = progress?.let { getProgressInfo(it) }
-                MediaCard(
-                    media = media,
-                    onClick = { nav.navigate("detail/${media.type}/${media.id}") },
-                    percentage = progressInfo?.first,
-                    seriesLabel = progressInfo?.second,
-                )
+                Box {
+                    MediaCard(
+                        media = media,
+                        onClick = { nav.navigate("detail/${media.type}/${media.id}") },
+                        percentage = progressInfo?.first,
+                        seriesLabel = progressInfo?.second,
+                    )
+                    if (editable) {
+                        Box(
+                            modifier = Modifier
+                                .matchParentSize()
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color.Black.copy(alpha = 0.45f))
+                                .clickable { }
+                        )
+                    }
+                    if (editable && onRemoveItem != null) {
+                        if (onEditItem != null) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopStart)
+                                    .padding(8.dp)
+                                    .size(40.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.Black.copy(alpha = 0.75f))
+                            ) {
+                                IconButton(onClick = { onEditItem(media) }, modifier = Modifier.fillMaxSize()) {
+                                    Icon(Icons.Default.Edit, "Edit bookmark", tint = Color.White, modifier = Modifier.size(22.dp))
+                                }
+                            }
+                        }
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.TopCenter)
+                                .offset(y = 62.dp)
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(Color.Black.copy(alpha = 0.75f))
+                        ) {
+                            IconButton(onClick = { onRemoveItem(media) }, modifier = Modifier.fillMaxSize()) {
+                                Icon(Icons.Default.Close, "Remove", tint = Color.White, modifier = Modifier.size(22.dp))
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -1341,7 +1742,10 @@ private fun MediaGridRow(
     rowItems: List<Media>,
     nav: NavController,
     progressMap: Map<String, ProgressEntity> = emptyMap(),
-    numOfColumns: Int
+    numOfColumns: Int,
+    editable: Boolean = false,
+    onRemoveItem: ((Media) -> Unit)? = null,
+    onEditItem: ((Media) -> Unit)? = null,
 ) {
     Row(
         modifier = Modifier
@@ -1359,6 +1763,34 @@ private fun MediaGridRow(
                     percentage = progressInfo?.first,
                     seriesLabel = progressInfo?.second
                 )
+                if (editable) {
+                    Box(
+                        modifier = Modifier
+                            .matchParentSize()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Color.Black.copy(alpha = 0.45f))
+                    )
+                }
+                if (editable && onRemoveItem != null) {
+                    if (onEditItem != null) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .padding(8.dp)
+                                .size(20.dp)
+                                .clip(CircleShape)
+                                .background(Color.Black.copy(alpha = 0.75f))
+                        ) {
+                            IconButton(onClick = { onEditItem(media) }, modifier = Modifier.fillMaxSize()) {
+                                Icon(Icons.Default.Edit, "Edit bookmark", tint = Color.White, modifier = Modifier.size(22.dp))
+                            }
+                        }
+                    }
+                    IconButton(
+                        onClick = { onRemoveItem(media) },
+                        modifier = Modifier.align(Alignment.TopCenter).offset(y = 62.dp).size(40.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.75f)),
+                    ) { Icon(Icons.Default.Close, "Remove", tint = Color.White, modifier = Modifier.size(22.dp)) }
+                }
             }
         }
         repeat(numOfColumns - rowItems.size) {
@@ -1398,6 +1830,10 @@ private fun LazyListScope.MediaGridPages(
     numOfRows: Int,
     currentPage: Int,
     onPageChange: (Int) -> Unit,
+    editable: Boolean = false,
+    onRemoveItem: ((Media) -> Unit)? = null,
+    onEditItem: ((Media) -> Unit)? = null,
+    trailingContent: (@Composable RowScope.() -> Unit)? = null,
 ) {
     item {
         val theme = LocalZStreamTheme.current
@@ -1428,13 +1864,21 @@ private fun LazyListScope.MediaGridPages(
             }
 
             Column {
-                SyncedSectionTitle(section.title)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    SyncedSectionTitle(section.title)
+                    Spacer(Modifier.weight(1f))
+                    trailingContent?.invoke(this)
+                }
+                Spacer(Modifier.height(6.dp))
                 cards.chunked(numOfColumns).forEach { rowItems ->
                     MediaGridRow(
                         rowItems = rowItems,
                         nav = nav,
                         progressMap = progressMap,
-                        numOfColumns = numOfColumns
+                        numOfColumns = numOfColumns,
+                        editable = editable,
+                        onRemoveItem = onRemoveItem,
+                        onEditItem = onEditItem,
                     )
                 }
                 Spacer(Modifier.height(0.dp))
@@ -1529,6 +1973,9 @@ private fun LayoutMenuDialog(
     sectionOrder: List<String>,
     showContinueWatching: Boolean,
     showBookmarks: Boolean,
+    hiddenGroups: Set<String> = emptySet(),
+    allGroups: List<String> = emptyList(),
+    vm: HomeViewModel? = null,
     onToggle: (String, Boolean) -> Unit,
     onReorder: (List<String>) -> Unit,
     onDismiss: () -> Unit,
@@ -1546,7 +1993,12 @@ private fun LayoutMenuDialog(
 
     data class LayoutItem(val id: String, val label: String, val visible: Boolean)
 
-    val sections = remember {
+    var editingGroup by remember { mutableStateOf<String?>(null) }
+    var editingGroupName by remember { mutableStateOf("") }
+    var editingGroupIcon by remember { mutableStateOf("BOOKMARK") }
+    val scope = rememberCoroutineScope()
+
+    val sections = remember(sectionOrder, allGroups) {
         mutableStateListOf<LayoutItem>().apply {
             sectionOrder.forEach { id ->
                 add(
@@ -1555,15 +2007,20 @@ private fun LayoutMenuDialog(
                         label = when (id) {
                             "continue_watching" -> "Continue Watching..."
                             "bookmarks" -> "Bookmarks"
-                            else -> id
+                            else -> if (id.startsWith("[")) normalizeGroupName(id) else id
                         },
                         visible = when (id) {
                             "continue_watching" -> showContinueWatching
                             "bookmarks" -> showBookmarks
-                            else -> true
+                            else -> if (id.startsWith("[")) id !in hiddenGroups else true
                         },
                     )
                 )
+            }
+            allGroups.forEach { group ->
+                if (group != "bookmarks" && group !in sectionOrder) {
+                    add(LayoutItem(id = group, label = normalizeGroupName(group), visible = group !in hiddenGroups))
+                }
             }
         }
     }
@@ -1636,11 +2093,24 @@ private fun LayoutMenuDialog(
                                         tint = theme.colors.type.dimmed,
                                         modifier = Modifier.size(18.dp)
                                     )
+                                    if (section.id.startsWith("[")) {
+                                        val iconKey = groupIconKey(section.id) ?: "BOOKMARK"
+                                        Icon(groupIconPainter(iconKey), null, tint = theme.colors.global.accentA, modifier = Modifier.size(16.dp))
+                                    }
                                     Text(
                                         section.label,
                                         color = theme.colors.type.text, fontSize = 12.sp,
                                         fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f),
                                     )
+                                    if (section.id.startsWith("[")) {
+                                        IconButton(onClick = {
+                                            editingGroup = section.id
+                                            editingGroupName = normalizeGroupName(section.id)
+                                            editingGroupIcon = groupIconKey(section.id) ?: "BOOKMARK"
+                                        }, modifier = Modifier.size(24.dp)) {
+                                            Icon(Icons.Default.Edit, "Edit group", tint = theme.colors.type.dimmed, modifier = Modifier.size(14.dp))
+                                        }
+                                    }
                                     Switch(
                                         checked = section.visible,
                                         onCheckedChange = null,
@@ -1746,7 +2216,12 @@ private fun LayoutMenuDialog(
                                                         }
                                                     },
                                                     onDragEnd = {
-                                                        onReorder(sections.map { it.id })
+                                                        val orderedIds = sections.map { it.id }
+                                                        onReorder(orderedIds)
+                                                        val groupIds = orderedIds.filter { it.startsWith("[") }
+                                                        if (groupIds.isNotEmpty()) {
+                                                            scope.launch { vm?.setGroupOrder(groupIds) }
+                                                        }
                                                         draggedIndex = null
                                                         draggedOffset = 0f
                                                     },
@@ -1757,6 +2232,10 @@ private fun LayoutMenuDialog(
                                                 )
                                             }
                                     )
+                                    if (section.id.startsWith("[")) {
+                                        val iconKey = groupIconKey(section.id) ?: "BOOKMARK"
+                                        Icon(groupIconPainter(iconKey), null, tint = theme.colors.global.accentA, modifier = Modifier.size(16.dp))
+                                    }
                                     Text(
                                         section.label,
                                         color = theme.colors.type.text,
@@ -1764,6 +2243,15 @@ private fun LayoutMenuDialog(
                                         fontWeight = FontWeight.Medium,
                                         modifier = Modifier.weight(1f),
                                     )
+                                    if (section.id.startsWith("[")) {
+                                        IconButton(onClick = {
+                                            editingGroup = section.id
+                                            editingGroupName = normalizeGroupName(section.id)
+                                            editingGroupIcon = groupIconKey(section.id) ?: "BOOKMARK"
+                                        }, modifier = Modifier.size(24.dp)) {
+                                            Icon(Icons.Default.Edit, "Edit group", tint = theme.colors.type.dimmed, modifier = Modifier.size(14.dp))
+                                        }
+                                    }
                                     Switch(
                                         checked = section.visible,
                                         onCheckedChange = {
@@ -1787,6 +2275,51 @@ private fun LayoutMenuDialog(
         }
     }
 
+    editingGroup?.let { group ->
+        val iconKey = groupIconKey(group) ?: "BOOKMARK"
+        val name = normalizeGroupName(group)
+        Dialog(onDismissRequest = { editingGroup = null; editingGroupName = ""; editingGroupIcon = "BOOKMARK" }) {
+            Surface(
+                color = theme.colors.modal.background,
+                shape = RoundedCornerShape(20.dp),
+                border = BorderStroke(1.dp, theme.colors.type.divider.copy(alpha = 0.25f)),
+                modifier = Modifier.widthIn(max = 384.dp),
+            ) {
+                Column(Modifier.padding(horizontal = 16.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Edit group", color = theme.colors.type.emphasis, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                    OutlinedTextField(
+                        value = editingGroupName,
+                        onValueChange = { editingGroupName = it },
+                        label = { Text("Group name") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Text("Icon", color = theme.colors.type.secondary, fontSize = 12.sp)
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        groupIconOptions.forEach { (key, icon) ->
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = if (editingGroupIcon == key) theme.colors.global.accentA.copy(alpha = 0.22f) else theme.colors.background.secondary,
+                                border = BorderStroke(1.dp, if (editingGroupIcon == key) theme.colors.global.accentA else theme.colors.type.divider.copy(alpha = 0.35f)),
+                                modifier = Modifier.clickable { editingGroupIcon = key },
+                            ) {
+                                Box(Modifier.size(42.dp), contentAlignment = Alignment.Center) {
+                                    Icon(painterResource(icon), null, tint = if (editingGroupIcon == key) theme.colors.global.accentA else theme.colors.type.emphasis, modifier = Modifier.size(18.dp))
+                                }
+                            }
+                        }
+                    }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        TextButton(onClick = { editingGroup = null; editingGroupName = ""; editingGroupIcon = "BOOKMARK" }) { Text("Cancel", color = theme.colors.type.secondary) }
+                        TextButton(enabled = editingGroupName.trim().isNotEmpty(), onClick = {
+                            vm?.renameGroup(group, "[${editingGroupIcon.lowercase()}]${editingGroupName.trim()}")
+                            editingGroup = null
+                        }) { Text("Save", color = theme.colors.global.accentA) }
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable
