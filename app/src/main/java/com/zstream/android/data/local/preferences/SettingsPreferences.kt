@@ -88,6 +88,7 @@ class SettingsPreferences @Inject constructor(
 
     // Interface
     private val KEY_HOME_SECTION_ORDER = stringPreferencesKey("home_section_order")
+    private val KEY_GROUP_ORDER = stringPreferencesKey("group_order")
     private val KEY_FORCE_COMPACT_EPISODE_VIEW = booleanPreferencesKey("force_compact_episode_view")
 
     // Subtitle Styling
@@ -156,6 +157,7 @@ class SettingsPreferences @Inject constructor(
             proxyTmdb = prefs[KEY_PROXY_TMDB] ?: false,
             tmdbApiKey = prefs[KEY_TMDB_API_KEY],
             homeSectionOrder = prefs[KEY_HOME_SECTION_ORDER]?.split(",")?.filter { it.isNotBlank() } ?: emptyList(),
+            groupOrder = prefs[KEY_GROUP_ORDER]?.split(",")?.filter { it.isNotBlank() } ?: emptyList(),
             forceCompactEpisodeView = prefs[KEY_FORCE_COMPACT_EPISODE_VIEW] ?: false,
             enableAutoResumeOnPlaybackError = prefs[KEY_ENABLE_AUTO_RESUME_ON_PLAYBACK_ERROR] ?: true,
             enableNativeKeyboard = prefs[KEY_ENABLE_NATIVE_KEYBOARD] ?: false,
@@ -241,6 +243,7 @@ class SettingsPreferences @Inject constructor(
                 TmdbTokenCache.token = null
             }
             prefs[KEY_HOME_SECTION_ORDER] = entity.homeSectionOrder.joinToString(",")
+            prefs[KEY_GROUP_ORDER] = entity.groupOrder.joinToString(",")
             prefs[KEY_FORCE_COMPACT_EPISODE_VIEW] = entity.forceCompactEpisodeView
             prefs[KEY_ENABLE_AUTO_RESUME_ON_PLAYBACK_ERROR] = entity.enableAutoResumeOnPlaybackError
             prefs[KEY_ENABLE_NATIVE_KEYBOARD] = entity.enableNativeKeyboard
@@ -347,6 +350,7 @@ class SettingsPreferences @Inject constructor(
                 proxyTmdb = remote.proxyTmdb ?: false,
                 tmdbApiKey = currentTmdbApiKey,
                 homeSectionOrder = mappedHomeSectionOrder,
+                groupOrder = remote.groupOrder ?: emptyList(),
                 forceCompactEpisodeView = remote.forceCompactEpisodeView ?: false,
                 enableAutoResumeOnPlaybackError = remote.enableAutoResumeOnPlaybackError ?: true,
                 enableNativeKeyboard = current[KEY_ENABLE_NATIVE_KEYBOARD] ?: false,
@@ -365,6 +369,33 @@ class SettingsPreferences @Inject constructor(
             Log.d("SettingsPreferences", "Successfully synced settings from remote")
         } catch (e: Exception) {
             Log.e("SettingsPreferences", "Failed to sync settings from remote", e)
+        }
+    }
+
+    suspend fun syncGroupOrderToRemote(userId: String, auth: String, api: com.zstream.android.data.remote.BackendApi, groupOrder: List<String>) {
+        try {
+            api.updateGroupOrder(userId, auth, groupOrder)
+        } catch (e: Exception) {
+            Log.e("SettingsPreferences", "Failed to sync group order to remote", e)
+        }
+    }
+
+    suspend fun appendGroupOrder(groups: List<String>): List<String> {
+        val normalized = groups.filter { it.isNotBlank() }
+        if (normalized.isEmpty()) return emptyList()
+        val next = context.settingsStore.data.first().let { current ->
+            val existing = current[KEY_GROUP_ORDER]?.split(",")?.filter { it.isNotBlank() }.orEmpty()
+            (existing + normalized).distinct()
+        }
+        context.settingsStore.edit { prefs ->
+            prefs[KEY_GROUP_ORDER] = next.joinToString(",")
+        }
+        return next
+    }
+
+    suspend fun setGroupOrder(order: List<String>) {
+        context.settingsStore.edit { prefs ->
+            prefs[KEY_GROUP_ORDER] = order.joinToString(",")
         }
     }
 

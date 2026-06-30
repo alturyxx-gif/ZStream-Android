@@ -9,6 +9,8 @@ import com.zstream.android.data.model.MovieDetail
 import com.zstream.android.data.model.Season
 import com.zstream.android.data.model.TvDetail
 import com.zstream.android.data.model.airedEpisodes
+import com.zstream.android.data.model.CollectionSummary
+import com.zstream.android.data.remote.CollectionDetails
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -26,6 +28,13 @@ sealed class DetailState {
     data class Error(val message: String) : DetailState()
 }
 
+sealed interface CollectionState {
+    data object Closed : CollectionState
+    data class Loading(val collection: CollectionSummary) : CollectionState
+    data class Loaded(val collection: CollectionDetails) : CollectionState
+    data class Error(val collection: CollectionSummary, val message: String) : CollectionState
+}
+
 @HiltViewModel
 class DetailViewModel @Inject constructor(
     private val repo: TmdbRepository,
@@ -38,11 +47,19 @@ class DetailViewModel @Inject constructor(
 
     private val _state = MutableStateFlow<DetailState>(DetailState.Loading)
     val state = _state.asStateFlow()
+    private val _collection = MutableStateFlow<CollectionState>(CollectionState.Closed)
+    val collection = _collection.asStateFlow()
     
     // Add flows for bookmark and progress
     val isBookmarked = bookmarkRepo.observeBookmark(id.toString())
         .map { it != null }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    val bookmark: kotlinx.coroutines.flow.StateFlow<com.zstream.android.data.local.entity.BookmarkEntity?> = bookmarkRepo.observeBookmark(id.toString())
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+    val allGroups = bookmarkRepo.observeAllBookmarks()
+        .map { bookmarks -> bookmarks.flatMap { it.groups.orEmpty() }.distinct() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val progress = progressRepo.observeProgress(id.toString())
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
@@ -91,6 +108,63 @@ class DetailViewModel @Inject constructor(
                 bookmarkRepo.addBookmark(id.toString(), title, mediaType, year, poster)
             }
         }
+    }
+
+    fun updateBookmarkGroups(groups: List<String>) {
+        val current = _state.value
+        val title = when (current) {
+            is DetailState.Movie -> current.detail.title
+            is DetailState.Tv -> current.detail.name
+            else -> return
+        }
+        val poster = when (current) {
+            is DetailState.Movie -> current.detail.posterPath
+            is DetailState.Tv -> current.detail.posterPath
+            else -> return
+        }
+        val year = when (current) {
+            is DetailState.Movie -> current.detail.releaseDate?.take(4)?.toIntOrNull()
+            is DetailState.Tv -> current.detail.firstAirDate?.take(4)?.toIntOrNull()
+            else -> return
+        }
+        viewModelScope.launch {
+            if (isBookmarked.value) {
+                bookmarkRepo.setBookmarkGroups(id.toString(), groups)
+            } else {
+                bookmarkRepo.addBookmark(id.toString(), title, mediaType, year, poster, groups)
+            }
+        }
+    }
+
+    fun bookmarkCollection(collection: CollectionSummary) {
+        viewModelScope.launch {
+            val full = runCatching { repo.collection(collection.id) }.getOrElse { return@launch }
+            val groupName = "[${groupIconOptions.random().first.lowercase()}]${full.name}"
+            full.parts.forEach { part ->
+                val year = part.releaseDate?.take(4)?.toIntOrNull() ?: return@forEach
+                bookmarkRepo.addBookmark(
+                    tmdbId = part.id.toString(),
+                    title = part.title,
+                    type = "movie",
+                    year = year,
+                    posterPath = part.posterPath,
+                    groups = listOf(groupName),
+                )
+            }
+        }
+    }
+
+    fun loadCollection(collection: CollectionSummary) {
+        _collection.value = CollectionState.Loading(collection)
+        viewModelScope.launch {
+            runCatching { repo.collection(collection.id) }
+                .onSuccess { _collection.value = CollectionState.Loaded(it) }
+                .onFailure { _collection.value = CollectionState.Error(collection, it.message ?: "Failed to load collection") }
+        }
+    }
+
+    fun clearCollection() {
+        _collection.value = CollectionState.Closed
     }
 
     fun load() {

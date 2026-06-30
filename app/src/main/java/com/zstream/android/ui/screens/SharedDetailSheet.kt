@@ -308,8 +308,8 @@ internal fun ColumnScope.SharedMovieDetailContent(
         topActions(firstItemFocusRequester)
     }
 
-    Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(40.dp)) {
-        Column(Modifier.weight(1f)) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp)) {
+        Column(Modifier.fillMaxWidth()) {
             detail.overview?.takeIf { it.isNotBlank() }?.let { 
                 Text(
                     it, 
@@ -323,11 +323,24 @@ internal fun ColumnScope.SharedMovieDetailContent(
                 genres.forEach { SharedGenreChip(it.name, theme) }
             }
         }
-        Column(Modifier.widthIn(max = 240.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            SharedDetailSpec("Runtime", detail.runtime?.let { "$it min" } ?: "-", theme)
-            SharedDetailSpec("Language", "EN", theme)
-            SharedDetailSpec("Release Date", detail.releaseDate ?: "-", theme)
-            SharedDetailSpec("Rating", "PG-13", theme)
+            Spacer(Modifier.height(20.dp))
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Box(Modifier.weight(1f)) {
+                    SharedDetailSpec("Runtime", detail.runtime?.let { "$it min" } ?: "-", theme)
+                }
+                Box(Modifier.weight(1f)) {
+                    SharedDetailSpec("Release Date", detail.releaseDate ?: "-", theme)
+                }
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Box(Modifier.weight(1f)) {
+                    SharedDetailSpec("Language", "EN", theme)
+                }
+                Box(Modifier.weight(1f)) {
+                    SharedDetailSpec("Rating", "PG-13", theme)
+                }
+            }
             specActions()
         }
     }
@@ -581,7 +594,7 @@ internal fun SharedCastRow(
                             .border(1.dp, theme.colors.type.text.copy(alpha = 0.08f), CircleShape),
                         contentScale = ContentScale.Crop,
                     )
-                    Spacer(Modifier.height(10.dp))
+                    Spacer(Modifier.height(20.dp))
                     Text(
                         member.name.orEmpty(),
                         maxLines = 2,

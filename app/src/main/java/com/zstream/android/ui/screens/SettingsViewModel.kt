@@ -275,6 +275,16 @@ class SettingsViewModel @Inject constructor(
         update { copy(homeSectionOrder = order) }
     }
 
+    fun setGroupOrder(order: List<String>) {
+        update { copy(groupOrder = order) }
+    }
+
+    fun renameGroup(oldGroup: String, newGroup: String) {
+        viewModelScope.launch {
+            bookmarkRepo.renameGroup(oldGroup, newGroup)
+        }
+    }
+
     fun setSourceOrder(order: List<String>) {
         update { copy(sourceOrder = order) }
     }

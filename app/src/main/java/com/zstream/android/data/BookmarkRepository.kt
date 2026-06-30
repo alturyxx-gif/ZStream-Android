@@ -7,6 +7,7 @@ import com.zstream.android.data.local.entity.BookmarkEntity
 import com.zstream.android.data.remote.BackendApi
 import com.zstream.android.data.remote.BookmarkInput
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -19,6 +20,7 @@ class BookmarkRepository @Inject constructor(
     private val api: BackendApi,
     private val tmdbRepo: TmdbRepository,
     private val traktRepo: TraktRepository,
+    private val settingsPrefs: com.zstream.android.data.local.preferences.SettingsPreferences,
 ) {
     /**
      * Get bookmark from local cache
@@ -85,6 +87,8 @@ class BookmarkRepository @Inject constructor(
         groups: List<String>? = null,
     ) {
         val relativePoster = toRelativePoster(posterPath)
+        val existingGroups = bookmarkDao.getByTmdbId(tmdbId)?.groups.orEmpty()
+        val mergedGroups = (existingGroups + groups.orEmpty()).distinct().ifEmpty { null }
 
         val entity = BookmarkEntity(
             tmdbId = tmdbId,
@@ -92,13 +96,14 @@ class BookmarkRepository @Inject constructor(
             type = if (type == "tv") "show" else type,
             year = year,
             posterPath = relativePoster,
-            groups = groups,
+            groups = mergedGroups,
             updatedAt = System.currentTimeMillis(),
         )
 
         // Update local cache first
         bookmarkDao.insert(entity)
         traktRepo.updateWatchlist(entity, add = true)
+        val nextGroupOrder = settingsPrefs.appendGroupOrder(mergedGroups.orEmpty())
 
         // Try to sync with backend
         try {
@@ -115,14 +120,89 @@ class BookmarkRepository @Inject constructor(
                     poster = toFullPosterUrl(relativePoster),
                     type = if (type == "tv") "show" else type,
                 ),
-                group = groups,
+                group = mergedGroups,
             )
 
             api.addBookmark(session.userId, tmdbId, "Bearer ${session.token}", input)
+            if (nextGroupOrder.isNotEmpty()) {
+                settingsPrefs.syncGroupOrderToRemote(session.userId, "Bearer ${session.token}", api, nextGroupOrder)
+            }
             Log.d(TAG, "Successfully synced bookmark for $tmdbId")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to sync bookmark with backend", e)
             // Local cache is already updated, sync will retry later
+        }
+    }
+
+    suspend fun setBookmarkGroups(tmdbId: String, groups: List<String>) {
+        val existing = bookmarkDao.getByTmdbId(tmdbId) ?: return
+        val updated = existing.copy(groups = groups.ifEmpty { null }, updatedAt = System.currentTimeMillis())
+        bookmarkDao.update(updated)
+        val nextGroupOrder = settingsPrefs.appendGroupOrder(groups)
+        try {
+            val session = accountRepo.currentSession ?: return
+            api.addBookmark(
+                session.userId,
+                tmdbId,
+                "Bearer ${session.token}",
+                BookmarkInput(
+                    tmdbId = tmdbId,
+                    meta = com.zstream.android.data.remote.BookmarkMeta(
+                        title = updated.title,
+                        year = updated.year,
+                        poster = toFullPosterUrl(updated.posterPath),
+                        type = if (updated.type == "tv") "show" else updated.type,
+                    ),
+                    group = groups.ifEmpty { null },
+                    favoriteEpisodes = updated.favoriteEpisodes,
+                ),
+            )
+            if (nextGroupOrder.isNotEmpty()) {
+                settingsPrefs.syncGroupOrderToRemote(session.userId, "Bearer ${session.token}", api, nextGroupOrder)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to sync bookmark groups", e)
+        }
+    }
+
+    suspend fun renameGroup(oldGroup: String, newGroup: String) {
+        val bookmarks = bookmarkDao.getAllSync()
+        val updated = bookmarks.mapNotNull { bookmark ->
+            val groups = bookmark.groups ?: return@mapNotNull null
+            if (oldGroup !in groups) return@mapNotNull null
+            bookmark.copy(
+                groups = groups.map { if (it == oldGroup) newGroup else it }.distinct().ifEmpty { null },
+                updatedAt = System.currentTimeMillis(),
+            )
+        }
+        if (updated.isEmpty()) return
+        bookmarkDao.insertAll(updated)
+        val nextGroupOrder = settingsPrefs.appendGroupOrder(listOf(newGroup))
+        try {
+            val session = accountRepo.currentSession ?: return
+            updated.forEach { bookmark ->
+                api.addBookmark(
+                    session.userId,
+                    bookmark.tmdbId,
+                    "Bearer ${session.token}",
+                    BookmarkInput(
+                        tmdbId = bookmark.tmdbId,
+                        meta = com.zstream.android.data.remote.BookmarkMeta(
+                            title = bookmark.title,
+                            year = bookmark.year,
+                            poster = toFullPosterUrl(bookmark.posterPath),
+                            type = if (bookmark.type == "tv") "show" else bookmark.type,
+                        ),
+                        group = bookmark.groups,
+                        favoriteEpisodes = bookmark.favoriteEpisodes,
+                    ),
+                )
+            }
+            if (nextGroupOrder.isNotEmpty()) {
+                settingsPrefs.syncGroupOrderToRemote(session.userId, "Bearer ${session.token}", api, nextGroupOrder)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to rename group", e)
         }
     }
 

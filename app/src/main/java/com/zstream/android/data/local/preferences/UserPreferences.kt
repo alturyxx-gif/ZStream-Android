@@ -19,6 +19,8 @@ class UserPreferences @Inject constructor(
 ) {
     private val READ_GUIDS_KEY = stringPreferencesKey("read_guids")
     private val SECTION_ORDER_KEY = stringPreferencesKey("section_order")
+    private val WATCHING_SORT_KEY = stringPreferencesKey("watching_sort")
+    private val BOOKMARKS_SORT_KEY = stringPreferencesKey("bookmarks_sort")
 
     val readNotificationGuids: Flow<Set<String>> = context.readNotificationStore.data.map { prefs ->
         prefs[READ_GUIDS_KEY]?.split(",")?.filter { it.isNotEmpty() }?.toSet() ?: emptySet()
@@ -48,6 +50,12 @@ class UserPreferences @Inject constructor(
             prefs[SECTION_ORDER_KEY] = order.joinToString(",")
         }
     }
+
+    val watchingSort: Flow<String> = context.layoutDataStore.data.map { it[WATCHING_SORT_KEY] ?: "date" }
+    val bookmarksSort: Flow<String> = context.layoutDataStore.data.map { it[BOOKMARKS_SORT_KEY] ?: "date" }
+
+    suspend fun saveWatchingSort(value: String) = context.layoutDataStore.edit { it[WATCHING_SORT_KEY] = value }
+    suspend fun saveBookmarksSort(value: String) = context.layoutDataStore.edit { it[BOOKMARKS_SORT_KEY] = value }
 
     suspend fun clear() {
         context.readNotificationStore.edit { it.clear() }

@@ -79,6 +79,7 @@ data class SettingsEntity(
 
     // Interface
     val homeSectionOrder: List<String> = emptyList(),
+    val groupOrder: List<String> = emptyList(),
     val forceCompactEpisodeView: Boolean = false,
 
     // Other
@@ -138,6 +139,7 @@ data class SettingsEntity(
         json.put("enablePauseOverlay", enablePauseOverlay)
         json.put("proxyTmdb", proxyTmdb)
         json.put("homeSectionOrder", JSONArray(homeSectionOrderForSync()))
+        json.put("groupOrder", JSONArray(groupOrder))
         json.put("enableAutoResumeOnPlaybackError", enableAutoResumeOnPlaybackError)
         febboxKey?.let { json.put("febboxKey", it) }
         debridToken?.let { json.put("debridToken", it) }

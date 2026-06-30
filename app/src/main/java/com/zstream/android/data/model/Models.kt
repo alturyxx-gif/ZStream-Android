@@ -57,6 +57,7 @@ data class MovieDetail(
     val images: ImageData? = null,
     val videos: VideoData? = null,
     val similar: SimilarMoviesResponse? = null,
+    @SerializedName("belongs_to_collection") val belongsToCollection: CollectionSummary? = null,
     @SerializedName("imdb_id") val imdbId: String? = null,
 ) {
     fun posterUrl(size: String = "w500"): String? {
@@ -74,6 +75,13 @@ data class MovieDetail(
         return if (path.startsWith("http")) path else Urls.TMDB_IMAGE + "$size$path"
     }
 }
+
+data class CollectionSummary(
+    val id: Int,
+    val name: String,
+    val poster_path: String? = null,
+    val backdrop_path: String? = null,
+)
 
 data class TvDetail(
     val id: Int,

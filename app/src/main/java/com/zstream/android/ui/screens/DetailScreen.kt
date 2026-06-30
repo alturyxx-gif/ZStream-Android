@@ -30,6 +30,9 @@ fun DetailScreen(nav: NavController, vm: DetailViewModel = hiltViewModel()) {
     val progress by vm.progress.collectAsState()
     val allProgress by vm.allProgress.collectAsState()
     val isBookmarked by vm.isBookmarked.collectAsState()
+    val bookmark by vm.bookmark.collectAsState()
+    val collection by vm.collection.collectAsState()
+    val allGroups by vm.allGroups.collectAsState()
     val hasProgress = progress?.let { it.watched >= 20 } ?: false
 
     if (!LocalIsTv.current) {
@@ -67,7 +70,14 @@ fun DetailScreen(nav: NavController, vm: DetailViewModel = hiltViewModel()) {
                 onBack = onBack,
                 onMarkMovieWatched = vm::markMovieWatched,
                 onClearMovieWatchHistory = vm::clearMovieWatchHistory,
+                onBookmarkCollection = vm::bookmarkCollection,
+                onBrowseCollection = vm::loadCollection,
+                onClearCollection = vm::clearCollection,
+                collectionState = collection,
                 showImageLogos = settings.enableImageLogos,
+                currentGroups = bookmark?.groups.orEmpty(),
+                allGroups = allGroups,
+                onUpdateGroups = vm::updateBookmarkGroups,
             )
         }
         is DetailState.Tv -> {
@@ -88,7 +98,14 @@ fun DetailScreen(nav: NavController, vm: DetailViewModel = hiltViewModel()) {
                 onClearEpisodeWatchHistory = vm::clearEpisodeWatchHistory,
                 onMarkSeasonWatched = vm::markSeasonWatched,
                 onClearSeasonWatchHistory = vm::clearSeasonWatchHistory,
+                onBookmarkCollection = vm::bookmarkCollection,
+                onBrowseCollection = vm::loadCollection,
+                onClearCollection = vm::clearCollection,
+                collectionState = collection,
                 showImageLogos = settings.enableImageLogos,
+                currentGroups = bookmark?.groups.orEmpty(),
+                allGroups = allGroups,
+                onUpdateGroups = vm::updateBookmarkGroups,
             )
         }
     }
