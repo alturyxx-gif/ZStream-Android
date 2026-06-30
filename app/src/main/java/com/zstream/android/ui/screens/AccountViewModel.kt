@@ -102,8 +102,9 @@ class AccountViewModel @Inject constructor(
                 Log.e("AccountVM", "Failed to sync settings before logout", e)
             }
 
-            // Clear user-specific data (history, bookmarks) but keep app settings
-            syncManager.clearAllLocalData()
+            // Clear user-specific data, but keep app settings and anonymous playback state.
+            progressRepo.clearProgress()
+            bookmarkRepo.clearBookmarks()
             repo.logout()
             authState.value = AuthState.Idle
         }
@@ -113,7 +114,7 @@ class AccountViewModel @Inject constructor(
 
     /** Called from PlayerScreen every 3s and on exit — mirrors p-stream ProgressSaver */
     suspend fun syncProgress(
-        s: AccountSession,
+        s: AccountSession?,
         tmdbId: String,
         watchedSec: Long,
         durationSec: Long,
@@ -128,7 +129,7 @@ class AccountViewModel @Inject constructor(
     ) {
         val type = if (mediaType == "tv") "show" else "movie"
         
-        // Use the repository which handles both local update and remote sync
+        // Always write local progress so anonymous playback still feeds Continue Watching.
         progressRepo.updateProgress(
             tmdbId = tmdbId,
             title = title,
@@ -142,6 +143,8 @@ class AccountViewModel @Inject constructor(
             episodeNumber = episodeNumber,
             seasonNumber = seasonNumber
         )
+
+        if (s == null) return
     }
 
     private fun launch(block: suspend () -> AccountSession) {
