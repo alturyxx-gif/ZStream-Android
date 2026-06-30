@@ -310,38 +310,38 @@ internal fun ColumnScope.SharedMovieDetailContent(
 
     Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp)) {
         Column(Modifier.fillMaxWidth()) {
-            detail.overview?.takeIf { it.isNotBlank() }?.let { 
+            detail.overview?.takeIf { it.isNotBlank() }?.let {
                 Text(
-                    it, 
-                    color = theme.colors.type.text, 
+                    it,
+                    color = theme.colors.type.text,
                     fontSize = 14.sp,
                     modifier = Modifier.focusable()
-                ) 
+                )
             }
             Spacer(Modifier.height(18.dp))
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 genres.forEach { SharedGenreChip(it.name, theme) }
             }
-        }
             Spacer(Modifier.height(20.dp))
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Box(Modifier.weight(1f)) {
-                    SharedDetailSpec("Runtime", detail.runtime?.let { "$it min" } ?: "-", theme)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Box(Modifier.weight(1f)) {
+                        SharedDetailSpec("Runtime", detail.runtime?.let { "$it min" } ?: "-", theme)
+                    }
+                    Box(Modifier.weight(1f)) {
+                        SharedDetailSpec("Release Date", detail.releaseDate ?: "-", theme)
+                    }
                 }
-                Box(Modifier.weight(1f)) {
-                    SharedDetailSpec("Release Date", detail.releaseDate ?: "-", theme)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Box(Modifier.weight(1f)) {
+                        SharedDetailSpec("Language", "EN", theme)
+                    }
+                    Box(Modifier.weight(1f)) {
+                        SharedDetailSpec("Rating", "PG-13", theme)
+                    }
                 }
+                specActions()
             }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Box(Modifier.weight(1f)) {
-                    SharedDetailSpec("Language", "EN", theme)
-                }
-                Box(Modifier.weight(1f)) {
-                    SharedDetailSpec("Rating", "PG-13", theme)
-                }
-            }
-            specActions()
         }
     }
 
@@ -382,27 +382,40 @@ internal fun ColumnScope.SharedTvDetailContent(
         topActions(firstItemFocusRequester)
     }
 
-    Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(40.dp)) {
-        Column(Modifier.weight(1f)) {
-            detail.overview?.takeIf { it.isNotBlank() }?.let { 
+    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp)) {
+        Column(Modifier.fillMaxWidth()) {
+            detail.overview?.takeIf { it.isNotBlank() }?.let {
                 Text(
-                    it, 
-                    color = theme.colors.type.text, 
+                    it,
+                    color = theme.colors.type.text,
                     fontSize = 14.sp,
                     modifier = Modifier.focusable()
-                ) 
+                )
             }
             Spacer(Modifier.height(18.dp))
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 detail.genres.orEmpty().forEach { SharedGenreChip(it.name, theme) }
             }
-        }
-        Column(Modifier.widthIn(max = 240.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            SharedDetailSpec("Seasons", detail.numberOfSeasons?.toString() ?: "—", theme)
-            SharedDetailSpec("Language", "EN", theme)
-            SharedDetailSpec("Release Date", detail.firstAirDate ?: "—", theme)
-            SharedDetailSpec("Rating", "TV-14", theme)
-            specActions()
+            Spacer(Modifier.height(20.dp))
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Box(Modifier.weight(1f)) {
+                        SharedDetailSpec("Seasons", detail.numberOfSeasons?.toString() ?: "—", theme)
+                    }
+                    Box(Modifier.weight(1f)) {
+                        SharedDetailSpec("Release Date", detail.firstAirDate ?: "—", theme)
+                    }
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Box(Modifier.weight(1f)) {
+                        SharedDetailSpec("Language", "EN", theme)
+                    }
+                    Box(Modifier.weight(1f)) {
+                        SharedDetailSpec("Rating", "TV-14", theme)
+                    }
+                }
+                specActions()
+            }
         }
     }
 
