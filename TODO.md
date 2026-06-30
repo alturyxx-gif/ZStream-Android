@@ -3,8 +3,7 @@ the remaining settings to wire are:
 
 
  unsure if should implement:
- 1. proxyTmdb
- 2. simkl
+ 1. simkl
 
 
  waiting for real sources:
