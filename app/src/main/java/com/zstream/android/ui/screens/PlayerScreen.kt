@@ -790,7 +790,6 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
 
                 // Progress sync — mirrors p-stream ProgressSaver (3s interval, same guards)
                 DisposableEffect(player, session) {
-                    val s2 = session ?: return@DisposableEffect onDispose {}
                     val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main)
                     val job = scope.launch {
                         while (true) {
@@ -806,7 +805,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                                 runCatching {
                                     val poster = existingProgress?.posterPath ?: vm.poster
                                     accountVm.syncProgress(
-                                        s2, vm.tmdbId, watchedSec, durationSec,
+                                        session, vm.tmdbId, watchedSec, durationSec,
                                         vm.title, vm.year, vm.mediaType,
                                         vm.seasonId, vm.episodeId,
                                         vm.season, vm.episode,
@@ -826,7 +825,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                                     runCatching {
                                         val poster = existingProgress?.posterPath ?: vm.poster
                                         accountVm.syncProgress(
-                                            s2, vm.tmdbId, watchedSec, durationSec,
+                                            session, vm.tmdbId, watchedSec, durationSec,
                                             vm.title, vm.year, vm.mediaType,
                                             vm.seasonId, vm.episodeId,
                                             vm.season, vm.episode,
