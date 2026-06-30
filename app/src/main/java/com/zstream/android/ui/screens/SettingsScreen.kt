@@ -1315,17 +1315,11 @@ private fun AppearanceSection(
                     .background(theme.colors.settings.card.background)
             ) {
                 TvSettingsRow(
-                    theme = theme, 
-                    onActivate = { vm.setEnableDiscover(!settings.enableDiscover) },
+                    theme = theme,
+                    onActivate = { vm.setEnableFeatured(!settings.enableFeatured) },
                     modifier = if (firstItemFocusRequester != null) Modifier.focusRequester(firstItemFocusRequester) else Modifier
                 ) {
-                    TvSwitchContent("Discover", "Show discover section on home", settings.enableDiscover, enabled = !settings.enableLowPerformanceMode)
-                }
-                if (settings.enableDiscover && !settings.enableLowPerformanceMode) {
-                    HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
-                    TvSettingsRow(theme, onActivate = { vm.setEnableFeatured(!settings.enableFeatured) }) {
-                        TvSwitchContent("Featured", "Show featured content in discover", settings.enableFeatured, indent = true)
-                    }
+                    TvSwitchContent("Featured", "Show featured content in discover", settings.enableFeatured, enabled = !settings.enableLowPerformanceMode)
                 }
                 HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                 TvSettingsRow(theme, onActivate = { vm.setEnableImageLogos(!settings.enableImageLogos) }) {
@@ -1356,26 +1350,16 @@ private fun AppearanceSection(
         } else {
             SettingsCard(theme) {
                 ZsSwitchRow(
-                    title = "Discover",
-                    subtitle = "Show discover section on home",
-                    checked = settings.enableDiscover,
-                    onCheckedChange = vm::setEnableDiscover,
+                    title = "Featured",
+                    subtitle = "Show featured content in discover",
+                    checked = settings.enableFeatured,
+                    onCheckedChange = {
+                        vm.setEnableFeatured(it)
+                        if (!it) vm.setEnableFeatured(false)
+                    },
                     enabled = !settings.enableLowPerformanceMode,
                     modifier = Modifier.padding(horizontal = 16.dp),
                 )
-                if (settings.enableDiscover && !settings.enableLowPerformanceMode) {
-                    HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
-                    ZsSwitchRow(
-                        title = "Featured",
-                        subtitle = "Show featured content in discover",
-                        checked = settings.enableFeatured,
-                        onCheckedChange = {
-                            vm.setEnableFeatured(it)
-                            if (!it) vm.setEnableFeatured(false)
-                        },
-                        modifier = Modifier.padding(start = 32.dp, end = 16.dp),
-                    )
-                }
                 HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                 ZsSwitchRow(
                     title = "Image Logos",

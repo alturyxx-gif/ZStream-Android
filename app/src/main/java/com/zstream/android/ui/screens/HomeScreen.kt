@@ -1461,45 +1461,6 @@ private fun HeroSection(
                 }
             }
 
-            // Discover button — rainbow animated border, dark fill, wand icon
-            val DISCOVER_BUTTON_CORNER_RADIUS = 48.dp
-            var isDiscoverFocused by remember { mutableStateOf(false) }
-            ZsOutlinedWrapper(
-                visible = isDiscoverFocused && LocalIsTv.current,
-                shape = RoundedCornerShape(DISCOVER_BUTTON_CORNER_RADIUS),
-                outlineColor = theme.colors.global.accentA.copy(alpha = 0.6f),
-                gap = 2.dp
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(48.dp)
-                        .clip(RoundedCornerShape(DISCOVER_BUTTON_CORNER_RADIUS))
-                        .drawBehind {
-                            // Smooth right-to-left moving rainbow — shift start X by animated offset
-                            val w = size.width * 3f  // wide gradient so colors flow smoothly
-                            val shift = gradientOffset * w
-                            val brush = Brush.linearGradient(
-                                colors = rainbowColors + rainbowColors, // double for seamless loop
-                                start = Offset(w - shift, 0f),
-                                end = Offset(w * 2 - shift, size.height),
-                            )
-                            drawRoundRect(
-                                brush = brush,
-                                cornerRadius = androidx.compose.ui.geometry.CornerRadius(
-                                    DISCOVER_BUTTON_CORNER_RADIUS.toPx()
-                                )
-                            )
-                        }
-                        .padding(2.dp)
-                        .clip(RoundedCornerShape(DISCOVER_BUTTON_CORNER_RADIUS))
-                        .background(theme.colors.search.background)
-                        .onFocusChanged { isDiscoverFocused = it.isFocused }
-                        .clickable { nav.navigate("search") },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(Icons.Default.AutoAwesome, null, tint = theme.colors.type.secondary, modifier = Modifier.size(18.dp))
-                }
-            }
         }
 
         Spacer(Modifier.height(16.dp))

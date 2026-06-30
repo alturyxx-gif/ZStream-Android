@@ -42,7 +42,7 @@ data class SettingsEntity(
     val tvPipPosition: String = "bottom_end",
 
     // Discover/Home Settings
-    val enableDiscover: Boolean = true,
+    val enableDiscover: Boolean = true, // Synced with backend, but the local UI no longer reads it.
     val enableFeatured: Boolean = true,
 
     // Source Settings
@@ -61,7 +61,7 @@ data class SettingsEntity(
     val debridService: String = "realdebrid",
     val tidbKey: String? = null,
     val wyzieKey: String? = null,
-    val proxyTmdb: Boolean = false,
+    val proxyTmdb: Boolean = false, // Synced with backend, but the local UI no longer reads it.
     val tmdbApiKey: String? = null,
 
     // Subtitle Styling
