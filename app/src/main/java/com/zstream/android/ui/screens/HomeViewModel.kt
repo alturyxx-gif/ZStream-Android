@@ -29,6 +29,9 @@ import javax.inject.Inject
 enum class HomeTab { MOVIES, TV, EDITOR }
 
 enum class MediaSectionSource {
+    ContinueWatching,
+    Bookmarks,
+    BookmarkGroup,
     PopularMovies,
     NowPlayingMovies,
     TopRatedMovies,
@@ -45,6 +48,7 @@ data class MediaSection(
     val title: String,
     val items: List<Media>,
     val source: MediaSectionSource? = null,
+    val groupKey: String? = null,
 )
 
 data class HomeState(
@@ -221,7 +225,7 @@ class HomeViewModel @Inject constructor(
                 }
                 _state.update { it.copy(
                     progressMap = mediaMap,
-                    continueWatching = if (watchingMedia.isNotEmpty()) listOf(MediaSection("Continue Watching", watchingMedia)) else emptyList(),
+                    continueWatching = if (watchingMedia.isNotEmpty()) listOf(MediaSection("Continue Watching", watchingMedia, MediaSectionSource.ContinueWatching)) else emptyList(),
                 ) }
             }
         }
@@ -274,11 +278,15 @@ class HomeViewModel @Inject constructor(
                             put(group, MediaSection(group, it.sortedBy { media -> media.displayTitle.lowercase() }))
                         }
                     }
-                    if (regular.isNotEmpty()) put("bookmarks", MediaSection("My Bookmarks", regular))
+                    if (regular.isNotEmpty()) put("bookmarks", MediaSection("My Bookmarks", regular, MediaSectionSource.Bookmarks))
                 }
                 val sectionOrder = groupOrder.filter { it in sectionsByGroup } +
                     sectionsByGroup.keys.filterNot { it in groupOrder }
-                val sections = sectionOrder.mapNotNull(sectionsByGroup::get)
+                val sections = sectionOrder.mapNotNull { key ->
+                    sectionsByGroup[key]?.let { section ->
+                        if (key.startsWith("[")) section.copy(source = MediaSectionSource.BookmarkGroup, groupKey = key) else section
+                    }
+                }
 
                 _state.update { it.copy(bookmarks = sections, bookmarkEntities = bookmarkEntities.associateBy { it.tmdbId }) }
             }

@@ -16,7 +16,7 @@ fun NavGraph(nav: NavHostController) {
     NavHost(nav, startDestination = "home") {
         composable("home") { HomeScreen(nav) }
         composable("search") { SearchScreen(nav) }
-        composable("more/{source}") { MoreScreen(nav) }
+        composable("more/{source}?group={group}") { MoreScreen(nav) }
         dialog(
             "detail/{mediaType}/{id}",
             arguments = listOf(

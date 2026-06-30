@@ -1,6 +1,7 @@
 package com.zstream.android.ui.screens
 
 import android.content.Context
+import android.net.Uri
 import android.util.Log
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
@@ -1648,7 +1649,7 @@ private fun MediaCarouselSection(
                 ) {
                     ZsTextButton(
                         text = "View more",
-                        onClick = { nav.navigate("more/${section.source.name}") },
+                        onClick = { nav.navigate("more/${section.source.name}?group=${Uri.encode(section.groupKey.orEmpty())}") },
                         modifier = Modifier.height(30.dp).offset(x = (-10).dp, y = (-15).dp),
                     )
                 }
@@ -1670,16 +1671,8 @@ private fun MediaCarouselSection(
                         onClick = { nav.navigate("detail/${media.type}/${media.id}") },
                         percentage = progressInfo?.first,
                         seriesLabel = progressInfo?.second,
+                        editOverlay = editable,
                     )
-                    if (editable) {
-                        Box(
-                            modifier = Modifier
-                                .matchParentSize()
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(Color.Black.copy(alpha = 0.45f))
-                                .clickable { }
-                        )
-                    }
                     if (editable && onRemoveItem != null) {
                         if (onEditItem != null) {
                             Box(
@@ -1737,24 +1730,17 @@ private fun MediaGridRow(
         rowItems.forEach { media ->
             val progress = progressMap[media.id.toString()]
             val progressInfo = progress?.let { getProgressInfo(it) }
-            Box(modifier = Modifier.weight(1f)) {
-                MediaCard(
-                    media = media,
-                    onClick = { nav.navigate("detail/${media.type}/${media.id}") },
-                    percentage = progressInfo?.first,
-                    seriesLabel = progressInfo?.second
-                )
-                if (editable) {
-                    Box(
-                        modifier = Modifier
-                            .matchParentSize()
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(Color.Black.copy(alpha = 0.45f))
+                Box(modifier = Modifier.weight(1f)) {
+                    MediaCard(
+                        media = media,
+                        onClick = { nav.navigate("detail/${media.type}/${media.id}") },
+                        percentage = progressInfo?.first,
+                        seriesLabel = progressInfo?.second
+                        , editOverlay = editable
                     )
-                }
-                if (editable && onRemoveItem != null) {
-                    if (onEditItem != null) {
-                        Box(
+                    if (editable && onRemoveItem != null) {
+                        if (onEditItem != null) {
+                            Box(
                             modifier = Modifier
                                 .align(Alignment.TopStart)
                                 .padding(8.dp)

@@ -3088,7 +3088,7 @@ private fun SkipSegmentSubmissionDialog(
                             color = theme.colors.authentication.inputBg.copy(alpha = 0.5f),
                             shape = RoundedCornerShape(18.dp),
                             border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.background.secondary)
-                        )
+                        ) {
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
