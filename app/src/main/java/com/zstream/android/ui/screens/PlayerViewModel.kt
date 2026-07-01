@@ -140,7 +140,8 @@ data class PauseMetadata(
     val logoUrl: String?,
     val posterUrl: String?,
     val type: String, // movie/tv
-    val mediaLabel: String?
+    val mediaLabel: String?,
+    val genres: List<String> = emptyList(),
 )
 
 data class SubtitleCue(val startMs: Long, val endMs: Long, val text: String)
@@ -227,7 +228,8 @@ class PlayerViewModel @Inject constructor(
                 logoUrl = movie?.logoUrl(),
                 posterUrl = movie?.posterUrl(),
                 type = "movie",
-                mediaLabel = "Movie"
+                mediaLabel = null,
+                genres = movie?.genres.orEmpty().map { it.name },
             )
         } else {
             PauseMetadata(
@@ -239,7 +241,11 @@ class PlayerViewModel @Inject constructor(
                 logoUrl = tv?.logoUrl(),
                 posterUrl = tv?.posterUrl(),
                 type = "tv",
-                mediaLabel = "S$season • E$episode"
+                mediaLabel = buildList<String> {
+                    season?.let { add("S$it") }
+                    episode?.let { add("E$it") }
+                }.takeIf { it.isNotEmpty() }?.joinToString(" • "),
+                genres = tv?.genres.orEmpty().map { it.name },
             )
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
