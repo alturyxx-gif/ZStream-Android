@@ -6,6 +6,7 @@ import android.os.SystemClock
 import android.util.Log
 import io.github.muntashirakon.adb.AbsAdbConnectionManager
 import io.github.muntashirakon.adb.LocalServices
+import io.github.muntashirakon.adb.android.AdbMdns
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.bouncycastle.asn1.x500.X500Name
@@ -20,6 +21,9 @@ import java.io.File
 import java.io.IOException
 import java.io.InputStream
 import java.math.BigInteger
+import java.net.InetSocketAddress
+import java.net.NetworkInterface
+import java.net.Socket
 import java.security.KeyFactory
 import java.security.KeyPairGenerator
 import java.security.PrivateKey
@@ -28,6 +32,17 @@ import java.security.cert.Certificate
 import java.security.interfaces.RSAPrivateCrtKey
 import java.security.spec.PKCS8EncodedKeySpec
 import java.util.Date
+import java.util.Collections
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ConcurrentLinkedDeque
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+
+data class DiscoveredAdbEndpoints(
+    val host: String,
+    val pairingPort: Int?,
+    val connectPort: Int?,
+)
 
 class AdbSpikeConnectionManager private constructor(
     private val appContext: Context,
@@ -51,6 +66,96 @@ class AdbSpikeConnectionManager private constructor(
     override fun getCertificate(): Certificate = adbCertificate
 
     override fun getDeviceName(): String = "ZStream Phone"
+
+    fun discoverEndpoints(timeoutMillis: Long = 10_000): DiscoveredAdbEndpoints {
+        var lastFailure: IOException? = null
+        for (attempt in 1..2) {
+            try {
+                return discoverEndpointsOnce(timeoutMillis, attempt)
+            } catch (e: IOException) {
+                lastFailure = e
+                Log.w(tag, "discoverEndpoints attempt=$attempt failed: ${e.message}")
+            }
+        }
+        throw requireNotNull(lastFailure)
+    }
+
+    private fun discoverEndpointsOnce(timeoutMillis: Long, attempt: Int): DiscoveredAdbEndpoints {
+        Log.d(tag, "discoverEndpoints start attempt=$attempt timeoutMs=$timeoutMillis")
+        val localHosts = Collections.list(NetworkInterface.getNetworkInterfaces())
+            .flatMap { Collections.list(it.inetAddresses) }
+            .mapNotNull { it.hostAddress }
+            .toSet()
+        Log.d(tag, "discoverEndpoints localHosts=$localHosts")
+        val pairingByHost = ConcurrentHashMap<String, ConcurrentLinkedDeque<Int>>()
+        val connectByHost = ConcurrentHashMap<String, ConcurrentLinkedDeque<Int>>()
+        val preferredMatchFound = CountDownLatch(1)
+
+        val pairingDiscovery = AdbMdns(appContext, AdbMdns.SERVICE_TYPE_TLS_PAIRING) { address, port ->
+            val host = address?.hostAddress
+            if (host != null && host !in localHosts && port > 0) {
+                pairingByHost.computeIfAbsent(host) { ConcurrentLinkedDeque() }.apply {
+                    remove(port)
+                    addLast(port)
+                }
+                Log.d(tag, "discoverEndpoints pairing host=$host port=$port")
+                if (host.startsWith("192.168.0.") && connectByHost.containsKey(host)) preferredMatchFound.countDown()
+            } else if (host != null && host in localHosts) {
+                Log.d(tag, "discoverEndpoints ignoring local pairing host=$host port=$port")
+            }
+        }
+        val connectDiscovery = AdbMdns(appContext, AdbMdns.SERVICE_TYPE_TLS_CONNECT) { address, port ->
+            val host = address?.hostAddress
+            if (host != null && host !in localHosts && port > 0) {
+                connectByHost.computeIfAbsent(host) { ConcurrentLinkedDeque() }.apply {
+                    remove(port)
+                    addLast(port)
+                }
+                Log.d(tag, "discoverEndpoints connect host=$host port=$port")
+                if (host.startsWith("192.168.0.") && pairingByHost.containsKey(host)) preferredMatchFound.countDown()
+            } else if (host != null && host in localHosts) {
+                Log.d(tag, "discoverEndpoints ignoring local connect host=$host port=$port")
+            }
+        }
+
+        pairingDiscovery.start()
+        connectDiscovery.start()
+        try {
+            if (preferredMatchFound.await(timeoutMillis, TimeUnit.MILLISECONDS)) {
+                Log.d(tag, "discoverEndpoints preferred 192.168.0.x match found; collecting for 750ms")
+                TimeUnit.MILLISECONDS.sleep(750)
+            }
+        } finally {
+            pairingDiscovery.stop()
+            connectDiscovery.stop()
+        }
+
+        val reachableConnectEndpoints = connectByHost.flatMap { (host, ports) ->
+            ports.toList().asReversed().firstOrNull { port ->
+                val reachable = isPortReachable(host, port)
+                Log.d(tag, "discoverEndpoints probe host=$host port=$port reachable=$reachable")
+                reachable
+            }?.let { listOf(host to it) }.orEmpty()
+        }
+        // ponytail: select one reachable matching host until the real device-picker UI exists.
+        val endpoint = reachableConnectEndpoints.firstOrNull { (host) ->
+            host.startsWith("192.168.0.") && pairingByHost.containsKey(host)
+        }
+            ?: reachableConnectEndpoints.firstOrNull { (host) -> pairingByHost.containsKey(host) }
+            ?: reachableConnectEndpoints.firstOrNull()
+            ?: throw IOException("No reachable wireless ADB connect service discovered")
+        val host = endpoint.first
+        return DiscoveredAdbEndpoints(host, pairingByHost[host]?.lastOrNull(), endpoint.second).also {
+            Log.d(tag, "discoverEndpoints done host=${it.host} pairingPort=${it.pairingPort} connectPort=${it.connectPort}")
+        }
+    }
+
+    private fun isPortReachable(host: String, port: Int): Boolean = try {
+        Socket().use { it.connect(InetSocketAddress(host, port), 750) }
+        true
+    } catch (_: IOException) {
+        false
+    }
 
     fun pairAndConnect(host: String, pairingPort: Int?, connectPort: Int, pairingCode: String): String {
         Log.d(tag, "pairAndConnect host=$host pairingPort=$pairingPort connectPort=$connectPort codeLen=${pairingCode.length}")

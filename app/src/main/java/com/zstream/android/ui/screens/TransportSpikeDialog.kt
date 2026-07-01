@@ -75,6 +75,32 @@ fun TransportSpikeDialog(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     Text("This blocks the homescreen and proves pair/connect/shell from the phone.", color = theme.colors.type.secondary, fontSize = 13.sp)
+                    Button(
+                        enabled = !running,
+                        onClick = {
+                            scope.launch {
+                                running = true
+                                status = "Discovering wireless ADB endpoints..."
+                                Log.d(tag, "Discover endpoints pressed")
+                                try {
+                                    val endpoints = withContext(Dispatchers.IO) { manager.discoverEndpoints() }
+                                    host = endpoints.host
+                                    pairingPort = endpoints.pairingPort?.toString().orEmpty()
+                                    connectPort = endpoints.connectPort?.toString().orEmpty()
+                                    status = "Discovered ${endpoints.host}"
+                                    Log.d(tag, "Discover endpoints succeeded host=${endpoints.host} pairingPort=${endpoints.pairingPort} connectPort=${endpoints.connectPort}")
+                                } catch (t: Throwable) {
+                                    Log.e(tag, "Discover endpoints failed", t)
+                                    status = "Failed"
+                                } finally {
+                                    running = false
+                                }
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Discover ADB endpoints")
+                    }
                     OutlinedTextField(value = host, onValueChange = { host = it.trim() }, label = { Text("Host / IP") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                     OutlinedTextField(value = pairingPort, onValueChange = { pairingPort = it.filter(Char::isDigit) }, label = { Text("Pairing port") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                     OutlinedTextField(value = connectPort, onValueChange = { connectPort = it.filter(Char::isDigit) }, label = { Text("Connect port") }, singleLine = true, modifier = Modifier.fillMaxWidth())
