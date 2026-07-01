@@ -32,6 +32,11 @@ class AdbInstallModelsTest {
     }
 
     @Test
+    fun savedLegacyTvKeepsItsFixedAdbPort() {
+        assertEquals(5555, SavedTv("192.168.0.20", "TV", 5555).legacyPort)
+    }
+
+    @Test
     fun revokedAuthorizationRequestsPairing() {
         assertEquals(AdbFailureKind.PAIRING_REQUIRED, connectionFailure(AdbAuthenticationFailedException()).kind)
     }
