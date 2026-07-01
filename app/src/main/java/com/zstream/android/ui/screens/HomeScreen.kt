@@ -406,6 +406,7 @@ fun HomeScreen(
     var hiddenGroups by remember { mutableStateOf<Set<String>>(emptySet()) }
     var showNotifications by remember { mutableStateOf(false) }
     var showTipJar by remember { mutableStateOf(false) }
+    var showTransportSpike by remember { mutableStateOf(!isTv) }
     var editingGroup by remember { mutableStateOf<String?>(null) }
     var sectionSettings by remember { mutableStateOf<String?>(null) }
     var editingBookmarks by remember { mutableStateOf(false) }
@@ -472,6 +473,9 @@ fun HomeScreen(
     @Composable
     fun HomeDialogs()
     {
+        if (showTransportSpike) {
+            TransportSpikeDialog(onDismiss = { showTransportSpike = false })
+        }
         if (showLayoutMenu) {
             val allGroups = remember(state.bookmarkEntities) {
                 state.bookmarkEntities.values.flatMap { it.groups.orEmpty() }.distinct()
