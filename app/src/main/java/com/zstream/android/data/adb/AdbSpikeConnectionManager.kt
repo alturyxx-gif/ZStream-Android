@@ -14,6 +14,7 @@ import org.bouncycastle.jce.provider.BouncyCastleProvider
 import org.bouncycastle.operator.ContentSigner
 import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder
 import java.io.File
+import java.io.IOException
 import java.math.BigInteger
 import java.security.KeyFactory
 import java.security.KeyPairGenerator
@@ -46,24 +47,29 @@ class AdbSpikeConnectionManager private constructor(
 
     override fun getDeviceName(): String = "ZStream Phone"
 
-    fun pairAndConnect(host: String, pairingPort: Int, connectPort: Int, pairingCode: String): String {
+    fun pairAndConnect(host: String, pairingPort: Int?, connectPort: Int, pairingCode: String): String {
         Log.d(tag, "pairAndConnect host=$host pairingPort=$pairingPort connectPort=$connectPort codeLen=${pairingCode.length}")
         setHostAddress(host)
-        Log.d(tag, "pair() start")
-        if (!pair(host, pairingPort, pairingCode)) {
-            throw IllegalStateException("Pairing returned false")
+        if (pairingPort != null || pairingCode.isNotBlank()) {
+            require(pairingPort != null && pairingCode.length == 6) { "Pairing port and 6-digit code must both be provided" }
+            Log.d(tag, "pair() start")
+            if (!pair(host, pairingPort, pairingCode)) {
+                throw IllegalStateException("Pairing returned false")
+            }
+            Log.d(tag, "pair() done, connect() start")
+        } else {
+            Log.d(tag, "pair() skipped, using cached authorization")
         }
-        Log.d(tag, "pair() done, connect() start")
         if (!connect(host, connectPort)) {
             throw IllegalStateException("Connect returned false")
         }
         Log.d(tag, "connect() done, shell probe start")
-        return runShell("getprop ro.product.model").trim()
+        return runShell("getprop", "ro.product.model").trim()
     }
 
-    fun runShell(command: String): String {
-        Log.d(tag, "runShell command=$command")
-        openStream(LocalServices.SHELL, command).use { stream ->
+    fun runShell(vararg command: String): String {
+        Log.d(tag, "runShell command=${command.joinToString(" ")}")
+        openStream(LocalServices.SHELL, *command).use { stream ->
             val input = stream.openInputStream()
             val bytes = ByteArray(4096)
             val out = StringBuilder()
@@ -72,8 +78,10 @@ class AdbSpikeConnectionManager private constructor(
                 if (read <= 0) break
                 out.append(String(bytes, 0, read))
             }
-            Log.d(tag, "runShell result=${out.toString().trim()}")
-            return out.toString()
+            val result = out.toString()
+            Log.d(tag, "runShell result=${result.trim()}")
+            if (result.startsWith("/system/bin/sh:")) throw IOException(result.trim())
+            return result
         }
     }
 
