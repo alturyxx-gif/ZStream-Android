@@ -49,7 +49,7 @@ fun TransportSpikeDialog(
 
     var host by remember { mutableStateOf("192.168.0.147") }
     var pairingPort by remember { mutableStateOf("") }
-    var connectPort by remember { mutableStateOf("39597") }
+    var connectPort by remember { mutableStateOf("43305") }
     var pairingCode by remember { mutableStateOf("") }
     var status by remember { mutableStateOf("Fill in host, pairing port, connect port, and code.") }
     var running by remember { mutableStateOf(false) }
@@ -92,7 +92,7 @@ fun TransportSpikeDialog(
                                         val result = withContext(Dispatchers.IO) {
                                             manager.pairAndConnect(
                                                 host = host,
-                                                pairingPort = pairingPort.toInt(),
+                                                pairingPort = pairingPort.toIntOrNull(),
                                                 connectPort = connectPort.toInt(),
                                                 pairingCode = pairingCode,
                                             )
@@ -120,7 +120,7 @@ fun TransportSpikeDialog(
                                     Log.d(tag, "Probe shell pressed host=$host connectPort=$connectPort")
                                     try {
                                         val result = withContext(Dispatchers.IO) {
-                                            manager.runShell("getprop ro.product.model")
+                                            manager.runShell("getprop", "ro.product.model")
                                         }
                                         Log.d(tag, "Probe shell succeeded shellResult=${result.trim()}")
                                         status = "Success"
