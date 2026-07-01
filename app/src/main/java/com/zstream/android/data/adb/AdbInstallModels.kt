@@ -25,7 +25,7 @@ class AdbOperationException(
     cause: Throwable? = null,
 ) : Exception(message, cause)
 
-data class SavedTv(val host: String, val model: String)
+data class SavedTv(val host: String, val model: String, val legacyPort: Int? = null)
 
 sealed interface InstallProgress {
     data object Connecting : InstallProgress

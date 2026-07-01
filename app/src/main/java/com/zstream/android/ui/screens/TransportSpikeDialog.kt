@@ -42,7 +42,7 @@ import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-private const val DEFAULT_APK_URL = "https://github.com/alturyxx-gif/ZStream-Android/releases/download/test/facer.apk"
+private const val DEFAULT_APK_URL = "https://github.com/alturyxx-gif/ZStream-Android/releases/download/v1.0-wrapper/app-release.apk"
 
 @Composable
 fun TvInstallerDialog(onDismiss: () -> Unit) {
@@ -56,6 +56,8 @@ fun TvInstallerDialog(onDismiss: () -> Unit) {
     var selected by remember { mutableStateOf<DiscoveredAdbEndpoints?>(null) }
     var savedTv by remember { mutableStateOf<SavedTv?>(manager.getSavedTv()) }
     var pairingCode by remember { mutableStateOf("") }
+    var legacyHost by remember { mutableStateOf("") }
+    var legacyPort by remember { mutableStateOf("5555") }
     var apkUrl by remember { mutableStateOf(DEFAULT_APK_URL) }
     var status by remember { mutableStateOf(if (savedTv == null) "No TV paired" else "Ready") }
     var progress by remember { mutableStateOf<InstallProgress?>(null) }
@@ -193,6 +195,44 @@ fun TvInstallerDialog(onDismiss: () -> Unit) {
                             modifier = Modifier.fillMaxWidth(),
                         ) { Text("Pair TV") }
                     }
+
+                    HorizontalDivider(color = theme.colors.type.divider.copy(alpha = 0.18f))
+                    Text("Older TV (ADB over network)", color = theme.colors.type.text)
+                    OutlinedTextField(
+                        value = legacyHost,
+                        onValueChange = { legacyHost = it.trim() },
+                        label = { Text("TV IP address") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    OutlinedTextField(
+                        value = legacyPort,
+                        onValueChange = { legacyPort = it.filter(Char::isDigit).take(5) },
+                        label = { Text("ADB port") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Button(
+                        enabled = !running && legacyHost.isNotBlank() && legacyPort.toIntOrNull() in 1..65535,
+                        onClick = {
+                            activeJob = scope.launch {
+                                lastError = null
+                                status = "Connecting… Accept the debugging prompt on the TV."
+                                try {
+                                    val model = withContext(Dispatchers.IO) {
+                                        manager.connectLegacy(legacyHost, requireNotNull(legacyPort.toIntOrNull()))
+                                    }
+                                    savedTv = manager.getSavedTv()
+                                    status = "Connected to $model"
+                                } catch (t: Throwable) {
+                                    fail(t)
+                                } finally {
+                                    activeJob = null
+                                }
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("Connect with IP") }
 
                     HorizontalDivider(color = theme.colors.type.divider.copy(alpha = 0.18f))
                     OutlinedTextField(

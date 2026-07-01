@@ -167,7 +167,8 @@ class TvAdbManager private constructor(
     fun getSavedTv(): SavedTv? {
         val host = savedTv.getString("host", null) ?: return null
         val model = savedTv.getString("model", null) ?: return null
-        return SavedTv(host, model)
+        val legacyPort = savedTv.getInt("legacy_port", -1).takeIf { it > 0 }
+        return SavedTv(host, model, legacyPort)
     }
 
     fun forgetSavedTv() {
@@ -179,7 +180,8 @@ class TvAdbManager private constructor(
     fun reconnectSavedTv(): DiscoveredAdbEndpoints {
         val savedHost = savedTv.getString("host", null) ?: throw IOException("No saved TV")
         val savedModel = savedTv.getString("model", null)
-        Log.d(tag, "reconnectSavedTv start savedHost=$savedHost savedModel=$savedModel")
+        val legacyPort = savedTv.getInt("legacy_port", -1).takeIf { it > 0 }
+        Log.d(tag, "reconnectSavedTv start savedHost=$savedHost savedModel=$savedModel legacyPort=$legacyPort")
         if (isConnected) {
             val model = runShell("getprop", "ro.product.model").trim()
             if (savedModel != null && model != savedModel) {
@@ -187,9 +189,9 @@ class TvAdbManager private constructor(
                 throw AdbOperationException(AdbFailureKind.WRONG_DEVICE, "Connected device does not match saved TV")
             }
             Log.d(tag, "reconnectSavedTv reusing active connection model=$model")
-            return DiscoveredAdbEndpoints(savedHost, null, null)
+            return DiscoveredAdbEndpoints(savedHost, null, legacyPort)
         }
-        val endpoint = discoverEndpoints()
+        val endpoint = legacyPort?.let { DiscoveredAdbEndpoints(savedHost, null, it) } ?: discoverEndpoints()
         if (endpoint.host != savedHost) throw IOException("Saved TV was not discovered")
         val connectPort = endpoint.connectPort ?: throw IOException("Saved TV has no reachable connect endpoint")
         try {
@@ -210,6 +212,32 @@ class TvAdbManager private constructor(
         }
         Log.d(tag, "reconnectSavedTv success host=$savedHost port=$connectPort model=$model")
         return endpoint
+    }
+
+    fun connectLegacy(host: String, port: Int): String {
+        require(host.isNotBlank()) { "TV IP address is required" }
+        require(port in 1..65535) { "ADB port must be between 1 and 65535" }
+        Log.d(tag, "connectLegacy start host=$host port=$port")
+        if (isConnected) disconnect()
+        setThrowOnUnauthorised(false)
+        setTimeout(60, TimeUnit.SECONDS)
+        try {
+            if (!connect(host.trim(), port)) throw IOException("Legacy ADB connection timed out")
+            val model = runShell("getprop", "ro.product.model").trim()
+            savedTv.edit()
+                .putString("host", host.trim())
+                .putString("model", model)
+                .putInt("legacy_port", port)
+                .apply()
+            Log.d(tag, "connectLegacy success host=${host.trim()} port=$port model=$model")
+            return model
+        } catch (e: Throwable) {
+            if (isConnected) disconnect()
+            throw connectionFailure(e)
+        } finally {
+            setTimeout(12, TimeUnit.SECONDS)
+            setThrowOnUnauthorised(true)
+        }
     }
 
     fun pairAndConnect(host: String, pairingPort: Int?, connectPort: Int, pairingCode: String): String {
@@ -244,7 +272,7 @@ class TvAdbManager private constructor(
         }
         Log.d(tag, "shell probe start")
         return runShell("getprop", "ro.product.model").trim().also { model ->
-            savedTv.edit().putString("host", host).putString("model", model).apply()
+            savedTv.edit().putString("host", host).putString("model", model).remove("legacy_port").apply()
             Log.d(tag, "saved TV host=$host model=$model")
         }
     }
