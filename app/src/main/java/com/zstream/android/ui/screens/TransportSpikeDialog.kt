@@ -49,7 +49,7 @@ fun TransportSpikeDialog(
 
     var host by remember { mutableStateOf("192.168.0.147") }
     var pairingPort by remember { mutableStateOf("") }
-    var connectPort by remember { mutableStateOf("43305") }
+    var connectPort by remember { mutableStateOf("46015") }
     var pairingCode by remember { mutableStateOf("") }
     var status by remember { mutableStateOf("Fill in host, pairing port, connect port, and code.") }
     var running by remember { mutableStateOf(false) }
@@ -135,6 +135,44 @@ fun TransportSpikeDialog(
                         ) {
                             Text("Probe shell")
                         }
+                    }
+                    Button(
+                        enabled = !running,
+                        onClick = {
+                            scope.launch {
+                                running = true
+                                status = "Installing facer.apk (104 MB)..."
+                                Log.d(tag, "Install facer.apk pressed host=$host connectPort=$connectPort")
+                                try {
+                                    val result = withContext(Dispatchers.IO) {
+                                        manager.pairAndConnect(
+                                            host = host,
+                                            pairingPort = pairingPort.toIntOrNull(),
+                                            connectPort = connectPort.toInt(),
+                                            pairingCode = pairingCode,
+                                        )
+                                        Log.d(tag, "Install facer.apk connection ready; opening bundled asset")
+                                        context.assets.openFd("facer.apk").use { descriptor ->
+                                            Log.d(tag, "Install facer.apk asset size=${descriptor.length}")
+                                            context.assets.open("facer.apk").use { apk ->
+                                                manager.installApk(apk, descriptor.length)
+                                            }
+                                        }
+                                    }
+                                    Log.d(tag, "Install facer.apk succeeded result=$result")
+                                    status = "Success"
+                                } catch (t: Throwable) {
+                                    Log.e(tag, "Install facer.apk failed", t)
+                                    status = "Failed"
+                                } finally {
+                                    running = false
+                                }
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = theme.colors.global.accentA),
+                    ) {
+                        Text("Connect + Install facer.apk")
                     }
                     Spacer(Modifier.height(4.dp))
                     Text(
