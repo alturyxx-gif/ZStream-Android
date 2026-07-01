@@ -1,6 +1,7 @@
 package com.zstream.android.ui.screens
 
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import android.util.Log
 import androidx.activity.compose.BackHandler
@@ -106,10 +107,15 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import coil.compose.AsyncImage
 import com.zstream.android.R
 import com.zstream.android.Urls
 import com.zstream.android.data.local.entity.ProgressEntity
+import com.zstream.android.data.adb.ReleaseUpdateManager
+import com.zstream.android.data.adb.ReleaseUpdateNavigation
+import com.zstream.android.data.adb.TvAdbManager
 import com.zstream.android.data.local.entity.BookmarkEntity
 import com.zstream.android.data.local.preferences.UserPreferences
 import com.zstream.android.data.model.Media
@@ -407,6 +413,7 @@ fun HomeScreen(
     var showNotifications by remember { mutableStateOf(false) }
     var showTipJar by remember { mutableStateOf(false) }
     var showTvInstaller by remember { mutableStateOf(false) }
+    var showReleaseUpdatePrompt by remember { mutableStateOf(false) }
     var editingGroup by remember { mutableStateOf<String?>(null) }
     var sectionSettings by remember { mutableStateOf<String?>(null) }
     var editingBookmarks by remember { mutableStateOf(false) }
@@ -423,6 +430,8 @@ fun HomeScreen(
     var sectionOrder by remember { mutableStateOf(defaultSectionOrder) }
     var sectionPages by remember { mutableStateOf(mapOf<String, Int>()) }
     val context = LocalContext.current
+    val releaseUpdateManager = remember(context) { ReleaseUpdateManager(context.applicationContext) }
+    val releaseUpdateLaunch by ReleaseUpdateNavigation.launch.collectAsState()
     val focusManager = LocalFocusManager.current
     val uriHandler = LocalUriHandler.current
     val density = LocalDensity.current
@@ -470,11 +479,74 @@ fun HomeScreen(
     val unreadCount = notifications.count { it.guid !in readGuids }
     val scope = rememberCoroutineScope()
 
+    LaunchedEffect(releaseUpdateLaunch) {
+        val launch = releaseUpdateLaunch
+        if (launch != null) {
+            if (launch.openTvInstaller && TvAdbManager.get(context).getSavedTvs().isNotEmpty()) {
+                releaseUpdateManager.clearPendingUpdate()
+                showTvInstaller = true
+            } else {
+                showReleaseUpdatePrompt = true
+            }
+            ReleaseUpdateNavigation.consume()
+        } else if (isTv || releaseUpdateManager.hasPendingUpdate) {
+            showReleaseUpdatePrompt = true
+        }
+    }
+
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        if (ReleaseUpdateNavigation.launch.value == null && (isTv || releaseUpdateManager.hasPendingUpdate)) {
+            showReleaseUpdatePrompt = true
+        }
+    }
+
     @Composable
     fun HomeDialogs()
     {
         if (showTvInstaller) {
             TvInstallerScreen(onDismiss = { showTvInstaller = false })
+        }
+        if (showReleaseUpdatePrompt) {
+            val versionSuffix = releaseUpdateManager.pendingVersion.takeIf { it.isNotBlank() }?.let { " ($it)" } ?: ""
+            AlertDialog(
+                onDismissRequest = {},
+                containerColor = theme.colors.modal.background,
+                title = { Text("ZStream update available", color = theme.colors.type.emphasis) },
+                text = {
+                    Text(
+                        if (isTv)
+                            "A new APK release$versionSuffix is available. Install it from your phone, or open developer settings to enable ADB sideloading on this TV."
+                        else
+                            "A new APK release$versionSuffix is available. Open its GitHub release page? Background checks and their interval can be changed or disabled in Settings → Connections.",
+                        color = theme.colors.type.text,
+                    )
+                },
+                confirmButton = {
+                    if (isTv) {
+                        TextButton(onClick = {
+                            releaseUpdateManager.clearPendingUpdate()
+                            showReleaseUpdatePrompt = false
+                            try {
+                                context.startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS))
+                            } catch (_: Exception) {
+                                context.startActivity(Intent(android.provider.Settings.ACTION_SETTINGS))
+                            }
+                        }) { Text("Open developer settings", color = theme.colors.global.accentA) }
+                    } else {
+                        TextButton(onClick = {
+                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(releaseUpdateManager.pendingReleaseUrl)))
+                            releaseUpdateManager.clearPendingUpdate()
+                            showReleaseUpdatePrompt = false
+                        }) { Text("Open GitHub releases", color = theme.colors.global.accentA) }
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = {
+                        releaseUpdateManager.clearPendingUpdate()
+                        showReleaseUpdatePrompt = false
+                    }) { Text(if (isTv) "OK" else "No", color = theme.colors.type.secondary) }
+                },
+            )
         }
         if (showLayoutMenu) {
             val allGroups = remember(state.bookmarkEntities) {

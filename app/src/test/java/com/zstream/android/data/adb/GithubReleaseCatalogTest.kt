@@ -27,6 +27,12 @@ class GithubReleaseCatalogTest {
         assertEquals("asset-created", apk.assetCreatedAt)
         assertEquals("uploader", apk.assetUploader)
         assertEquals("abc123", apk.targetCommit)
+        val snapshot = latestReleaseSnapshot(listOf(apk))!!
+        assertEquals("v1.2.3", snapshot.version)
+        assertEquals("sha256:abc", snapshot.hashes)
+        assertEquals(false, releaseChanged(null, null, snapshot))
+        assertEquals(false, releaseChanged(snapshot.hashes, snapshot.version, snapshot))
+        assertEquals(true, releaseChanged("old", snapshot.version, snapshot))
     }
 
     @Test

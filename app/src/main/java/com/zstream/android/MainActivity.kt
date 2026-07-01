@@ -5,6 +5,7 @@ import android.app.UiModeManager
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.net.Uri
+import android.content.Intent
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
@@ -25,6 +26,10 @@ import androidx.navigation.compose.rememberNavController
 import com.zstream.android.data.WatchPartyAction
 import com.zstream.android.data.WatchPartyManager
 import com.zstream.android.data.local.preferences.SettingsPreferences
+import com.zstream.android.data.adb.OPEN_TV_INSTALLER_EXTRA
+import com.zstream.android.data.adb.RELEASE_UPDATE_EXTRA
+import com.zstream.android.data.adb.ReleaseUpdateNavigation
+import com.zstream.android.data.adb.ReleaseUpdateManager
 import com.zstream.android.provider.ProviderEngine
 import com.zstream.android.ui.LocalIsTv
 import com.zstream.android.ui.navigation.NavGraph
@@ -45,6 +50,7 @@ import javax.inject.Inject
 class MainActivity : ComponentActivity() {
     @Inject lateinit var providerEngine: ProviderEngine
     @Inject lateinit var watchPartyManager: WatchPartyManager
+    @Inject lateinit var releaseUpdateManager: ReleaseUpdateManager
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -55,9 +61,17 @@ class MainActivity : ComponentActivity() {
             window.isNavigationBarContrastEnforced = false
         }
         providerEngine.init(this)
-
+        handleReleaseUpdateIntent(intent)
         val uiModeManager = getSystemService(UI_MODE_SERVICE) as UiModeManager
         val isTv = uiModeManager.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
+        if (
+            !isTv &&
+            releaseUpdateManager.enabled.value &&
+            android.os.Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 4102)
+        }
 
         setContent {
             val navController = rememberNavController()
@@ -84,6 +98,20 @@ class MainActivity : ComponentActivity() {
                     NavGraph(navController)
                 }
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleReleaseUpdateIntent(intent)
+    }
+
+    private fun handleReleaseUpdateIntent(intent: Intent?) {
+        if (intent?.getBooleanExtra(RELEASE_UPDATE_EXTRA, false) == true) {
+            ReleaseUpdateNavigation.dispatch(intent.getBooleanExtra(OPEN_TV_INSTALLER_EXTRA, false))
+            intent.removeExtra(RELEASE_UPDATE_EXTRA)
+            intent.removeExtra(OPEN_TV_INSTALLER_EXTRA)
         }
     }
 

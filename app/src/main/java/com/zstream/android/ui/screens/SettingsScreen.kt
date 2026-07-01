@@ -94,6 +94,7 @@ import com.zstream.android.BuildConfig
 import com.zstream.android.Urls
 import com.zstream.android.data.AccountSession
 import com.zstream.android.data.TraktState
+import com.zstream.android.data.adb.ReleaseCheckInterval
 import com.zstream.android.data.local.entity.BookmarkEntity
 import com.zstream.android.data.local.entity.SettingsEntity
 import com.zstream.android.theme.LocalZStreamTheme
@@ -2422,6 +2423,7 @@ private fun TvTextField(
     placeholder: String,
     visualTransformation: VisualTransformation,
     theme: ZStreamTheme,
+    modifier: Modifier = Modifier,
 ) {
     var isEditing by remember { mutableStateOf(false) }
     var isFocused by remember { mutableStateOf(false) }
@@ -2445,7 +2447,7 @@ private fun TvTextField(
         visible = isFocused || isEditing,
     ) {
         Box(
-            Modifier
+            modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(8.dp))
                 .background(theme.colors.background.secondary)
@@ -2579,7 +2581,18 @@ private fun ConnectionsSection(
     firstItemFocusRequester: FocusRequester? = null,
 ) {
     val trakt by vm.traktState.collectAsStateWithLifecycle()
+    val releaseChecksEnabled by vm.releaseChecksEnabled.collectAsStateWithLifecycle()
+    val releaseCheckInterval by vm.releaseCheckInterval.collectAsStateWithLifecycle()
     val context = androidx.compose.ui.platform.LocalContext.current
+    var notificationGranted by remember {
+        mutableStateOf(
+            android.os.Build.VERSION.SDK_INT < 33 ||
+                context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) == android.content.pm.PackageManager.PERMISSION_GRANTED,
+        )
+    }
+    val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+        notificationGranted = it
+    }
     if (isTv) {
         Column(Modifier
             .padding(bottom = 32.dp)
@@ -2644,6 +2657,7 @@ private fun ConnectionsSection(
                         placeholder = "eyJ0eX...",
                         visualTransformation = if (tokenVisible) VisualTransformation.None else PasswordVisualTransformation(),
                         theme = theme,
+                        modifier = if (firstItemFocusRequester != null) Modifier.focusRequester(firstItemFocusRequester) else Modifier,
                     )
                     Spacer(Modifier.height(6.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -3062,6 +3076,32 @@ private fun ConnectionsSection(
         Column(Modifier
             .padding(bottom = 32.dp)
             .padding(top = if (isTv) 16.dp else 0.dp)) {
+            Spacer(Modifier.height(8.dp))
+            SectionLabel("App update checks", theme)
+            SettingsCard(theme) {
+                ZsSwitchRow(
+                    title = "Background release checks",
+                    subtitle = "Check the saved GitHub repository for new APK releases.",
+                    checked = releaseChecksEnabled,
+                    onCheckedChange = { enabled ->
+                        vm.setReleaseChecksEnabled(enabled)
+                        if (enabled && android.os.Build.VERSION.SDK_INT >= 33 && !notificationGranted) {
+                            notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                        }
+                    },
+                    notice = if (releaseChecksEnabled && !notificationGranted) "Notification permission is disabled; the app will still show the update prompt when opened." else null,
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                )
+                if (releaseChecksEnabled) {
+                    HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
+                    ZsDropdownRow(
+                        title = "Check interval",
+                        options = ReleaseCheckInterval.entries.map { it.label },
+                        selected = releaseCheckInterval.label,
+                        onSelect = vm::setReleaseCheckInterval,
+                    )
+                }
+            }
             Spacer(Modifier.height(16.dp))
             SectionLabel("TMDB API Key", theme)
             SettingsCard(theme) {

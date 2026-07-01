@@ -32,11 +32,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.zstream.android.data.adb.APK_ROWS_PER_PAGE
+import com.zstream.android.data.adb.DEFAULT_RELEASE_REPOSITORY
 import com.zstream.android.data.adb.AdbFailureKind
 import com.zstream.android.data.adb.AdbOperationException
 import com.zstream.android.data.adb.GithubApkAsset
 import com.zstream.android.data.adb.GithubReleaseCatalog
 import com.zstream.android.data.adb.InstallProgress
+import com.zstream.android.data.adb.ReleaseUpdateManager
 import com.zstream.android.data.adb.SavedTv
 import com.zstream.android.data.adb.TvAdbManager
 import com.zstream.android.data.adb.releasePage
@@ -53,8 +55,6 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
 import kotlin.math.ceil
-
-private const val DEFAULT_REPOSITORY_URL = "https://github.com/alturyxx-gif/ZStream-Android"
 
 internal enum class TvSetupMode {
     AUTOMATIC,
@@ -77,6 +77,7 @@ fun TvInstallerScreen(onDismiss: () -> Unit) {
     val scope = rememberCoroutineScope()
     val manager = remember(context) { TvAdbManager.get(context) }
     val releaseCatalog = remember { GithubReleaseCatalog() }
+    val releaseUpdateManager = remember(context) { ReleaseUpdateManager(context.applicationContext) }
 
     var devices by remember { mutableStateOf(manager.getSavedTvs()) }
     var selectedDevice by remember { mutableStateOf(manager.getSavedTv()) }
@@ -88,7 +89,7 @@ fun TvInstallerScreen(onDismiss: () -> Unit) {
     var manualConnectPort by remember { mutableStateOf("") }
     var legacyHost by remember { mutableStateOf("") }
     var legacyPort by remember { mutableStateOf("5555") }
-    var repositoryUrl by remember { mutableStateOf(DEFAULT_REPOSITORY_URL) }
+    var repositoryUrl by remember { mutableStateOf(releaseUpdateManager.repositoryUrl.ifBlank { DEFAULT_RELEASE_REPOSITORY }) }
     var apks by remember { mutableStateOf<List<GithubApkAsset>>(emptyList()) }
     var apkPage by remember { mutableStateOf(0) }
     var selectedApk by remember { mutableStateOf<GithubApkAsset?>(null) }
@@ -123,6 +124,7 @@ fun TvInstallerScreen(onDismiss: () -> Unit) {
             status = "Scanning all GitHub releases…"
             try {
                 apks = withContext(Dispatchers.IO) { releaseCatalog.loadAllApks(repositoryUrl) }
+                releaseUpdateManager.recordScan(apks)
                 apkPage = 0
                 status = if (apks.isEmpty()) "No APK assets found" else "Found ${apks.size} APK${if (apks.size == 1) "" else "s"}"
             } catch (_: CancellationException) {
@@ -389,7 +391,10 @@ fun TvInstallerScreen(onDismiss: () -> Unit) {
                         Text("Enter a public GitHub repository link. ZStream scans every release and lists its APK assets.", color = theme.colors.type.secondary)
                         OutlinedTextField(
                             value = repositoryUrl,
-                            onValueChange = { repositoryUrl = it },
+                            onValueChange = {
+                                repositoryUrl = it
+                                releaseUpdateManager.setRepositoryUrl(it)
+                            },
                             label = { Text("GitHub repository link") },
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth(),
