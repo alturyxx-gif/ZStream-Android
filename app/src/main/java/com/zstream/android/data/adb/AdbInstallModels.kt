@@ -25,7 +25,25 @@ class AdbOperationException(
     cause: Throwable? = null,
 ) : Exception(message, cause)
 
-data class SavedTv(val host: String, val model: String, val legacyPort: Int? = null)
+data class SavedTv(
+    val host: String,
+    val model: String,
+    val legacyPort: Int? = null,
+    val connectPort: Int? = legacyPort,
+    val pairingPort: Int? = null,
+    val nickname: String = model,
+    val id: String = if (legacyPort == null) "wireless:$host" else "legacy:$host:$legacyPort",
+)
+
+internal fun mergeSavedTv(devices: List<SavedTv>, device: SavedTv): List<SavedTv> {
+    val previous = devices.firstOrNull { it.id == device.id }
+    val merged = if (previous != null && device.nickname == device.model) {
+        device.copy(nickname = previous.nickname)
+    } else {
+        device
+    }
+    return devices.filterNot { it.id == device.id } + merged
+}
 
 sealed interface InstallProgress {
     data object Connecting : InstallProgress
