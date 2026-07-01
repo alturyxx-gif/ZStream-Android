@@ -67,7 +67,7 @@ internal fun copyCancellable(
     isCancelled: () -> Boolean,
     onProgress: (Long, Long) -> Unit,
 ): Long {
-    val buffer = ByteArray(64 * 1024)
+    val buffer = ByteArray(1024 * 1024)
     var copied = 0L
     while (true) {
         if (isCancelled()) throw CancellationException("Transfer cancelled")
