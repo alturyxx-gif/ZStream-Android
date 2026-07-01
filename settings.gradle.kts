@@ -19,8 +19,11 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        maven { url = uri("https://jitpack.io") }
     }
 }
 
 rootProject.name = "ZStream-Android"
 include(":app")
+include(":libadb")
+project(":libadb").projectDir = file("libadb-android/libadb")

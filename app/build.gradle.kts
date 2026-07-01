@@ -106,6 +106,9 @@ dependencies {
     implementation(libs.androidx.tv.foundation)
     implementation(libs.androidx.tv.material)
     implementation(libs.haze)
+    implementation("org.bouncycastle:bcpkix-jdk15to18:1.81")
+    implementation("org.conscrypt:conscrypt-android:2.5.3")
+    implementation(project(":libadb"))
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
