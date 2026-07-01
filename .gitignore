@@ -29,7 +29,6 @@ API_KEY
 .kotlin/
 backend/
 docs/
-libadb-android/
 p-stream/
 providers-bundle/
 pstream-extension/

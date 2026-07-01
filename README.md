@@ -18,7 +18,7 @@ Unofficial Android client for ZStream. Built with Jetpack Compose, Hilt, Media3,
 ### 1. Clone the repo
 
 ```bash
-git clone https://github.com/alturyxx-gif/ZStream-Android.git
+git clone --recurse-submodules https://github.com/alturyxx-gif/ZStream-Android.git
 cd ZStream-Android
 ```
 
