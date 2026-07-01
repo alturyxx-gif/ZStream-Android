@@ -4,6 +4,8 @@ import android.content.Context
 import android.os.Build
 import android.os.SystemClock
 import android.util.Log
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 import io.github.muntashirakon.adb.AbsAdbConnectionManager
 import io.github.muntashirakon.adb.LocalServices
 import io.github.muntashirakon.adb.android.AdbMdns
@@ -51,6 +53,7 @@ class TvAdbManager private constructor(
     private val tag = "TvAdb"
     private val httpClient = OkHttpClient()
     private val savedTv = appContext.getSharedPreferences("adb_saved_tv", Context.MODE_PRIVATE)
+    private val gson = Gson()
     // Keep legacy filenames so existing paired TVs continue trusting this app.
     private val privateKeyFile = File(appContext.filesDir, "adb_spike_private.pk8")
     private val certificateFile = File(appContext.filesDir, "adb_spike_cert.cer")
@@ -88,7 +91,7 @@ class TvAdbManager private constructor(
 
     private fun discoverDevicesOnce(timeoutMillis: Long, attempt: Int): List<DiscoveredAdbEndpoints> {
         Log.d(tag, "discoverEndpoints start attempt=$attempt timeoutMs=$timeoutMillis")
-        val savedHost = savedTv.getString("host", null)
+        val savedHost = getSavedTv()?.host
         val localHosts = Collections.list(NetworkInterface.getNetworkInterfaces())
             .flatMap { Collections.list(it.inetAddresses) }
             .mapNotNull { it.hostAddress }
@@ -164,32 +167,80 @@ class TvAdbManager private constructor(
         false
     }
 
-    fun getSavedTv(): SavedTv? {
-        val host = savedTv.getString("host", null) ?: return null
-        val model = savedTv.getString("model", null) ?: return null
+    fun getSavedTvs(): List<SavedTv> {
+        savedTv.getString("devices", null)?.let { json ->
+            return runCatching {
+                gson.fromJson<List<SavedTv>>(json, object : TypeToken<List<SavedTv>>() {}.type).orEmpty()
+            }.getOrElse {
+                Log.w(tag, "could not read saved TVs", it)
+                emptyList()
+            }
+        }
+        val host = savedTv.getString("host", null) ?: return emptyList()
+        val model = savedTv.getString("model", null) ?: return emptyList()
         val legacyPort = savedTv.getInt("legacy_port", -1).takeIf { it > 0 }
-        return SavedTv(host, model, legacyPort)
+        return listOf(SavedTv(host, model, legacyPort)).also { persistSavedTvs(it, it.first().id) }
     }
 
-    fun forgetSavedTv() {
+    fun getSavedTv(): SavedTv? {
+        val devices = getSavedTvs()
+        val selectedId = savedTv.getString("selected_device", null)
+        return devices.firstOrNull { it.id == selectedId } ?: devices.firstOrNull()
+    }
+
+    fun selectSavedTv(id: String): SavedTv {
+        val device = getSavedTvs().firstOrNull { it.id == id } ?: throw IOException("Saved TV not found")
+        if (getSavedTv()?.id != id && isConnected) disconnect()
+        savedTv.edit().putString("selected_device", id).apply()
+        Log.d(tag, "selected saved TV id=$id host=${device.host}")
+        return device
+    }
+
+    fun renameSavedTv(id: String, nickname: String) {
+        val cleanName = nickname.trim().ifBlank { throw IllegalArgumentException("Device name is required") }
+        val devices = getSavedTvs().map { if (it.id == id) it.copy(nickname = cleanName) else it }
+        require(devices.any { it.id == id }) { "Saved TV not found" }
+        persistSavedTvs(devices, getSavedTv()?.id)
+    }
+
+    fun forgetSavedTv(id: String? = getSavedTv()?.id) {
+        if (id == null) return
         if (isConnected) disconnect()
-        savedTv.edit().clear().apply()
-        Log.d(tag, "forgot saved TV")
+        val selectedId = getSavedTv()?.id
+        val devices = getSavedTvs().filterNot { it.id == id }
+        persistSavedTvs(devices, selectedId?.takeIf { it != id } ?: devices.firstOrNull()?.id)
+        Log.d(tag, "forgot saved TV id=$id")
+    }
+
+    private fun saveTv(device: SavedTv) {
+        val devices = mergeSavedTv(getSavedTvs(), device)
+        persistSavedTvs(devices, device.id)
+    }
+
+    private fun persistSavedTvs(devices: List<SavedTv>, selectedId: String?) {
+        savedTv.edit()
+            .putString("devices", gson.toJson(devices))
+            .putString("selected_device", selectedId)
+            .remove("host")
+            .remove("model")
+            .remove("legacy_port")
+            .apply()
     }
 
     fun reconnectSavedTv(): DiscoveredAdbEndpoints {
-        val savedHost = savedTv.getString("host", null) ?: throw IOException("No saved TV")
-        val savedModel = savedTv.getString("model", null)
-        val legacyPort = savedTv.getInt("legacy_port", -1).takeIf { it > 0 }
+        val savedDevice = getSavedTv() ?: throw IOException("No saved TV")
+        val savedHost = savedDevice.host
+        val savedModel = savedDevice.model
+        val legacyPort = savedDevice.legacyPort
         Log.d(tag, "reconnectSavedTv start savedHost=$savedHost savedModel=$savedModel legacyPort=$legacyPort")
         if (isConnected) {
             val model = runShell("getprop", "ro.product.model").trim()
-            if (savedModel != null && model != savedModel) {
+            if (model != savedModel) {
                 disconnect()
                 throw AdbOperationException(AdbFailureKind.WRONG_DEVICE, "Connected device does not match saved TV")
             }
             Log.d(tag, "reconnectSavedTv reusing active connection model=$model")
-            return DiscoveredAdbEndpoints(savedHost, null, legacyPort)
+            return DiscoveredAdbEndpoints(savedHost, savedDevice.pairingPort, savedDevice.connectPort ?: legacyPort)
         }
         val endpoint = if (legacyPort != null) {
             Log.d(tag, "reconnectSavedTv using saved legacy endpoint host=$savedHost port=$legacyPort")
@@ -209,13 +260,14 @@ class TvAdbManager private constructor(
             throw connectionFailure(e)
         }
         val model = runShell("getprop", "ro.product.model").trim()
-        if (savedModel != null && model != savedModel) {
+        if (model != savedModel) {
             disconnect()
             throw AdbOperationException(
                 AdbFailureKind.WRONG_DEVICE,
                 "Discovered device model $model does not match saved TV $savedModel",
             )
         }
+        saveTv(savedDevice.copy(connectPort = connectPort, pairingPort = endpoint.pairingPort ?: savedDevice.pairingPort))
         Log.d(tag, "reconnectSavedTv success host=$savedHost port=$connectPort model=$model")
         return endpoint
     }
@@ -232,11 +284,7 @@ class TvAdbManager private constructor(
             if (!connect(host.trim(), port)) throw IOException("Legacy ADB connection timed out")
             Log.d(tag, "connectLegacy transport connected; probing model")
             val model = runShell("getprop", "ro.product.model").trim()
-            savedTv.edit()
-                .putString("host", host.trim())
-                .putString("model", model)
-                .putInt("legacy_port", port)
-                .apply()
+            saveTv(SavedTv(host.trim(), model, legacyPort = port))
             Log.d(tag, "connectLegacy success host=${host.trim()} port=$port model=$model")
             return model
         } catch (e: Throwable) {
@@ -311,7 +359,7 @@ class TvAdbManager private constructor(
         }
         Log.d(tag, "pairAndConnect shell probe start host=$host port=$connectPort")
         return runShell("getprop", "ro.product.model").trim().also { model ->
-            savedTv.edit().putString("host", host).putString("model", model).remove("legacy_port").apply()
+            saveTv(SavedTv(host, model, connectPort = connectPort, pairingPort = pairingPort))
             Log.d(tag, "saved TV host=$host model=$model")
         }
     }

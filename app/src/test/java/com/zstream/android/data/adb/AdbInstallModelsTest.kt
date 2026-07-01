@@ -37,6 +37,17 @@ class AdbInstallModelsTest {
     }
 
     @Test
+    fun savingAnotherTvKeepsBothAndPreservesNickname() {
+        val first = SavedTv("192.168.0.20", "AOSP TV", nickname = "Living room")
+        val second = SavedTv("192.168.0.21", "BRAVIA")
+        val devices = mergeSavedTv(mergeSavedTv(listOf(first), second), first.copy(connectPort = 4444, nickname = first.model))
+
+        assertEquals(2, devices.size)
+        assertEquals("Living room", devices.first { it.id == first.id }.nickname)
+        assertEquals(4444, devices.first { it.id == first.id }.connectPort)
+    }
+
+    @Test
     fun revokedAuthorizationRequestsPairing() {
         assertEquals(AdbFailureKind.PAIRING_REQUIRED, connectionFailure(AdbAuthenticationFailedException()).kind)
     }
