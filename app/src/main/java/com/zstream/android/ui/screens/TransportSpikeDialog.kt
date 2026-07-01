@@ -101,6 +101,33 @@ fun TransportSpikeDialog(
                     ) {
                         Text("Discover ADB endpoints")
                     }
+                    Button(
+                        enabled = !running,
+                        onClick = {
+                            scope.launch {
+                                running = true
+                                status = "Reconnecting saved TV..."
+                                Log.d(tag, "Reconnect saved TV pressed")
+                                try {
+                                    val endpoints = withContext(Dispatchers.IO) { manager.reconnectSavedTv() }
+                                    host = endpoints.host
+                                    pairingPort = ""
+                                    pairingCode = ""
+                                    connectPort = endpoints.connectPort?.toString().orEmpty()
+                                    status = "Success"
+                                    Log.d(tag, "Reconnect saved TV succeeded host=${endpoints.host} connectPort=${endpoints.connectPort}")
+                                } catch (t: Throwable) {
+                                    Log.e(tag, "Reconnect saved TV failed", t)
+                                    status = "Failed"
+                                } finally {
+                                    running = false
+                                }
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Reconnect saved TV")
+                    }
                     OutlinedTextField(value = host, onValueChange = { host = it.trim() }, label = { Text("Host / IP") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                     OutlinedTextField(value = pairingPort, onValueChange = { pairingPort = it.filter(Char::isDigit) }, label = { Text("Pairing port") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                     OutlinedTextField(value = connectPort, onValueChange = { connectPort = it.filter(Char::isDigit) }, label = { Text("Connect port") }, singleLine = true, modifier = Modifier.fillMaxWidth())

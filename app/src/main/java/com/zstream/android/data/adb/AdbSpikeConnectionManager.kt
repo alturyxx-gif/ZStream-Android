@@ -49,6 +49,7 @@ class AdbSpikeConnectionManager private constructor(
 ) : AbsAdbConnectionManager() {
     private val tag = "AdbSpike"
     private val httpClient = OkHttpClient()
+    private val savedTv = appContext.getSharedPreferences("adb_saved_tv", Context.MODE_PRIVATE)
     private val privateKeyFile = File(appContext.filesDir, "adb_spike_private.pk8")
     private val certificateFile = File(appContext.filesDir, "adb_spike_cert.cer")
 
@@ -82,6 +83,7 @@ class AdbSpikeConnectionManager private constructor(
 
     private fun discoverEndpointsOnce(timeoutMillis: Long, attempt: Int): DiscoveredAdbEndpoints {
         Log.d(tag, "discoverEndpoints start attempt=$attempt timeoutMs=$timeoutMillis")
+        val savedHost = savedTv.getString("host", null)
         val localHosts = Collections.list(NetworkInterface.getNetworkInterfaces())
             .flatMap { Collections.list(it.inetAddresses) }
             .mapNotNull { it.hostAddress }
@@ -99,7 +101,9 @@ class AdbSpikeConnectionManager private constructor(
                     addLast(port)
                 }
                 Log.d(tag, "discoverEndpoints pairing host=$host port=$port")
-                if (host.startsWith("192.168.0.") && connectByHost.containsKey(host)) preferredMatchFound.countDown()
+                if ((host == savedHost || host.startsWith("192.168.0.")) && connectByHost.containsKey(host)) {
+                    preferredMatchFound.countDown()
+                }
             } else if (host != null && host in localHosts) {
                 Log.d(tag, "discoverEndpoints ignoring local pairing host=$host port=$port")
             }
@@ -112,7 +116,9 @@ class AdbSpikeConnectionManager private constructor(
                     addLast(port)
                 }
                 Log.d(tag, "discoverEndpoints connect host=$host port=$port")
-                if (host.startsWith("192.168.0.") && pairingByHost.containsKey(host)) preferredMatchFound.countDown()
+                if (host == savedHost || host.startsWith("192.168.0.") && pairingByHost.containsKey(host)) {
+                    preferredMatchFound.countDown()
+                }
             } else if (host != null && host in localHosts) {
                 Log.d(tag, "discoverEndpoints ignoring local connect host=$host port=$port")
             }
@@ -122,7 +128,7 @@ class AdbSpikeConnectionManager private constructor(
         connectDiscovery.start()
         try {
             if (preferredMatchFound.await(timeoutMillis, TimeUnit.MILLISECONDS)) {
-                Log.d(tag, "discoverEndpoints preferred 192.168.0.x match found; collecting for 750ms")
+                Log.d(tag, "discoverEndpoints preferred host found; collecting for 750ms")
                 TimeUnit.MILLISECONDS.sleep(750)
             }
         } finally {
@@ -138,7 +144,8 @@ class AdbSpikeConnectionManager private constructor(
             }?.let { listOf(host to it) }.orEmpty()
         }
         // ponytail: select one reachable matching host until the real device-picker UI exists.
-        val endpoint = reachableConnectEndpoints.firstOrNull { (host) ->
+        val endpoint = reachableConnectEndpoints.firstOrNull { (host) -> host == savedHost }
+            ?: reachableConnectEndpoints.firstOrNull { (host) ->
             host.startsWith("192.168.0.") && pairingByHost.containsKey(host)
         }
             ?: reachableConnectEndpoints.firstOrNull { (host) -> pairingByHost.containsKey(host) }
@@ -155,6 +162,26 @@ class AdbSpikeConnectionManager private constructor(
         true
     } catch (_: IOException) {
         false
+    }
+
+    fun reconnectSavedTv(): DiscoveredAdbEndpoints {
+        val savedHost = savedTv.getString("host", null) ?: throw IOException("No saved TV")
+        val savedModel = savedTv.getString("model", null)
+        Log.d(tag, "reconnectSavedTv start savedHost=$savedHost savedModel=$savedModel")
+        val endpoint = discoverEndpoints()
+        if (endpoint.host != savedHost) throw IOException("Saved TV was not discovered")
+        val connectPort = endpoint.connectPort ?: throw IOException("Saved TV has no reachable connect endpoint")
+        if (!isConnected) {
+            Log.d(tag, "reconnectSavedTv connect start host=$savedHost port=$connectPort")
+            if (!connect(savedHost, connectPort)) throw IOException("Saved TV connection failed")
+        }
+        val model = runShell("getprop", "ro.product.model").trim()
+        if (savedModel != null && model != savedModel) {
+            disconnect()
+            throw IOException("Discovered device model $model does not match saved TV $savedModel")
+        }
+        Log.d(tag, "reconnectSavedTv success host=$savedHost port=$connectPort model=$model")
+        return endpoint
     }
 
     fun pairAndConnect(host: String, pairingPort: Int?, connectPort: Int, pairingCode: String): String {
@@ -180,7 +207,10 @@ class AdbSpikeConnectionManager private constructor(
             Log.d(tag, "connect() done")
         }
         Log.d(tag, "shell probe start")
-        return runShell("getprop", "ro.product.model").trim()
+        return runShell("getprop", "ro.product.model").trim().also { model ->
+            savedTv.edit().putString("host", host).putString("model", model).apply()
+            Log.d(tag, "saved TV host=$host model=$model")
+        }
     }
 
     fun runShell(vararg command: String): String {
