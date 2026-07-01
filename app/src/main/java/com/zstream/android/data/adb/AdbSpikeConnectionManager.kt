@@ -185,7 +185,9 @@ class TvAdbManager private constructor(
     fun getSavedTv(): SavedTv? {
         val devices = getSavedTvs()
         val selectedId = savedTv.getString("selected_device", null)
-        return devices.firstOrNull { it.id == selectedId } ?: devices.firstOrNull()
+        val selected = devices.firstOrNull { it.id == selectedId } ?: devices.firstOrNull()
+        Log.d(tag, "getSavedTv selectedId=$selectedId count=${devices.size} result=${selected?.id ?: "null"}")
+        return selected
     }
 
     fun selectSavedTv(id: String): SavedTv {
@@ -232,6 +234,7 @@ class TvAdbManager private constructor(
         val savedHost = savedDevice.host
         val savedModel = savedDevice.model
         val legacyPort = savedDevice.legacyPort
+        Log.d(tag, "reconnectSavedTv device id=${savedDevice.id} nickname=${savedDevice.nickname} pairingPort=${savedDevice.pairingPort} connectPort=${savedDevice.connectPort}")
         Log.d(tag, "reconnectSavedTv start savedHost=$savedHost savedModel=$savedModel legacyPort=$legacyPort")
         if (isConnected) {
             val model = runShell("getprop", "ro.product.model").trim()
@@ -270,6 +273,33 @@ class TvAdbManager private constructor(
         saveTv(savedDevice.copy(connectPort = connectPort, pairingPort = endpoint.pairingPort ?: savedDevice.pairingPort))
         Log.d(tag, "reconnectSavedTv success host=$savedHost port=$connectPort model=$model")
         return endpoint
+    }
+
+    private fun discoverLocalLegacyEndpoint(): DiscoveredAdbEndpoints {
+        val localHosts = Collections.list(NetworkInterface.getNetworkInterfaces())
+            .flatMap { Collections.list(it.inetAddresses) }
+            .mapNotNull { it.hostAddress?.substringBefore('%') }
+            .distinct()
+        val candidatePorts = listOf(5555, 5557)
+        Log.d(tag, "discoverLocalLegacyEndpoint localHosts=$localHosts candidatePorts=$candidatePorts")
+        var lastFailure: Throwable? = null
+        for (host in localHosts) {
+            if (!host.matches(Regex("""(\d{1,3}\.){3}\d{1,3}|[0-9a-fA-F:]+"""))) continue
+            for (port in candidatePorts) {
+                try {
+                    Log.d(tag, "discoverLocalLegacyEndpoint probing host=$host port=$port")
+                    val model = connectLegacy(host, port)
+                    val device = getSavedTv() ?: throw IOException("Legacy ADB connect did not save a TV")
+                    Log.d(tag, "discoverLocalLegacyEndpoint success host=$host port=$port model=$model")
+                    return DiscoveredAdbEndpoints(device.host, device.pairingPort, device.connectPort ?: port)
+                } catch (t: Throwable) {
+                    lastFailure = t
+                    Log.w(tag, "discoverLocalLegacyEndpoint failed host=$host port=$port type=${t.javaClass.simpleName} msg=${t.message}")
+                    if (isConnected) disconnect()
+                }
+            }
+        }
+        throw IOException("Could not find the TV's local ADB endpoint", lastFailure)
     }
 
     fun connectLegacy(host: String, port: Int): String {
@@ -473,14 +503,23 @@ class TvAdbManager private constructor(
         Log.d(tag, "installFromUrl start url=$validatedUrl cancelled=${isCancelled()}")
         onProgress(InstallProgress.Connecting)
         val endpoint = try {
-            Log.d(tag, "installFromUrl reconnecting saved TV")
-            reconnectSavedTv()
+            if (isConnected) {
+                val model = runShell("getprop", "ro.product.model").trim()
+                val saved = getSavedTv()
+                val host = saved?.host ?: "unknown"
+                val connectPort = saved?.connectPort ?: saved?.legacyPort
+                Log.d(tag, "installFromUrl using active connection host=$host model=$model connectPort=$connectPort")
+                DiscoveredAdbEndpoints(host, saved?.pairingPort, connectPort)
+            } else {
+                Log.d(tag, "installFromUrl discovering local legacy endpoint")
+                discoverLocalLegacyEndpoint()
+            }
         } catch (e: AdbOperationException) {
             Log.w(tag, "installFromUrl reconnect failed kind=${e.kind} msg=${e.message}")
             throw e
         } catch (e: Throwable) {
-            Log.w(tag, "installFromUrl reconnect failed type=${e.javaClass.simpleName} msg=${e.message}")
-            throw AdbOperationException(AdbFailureKind.DISCOVERY, "Could not find the saved TV.", e)
+            Log.w(tag, "installFromUrl connect failed type=${e.javaClass.simpleName} msg=${e.message}")
+            throw AdbOperationException(AdbFailureKind.DISCOVERY, "Could not find the TV's legacy ADB endpoint.", e)
         }
         Log.d(tag, "installFromUrl connected host=${endpoint.host} pairingPort=${endpoint.pairingPort} connectPort=${endpoint.connectPort}")
         val model = getSavedTv()?.model ?: endpoint.host
