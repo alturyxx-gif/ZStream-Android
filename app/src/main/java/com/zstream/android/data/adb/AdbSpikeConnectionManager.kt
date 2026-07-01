@@ -313,8 +313,8 @@ class TvAdbManager private constructor(
         require(size > 0) { "APK is empty" }
         Log.d(tag, "installApk start size=$size")
         val startedAt = SystemClock.elapsedRealtime()
-        Log.d(tag, "installApk opening package-manager stream")
-        openStream(LocalServices.SHELL, "cmd", "package", "install", "-r", "-S", size.toString()).use { stream ->
+        Log.d(tag, "installApk opening package-manager exec stream")
+        openStream("exec:cmd package install -r -S $size").use { stream ->
             Log.d(tag, "installApk package-manager stream opened; transfer start")
             var nextLogAt = 10L * 1024 * 1024
             stream.openOutputStream().use { output ->
