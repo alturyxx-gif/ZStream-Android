@@ -13,6 +13,8 @@ import com.zstream.android.data.local.preferences.SettingsPreferences
 import com.zstream.android.data.remote.CustomThemeSettingsResponse
 import com.zstream.android.data.remote.SavedCustomThemeResponse
 import com.zstream.android.data.remote.ThemeTripletResponse
+import com.zstream.android.data.adb.ReleaseCheckInterval
+import com.zstream.android.data.adb.ReleaseUpdateManager
 import com.google.gson.Gson
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.FlowPreview
@@ -40,8 +42,14 @@ class SettingsViewModel @Inject constructor(
     private val bookmarkRepo: BookmarkRepository,
     private val traktRepo: TraktRepository,
     private val httpClient: OkHttpClient,
+    private val releaseUpdateManager: ReleaseUpdateManager,
 ) : ViewModel() {
     val traktState = traktRepo.state
+    val releaseChecksEnabled = releaseUpdateManager.enabled
+    val releaseCheckInterval = releaseUpdateManager.interval
+
+    fun setReleaseChecksEnabled(enabled: Boolean) = releaseUpdateManager.setEnabled(enabled)
+    fun setReleaseCheckInterval(label: String) = releaseUpdateManager.setInterval(ReleaseCheckInterval.fromLabel(label))
 
     fun connectTrakt(context: android.content.Context) {
         viewModelScope.launch {
