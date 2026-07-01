@@ -507,46 +507,38 @@ fun HomeScreen(
             TvInstallerScreen(onDismiss = { showTvInstaller = false })
         }
         if (showReleaseUpdatePrompt) {
-            val versionSuffix = releaseUpdateManager.pendingVersion.takeIf { it.isNotBlank() }?.let { " ($it)" } ?: ""
-            AlertDialog(
-                onDismissRequest = {},
-                containerColor = theme.colors.modal.background,
-                title = { Text("ZStream update available", color = theme.colors.type.emphasis) },
-                text = {
-                    Text(
-                        if (isTv)
-                            "A new APK release$versionSuffix is available. Install it from your phone, or open developer settings to enable ADB sideloading on this TV."
-                        else
+            if (isTv) {
+                TvUpdateWizardScreen(onDismiss = {
+                    releaseUpdateManager.clearPendingUpdate()
+                    showReleaseUpdatePrompt = false
+                })
+            } else {
+                val versionSuffix = releaseUpdateManager.pendingVersion.takeIf { it.isNotBlank() }?.let { " ($it)" } ?: ""
+                AlertDialog(
+                    onDismissRequest = {},
+                    containerColor = theme.colors.modal.background,
+                    title = { Text("ZStream update available", color = theme.colors.type.emphasis) },
+                    text = {
+                        Text(
                             "A new APK release$versionSuffix is available. Open its GitHub release page? Background checks and their interval can be changed or disabled in Settings → Connections.",
-                        color = theme.colors.type.text,
-                    )
-                },
-                confirmButton = {
-                    if (isTv) {
-                        TextButton(onClick = {
-                            releaseUpdateManager.clearPendingUpdate()
-                            showReleaseUpdatePrompt = false
-                            try {
-                                context.startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS))
-                            } catch (_: Exception) {
-                                context.startActivity(Intent(android.provider.Settings.ACTION_SETTINGS))
-                            }
-                        }) { Text("Open developer settings", color = theme.colors.global.accentA) }
-                    } else {
+                            color = theme.colors.type.text,
+                        )
+                    },
+                    confirmButton = {
                         TextButton(onClick = {
                             context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(releaseUpdateManager.pendingReleaseUrl)))
                             releaseUpdateManager.clearPendingUpdate()
                             showReleaseUpdatePrompt = false
                         }) { Text("Open GitHub releases", color = theme.colors.global.accentA) }
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = {
-                        releaseUpdateManager.clearPendingUpdate()
-                        showReleaseUpdatePrompt = false
-                    }) { Text(if (isTv) "OK" else "No", color = theme.colors.type.secondary) }
-                },
-            )
+                    },
+                    dismissButton = {
+                        TextButton(onClick = {
+                            releaseUpdateManager.clearPendingUpdate()
+                            showReleaseUpdatePrompt = false
+                        }) { Text("No", color = theme.colors.type.secondary) }
+                    },
+                )
+            }
         }
         if (showLayoutMenu) {
             val allGroups = remember(state.bookmarkEntities) {
