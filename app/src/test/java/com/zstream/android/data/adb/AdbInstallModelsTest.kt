@@ -43,14 +43,14 @@ class AdbInstallModelsTest {
 
     @Test
     fun interruptedTransferStopsBeforeAllBytesAreWritten() {
-        val input = ByteArrayInputStream(ByteArray(256 * 1024))
+        val input = ByteArrayInputStream(ByteArray(2 * 1024 * 1024))
         val output = ByteArrayOutputStream()
         var cancelled = false
         assertThrows(CancellationException::class.java) {
             copyCancellable(input, output, input.available().toLong(), { cancelled }) { copied, _ ->
-                if (copied >= 64 * 1024) cancelled = true
+                if (copied >= 1024 * 1024) cancelled = true
             }
         }
-        assertEquals(64 * 1024, output.size())
+        assertEquals(1024 * 1024, output.size())
     }
 }
