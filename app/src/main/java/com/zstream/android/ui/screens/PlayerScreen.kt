@@ -308,8 +308,23 @@ private const val PAUSE_OVERLAY_DELAY_MS = 2000L
 private const val PAUSE_OVERLAY_ANIMATION_MS = 700
 private const val PAUSE_OVERLAY_STAGGER_MS = 80
 private val PAUSE_OVERLAY_SLIDE_OFFSET = 12.dp
-private val PAUSED_GRAPHIC_BOTTOM_PADDING = 20.dp
 private val PAUSE_OVERLAY_EASING = CubicBezierEasing(0.22f, 1f, 0.36f, 1f)
+
+private const val PAUSE_CONTENT_MAX_WIDTH_PHONE = 0.31f
+private val PAUSE_LOGO_MAX_HEIGHT_PHONE = 180.dp
+private val PAUSE_TITLE_SIZE_PHONE = 56.sp
+private val PAUSE_BODY_SIZE_PHONE = 15.sp
+private val PAUSE_BODY_LINE_HEIGHT_PHONE = 22.sp
+private const val PAUSE_DESCRIPTION_MAX_LINES_PHONE = 3
+private val PAUSED_GRAPHIC_BOTTOM_PADDING_PHONE = 20.dp
+
+private const val PAUSE_CONTENT_MAX_WIDTH_TV = 0.36f
+private val PAUSE_LOGO_MAX_HEIGHT_TV = 220.dp
+private val PAUSE_TITLE_SIZE_TV = 64.sp
+private val PAUSE_BODY_SIZE_TV = 13.sp
+private val PAUSE_BODY_LINE_HEIGHT_TV = 25.sp
+private const val PAUSE_DESCRIPTION_MAX_LINES_TV = 5
+private val PAUSED_GRAPHIC_BOTTOM_PADDING_TV = 20.dp
 
 @OptIn(UnstableApi::class, ExperimentalComposeUiApi::class)
 @Composable
@@ -5203,6 +5218,18 @@ private fun PauseOverlay(
     }
 
     val runtimeText = metadata.runtime ?: fallbackRuntimeMinutes.takeIf { it > 0 }?.let(::formatRuntime)
+    val isTv = LocalIsTv.current
+    val contentMaxWidth = if (isTv) PAUSE_CONTENT_MAX_WIDTH_TV else PAUSE_CONTENT_MAX_WIDTH_PHONE
+    val logoMaxHeight = if (isTv) PAUSE_LOGO_MAX_HEIGHT_TV else PAUSE_LOGO_MAX_HEIGHT_PHONE
+    val titleSize = if (isTv) PAUSE_TITLE_SIZE_TV else PAUSE_TITLE_SIZE_PHONE
+    val bodySize = if (isTv) PAUSE_BODY_SIZE_TV else PAUSE_BODY_SIZE_PHONE
+    val bodyLineHeight = if (isTv) PAUSE_BODY_LINE_HEIGHT_TV else PAUSE_BODY_LINE_HEIGHT_PHONE
+    val descriptionMaxLines = if (isTv) PAUSE_DESCRIPTION_MAX_LINES_TV else PAUSE_DESCRIPTION_MAX_LINES_PHONE
+    val pausedGraphicBottomPadding = if (isTv) {
+        PAUSED_GRAPHIC_BOTTOM_PADDING_TV
+    } else {
+        PAUSED_GRAPHIC_BOTTOM_PADDING_PHONE
+    }
     val slideOffsetPx = with(LocalDensity.current) { PAUSE_OVERLAY_SLIDE_OFFSET.roundToPx() }
     var revealStage by remember { mutableIntStateOf(0) }
 
@@ -5264,12 +5291,6 @@ private fun PauseOverlay(
                     .fillMaxSize()
                     .padding(start = 40.dp, top = 32.dp, end = 40.dp, bottom = 72.dp)
             ) {
-                val contentMaxWidth = 0.31f
-                val logoMaxHeight = 180.dp
-                val titleSize = 56.sp
-                val bodySize = 15.sp
-                val bodyLineHeight = 22.sp
-
                 Column(
                     modifier = Modifier
                         .align(Alignment.BottomStart)
@@ -5306,7 +5327,7 @@ private fun PauseOverlay(
                             Text(
                                 text = "Now Playing",
                                 color = Color.White.copy(alpha = 0.8f),
-                                fontSize = 11.sp,
+                                fontSize = 10.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 letterSpacing = 3.sp
                             )
@@ -5372,7 +5393,7 @@ private fun PauseOverlay(
                                 color = Color.White.copy(alpha = 0.7f),
                                 fontSize = bodySize,
                                 lineHeight = bodyLineHeight,
-                                maxLines = 3,
+                                maxLines = descriptionMaxLines,
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.fillMaxWidth()
                             )
@@ -5408,7 +5429,7 @@ private fun PauseOverlay(
                         slideInVertically(tween(PAUSE_OVERLAY_ANIMATION_MS)) { it / 6 },
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
-                        .padding(bottom = PAUSED_GRAPHIC_BOTTOM_PADDING)
+                        .padding(bottom = pausedGraphicBottomPadding)
                 ) {
                     Column(
                         horizontalAlignment = Alignment.End,
