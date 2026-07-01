@@ -25,3 +25,12 @@ Thumbs.db
 API_READ_ACCESS_TOKEN
 API_KEY
 /.artifacts/
+
+.kotlin/
+backend/
+docs/
+libadb-android/
+p-stream/
+providers-bundle/
+pstream-extension/
+xp-turnstile/
