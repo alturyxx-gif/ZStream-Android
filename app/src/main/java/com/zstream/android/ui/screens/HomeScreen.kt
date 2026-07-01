@@ -406,7 +406,7 @@ fun HomeScreen(
     var hiddenGroups by remember { mutableStateOf<Set<String>>(emptySet()) }
     var showNotifications by remember { mutableStateOf(false) }
     var showTipJar by remember { mutableStateOf(false) }
-    var showTransportSpike by remember { mutableStateOf(!isTv) }
+    var showTvInstaller by remember { mutableStateOf(false) }
     var editingGroup by remember { mutableStateOf<String?>(null) }
     var sectionSettings by remember { mutableStateOf<String?>(null) }
     var editingBookmarks by remember { mutableStateOf(false) }
@@ -473,8 +473,8 @@ fun HomeScreen(
     @Composable
     fun HomeDialogs()
     {
-        if (showTransportSpike) {
-            TransportSpikeDialog(onDismiss = { showTransportSpike = false })
+        if (showTvInstaller) {
+            TvInstallerDialog(onDismiss = { showTvInstaller = false })
         }
         if (showLayoutMenu) {
             val allGroups = remember(state.bookmarkEntities) {
@@ -1039,6 +1039,8 @@ fun HomeScreen(
                                 onDiscord = { uriHandler.openUri(Urls.DISCORD_LINK) },
                                 onNotifications = { showNotifications = true },
                                 onTipJar = { showTipJar = true },
+                                onTvInstaller = { showTvInstaller = true },
+                                showTvInstaller = !isTv,
                                 collapseActionsIntoMenu = state.enableFeatured,
                                 unreadCount = unreadCount,
                             )
@@ -1206,6 +1208,8 @@ private fun TopNavBar(
     onDiscord: () -> Unit,
     onNotifications: () -> Unit,
     onTipJar: () -> Unit,
+    onTvInstaller: () -> Unit,
+    showTvInstaller: Boolean,
     collapseActionsIntoMenu: Boolean,
     unreadCount: Int = 0,
 ) {
@@ -1262,6 +1266,9 @@ private fun TopNavBar(
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (showTvInstaller) {
+                HeaderIconButton(icon = Icons.Default.Tv, hazeState = hazeState, onClick = onTvInstaller)
+            }
             // Layout button — dark pill matching sandwich (just grid icon, no text)
             HeaderIconButton(icon = Icons.Default.GridView, hazeState = hazeState, onClick = onLayout)
             // Sandwich menu

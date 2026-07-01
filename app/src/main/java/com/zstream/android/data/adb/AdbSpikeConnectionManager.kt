@@ -35,6 +35,7 @@ import java.util.Date
 import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentLinkedDeque
+import java.util.concurrent.CancellationException
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
@@ -44,12 +45,13 @@ data class DiscoveredAdbEndpoints(
     val connectPort: Int?,
 )
 
-class AdbSpikeConnectionManager private constructor(
+class TvAdbManager private constructor(
     private val appContext: Context,
 ) : AbsAdbConnectionManager() {
-    private val tag = "AdbSpike"
+    private val tag = "TvAdb"
     private val httpClient = OkHttpClient()
     private val savedTv = appContext.getSharedPreferences("adb_saved_tv", Context.MODE_PRIVATE)
+    // Keep legacy filenames so existing paired TVs continue trusting this app.
     private val privateKeyFile = File(appContext.filesDir, "adb_spike_private.pk8")
     private val certificateFile = File(appContext.filesDir, "adb_spike_cert.cer")
 
@@ -68,11 +70,14 @@ class AdbSpikeConnectionManager private constructor(
 
     override fun getDeviceName(): String = "ZStream Phone"
 
-    fun discoverEndpoints(timeoutMillis: Long = 10_000): DiscoveredAdbEndpoints {
+    fun discoverEndpoints(timeoutMillis: Long = 10_000): DiscoveredAdbEndpoints =
+        discoverDevices(timeoutMillis).first()
+
+    fun discoverDevices(timeoutMillis: Long = 10_000): List<DiscoveredAdbEndpoints> {
         var lastFailure: IOException? = null
         for (attempt in 1..2) {
             try {
-                return discoverEndpointsOnce(timeoutMillis, attempt)
+                return discoverDevicesOnce(timeoutMillis, attempt)
             } catch (e: IOException) {
                 lastFailure = e
                 Log.w(tag, "discoverEndpoints attempt=$attempt failed: ${e.message}")
@@ -81,7 +86,7 @@ class AdbSpikeConnectionManager private constructor(
         throw requireNotNull(lastFailure)
     }
 
-    private fun discoverEndpointsOnce(timeoutMillis: Long, attempt: Int): DiscoveredAdbEndpoints {
+    private fun discoverDevicesOnce(timeoutMillis: Long, attempt: Int): List<DiscoveredAdbEndpoints> {
         Log.d(tag, "discoverEndpoints start attempt=$attempt timeoutMs=$timeoutMillis")
         val savedHost = savedTv.getString("host", null)
         val localHosts = Collections.list(NetworkInterface.getNetworkInterfaces())
@@ -143,17 +148,12 @@ class AdbSpikeConnectionManager private constructor(
                 reachable
             }?.let { listOf(host to it) }.orEmpty()
         }
-        // ponytail: select one reachable matching host until the real device-picker UI exists.
-        val endpoint = reachableConnectEndpoints.firstOrNull { (host) -> host == savedHost }
-            ?: reachableConnectEndpoints.firstOrNull { (host) ->
-            host.startsWith("192.168.0.") && pairingByHost.containsKey(host)
-        }
-            ?: reachableConnectEndpoints.firstOrNull { (host) -> pairingByHost.containsKey(host) }
-            ?: reachableConnectEndpoints.firstOrNull()
-            ?: throw IOException("No reachable wireless ADB connect service discovered")
-        val host = endpoint.first
-        return DiscoveredAdbEndpoints(host, pairingByHost[host]?.lastOrNull(), endpoint.second).also {
-            Log.d(tag, "discoverEndpoints done host=${it.host} pairingPort=${it.pairingPort} connectPort=${it.connectPort}")
+        val endpoints = orderDiscoveredDevices(reachableConnectEndpoints.map { (host, port) ->
+            DiscoveredAdbEndpoints(host, pairingByHost[host]?.lastOrNull(), port)
+        }, savedHost)
+        if (endpoints.isEmpty()) throw IOException("No reachable wireless ADB connect service discovered")
+        return endpoints.also {
+            Log.d(tag, "discoverEndpoints done devices=$it")
         }
     }
 
@@ -164,21 +164,49 @@ class AdbSpikeConnectionManager private constructor(
         false
     }
 
+    fun getSavedTv(): SavedTv? {
+        val host = savedTv.getString("host", null) ?: return null
+        val model = savedTv.getString("model", null) ?: return null
+        return SavedTv(host, model)
+    }
+
+    fun forgetSavedTv() {
+        if (isConnected) disconnect()
+        savedTv.edit().clear().apply()
+        Log.d(tag, "forgot saved TV")
+    }
+
     fun reconnectSavedTv(): DiscoveredAdbEndpoints {
         val savedHost = savedTv.getString("host", null) ?: throw IOException("No saved TV")
         val savedModel = savedTv.getString("model", null)
         Log.d(tag, "reconnectSavedTv start savedHost=$savedHost savedModel=$savedModel")
+        if (isConnected) {
+            val model = runShell("getprop", "ro.product.model").trim()
+            if (savedModel != null && model != savedModel) {
+                disconnect()
+                throw AdbOperationException(AdbFailureKind.WRONG_DEVICE, "Connected device does not match saved TV")
+            }
+            Log.d(tag, "reconnectSavedTv reusing active connection model=$model")
+            return DiscoveredAdbEndpoints(savedHost, null, null)
+        }
         val endpoint = discoverEndpoints()
         if (endpoint.host != savedHost) throw IOException("Saved TV was not discovered")
         val connectPort = endpoint.connectPort ?: throw IOException("Saved TV has no reachable connect endpoint")
-        if (!isConnected) {
-            Log.d(tag, "reconnectSavedTv connect start host=$savedHost port=$connectPort")
-            if (!connect(savedHost, connectPort)) throw IOException("Saved TV connection failed")
+        try {
+            if (!isConnected) {
+                Log.d(tag, "reconnectSavedTv connect start host=$savedHost port=$connectPort")
+                if (!connect(savedHost, connectPort)) throw IOException("Saved TV connection failed")
+            }
+        } catch (e: Throwable) {
+            throw connectionFailure(e)
         }
         val model = runShell("getprop", "ro.product.model").trim()
         if (savedModel != null && model != savedModel) {
             disconnect()
-            throw IOException("Discovered device model $model does not match saved TV $savedModel")
+            throw AdbOperationException(
+                AdbFailureKind.WRONG_DEVICE,
+                "Discovered device model $model does not match saved TV $savedModel",
+            )
         }
         Log.d(tag, "reconnectSavedTv success host=$savedHost port=$connectPort model=$model")
         return endpoint
@@ -193,16 +221,24 @@ class AdbSpikeConnectionManager private constructor(
             if (pairingPort != null || pairingCode.isNotBlank()) {
                 require(pairingPort != null && pairingCode.length == 6) { "Pairing port and 6-digit code must both be provided" }
                 Log.d(tag, "pair() start")
-                if (!pair(host, pairingPort, pairingCode)) {
-                    throw IllegalStateException("Pairing returned false")
+                try {
+                    if (!pair(host, pairingPort, pairingCode)) {
+                        throw AdbOperationException(AdbFailureKind.PAIRING, "Pairing was rejected")
+                    }
+                } catch (e: AdbOperationException) {
+                    throw e
+                } catch (e: Throwable) {
+                    throw AdbOperationException(AdbFailureKind.PAIRING, "Could not pair with the TV.", e)
                 }
                 Log.d(tag, "pair() done")
             } else {
                 Log.d(tag, "pair() skipped, using cached authorization")
             }
             Log.d(tag, "connect() start host=$host port=$connectPort")
-            if (!connect(host, connectPort)) {
-                throw IllegalStateException("Connect returned false")
+            try {
+                if (!connect(host, connectPort)) throw IOException("Connect returned false")
+            } catch (e: Throwable) {
+                throw connectionFailure(e)
             }
             Log.d(tag, "connect() done")
         }
@@ -231,74 +267,74 @@ class AdbSpikeConnectionManager private constructor(
         }
     }
 
-    fun installApk(apk: InputStream, size: Long): String {
+    fun installApk(
+        apk: InputStream,
+        size: Long,
+        onProgress: (Long, Long) -> Unit = { _, _ -> },
+        isCancelled: () -> Boolean = { false },
+    ): String {
         require(size > 0) { "APK is empty" }
         Log.d(tag, "installApk start size=$size")
         val startedAt = SystemClock.elapsedRealtime()
         Log.d(tag, "installApk opening package-manager stream")
         openStream(LocalServices.SHELL, "cmd", "package", "install", "-r", "-S", size.toString()).use { stream ->
             Log.d(tag, "installApk package-manager stream opened; transfer start")
-            val buffer = ByteArray(64 * 1024)
-            var transferred = 0L
             var nextLogAt = 10L * 1024 * 1024
             stream.openOutputStream().use { output ->
-                while (true) {
-                    val read = apk.read(buffer)
-                    if (read < 0) break
-                    output.write(buffer, 0, read)
-                    transferred += read
-                    if (transferred >= nextLogAt || transferred == size) {
-                        Log.d(tag, "installApk transferred=$transferred/$size elapsedMs=${SystemClock.elapsedRealtime() - startedAt}")
+                val transferred = copyCancellable(apk, output, size, isCancelled) { copied, total ->
+                    onProgress(copied, total)
+                    if (copied >= nextLogAt || copied == size) {
+                        Log.d(tag, "installApk transferred=$copied/$size elapsedMs=${SystemClock.elapsedRealtime() - startedAt}")
                         nextLogAt += 10L * 1024 * 1024
                     }
                 }
+                if (transferred != size) throw IOException("APK size mismatch: expected $size, read $transferred")
                 output.flush()
             }
-            if (transferred != size) throw IOException("APK size mismatch: expected $size, read $transferred")
 
             Log.d(tag, "installApk transfer complete; waiting for package-manager result")
             val result = stream.openInputStream().bufferedReader().readText().trim()
             Log.d(tag, "installApk result=$result elapsedMs=${SystemClock.elapsedRealtime() - startedAt}")
-            if (result.lineSequence().none { it.trim() == "Success" }) {
+            if (!packageManagerSucceeded(result)) {
                 throw IOException("Package install failed: $result")
             }
             return result
         }
     }
 
-    fun downloadApk(url: String): File {
-        val target = File(appContext.cacheDir, "facer.apk")
-        val partial = File(appContext.cacheDir, "facer.apk.part")
+    fun downloadApk(
+        url: String,
+        onProgress: (Long, Long) -> Unit = { _, _ -> },
+        isCancelled: () -> Boolean = { false },
+    ): File {
+        val target = File(appContext.cacheDir, "zstream-install.apk")
+        val partial = File(appContext.cacheDir, "zstream-install.apk.part")
         target.delete()
         partial.delete()
-        Log.d(tag, "downloadApk start url=$url")
+        val validatedUrl = validateApkUrl(url)
+        Log.d(tag, "downloadApk start url=$validatedUrl")
         val startedAt = SystemClock.elapsedRealtime()
         try {
-            httpClient.newCall(Request.Builder().url(url).build()).execute().use { response ->
+            httpClient.newCall(Request.Builder().url(validatedUrl).build()).execute().use { response ->
                 if (!response.isSuccessful) throw IOException("APK download failed: HTTP ${response.code}")
                 val body = response.body ?: throw IOException("APK download returned an empty response")
                 val expectedSize = body.contentLength()
                 Log.d(tag, "downloadApk response received expectedSize=$expectedSize")
-                var downloaded = 0L
                 var nextLogAt = 10L * 1024 * 1024
                 body.byteStream().use { input ->
                     partial.outputStream().buffered().use { output ->
-                        val buffer = ByteArray(64 * 1024)
-                        while (true) {
-                            val read = input.read(buffer)
-                            if (read < 0) break
-                            output.write(buffer, 0, read)
-                            downloaded += read
-                            if (downloaded >= nextLogAt || downloaded == expectedSize) {
-                                Log.d(tag, "downloadApk downloaded=$downloaded/$expectedSize elapsedMs=${SystemClock.elapsedRealtime() - startedAt}")
+                        val downloaded = copyCancellable(input, output, expectedSize, isCancelled) { copied, total ->
+                            onProgress(copied, total)
+                            if (copied >= nextLogAt || copied == expectedSize) {
+                                Log.d(tag, "downloadApk downloaded=$copied/$expectedSize elapsedMs=${SystemClock.elapsedRealtime() - startedAt}")
                                 nextLogAt += 10L * 1024 * 1024
                             }
                         }
+                        if (downloaded == 0L) throw IOException("APK download was empty")
+                        if (expectedSize >= 0 && downloaded != expectedSize) {
+                            throw IOException("APK download size mismatch: expected $expectedSize, read $downloaded")
+                        }
                     }
-                }
-                if (downloaded == 0L) throw IOException("APK download was empty")
-                if (expectedSize >= 0 && downloaded != expectedSize) {
-                    throw IOException("APK download size mismatch: expected $expectedSize, read $downloaded")
                 }
             }
             if (!partial.renameTo(target)) throw IOException("Could not finalize downloaded APK")
@@ -307,6 +343,54 @@ class AdbSpikeConnectionManager private constructor(
         } catch (t: Throwable) {
             partial.delete()
             throw t
+        }
+    }
+
+    fun installFromUrl(
+        url: String,
+        onProgress: (InstallProgress) -> Unit = {},
+        isCancelled: () -> Boolean = { false },
+    ): InstallResult {
+        if (isCancelled()) throw AdbOperationException(AdbFailureKind.CANCELLED, "Install cancelled")
+        val validatedUrl = validateApkUrl(url)
+        onProgress(InstallProgress.Connecting)
+        val endpoint = try {
+            reconnectSavedTv()
+        } catch (e: AdbOperationException) {
+            throw e
+        } catch (e: Throwable) {
+            throw AdbOperationException(AdbFailureKind.DISCOVERY, "Could not find the saved TV.", e)
+        }
+        val model = getSavedTv()?.model ?: endpoint.host
+        val apk = try {
+            downloadApk(
+                validatedUrl,
+                onProgress = { bytes, total -> onProgress(InstallProgress.Downloading(bytes, total)) },
+                isCancelled = isCancelled,
+            )
+        } catch (e: CancellationException) {
+            throw AdbOperationException(AdbFailureKind.CANCELLED, "Download cancelled", e)
+        } catch (e: Throwable) {
+            throw AdbOperationException(AdbFailureKind.DOWNLOAD, "APK download failed: ${e.message}", e)
+        }
+        return try {
+            val output = apk.inputStream().buffered().use { input ->
+                installApk(
+                    input,
+                    apk.length(),
+                    onProgress = { bytes, total ->
+                        onProgress(if (bytes == total) InstallProgress.Installing else InstallProgress.Transferring(bytes, total))
+                    },
+                    isCancelled = isCancelled,
+                )
+            }
+            InstallResult(model, output)
+        } catch (e: CancellationException) {
+            throw AdbOperationException(AdbFailureKind.CANCELLED, "Install cancelled", e)
+        } catch (e: Throwable) {
+            throw AdbOperationException(AdbFailureKind.INSTALL, "APK install failed: ${e.message}", e)
+        } finally {
+            Log.d(tag, "installFromUrl deleting cached APK deleted=${apk.delete()}")
         }
     }
 
@@ -356,11 +440,11 @@ class AdbSpikeConnectionManager private constructor(
 
     companion object {
         @Volatile
-        private var instance: AdbSpikeConnectionManager? = null
+        private var instance: TvAdbManager? = null
 
-        fun get(context: Context): AdbSpikeConnectionManager {
+        fun get(context: Context): TvAdbManager {
             return instance ?: synchronized(this) {
-                instance ?: AdbSpikeConnectionManager(context.applicationContext).also { instance = it }
+                instance ?: TvAdbManager(context.applicationContext).also { instance = it }
             }
         }
     }
