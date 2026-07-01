@@ -12,7 +12,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedTextField
@@ -31,7 +30,6 @@ import androidx.compose.ui.unit.dp
 import com.zstream.android.data.adb.AdbFailureKind
 import com.zstream.android.data.adb.AdbOperationException
 import com.zstream.android.data.adb.TvAdbManager
-import com.zstream.android.data.adb.DiscoveredAdbEndpoints
 import com.zstream.android.data.adb.InstallProgress
 import com.zstream.android.data.adb.SavedTv
 import com.zstream.android.theme.LocalZStreamTheme
@@ -42,7 +40,18 @@ import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-private const val DEFAULT_APK_URL = "https://github.com/alturyxx-gif/ZStream-Android/releases/download/v1.0-wrapper/app-release.apk"
+private const val DEFAULT_APK_URL = "https://github.com/alturyxx-gif/ZStream-Android/releases/download/full/app-debug.apk"
+
+internal enum class TvSetupMode {
+    AUTOMATIC,
+    MANUAL_WIRELESS,
+    LEGACY;
+
+    fun fallback(): TvSetupMode = when (this) {
+        AUTOMATIC -> MANUAL_WIRELESS
+        MANUAL_WIRELESS, LEGACY -> LEGACY
+    }
+}
 
 @Composable
 fun TvInstallerDialog(onDismiss: () -> Unit) {
@@ -52,10 +61,12 @@ fun TvInstallerDialog(onDismiss: () -> Unit) {
     val scope = rememberCoroutineScope()
     val manager = remember(context) { TvAdbManager.get(context) }
 
-    var devices by remember { mutableStateOf<List<DiscoveredAdbEndpoints>>(emptyList()) }
-    var selected by remember { mutableStateOf<DiscoveredAdbEndpoints?>(null) }
     var savedTv by remember { mutableStateOf<SavedTv?>(manager.getSavedTv()) }
     var pairingCode by remember { mutableStateOf("") }
+    var setupMode by remember { mutableStateOf(TvSetupMode.AUTOMATIC) }
+    var manualHost by remember { mutableStateOf("") }
+    var manualPairingPort by remember { mutableStateOf("") }
+    var manualConnectPort by remember { mutableStateOf("") }
     var legacyHost by remember { mutableStateOf("") }
     var legacyPort by remember { mutableStateOf("5555") }
     var apkUrl by remember { mutableStateOf(DEFAULT_APK_URL) }
@@ -125,126 +136,186 @@ fun TvInstallerDialog(onDismiss: () -> Unit) {
                             onClick = {
                                 manager.forgetSavedTv()
                                 savedTv = null
+                                setupMode = TvSetupMode.AUTOMATIC
                                 status = "Saved TV forgotten"
                             },
                         ) { Text("Forget TV") }
                     }
 
-                    Button(
-                        enabled = !running,
-                        onClick = {
-                            Log.d(tag, "find TVs pressed")
-                            activeJob = scope.launch {
-                                lastError = null
-                                status = "Searching for TVs…"
-                                try {
-                                    devices = withContext(Dispatchers.IO) { manager.discoverDevices() }
-                                    selected = devices.firstOrNull()
-                                    status = "Found ${devices.size} TV${if (devices.size == 1) "" else "s"}"
-                                    Log.d(tag, "find TVs succeeded count=${devices.size} devices=$devices")
-                                } catch (t: Throwable) {
-                                    Log.w(tag, "find TVs failed type=${t.javaClass.simpleName} msg=${t.message}")
-                                    fail(AdbOperationException(AdbFailureKind.DISCOVERY, "No TVs were found.", t))
-                                } finally {
-                                    activeJob = null
-                                }
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) { Text("Find TVs") }
+                    if (savedTv == null) when (setupMode) {
+                        TvSetupMode.AUTOMATIC -> {
+                            Text("On the TV, open Wireless debugging → Pair device with pairing code.", color = theme.colors.type.secondary)
+                            OutlinedTextField(
+                                value = pairingCode,
+                                onValueChange = { pairingCode = it.filter(Char::isDigit).take(6) },
+                                label = { Text("6-digit pairing code") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            Button(
+                                enabled = !running && pairingCode.length == 6,
+                                onClick = {
+                                    Log.d(tag, "automatic pair pressed codeLen=${pairingCode.length}")
+                                    activeJob = scope.launch {
+                                        lastError = null
+                                        status = "Finding and pairing with TV…"
+                                        try {
+                                            val model = withContext(Dispatchers.IO) {
+                                                manager.discoverPairAndConnect(pairingCode)
+                                            }
+                                            savedTv = manager.getSavedTv()
+                                            pairingCode = ""
+                                            status = "Paired with $model"
+                                            Log.d(tag, "automatic pair succeeded model=$model")
+                                        } catch (_: CancellationException) {
+                                            status = "Cancelled"
+                                        } catch (t: Throwable) {
+                                            Log.w(tag, "automatic pair failed type=${t.javaClass.simpleName} msg=${t.message}")
+                                            fail(t)
+                                            setupMode = setupMode.fallback()
+                                            status += " Enter the wireless debugging details manually."
+                                        } finally {
+                                            activeJob = null
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                            ) { Text("Find and pair TV") }
+                            TextButton(
+                                enabled = !running,
+                                onClick = { setupMode = TvSetupMode.MANUAL_WIRELESS },
+                            ) { Text("Enter details manually") }
+                        }
 
-                    devices.forEach { device ->
-                        TextButton(
-                            onClick = { selected = device },
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = ButtonDefaults.textButtonColors(
-                                contentColor = if (selected == device) theme.colors.global.accentA else theme.colors.type.text,
-                            ),
-                        ) {
-                            Text("${device.host}:${device.connectPort}${if (device.pairingPort != null) " · ready to pair" else ""}")
+                        TvSetupMode.MANUAL_WIRELESS -> {
+                            Text("Manual wireless debugging", color = theme.colors.type.text)
+                            OutlinedTextField(
+                                value = manualHost,
+                                onValueChange = { manualHost = it.trim() },
+                                label = { Text("TV IP address") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            OutlinedTextField(
+                                value = manualPairingPort,
+                                onValueChange = { manualPairingPort = it.filter(Char::isDigit).take(5) },
+                                label = { Text("Pairing port") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            OutlinedTextField(
+                                value = manualConnectPort,
+                                onValueChange = { manualConnectPort = it.filter(Char::isDigit).take(5) },
+                                label = { Text("Connect port") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            OutlinedTextField(
+                                value = pairingCode,
+                                onValueChange = { pairingCode = it.filter(Char::isDigit).take(6) },
+                                label = { Text("6-digit pairing code") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            Button(
+                                enabled = !running && manualHost.isNotBlank() &&
+                                    manualPairingPort.toIntOrNull() in 1..65535 &&
+                                    manualConnectPort.toIntOrNull() in 1..65535 && pairingCode.length == 6,
+                                onClick = {
+                                    Log.d(tag, "manual wireless pair pressed host=$manualHost pairingPort=$manualPairingPort connectPort=$manualConnectPort")
+                                    activeJob = scope.launch {
+                                        lastError = null
+                                        status = "Pairing with manual details…"
+                                        try {
+                                            val model = withContext(Dispatchers.IO) {
+                                                manager.pairAndConnect(
+                                                    manualHost,
+                                                    requireNotNull(manualPairingPort.toIntOrNull()),
+                                                    requireNotNull(manualConnectPort.toIntOrNull()),
+                                                    pairingCode,
+                                                )
+                                            }
+                                            savedTv = manager.getSavedTv()
+                                            pairingCode = ""
+                                            status = "Paired with $model"
+                                            Log.d(tag, "manual wireless pair succeeded model=$model")
+                                        } catch (_: CancellationException) {
+                                            status = "Cancelled"
+                                        } catch (t: Throwable) {
+                                            Log.w(tag, "manual wireless pair failed type=${t.javaClass.simpleName} msg=${t.message}")
+                                            fail(t)
+                                            if (legacyHost.isBlank()) legacyHost = manualHost
+                                            setupMode = setupMode.fallback()
+                                            status += " Try legacy ADB."
+                                        } finally {
+                                            activeJob = null
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                            ) { Text("Pair with manual details") }
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                TextButton(enabled = !running, onClick = { setupMode = TvSetupMode.AUTOMATIC }) {
+                                    Text("Try automatic")
+                                }
+                                TextButton(
+                                    enabled = !running,
+                                    onClick = {
+                                        if (legacyHost.isBlank()) legacyHost = manualHost
+                                        setupMode = TvSetupMode.LEGACY
+                                    },
+                                ) { Text("Use legacy ADB") }
+                            }
+                        }
+
+                        TvSetupMode.LEGACY -> {
+                            Text("Legacy ADB over network", color = theme.colors.type.text)
+                            Text("Enable network debugging on the TV and accept its authorization prompt.", color = theme.colors.type.secondary)
+                            OutlinedTextField(
+                                value = legacyHost,
+                                onValueChange = { legacyHost = it.trim() },
+                                label = { Text("TV IP address") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            OutlinedTextField(
+                                value = legacyPort,
+                                onValueChange = { legacyPort = it.filter(Char::isDigit).take(5) },
+                                label = { Text("ADB port") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            Button(
+                                enabled = !running && legacyHost.isNotBlank() && legacyPort.toIntOrNull() in 1..65535,
+                                onClick = {
+                                    Log.d(tag, "legacy connect pressed host=$legacyHost port=$legacyPort")
+                                    activeJob = scope.launch {
+                                        lastError = null
+                                        status = "Connecting… Accept the debugging prompt on the TV."
+                                        try {
+                                            val model = withContext(Dispatchers.IO) {
+                                                manager.connectLegacy(legacyHost, requireNotNull(legacyPort.toIntOrNull()))
+                                            }
+                                            savedTv = manager.getSavedTv()
+                                            status = "Connected to $model"
+                                            Log.d(tag, "legacy connect succeeded model=$model")
+                                        } catch (_: CancellationException) {
+                                            status = "Cancelled"
+                                        } catch (t: Throwable) {
+                                            Log.w(tag, "legacy connect failed type=${t.javaClass.simpleName} msg=${t.message}")
+                                            fail(t)
+                                        } finally {
+                                            activeJob = null
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                            ) { Text("Connect with legacy ADB") }
+                            TextButton(enabled = !running, onClick = { setupMode = TvSetupMode.MANUAL_WIRELESS }) {
+                                Text("Back to wireless debugging")
+                            }
                         }
                     }
-
-                    selected?.takeIf { it.pairingPort != null }?.let { device ->
-                        OutlinedTextField(
-                            value = pairingCode,
-                            onValueChange = { pairingCode = it.filter(Char::isDigit).take(6) },
-                            label = { Text("6-digit pairing code") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                        Button(
-                            enabled = !running && pairingCode.length == 6,
-                            onClick = {
-                                Log.d(tag, "pair TV pressed host=${device.host} pairingPort=${device.pairingPort} connectPort=${device.connectPort}")
-                                activeJob = scope.launch {
-                                    lastError = null
-                                    status = "Pairing…"
-                                    try {
-                                        val model = withContext(Dispatchers.IO) {
-                                            manager.pairAndConnect(
-                                                device.host,
-                                                device.pairingPort,
-                                                requireNotNull(device.connectPort),
-                                                pairingCode,
-                                            )
-                                        }
-                                        savedTv = manager.getSavedTv()
-                                        pairingCode = ""
-                                        status = "Paired with $model"
-                                        Log.d(tag, "pair TV succeeded model=$model")
-                                    } catch (t: Throwable) {
-                                        Log.w(tag, "pair TV failed type=${t.javaClass.simpleName} msg=${t.message}")
-                                        fail(t)
-                                    } finally {
-                                        activeJob = null
-                                    }
-                                }
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                        ) { Text("Pair TV") }
-                    }
-
-                    HorizontalDivider(color = theme.colors.type.divider.copy(alpha = 0.18f))
-                    Text("Older TV (ADB over network)", color = theme.colors.type.text)
-                    OutlinedTextField(
-                        value = legacyHost,
-                        onValueChange = { legacyHost = it.trim() },
-                        label = { Text("TV IP address") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    OutlinedTextField(
-                        value = legacyPort,
-                        onValueChange = { legacyPort = it.filter(Char::isDigit).take(5) },
-                        label = { Text("ADB port") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    Button(
-                        enabled = !running && legacyHost.isNotBlank() && legacyPort.toIntOrNull() in 1..65535,
-                        onClick = {
-                            Log.d(tag, "legacy connect pressed host=$legacyHost port=$legacyPort")
-                            activeJob = scope.launch {
-                                lastError = null
-                                status = "Connecting… Accept the debugging prompt on the TV."
-                                try {
-                                    val model = withContext(Dispatchers.IO) {
-                                        manager.connectLegacy(legacyHost, requireNotNull(legacyPort.toIntOrNull()))
-                                    }
-                                    savedTv = manager.getSavedTv()
-                                    status = "Connected to $model"
-                                    Log.d(tag, "legacy connect succeeded model=$model")
-                                } catch (t: Throwable) {
-                                    Log.w(tag, "legacy connect failed type=${t.javaClass.simpleName} msg=${t.message}")
-                                    fail(t)
-                                } finally {
-                                    activeJob = null
-                                }
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) { Text("Connect with IP") }
 
                     HorizontalDivider(color = theme.colors.type.divider.copy(alpha = 0.18f))
                     OutlinedTextField(

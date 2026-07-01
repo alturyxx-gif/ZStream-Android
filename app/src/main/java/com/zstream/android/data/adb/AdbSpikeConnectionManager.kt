@@ -249,8 +249,38 @@ class TvAdbManager private constructor(
         }
     }
 
+    fun discoverPairAndConnect(pairingCode: String): String {
+        require(pairingCode.length == 6 && pairingCode.all(Char::isDigit)) { "A 6-digit pairing code is required" }
+        val devices = discoverDevices().filter { it.pairingPort != null && it.connectPort != null }
+        if (devices.isEmpty()) throw AdbOperationException(
+            AdbFailureKind.DISCOVERY,
+            "No pairable wireless ADB device was discovered.",
+        )
+        var lastFailure: Throwable? = null
+        for (device in devices) {
+            try {
+                if (isConnected) disconnect()
+                Log.d(tag, "discoverPairAndConnect trying host=${device.host} pairingPort=${device.pairingPort} connectPort=${device.connectPort}")
+                return pairAndConnect(device.host, device.pairingPort, requireNotNull(device.connectPort), pairingCode)
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                if (isConnected) disconnect()
+                lastFailure = t
+                Log.w(tag, "discoverPairAndConnect failed host=${device.host} type=${t.javaClass.simpleName} msg=${t.message}")
+            }
+        }
+        throw lastFailure ?: AdbOperationException(AdbFailureKind.PAIRING, "Could not pair with a discovered TV.")
+    }
+
     fun pairAndConnect(host: String, pairingPort: Int?, connectPort: Int, pairingCode: String): String {
+        require(host.isNotBlank()) { "TV IP address is required" }
+        require(connectPort in 1..65535) { "Connect port must be between 1 and 65535" }
+        require(pairingPort == null || pairingPort in 1..65535) { "Pairing port must be between 1 and 65535" }
         Log.d(tag, "pairAndConnect start host=$host pairingPort=$pairingPort connectPort=$connectPort codeLen=${pairingCode.length}")
+        if (isConnected && (pairingPort != null || pairingCode.isNotBlank())) {
+            Log.d(tag, "pairAndConnect explicit pairing requested; closing active connection")
+            disconnect()
+        }
         if (isConnected) {
             Log.d(tag, "pairAndConnect already connected; skipping pair() and connect()")
         } else {
