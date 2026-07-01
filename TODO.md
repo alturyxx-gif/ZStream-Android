@@ -1,15 +1,7 @@
-features to add:
-1. install TV app from phone over the same wifi.
-2. login on TV from mobile app
+1. Persist selected TV identity/last host; ADB trust keys already persist.
+2. Handle pairing revocation by detecting auth failure and requesting re-pair.
+3. Cancellation and cleanup during download/ADB transfer.
+4. Map download, discovery, pairing, connection, and package-manager failures into useful result types.
+5. Test bad URL, interrupted transfer, revoked pairing, incompatible APK, and multiple discovered devices.
 
-
-waiting for real sources:
-1. wire up the real sources in the obfuscated plugin
-1. enableAutoResumeOnPlaybackError - should be done later when we have sources ready
-2. download page: UI exists, but it is only a placeholder card
-
-
-later features:
-1. countdown/upcoming movies/shows section
-2. nav bar for phone
-3. simkl
+Then final UI: device selection, code/URL input, progress, retry/forget actions, and removal of the spike dialog.
