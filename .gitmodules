@@ -1,0 +1,3 @@
+[submodule "libadb-android"]
+	path = libadb-android
+	url = https://github.com/alturyxx-gif/libadb-android
