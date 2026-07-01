@@ -191,7 +191,13 @@ class TvAdbManager private constructor(
             Log.d(tag, "reconnectSavedTv reusing active connection model=$model")
             return DiscoveredAdbEndpoints(savedHost, null, legacyPort)
         }
-        val endpoint = legacyPort?.let { DiscoveredAdbEndpoints(savedHost, null, it) } ?: discoverEndpoints()
+        val endpoint = if (legacyPort != null) {
+            Log.d(tag, "reconnectSavedTv using saved legacy endpoint host=$savedHost port=$legacyPort")
+            DiscoveredAdbEndpoints(savedHost, null, legacyPort)
+        } else {
+            Log.d(tag, "reconnectSavedTv discovering wireless endpoint for host=$savedHost")
+            discoverEndpoints()
+        }
         if (endpoint.host != savedHost) throw IOException("Saved TV was not discovered")
         val connectPort = endpoint.connectPort ?: throw IOException("Saved TV has no reachable connect endpoint")
         try {
@@ -217,12 +223,14 @@ class TvAdbManager private constructor(
     fun connectLegacy(host: String, port: Int): String {
         require(host.isNotBlank()) { "TV IP address is required" }
         require(port in 1..65535) { "ADB port must be between 1 and 65535" }
-        Log.d(tag, "connectLegacy start host=$host port=$port")
+        Log.d(tag, "connectLegacy start host=$host port=$port thread=${Thread.currentThread().name}")
         if (isConnected) disconnect()
         setThrowOnUnauthorised(false)
         setTimeout(60, TimeUnit.SECONDS)
         try {
+            Log.d(tag, "connectLegacy waiting for legacy ADB authorization prompt")
             if (!connect(host.trim(), port)) throw IOException("Legacy ADB connection timed out")
+            Log.d(tag, "connectLegacy transport connected; probing model")
             val model = runShell("getprop", "ro.product.model").trim()
             savedTv.edit()
                 .putString("host", host.trim())
@@ -232,6 +240,7 @@ class TvAdbManager private constructor(
             Log.d(tag, "connectLegacy success host=${host.trim()} port=$port model=$model")
             return model
         } catch (e: Throwable) {
+            Log.w(tag, "connectLegacy failed host=${host.trim()} port=$port type=${e.javaClass.simpleName} msg=${e.message}")
             if (isConnected) disconnect()
             throw connectionFailure(e)
         } finally {
@@ -241,14 +250,14 @@ class TvAdbManager private constructor(
     }
 
     fun pairAndConnect(host: String, pairingPort: Int?, connectPort: Int, pairingCode: String): String {
-        Log.d(tag, "pairAndConnect host=$host pairingPort=$pairingPort connectPort=$connectPort codeLen=${pairingCode.length}")
+        Log.d(tag, "pairAndConnect start host=$host pairingPort=$pairingPort connectPort=$connectPort codeLen=${pairingCode.length}")
         if (isConnected) {
-            Log.d(tag, "already connected; skipping pair() and connect()")
+            Log.d(tag, "pairAndConnect already connected; skipping pair() and connect()")
         } else {
             setHostAddress(host)
             if (pairingPort != null || pairingCode.isNotBlank()) {
                 require(pairingPort != null && pairingCode.length == 6) { "Pairing port and 6-digit code must both be provided" }
-                Log.d(tag, "pair() start")
+                Log.d(tag, "pairAndConnect pairing start host=$host port=$pairingPort")
                 try {
                     if (!pair(host, pairingPort, pairingCode)) {
                         throw AdbOperationException(AdbFailureKind.PAIRING, "Pairing was rejected")
@@ -258,19 +267,19 @@ class TvAdbManager private constructor(
                 } catch (e: Throwable) {
                     throw AdbOperationException(AdbFailureKind.PAIRING, "Could not pair with the TV.", e)
                 }
-                Log.d(tag, "pair() done")
+                Log.d(tag, "pairAndConnect pairing done host=$host port=$pairingPort")
             } else {
-                Log.d(tag, "pair() skipped, using cached authorization")
+                Log.d(tag, "pairAndConnect pairing skipped, using cached authorization")
             }
-            Log.d(tag, "connect() start host=$host port=$connectPort")
+            Log.d(tag, "pairAndConnect connect start host=$host port=$connectPort")
             try {
                 if (!connect(host, connectPort)) throw IOException("Connect returned false")
             } catch (e: Throwable) {
                 throw connectionFailure(e)
             }
-            Log.d(tag, "connect() done")
+            Log.d(tag, "pairAndConnect connect done host=$host port=$connectPort")
         }
-        Log.d(tag, "shell probe start")
+        Log.d(tag, "pairAndConnect shell probe start host=$host port=$connectPort")
         return runShell("getprop", "ro.product.model").trim().also { model ->
             savedTv.edit().putString("host", host).putString("model", model).remove("legacy_port").apply()
             Log.d(tag, "saved TV host=$host model=$model")
@@ -278,7 +287,7 @@ class TvAdbManager private constructor(
     }
 
     fun runShell(vararg command: String): String {
-        Log.d(tag, "runShell command=${command.joinToString(" ")}")
+        Log.d(tag, "runShell command=${command.joinToString(" ")} connected=$isConnected")
         openStream(LocalServices.SHELL, *command).use { stream ->
             val input = stream.openInputStream()
             val bytes = ByteArray(4096)
@@ -340,10 +349,11 @@ class TvAdbManager private constructor(
         target.delete()
         partial.delete()
         val validatedUrl = validateApkUrl(url)
-        Log.d(tag, "downloadApk start url=$validatedUrl")
+        Log.d(tag, "downloadApk start url=$validatedUrl target=${target.absolutePath}")
         val startedAt = SystemClock.elapsedRealtime()
         try {
             httpClient.newCall(Request.Builder().url(validatedUrl).build()).execute().use { response ->
+                Log.d(tag, "downloadApk HTTP ${response.code} ${response.message}")
                 if (!response.isSuccessful) throw IOException("APK download failed: HTTP ${response.code}")
                 val body = response.body ?: throw IOException("APK download returned an empty response")
                 val expectedSize = body.contentLength()
@@ -369,6 +379,7 @@ class TvAdbManager private constructor(
             Log.d(tag, "downloadApk complete size=${target.length()} elapsedMs=${SystemClock.elapsedRealtime() - startedAt}")
             return target
         } catch (t: Throwable) {
+            Log.w(tag, "downloadApk failed type=${t.javaClass.simpleName} msg=${t.message}")
             partial.delete()
             throw t
         }
@@ -381,27 +392,36 @@ class TvAdbManager private constructor(
     ): InstallResult {
         if (isCancelled()) throw AdbOperationException(AdbFailureKind.CANCELLED, "Install cancelled")
         val validatedUrl = validateApkUrl(url)
+        Log.d(tag, "installFromUrl start url=$validatedUrl cancelled=${isCancelled()}")
         onProgress(InstallProgress.Connecting)
         val endpoint = try {
+            Log.d(tag, "installFromUrl reconnecting saved TV")
             reconnectSavedTv()
         } catch (e: AdbOperationException) {
+            Log.w(tag, "installFromUrl reconnect failed kind=${e.kind} msg=${e.message}")
             throw e
         } catch (e: Throwable) {
+            Log.w(tag, "installFromUrl reconnect failed type=${e.javaClass.simpleName} msg=${e.message}")
             throw AdbOperationException(AdbFailureKind.DISCOVERY, "Could not find the saved TV.", e)
         }
+        Log.d(tag, "installFromUrl connected host=${endpoint.host} pairingPort=${endpoint.pairingPort} connectPort=${endpoint.connectPort}")
         val model = getSavedTv()?.model ?: endpoint.host
         val apk = try {
+            Log.d(tag, "installFromUrl downloading APK")
             downloadApk(
                 validatedUrl,
                 onProgress = { bytes, total -> onProgress(InstallProgress.Downloading(bytes, total)) },
                 isCancelled = isCancelled,
             )
         } catch (e: CancellationException) {
+            Log.w(tag, "installFromUrl download cancelled")
             throw AdbOperationException(AdbFailureKind.CANCELLED, "Download cancelled", e)
         } catch (e: Throwable) {
+            Log.w(tag, "installFromUrl download failed type=${e.javaClass.simpleName} msg=${e.message}")
             throw AdbOperationException(AdbFailureKind.DOWNLOAD, "APK download failed: ${e.message}", e)
         }
         return try {
+            Log.d(tag, "installFromUrl installing APK size=${apk.length()}")
             val output = apk.inputStream().buffered().use { input ->
                 installApk(
                     input,
@@ -412,10 +432,13 @@ class TvAdbManager private constructor(
                     isCancelled = isCancelled,
                 )
             }
+            Log.d(tag, "installFromUrl install finished model=$model")
             InstallResult(model, output)
         } catch (e: CancellationException) {
+            Log.w(tag, "installFromUrl install cancelled")
             throw AdbOperationException(AdbFailureKind.CANCELLED, "Install cancelled", e)
         } catch (e: Throwable) {
+            Log.w(tag, "installFromUrl install failed type=${e.javaClass.simpleName} msg=${e.message}")
             throw AdbOperationException(AdbFailureKind.INSTALL, "APK install failed: ${e.message}", e)
         } finally {
             Log.d(tag, "installFromUrl deleting cached APK deleted=${apk.delete()}")
