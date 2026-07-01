@@ -11,6 +11,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
@@ -130,6 +131,18 @@ internal fun normalizeLanguageCode(raw: String): String {
 internal fun subtitleCandidates(tracks: List<SubtitleTrack>, language: String): List<SubtitleTrack> =
     tracks.filter { it.language == language }
 
+data class PauseMetadata(
+    val title: String,
+    val overview: String?,
+    val year: String?,
+    val rating: String?,
+    val runtime: String?,
+    val logoUrl: String?,
+    val posterUrl: String?,
+    val type: String, // movie/tv
+    val mediaLabel: String?
+)
+
 data class SubtitleCue(val startMs: Long, val endMs: Long, val text: String)
 
 data class AutoplayEpisodeTarget(
@@ -194,6 +207,42 @@ class PlayerViewModel @Inject constructor(
 
     private val _currentSeasonDetail = MutableStateFlow<com.zstream.android.data.model.Season?>(null)
     val currentSeasonDetail = _currentSeasonDetail.asStateFlow()
+    private val _movieDetail = MutableStateFlow<com.zstream.android.data.model.MovieDetail?>(null)
+    val movieDetail = _movieDetail.asStateFlow()
+
+    val pauseMetadata = combine(
+        _movieDetail,
+        _tvDetail,
+        settings
+    ) { movie, tv, s ->
+        if (!s.enablePauseOverlay) return@combine null
+
+        if (mediaType == "movie") {
+            PauseMetadata(
+                title = movie?.title ?: title,
+                overview = movie?.overview,
+                year = movie?.releaseDate?.take(4) ?: year.toString(),
+                rating = movie?.voteAverage?.let { "%.1f".format(it) },
+                runtime = movie?.runtime?.let { "$it min" },
+                logoUrl = movie?.logoUrl(),
+                posterUrl = movie?.posterUrl(),
+                type = "movie",
+                mediaLabel = "Movie"
+            )
+        } else {
+            PauseMetadata(
+                title = tv?.name ?: title,
+                overview = tv?.overview,
+                year = tv?.firstAirDate?.take(4) ?: year.toString(),
+                rating = tv?.voteAverage?.let { "%.1f".format(it) },
+                runtime = null, // TV detail doesn't directly expose average episode runtime in a simple way
+                logoUrl = tv?.logoUrl(),
+                posterUrl = tv?.posterUrl(),
+                type = "tv",
+                mediaLabel = "S$season • E$episode"
+            )
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     private val sources = mutableListOf<SourceResult>()
     private var skipSegmentsCacheKey: String? = null
@@ -212,6 +261,19 @@ class PlayerViewModel @Inject constructor(
         reportLoadingState()
         if (mediaType == "tv") {
             loadTvDetail()
+        } else if (mediaType == "movie") {
+            loadMovieDetail()
+        }
+    }
+
+    private fun loadMovieDetail() {
+        viewModelScope.launch {
+            runCatching {
+                val detail = tmdbRepo.movieDetail(id)
+                _movieDetail.value = detail
+            }.onFailure {
+                Log.e("PlayerVM", "Failed to load movie detail", it)
+            }
         }
     }
 
