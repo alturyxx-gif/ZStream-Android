@@ -55,6 +55,7 @@ fun ZsButton(
     contentPadding: PaddingValues = ButtonDefaults.ContentPadding,
     leadingIcon: ImageVector? = null,
     loading: Boolean = false,
+    buttonModifier: Modifier = Modifier,
 ) {
     val theme = LocalZStreamTheme.current
     val isTv = LocalIsTv.current
@@ -93,7 +94,7 @@ fun ZsButton(
     ) {
         Button(
             onClick = onClick,
-            modifier = Modifier.onFocusChanged { isFocused = it.isFocused },
+            modifier = buttonModifier.onFocusChanged { isFocused = it.isFocused },
             enabled = enabled && !loading,
             shape = RoundedCornerShape(12.dp),
             contentPadding = contentPadding,

@@ -3,10 +3,6 @@ package com.zstream.android.ui.screens
 import android.content.Intent
 import android.provider.Settings
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -40,6 +36,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -62,9 +60,9 @@ import com.zstream.android.ui.components.themed.ZsButton
 import com.zstream.android.ui.components.themed.ZsButtonVariant
 import com.zstream.android.ui.components.themed.ZsCard
 import com.zstream.android.ui.components.themed.ZsCardVariant
+import com.zstream.android.ui.components.themed.ZsOutlinedWrapper
 import com.zstream.android.ui.components.themed.ZsStatusBanner
 import com.zstream.android.ui.components.themed.ZsStatusBannerVariant
-import com.zstream.android.ui.components.themed.ZsTextButton
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -85,9 +83,11 @@ internal fun isDeveloperOptionsEnabled(context: android.content.Context): Boolea
 
 private enum class WizardStep {
     CONFIRM,         // "A new update is available, do you want to update?" prompt
+    PHONE,           // phone-side instructions and Android settings shortcuts
     CHECKING,        // brief auto-detect spinner, advances immediately
     UNLOCK_DEV,      // developer options are off → guide to build number
     ENABLE_ADB,      // developer options on but ADB off → guide to wireless debugging
+    READY,           // ADB is on; user can continue to releases
     RELEASES,        // ADB on → paginated release list + install
 }
 
@@ -111,13 +111,11 @@ fun TvUpdateWizardScreen(onDismiss: () -> Unit) {
 
     // Focus requester for the first actionable element — pulls focus away from home screen
     val primaryFocusRequester = remember { FocusRequester() }
-    LaunchedEffect(step) {
-        runCatching { primaryFocusRequester.requestFocus() }
-    }
+    val contentScrollState = rememberScrollState()
 
     fun detect() {
         step = when {
-            isAdbEnabled(context) -> WizardStep.RELEASES
+            isAdbEnabled(context) -> WizardStep.READY
             isDeveloperOptionsEnabled(context) -> WizardStep.ENABLE_ADB
             else -> WizardStep.UNLOCK_DEV
         }
@@ -128,9 +126,9 @@ fun TvUpdateWizardScreen(onDismiss: () -> Unit) {
         if (step != WizardStep.CONFIRM && step != WizardStep.CHECKING) detect()
     }
 
-    fun openDevOptions() {
+    fun openSettings(action: String) {
         try {
-            context.startActivity(Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS).apply {
+            context.startActivity(Intent(action).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             })
         } catch (_: Exception) {
@@ -182,20 +180,29 @@ fun TvUpdateWizardScreen(onDismiss: () -> Unit) {
         if (step == WizardStep.RELEASES && apks.isEmpty() && !running) scanReleases()
     }
 
-    BackHandler(enabled = step != WizardStep.CONFIRM) {
-        if (running) return@BackHandler
-        when (step) {
-            WizardStep.CHECKING -> step = WizardStep.CONFIRM
-            WizardStep.UNLOCK_DEV -> step = WizardStep.CONFIRM
-            WizardStep.ENABLE_ADB -> step = WizardStep.UNLOCK_DEV
-            WizardStep.RELEASES -> if (selectedApk != null) selectedApk = null else step = WizardStep.CONFIRM
-            else -> { }
+    BackHandler {
+        when {
+            step == WizardStep.CONFIRM -> onDismiss()
+            running -> Unit
+            step == WizardStep.PHONE -> step = WizardStep.CONFIRM
+            step == WizardStep.CHECKING -> step = WizardStep.CONFIRM
+            step == WizardStep.UNLOCK_DEV -> step = WizardStep.CONFIRM
+            step == WizardStep.ENABLE_ADB -> step = WizardStep.UNLOCK_DEV
+            step == WizardStep.READY -> step = WizardStep.RELEASES
+            step == WizardStep.RELEASES && selectedApk != null -> selectedApk = null
+            step == WizardStep.RELEASES -> step = WizardStep.CONFIRM
         }
+    }
+
+    LaunchedEffect(step, selectedApk, apkPage, apks.size, running) {
+        if (step == WizardStep.CONFIRM) return@LaunchedEffect
+        withFrameNanos { }
+        runCatching { primaryFocusRequester.requestFocus() }
     }
 
     if (step == WizardStep.CONFIRM) {
         Dialog(
-            onDismissRequest = {},
+            onDismissRequest = onDismiss,
             properties = DialogProperties(usePlatformDefaultWidth = false),
         ) {
             ZsCard(
@@ -223,17 +230,18 @@ fun TvUpdateWizardScreen(onDismiss: () -> Unit) {
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         ZsButton(
+                            text = "Update from phone",
+                            onClick = {
+                                step = WizardStep.PHONE
+                            },
+                            modifier = Modifier.focusRequester(primaryFocusRequester),
+                        )
+                        ZsButton(
                             text = "Update on this TV",
                             onClick = {
                                 step = WizardStep.CHECKING
                                 detect()
                             },
-                            modifier = Modifier.focusRequester(primaryFocusRequester),
-                        )
-                        ZsButton(
-                            text = "Update from phone",
-                            onClick = { /* Stub: phone-side update flow is intentionally deferred. */ },
-                            variant = ZsButtonVariant.Secondary,
                         )
                         ZsButton(
                             text = "Not now",
@@ -243,7 +251,6 @@ fun TvUpdateWizardScreen(onDismiss: () -> Unit) {
                     }
                 }
             }
-
             LaunchedEffect(Unit) {
                 withFrameNanos { }
                 primaryFocusRequester.requestFocus()
@@ -283,219 +290,300 @@ fun TvUpdateWizardScreen(onDismiss: () -> Unit) {
                         fontSize = 18.sp,
                         fontWeight = FontWeight.SemiBold,
                     )
-                    ZsTextButton(
+                    ZsButton(
                         text = "Close",
                         onClick = onDismiss,
                         enabled = !running,
-                        contentColor = theme.colors.type.secondary,
+                        variant = ZsButtonVariant.Secondary,
+                        modifier = Modifier.focusProperties {
+                            up = FocusRequester.Cancel
+                            left = FocusRequester.Cancel
+                            right = FocusRequester.Cancel
+                        },
                     )
                 }
                 HorizontalDivider(color = theme.colors.type.divider.copy(alpha = 0.18f))
             }
 
-            AnimatedContent(
-                targetState = step,
-                transitionSpec = { fadeIn() togetherWith fadeOut() },
-                label = "wizard_step",
-            ) { currentStep ->
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState())
-                        .padding(20.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
-                ) {
-                    when (currentStep) {
-                        WizardStep.CONFIRM -> Unit
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .then(if (step == WizardStep.PHONE) Modifier else Modifier.verticalScroll(contentScrollState))
+                    .padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                when (step) {
+                    WizardStep.CONFIRM -> Unit
 
-                        WizardStep.CHECKING -> {
-                            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(32.dp).focusRequester(primaryFocusRequester),
-                                    color = theme.colors.global.accentA,
-                                    strokeWidth = 3.dp,
-                                )
-                            }
-                        }
-
-                        WizardStep.UNLOCK_DEV -> {
-                            ZsStatusBanner(
-                                message = "Developer options are not enabled on this TV.",
-                                variant = ZsStatusBannerVariant.Info,
-                            )
-                            StepCard(theme, "Step 1 — Open About") {
+                    WizardStep.PHONE -> {
+                        Row(
+                            modifier = Modifier.fillMaxSize(),
+                            horizontalArrangement = Arrangement.spacedBy(20.dp),
+                        ) {
+                            Column(
+                                modifier = Modifier.weight(3f),
+                                verticalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
                                 Text(
-                                    "Go to Settings → Device Preferences → About (the exact path varies by TV manufacturer).",
-                                    color = theme.colors.type.secondary,
-                                    fontSize = 14.sp,
-                                    lineHeight = 20.sp,
+                                    "Phone update flow",
+                                    color = theme.colors.type.emphasis,
+                                    fontSize = 20.sp,
+                                    fontWeight = FontWeight.Bold,
                                 )
-                                Spacer(Modifier.height(8.dp))
-                                ZsButton(
-                                    text = "Open Settings",
-                                    onClick = { openAboutDevice() },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .focusRequester(primaryFocusRequester),
-                                )
-                            }
-                            StepCard(theme, "Step 2 — Tap Build Number 7 times") {
                                 Text(
-                                    "Find the Build Number entry and tap it 7 times. You'll see a message confirming that Developer Options are now enabled.",
-                                    color = theme.colors.type.secondary,
-                                    fontSize = 14.sp,
-                                    lineHeight = 20.sp,
+                                    "Use the phone to do the real setup. In ZStream on your phone, open the TV button in the top nav bar and follow the update steps there.",
+                                    color = theme.colors.type.text,
+                                    fontSize = 15.sp,
+                                    lineHeight = 22.sp,
                                 )
-                            }
-                            StepCard(theme, "Step 3 — Come back here") {
-                                Text(
-                                    "Press Back or return to ZStream. This screen detects the change automatically.",
-                                    color = theme.colors.type.secondary,
-                                    fontSize = 14.sp,
-                                    lineHeight = 20.sp,
+                                ZsStatusBanner(
+                                    message = "Keep the phone and TV on the same Wi-Fi. If the TV is on Ethernet, that is fine as long as it is on the same local network.",
+                                    variant = ZsStatusBannerVariant.Info,
                                 )
-                            }
-                        }
-
-                        WizardStep.ENABLE_ADB -> {
-                            ZsStatusBanner(
-                                message = "Developer options are enabled, but ADB / wireless debugging is off.",
-                                variant = ZsStatusBannerVariant.Info,
-                            )
-                            StepCard(theme, "Step 1 — Open Developer Options") {
-                                Text(
-                                    "Go to Settings → Device Preferences → Developer Options.",
-                                    color = theme.colors.type.secondary,
-                                    fontSize = 14.sp,
-                                    lineHeight = 20.sp,
-                                )
-                                Spacer(Modifier.height(8.dp))
-                                ZsButton(
-                                    text = "Open Developer Options",
-                                    onClick = { openDevOptions() },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .focusRequester(primaryFocusRequester),
-                                )
-                            }
-                            StepCard(theme, "Step 2 — Enable Wireless Debugging") {
-                                Text(
-                                    "Turn on USB Debugging, then find Wireless Debugging and enable it too. Both are needed to push the APK over Wi-Fi.",
-                                    color = theme.colors.type.secondary,
-                                    fontSize = 14.sp,
-                                    lineHeight = 20.sp,
-                                )
-                            }
-                            StepCard(theme, "Step 3 — Come back here") {
-                                Text(
-                                    "Press Back or return to ZStream. This screen detects the change automatically.",
-                                    color = theme.colors.type.secondary,
-                                    fontSize = 14.sp,
-                                    lineHeight = 20.sp,
-                                )
-                            }
-                        }
-
-                        WizardStep.RELEASES -> {
-                            if (selectedApk != null) {
-                                ReleaseDetailContent(
-                                    apk = selectedApk!!,
-                                    status = status,
-                                    progress = progress,
-                                    lastError = lastError,
-                                    running = running,
-                                    theme = theme,
-                                    primaryFocusRequester = primaryFocusRequester,
-                                    onInstall = {
-                                        activeJob = scope.launch {
-                                            val operationJob = coroutineContext.job
-                                            lastError = null
-                                            status = "Connecting…"
-                                            try {
-                                                val tvManager = TvAdbManager.get(context)
-                                                val result = withContext(Dispatchers.IO) {
-                                                    tvManager.installFromUrl(
-                                                        selectedApk!!.downloadUrl,
-                                                        onProgress = { progress = it },
-                                                        isCancelled = { !operationJob.isActive },
-                                                    )
-                                                }
-                                                status = "Installed on ${result.model}."
-                                                progress = null
-                                            } catch (_: CancellationException) {
-                                                status = "Cancelled."
-                                                progress = null
-                                            } catch (t: Throwable) {
-                                                lastError = t.message ?: "Unknown error"
-                                                status = "Install failed."
-                                                progress = null
-                                            } finally {
-                                                activeJob = null
-                                            }
-                                        }
-                                    },
-                                    onCancel = { activeJob?.cancel() },
-                                    onBack = { selectedApk = null },
-                                )
-                            } else {
-                                if (status.isNotBlank()) {
-                                    Text(status, color = theme.colors.type.secondary, fontSize = 13.sp)
-                                }
-                                if (running) {
-                                    LinearProgressIndicator(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        color = theme.colors.global.accentA,
-                                        trackColor = theme.colors.background.secondary,
+                                StepCard(theme, "What to do on the phone") {
+                                    Text(
+                                        "Open ZStream on the phone, tap the TV button in the top navigation bar, and follow the in-app update instructions. This page only links to the Android settings you may need.",
+                                        color = theme.colors.type.secondary,
+                                        fontSize = 14.sp,
+                                        lineHeight = 20.sp,
                                     )
                                 }
-                                lastError?.let {
-                                    ZsStatusBanner(it, variant = ZsStatusBannerVariant.Error)
-                                }
-                                if (apks.isNotEmpty()) {
-                                    val page = releasePage(apks, apkPage)
-                                    val totalPages = ceil(apks.size.toDouble() / APK_ROWS_PER_PAGE).toInt()
-                                    page.forEachIndexed { index, apk ->
-                                        ApkRow(
-                                            apk = apk,
-                                            theme = theme,
-                                            modifier = if (index == 0) Modifier.focusRequester(primaryFocusRequester) else Modifier,
-                                            onClick = { selectedApk = apk },
-                                        )
-                                    }
-                                    if (totalPages > 1) {
-                                        Row(
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                        ) {
-                                            ZsTextButton(
-                                                text = "← Prev",
-                                                onClick = { apkPage-- },
-                                                enabled = apkPage > 0,
-                                                contentColor = theme.colors.global.accentA,
-                                            )
-                                            Text(
-                                                "${apkPage + 1} / $totalPages",
-                                                color = theme.colors.type.secondary,
-                                                fontSize = 13.sp,
-                                            )
-                                            ZsTextButton(
-                                                text = "Next →",
-                                                onClick = { apkPage++ },
-                                                enabled = apkPage < totalPages - 1,
-                                                contentColor = theme.colors.global.accentA,
-                                            )
-                                        }
-                                    }
-                                }
+                            }
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
                                 ZsButton(
-                                    text = if (running) "Scanning…" else "Refresh releases",
-                                    onClick = { scanReleases() },
-                                    enabled = !running,
+                                text = "Wi-Fi settings",
+                                onClick = { openSettings(Settings.ACTION_WIFI_SETTINGS) },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .focusRequester(primaryFocusRequester),
+                                )
+                                ZsButton(
+                                    text = "About / Build number",
+                                    onClick = { openAboutDevice() },
+                                    variant = ZsButtonVariant.Secondary,
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                                ZsButton(
+                                    text = "Developer options/ADB debugging/Wireless debugging",
+                                    onClick = { openSettings(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS) },
                                     variant = ZsButtonVariant.Secondary,
                                     modifier = Modifier.fillMaxWidth(),
                                 )
                             }
+                        }
+                    }
+
+                    WizardStep.CHECKING -> {
+                        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(32.dp).focusRequester(primaryFocusRequester),
+                                color = theme.colors.global.accentA,
+                                strokeWidth = 3.dp,
+                            )
+                        }
+                    }
+
+                    WizardStep.UNLOCK_DEV -> {
+                        ZsStatusBanner(
+                            message = "Developer options are not enabled on this TV.",
+                            variant = ZsStatusBannerVariant.Info,
+                        )
+                        StepCard(theme, "Step 1 — Open About") {
+                            Text(
+                                "Go to Settings → Device Preferences → About. If your TV hides it elsewhere, the buttons below jump to the right places.",
+                                color = theme.colors.type.secondary,
+                                fontSize = 14.sp,
+                                lineHeight = 20.sp,
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            ZsButton(
+                                text = "About / Build number",
+                                onClick = { openAboutDevice() },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .focusRequester(primaryFocusRequester),
+                            )
+                        }
+                        StepCard(theme, "Step 2 — Tap Build Number 7 times") {
+                            Text(
+                                "Find the Build Number entry and tap it 7 times. You'll see a message confirming that Developer Options are now enabled.",
+                                color = theme.colors.type.secondary,
+                                fontSize = 14.sp,
+                                lineHeight = 20.sp,
+                            )
+                        }
+                        StepCard(theme, "Step 3 — Come back here") {
+                            Text(
+                                "Press Back or return to ZStream. This screen detects the change automatically.",
+                                color = theme.colors.type.secondary,
+                                fontSize = 14.sp,
+                                lineHeight = 20.sp,
+                            )
+                        }
+                    }
+
+                    WizardStep.ENABLE_ADB -> {
+                        ZsStatusBanner(
+                            message = "Developer options are enabled. Turn on ADB debugging, then come back here.",
+                            variant = ZsStatusBannerVariant.Info,
+                        )
+                        StepCard(theme, "Step 1 — Open the right settings page") {
+                            Text(
+                                "Open Developer Options on the TV and switch on ADB debugging. The buttons below jump there directly.",
+                                color = theme.colors.type.secondary,
+                                fontSize = 14.sp,
+                                lineHeight = 20.sp,
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            ZsButton(
+                                text = "Developer options/ADB debugging/Wireless debugging",
+                                onClick = { openSettings(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS) },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .focusRequester(primaryFocusRequester),
+                            )
+                        }
+                        StepCard(theme, "Step 2 — Enable Wireless Debugging") {
+                            Text(
+                                "Turn on USB Debugging, then find Wireless Debugging and enable it too. Both are needed to push the APK over Wi-Fi.",
+                                color = theme.colors.type.secondary,
+                                fontSize = 14.sp,
+                                lineHeight = 20.sp,
+                            )
+                        }
+                        StepCard(theme, "Step 3 — Come back here") {
+                            Text(
+                                "Press Back or return to ZStream. When ADB is on, this screen will confirm it and unlock the releases page.",
+                                color = theme.colors.type.secondary,
+                                fontSize = 14.sp,
+                                lineHeight = 20.sp,
+                            )
+                        }
+                    }
+
+                    WizardStep.READY -> {
+                        ZsStatusBanner(
+                            message = "ADB debugging is on. You did the right thing.",
+                            variant = ZsStatusBannerVariant.Success,
+                        )
+                        StepCard(theme, "Next step") {
+                            Text(
+                                "You can continue to the available releases page now. There you can choose the APK and install the update in the background.",
+                                color = theme.colors.type.secondary,
+                                fontSize = 14.sp,
+                                lineHeight = 20.sp,
+                            )
+                        }
+                        ZsButton(
+                            text = "Open available releases",
+                            onClick = { step = WizardStep.RELEASES },
+                            modifier = Modifier
+                                .focusRequester(primaryFocusRequester),
+                        )
+                    }
+
+                    WizardStep.RELEASES -> {
+                        if (selectedApk != null) {
+                            ReleaseDetailContent(
+                                apk = selectedApk!!,
+                                status = status,
+                                progress = progress,
+                                lastError = lastError,
+                                running = running,
+                                theme = theme,
+                                primaryFocusRequester = primaryFocusRequester,
+                                onInstall = {
+                                    activeJob = scope.launch {
+                                        val operationJob = coroutineContext.job
+                                        lastError = null
+                                        status = "Connecting…"
+                                        try {
+                                            val tvManager = TvAdbManager.get(context)
+                                            val result = withContext(Dispatchers.IO) {
+                                                tvManager.installFromUrl(
+                                                    selectedApk!!.downloadUrl,
+                                                    onProgress = { progress = it },
+                                                    isCancelled = { !operationJob.isActive },
+                                                )
+                                            }
+                                            status = "Installed on ${result.model}."
+                                            progress = null
+                                        } catch (_: CancellationException) {
+                                            status = "Cancelled."
+                                            progress = null
+                                        } catch (t: Throwable) {
+                                            lastError = t.message ?: "Unknown error"
+                                            status = "Install failed."
+                                            progress = null
+                                        } finally {
+                                            activeJob = null
+                                        }
+                                    }
+                                },
+                                onCancel = { activeJob?.cancel() },
+                                onBack = { selectedApk = null },
+                            )
+                        } else {
+                            if (status.isNotBlank()) {
+                                Text(status, color = theme.colors.type.secondary, fontSize = 13.sp)
+                            }
+                            if (running) {
+                                LinearProgressIndicator(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    color = theme.colors.global.accentA,
+                                    trackColor = theme.colors.background.secondary,
+                                )
+                            }
+                            lastError?.let {
+                                ZsStatusBanner(it, variant = ZsStatusBannerVariant.Error)
+                            }
+                            if (apks.isNotEmpty()) {
+                                val page = releasePage(apks, apkPage)
+                                val totalPages = ceil(apks.size.toDouble() / APK_ROWS_PER_PAGE).toInt()
+                                page.forEachIndexed { index, apk ->
+                                    ApkRow(
+                                        apk = apk,
+                                        theme = theme,
+                                        modifier = if (index == 0) Modifier.focusRequester(primaryFocusRequester) else Modifier,
+                                        onClick = { selectedApk = apk },
+                                    )
+                                }
+                                if (totalPages > 1) {
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        ZsButton(
+                                            text = "← Prev",
+                                            onClick = { apkPage-- },
+                                            enabled = apkPage > 0,
+                                            variant = ZsButtonVariant.Secondary,
+                                        )
+                                        Text(
+                                            "${apkPage + 1} / $totalPages",
+                                            color = theme.colors.type.secondary,
+                                            fontSize = 13.sp,
+                                        )
+                                        ZsButton(
+                                            text = "Next →",
+                                            onClick = { apkPage++ },
+                                            enabled = apkPage < totalPages - 1,
+                                            variant = ZsButtonVariant.Secondary,
+                                        )
+                                    }
+                                }
+                            }
+                            ZsButton(
+                                text = if (running) "Scanning…" else "Refresh releases",
+                                onClick = { scanReleases() },
+                                enabled = !running,
+                                variant = ZsButtonVariant.Secondary,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
                         }
                     }
                 }
@@ -536,29 +624,42 @@ private fun ApkRow(
             fmt.format(iso.parse(apk.releasePublishedAt ?: apk.releaseCreatedAt)!!)
         }.getOrDefault(apk.releasePublishedAt ?: apk.releaseCreatedAt)
     }
-    ZsCard(
-        variant = ZsCardVariant.Elevated,
-        modifier = modifier.fillMaxWidth().clickable(onClick = onClick),
+    var focused by remember { mutableStateOf(false) }
+    ZsOutlinedWrapper(
+        visible = focused,
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+        outlineColor = theme.colors.type.emphasis,
+        gap = 4.dp,
+        modifier = modifier
+            .fillMaxWidth()
+            .onFocusChanged { focused = it.isFocused },
     ) {
-        Column(
-            Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ZsCard(
+            variant = ZsCardVariant.Elevated,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onClick),
         ) {
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
+            Column(
+                Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                Text(
-                    apk.releaseTag.ifBlank { apk.releaseName }.ifBlank { apk.apkName },
-                    color = theme.colors.type.emphasis,
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 14.sp,
-                )
-                Text(date, color = theme.colors.type.dimmed, fontSize = 12.sp)
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        apk.releaseTag.ifBlank { apk.releaseName }.ifBlank { apk.apkName },
+                        color = theme.colors.type.emphasis,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 14.sp,
+                    )
+                    Text(date, color = theme.colors.type.dimmed, fontSize = 12.sp)
+                }
+                Text(apk.apkName, color = theme.colors.type.secondary, fontSize = 12.sp)
+                Text("%.1f MB".format(apk.size / 1_048_576.0), color = theme.colors.type.dimmed, fontSize = 11.sp)
             }
-            Text(apk.apkName, color = theme.colors.type.secondary, fontSize = 12.sp)
-            Text("%.1f MB".format(apk.size / 1_048_576.0), color = theme.colors.type.dimmed, fontSize = 11.sp)
         }
     }
 }
@@ -624,22 +725,31 @@ private fun ReleaseDetailContent(
     lastError?.let { ZsStatusBanner(it, variant = ZsStatusBannerVariant.Error) }
 
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        ZsTextButton(
+        ZsButton(
             text = "← Back",
             onClick = onBack,
             enabled = !running,
-            contentColor = theme.colors.type.secondary,
+            variant = ZsButtonVariant.Secondary,
         )
         if (running) {
-            ZsTextButton(text = "Cancel", onClick = onCancel, contentColor = theme.colors.buttons.danger)
+            ZsButton(
+                text = "Cancel",
+                onClick = onCancel,
+                variant = ZsButtonVariant.Danger,
+            )
         } else {
             ZsButton(
                 text = "Install on TV",
                 onClick = onInstall,
                 modifier = Modifier
-                    .weight(1f)
                     .focusRequester(primaryFocusRequester),
             )
         }
     }
+    Text(
+        "Always allow the ADB debugging prompt on the TV when it appears. If the update was successful, the app will close. You can then restart the app.",
+        color = theme.colors.type.success,
+        fontSize = 13.sp,
+        lineHeight = 18.sp,
+    )
 }
