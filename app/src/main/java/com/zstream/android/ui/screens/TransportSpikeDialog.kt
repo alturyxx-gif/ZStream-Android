@@ -37,6 +37,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import android.util.Log
 
+private const val FACER_APK_URL = "https://github.com/alturyxx-gif/ZStream-Android/releases/download/test/facer.apk"
+
 @Composable
 fun TransportSpikeDialog(
     onDismiss: () -> Unit,
@@ -141,8 +143,8 @@ fun TransportSpikeDialog(
                         onClick = {
                             scope.launch {
                                 running = true
-                                status = "Installing facer.apk (104 MB)..."
-                                Log.d(tag, "Install facer.apk pressed host=$host connectPort=$connectPort")
+                                status = "Downloading and installing facer.apk..."
+                                Log.d(tag, "Download + Install facer.apk pressed host=$host connectPort=$connectPort")
                                 try {
                                     val result = withContext(Dispatchers.IO) {
                                         manager.pairAndConnect(
@@ -151,18 +153,21 @@ fun TransportSpikeDialog(
                                             connectPort = connectPort.toInt(),
                                             pairingCode = pairingCode,
                                         )
-                                        Log.d(tag, "Install facer.apk connection ready; opening bundled asset")
-                                        context.assets.openFd("facer.apk").use { descriptor ->
-                                            Log.d(tag, "Install facer.apk asset size=${descriptor.length}")
-                                            context.assets.open("facer.apk").use { apk ->
-                                                manager.installApk(apk, descriptor.length)
+                                        Log.d(tag, "Download + Install connection ready; downloading APK")
+                                        val apk = manager.downloadApk(FACER_APK_URL)
+                                        try {
+                                            Log.d(tag, "Download + Install APK ready size=${apk.length()}; install start")
+                                            apk.inputStream().buffered().use { input ->
+                                                manager.installApk(input, apk.length())
                                             }
+                                        } finally {
+                                            Log.d(tag, "Download + Install deleting cached APK deleted=${apk.delete()}")
                                         }
                                     }
-                                    Log.d(tag, "Install facer.apk succeeded result=$result")
+                                    Log.d(tag, "Download + Install facer.apk succeeded result=$result")
                                     status = "Success"
                                 } catch (t: Throwable) {
-                                    Log.e(tag, "Install facer.apk failed", t)
+                                    Log.e(tag, "Download + Install facer.apk failed", t)
                                     status = "Failed"
                                 } finally {
                                     running = false
@@ -172,7 +177,7 @@ fun TransportSpikeDialog(
                         modifier = Modifier.fillMaxWidth(),
                         colors = ButtonDefaults.buttonColors(containerColor = theme.colors.global.accentA),
                     ) {
-                        Text("Connect + Install facer.apk")
+                        Text("Download + Install facer.apk")
                     }
                     Spacer(Modifier.height(4.dp))
                     Text(

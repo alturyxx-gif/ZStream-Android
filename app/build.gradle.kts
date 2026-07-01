@@ -49,9 +49,6 @@ android {
         buildConfig = true
     }
 
-    sourceSets["main"].assets.srcDir("build/generated/facerApkAssets")
-    androidResources.noCompress += "apk"
-
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
@@ -61,13 +58,6 @@ android {
         jvmToolchain(11)
     }
 }
-
-val copyFacerApk by tasks.registering(Copy::class) {
-    from(rootProject.file("facer.apk"))
-    into(layout.buildDirectory.dir("generated/facerApkAssets"))
-}
-
-tasks.named("preBuild").configure { dependsOn(copyFacerApk) }
 
 dependencies {
     implementation(libs.androidx.core.ktx)

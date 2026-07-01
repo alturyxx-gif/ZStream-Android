@@ -6,6 +6,8 @@ import android.os.SystemClock
 import android.util.Log
 import io.github.muntashirakon.adb.AbsAdbConnectionManager
 import io.github.muntashirakon.adb.LocalServices
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import org.bouncycastle.asn1.x500.X500Name
 import org.bouncycastle.cert.X509CertificateHolder
 import org.bouncycastle.cert.X509v3CertificateBuilder
@@ -31,6 +33,7 @@ class AdbSpikeConnectionManager private constructor(
     private val appContext: Context,
 ) : AbsAdbConnectionManager() {
     private val tag = "AdbSpike"
+    private val httpClient = OkHttpClient()
     private val privateKeyFile = File(appContext.filesDir, "adb_spike_private.pk8")
     private val certificateFile = File(appContext.filesDir, "adb_spike_cert.cer")
 
@@ -125,6 +128,50 @@ class AdbSpikeConnectionManager private constructor(
                 throw IOException("Package install failed: $result")
             }
             return result
+        }
+    }
+
+    fun downloadApk(url: String): File {
+        val target = File(appContext.cacheDir, "facer.apk")
+        val partial = File(appContext.cacheDir, "facer.apk.part")
+        target.delete()
+        partial.delete()
+        Log.d(tag, "downloadApk start url=$url")
+        val startedAt = SystemClock.elapsedRealtime()
+        try {
+            httpClient.newCall(Request.Builder().url(url).build()).execute().use { response ->
+                if (!response.isSuccessful) throw IOException("APK download failed: HTTP ${response.code}")
+                val body = response.body ?: throw IOException("APK download returned an empty response")
+                val expectedSize = body.contentLength()
+                Log.d(tag, "downloadApk response received expectedSize=$expectedSize")
+                var downloaded = 0L
+                var nextLogAt = 10L * 1024 * 1024
+                body.byteStream().use { input ->
+                    partial.outputStream().buffered().use { output ->
+                        val buffer = ByteArray(64 * 1024)
+                        while (true) {
+                            val read = input.read(buffer)
+                            if (read < 0) break
+                            output.write(buffer, 0, read)
+                            downloaded += read
+                            if (downloaded >= nextLogAt || downloaded == expectedSize) {
+                                Log.d(tag, "downloadApk downloaded=$downloaded/$expectedSize elapsedMs=${SystemClock.elapsedRealtime() - startedAt}")
+                                nextLogAt += 10L * 1024 * 1024
+                            }
+                        }
+                    }
+                }
+                if (downloaded == 0L) throw IOException("APK download was empty")
+                if (expectedSize >= 0 && downloaded != expectedSize) {
+                    throw IOException("APK download size mismatch: expected $expectedSize, read $downloaded")
+                }
+            }
+            if (!partial.renameTo(target)) throw IOException("Could not finalize downloaded APK")
+            Log.d(tag, "downloadApk complete size=${target.length()} elapsedMs=${SystemClock.elapsedRealtime() - startedAt}")
+            return target
+        } catch (t: Throwable) {
+            partial.delete()
+            throw t
         }
     }
 
