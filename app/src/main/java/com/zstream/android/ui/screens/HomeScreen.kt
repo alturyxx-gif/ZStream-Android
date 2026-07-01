@@ -474,7 +474,7 @@ fun HomeScreen(
     fun HomeDialogs()
     {
         if (showTvInstaller) {
-            TvInstallerDialog(onDismiss = { showTvInstaller = false })
+            TvInstallerScreen(onDismiss = { showTvInstaller = false })
         }
         if (showLayoutMenu) {
             val allGroups = remember(state.bookmarkEntities) {

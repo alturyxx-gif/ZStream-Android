@@ -1,16 +1,17 @@
 package com.zstream.android.ui.screens
 
 import android.util.Log
-import androidx.compose.foundation.BorderStroke
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
@@ -53,8 +54,10 @@ internal enum class TvSetupMode {
     }
 }
 
+private enum class TvInstallerPage { CONNECTION, INSTALL }
+
 @Composable
-fun TvInstallerDialog(onDismiss: () -> Unit) {
+fun TvInstallerScreen(onDismiss: () -> Unit) {
     val tag = "TvInstaller"
     val theme = LocalZStreamTheme.current
     val context = LocalContext.current
@@ -62,6 +65,7 @@ fun TvInstallerDialog(onDismiss: () -> Unit) {
     val manager = remember(context) { TvAdbManager.get(context) }
 
     var savedTv by remember { mutableStateOf<SavedTv?>(manager.getSavedTv()) }
+    var page by remember { mutableStateOf(if (savedTv == null) TvInstallerPage.CONNECTION else TvInstallerPage.INSTALL) }
     var pairingCode by remember { mutableStateOf("") }
     var setupMode by remember { mutableStateOf(TvSetupMode.AUTOMATIC) }
     var manualHost by remember { mutableStateOf("") }
@@ -113,38 +117,77 @@ fun TvInstallerDialog(onDismiss: () -> Unit) {
         }
     }
 
-    AlertDialog(
-        onDismissRequest = { if (!running) onDismiss() },
-        confirmButton = {},
-        dismissButton = { TextButton(enabled = !running, onClick = onDismiss) { Text("Close") } },
-        title = { Text("Install APK on TV") },
-        text = {
-            Surface(
-                color = theme.colors.modal.background,
-                shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
-                border = BorderStroke(1.dp, theme.colors.type.divider.copy(alpha = 0.25f)),
-                modifier = Modifier.widthIn(max = 560.dp),
+    BackHandler {
+        if (!running) {
+            if (page == TvInstallerPage.INSTALL) page = TvInstallerPage.CONNECTION else onDismiss()
+        }
+    }
+    Surface(
+        color = theme.colors.background.main,
+        modifier = Modifier.fillMaxSize(),
+    ) {
+        Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
             ) {
+                Row {
+                    if (page == TvInstallerPage.INSTALL) {
+                        TextButton(enabled = !running, onClick = { page = TvInstallerPage.CONNECTION }) { Text("Back") }
+                    }
+                    Text(
+                        if (page == TvInstallerPage.CONNECTION) "Connect to TV" else "Install APK",
+                        color = theme.colors.type.emphasis,
+                    )
+                }
+                TextButton(enabled = !running, onClick = onDismiss) { Text("Close") }
+            }
+            HorizontalDivider(color = theme.colors.type.divider.copy(alpha = 0.18f))
                 Column(
-                    modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(20.dp),
+                    modifier = Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(20.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
+                    when (page) {
+                        TvInstallerPage.CONNECTION -> {
                     savedTv?.let { tv ->
                         Text("Saved TV: ${tv.model} (${tv.host})", color = theme.colors.type.text)
+                        Text(
+                            "Keep the TV connected to the same local network with debugging enabled. ZStream will reconnect automatically when you install.",
+                            color = theme.colors.type.secondary,
+                        )
                         TextButton(
                             enabled = !running,
                             onClick = {
                                 manager.forgetSavedTv()
                                 savedTv = null
+                                page = TvInstallerPage.CONNECTION
                                 setupMode = TvSetupMode.AUTOMATIC
                                 status = "Saved TV forgotten"
                             },
                         ) { Text("Forget TV") }
                     }
 
+                    if (savedTv == null) {
+                        Text("Before you start", color = theme.colors.type.emphasis)
+                        Text(
+                            "• Connect the phone and TV to the same network. The TV may use Wi-Fi or Ethernet.\n" +
+                                "• Avoid guest Wi-Fi, or VPNs.\n" +
+                                "• Keep this app open while pairing and approve prompts on the TV.\n" +
+                                "• On the TV, enable Developer options by going to your settings → Device Preferences → About → Android TV OS build/build number and keep clicking on it until you see that developer options have been enabled.\n",
+                            color = theme.colors.type.secondary,
+                        )
+                    }
+
                     if (savedTv == null) when (setupMode) {
                         TvSetupMode.AUTOMATIC -> {
-                            Text("On the TV, open Wireless debugging → Pair device with pairing code.", color = theme.colors.type.secondary)
+                            Text("Automatic wireless pairing", color = theme.colors.type.emphasis)
+                            Text(
+                                "1. Then go back to Device Preferences and open Developer options → Turn on USB Debugging and then go to Wireless debugging and turn it on.\n" +
+                                "2. Select Pair device with pairing code and leave that screen open.\n" +
+                                "3. Enter the 6-digit code below. ZStream discovers the TV address and ports automatically.\n\n" +
+                                "If discovery fails, manual wireless setup opens with fields for the values shown by the TV.",
+                                color = theme.colors.type.secondary,
+                            )
                             OutlinedTextField(
                                 value = pairingCode,
                                 onValueChange = { pairingCode = it.filter(Char::isDigit).take(6) },
@@ -166,6 +209,7 @@ fun TvInstallerDialog(onDismiss: () -> Unit) {
                                             savedTv = manager.getSavedTv()
                                             pairingCode = ""
                                             status = "Paired with $model"
+                                            page = TvInstallerPage.INSTALL
                                             Log.d(tag, "automatic pair succeeded model=$model")
                                         } catch (_: CancellationException) {
                                             status = "Cancelled"
@@ -188,7 +232,16 @@ fun TvInstallerDialog(onDismiss: () -> Unit) {
                         }
 
                         TvSetupMode.MANUAL_WIRELESS -> {
-                            Text("Manual wireless debugging", color = theme.colors.type.text)
+                            Text("Manual wireless pairing", color = theme.colors.type.emphasis)
+                            Text(
+                                "1. Then go back to Device Preferences and open Developer options → Turn on USB Debugging and then go to Wireless debugging and turn it on.\n" +
+                                    "2. Keep Wireless debugging and Pair device with pairing code open on the TV.\n" +
+                                    "3. Enter the TV IP address and pairing port shown in the pairing window.\n" +
+                                    "4. Enter the connect port shown as IP address & port on the main Wireless debugging screen.\n" +
+                                    "5. Enter the current 6-digit code, then pair.\n\n" +
+                                    "The pairing and connect ports are usually different. If this fails, ZStream opens legacy ADB setup.",
+                                color = theme.colors.type.secondary,
+                            )
                             OutlinedTextField(
                                 value = manualHost,
                                 onValueChange = { manualHost = it.trim() },
@@ -238,6 +291,7 @@ fun TvInstallerDialog(onDismiss: () -> Unit) {
                                             savedTv = manager.getSavedTv()
                                             pairingCode = ""
                                             status = "Paired with $model"
+                                            page = TvInstallerPage.INSTALL
                                             Log.d(tag, "manual wireless pair succeeded model=$model")
                                         } catch (_: CancellationException) {
                                             status = "Cancelled"
@@ -269,8 +323,16 @@ fun TvInstallerDialog(onDismiss: () -> Unit) {
                         }
 
                         TvSetupMode.LEGACY -> {
-                            Text("Legacy ADB over network", color = theme.colors.type.text)
-                            Text("Enable network debugging on the TV and accept its authorization prompt.", color = theme.colors.type.secondary)
+                            Text("Legacy ADB over network", color = theme.colors.type.emphasis)
+                            Text(
+                                "Use this for older TVs without Wireless debugging.\n\n" +
+                                    "1. On the TV, enable Developer options and USB, network, or ADB debugging.\n" +
+                                    "2. Find the TV IP address in its Network settings. The ADB port is usually 5555.\n" +
+                                    "3. Enter both values and connect. Accept the debugging prompt on the TV; choose Always allow if available.\n\n" +
+//                                    "Emulator test: use 10.0.2.2 and the TV emulator port (for example, emulator-5556 uses 5557).\n\n" +
+                                    "If connection fails, verify the TV IP did not change, debugging is still enabled, and the router allows devices to communicate.",
+                                color = theme.colors.type.secondary,
+                            )
                             OutlinedTextField(
                                 value = legacyHost,
                                 onValueChange = { legacyHost = it.trim() },
@@ -298,6 +360,7 @@ fun TvInstallerDialog(onDismiss: () -> Unit) {
                                             }
                                             savedTv = manager.getSavedTv()
                                             status = "Connected to $model"
+                                            page = TvInstallerPage.INSTALL
                                             Log.d(tag, "legacy connect succeeded model=$model")
                                         } catch (_: CancellationException) {
                                             status = "Cancelled"
@@ -317,7 +380,25 @@ fun TvInstallerDialog(onDismiss: () -> Unit) {
                         }
                     }
 
+                    Text("Status", color = theme.colors.type.emphasis)
+                    Text(status, color = theme.colors.type.text)
+                    if (savedTv != null) {
+                        Button(enabled = !running, onClick = { page = TvInstallerPage.INSTALL }) {
+                            Text("Continue to install")
+                        }
+                    }
+                        }
+
+                        TvInstallerPage.INSTALL -> {
+                    savedTv?.let { tv ->
+                        Text("Installing on ${tv.model} (${tv.host})", color = theme.colors.type.text)
+                    }
                     HorizontalDivider(color = theme.colors.type.divider.copy(alpha = 0.18f))
+                    Text("Install APK", color = theme.colors.type.emphasis)
+                    Text(
+                        "Enter a direct HTTP or HTTPS link to one APK file. Keep both devices online and leave this screen open during download, transfer, and installation.",
+                        color = theme.colors.type.secondary,
+                    )
                     OutlinedTextField(
                         value = apkUrl,
                         onValueChange = { apkUrl = it },
@@ -360,10 +441,11 @@ fun TvInstallerDialog(onDismiss: () -> Unit) {
                             }) { Text("Retry") }
                         }
                     }
+                        }
+                    }
                 }
-            }
-        },
-    )
+        }
+    }
 }
 
 private fun Long.fractionOf(total: Long): Float =
