@@ -1,8 +1,9 @@
 package com.zstream.android.data.adb
 
 import android.content.Context
-import android.util.Log
 import android.os.Build
+import android.os.SystemClock
+import android.util.Log
 import io.github.muntashirakon.adb.AbsAdbConnectionManager
 import io.github.muntashirakon.adb.LocalServices
 import org.bouncycastle.asn1.x500.X500Name
@@ -15,6 +16,7 @@ import org.bouncycastle.operator.ContentSigner
 import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder
 import java.io.File
 import java.io.IOException
+import java.io.InputStream
 import java.math.BigInteger
 import java.security.KeyFactory
 import java.security.KeyPairGenerator
@@ -49,21 +51,27 @@ class AdbSpikeConnectionManager private constructor(
 
     fun pairAndConnect(host: String, pairingPort: Int?, connectPort: Int, pairingCode: String): String {
         Log.d(tag, "pairAndConnect host=$host pairingPort=$pairingPort connectPort=$connectPort codeLen=${pairingCode.length}")
-        setHostAddress(host)
-        if (pairingPort != null || pairingCode.isNotBlank()) {
-            require(pairingPort != null && pairingCode.length == 6) { "Pairing port and 6-digit code must both be provided" }
-            Log.d(tag, "pair() start")
-            if (!pair(host, pairingPort, pairingCode)) {
-                throw IllegalStateException("Pairing returned false")
-            }
-            Log.d(tag, "pair() done, connect() start")
+        if (isConnected) {
+            Log.d(tag, "already connected; skipping pair() and connect()")
         } else {
-            Log.d(tag, "pair() skipped, using cached authorization")
+            setHostAddress(host)
+            if (pairingPort != null || pairingCode.isNotBlank()) {
+                require(pairingPort != null && pairingCode.length == 6) { "Pairing port and 6-digit code must both be provided" }
+                Log.d(tag, "pair() start")
+                if (!pair(host, pairingPort, pairingCode)) {
+                    throw IllegalStateException("Pairing returned false")
+                }
+                Log.d(tag, "pair() done")
+            } else {
+                Log.d(tag, "pair() skipped, using cached authorization")
+            }
+            Log.d(tag, "connect() start host=$host port=$connectPort")
+            if (!connect(host, connectPort)) {
+                throw IllegalStateException("Connect returned false")
+            }
+            Log.d(tag, "connect() done")
         }
-        if (!connect(host, connectPort)) {
-            throw IllegalStateException("Connect returned false")
-        }
-        Log.d(tag, "connect() done, shell probe start")
+        Log.d(tag, "shell probe start")
         return runShell("getprop", "ro.product.model").trim()
     }
 
@@ -81,6 +89,41 @@ class AdbSpikeConnectionManager private constructor(
             val result = out.toString()
             Log.d(tag, "runShell result=${result.trim()}")
             if (result.startsWith("/system/bin/sh:")) throw IOException(result.trim())
+            return result
+        }
+    }
+
+    fun installApk(apk: InputStream, size: Long): String {
+        require(size > 0) { "APK is empty" }
+        Log.d(tag, "installApk start size=$size")
+        val startedAt = SystemClock.elapsedRealtime()
+        Log.d(tag, "installApk opening package-manager stream")
+        openStream(LocalServices.SHELL, "cmd", "package", "install", "-r", "-S", size.toString()).use { stream ->
+            Log.d(tag, "installApk package-manager stream opened; transfer start")
+            val buffer = ByteArray(64 * 1024)
+            var transferred = 0L
+            var nextLogAt = 10L * 1024 * 1024
+            stream.openOutputStream().use { output ->
+                while (true) {
+                    val read = apk.read(buffer)
+                    if (read < 0) break
+                    output.write(buffer, 0, read)
+                    transferred += read
+                    if (transferred >= nextLogAt || transferred == size) {
+                        Log.d(tag, "installApk transferred=$transferred/$size elapsedMs=${SystemClock.elapsedRealtime() - startedAt}")
+                        nextLogAt += 10L * 1024 * 1024
+                    }
+                }
+                output.flush()
+            }
+            if (transferred != size) throw IOException("APK size mismatch: expected $size, read $transferred")
+
+            Log.d(tag, "installApk transfer complete; waiting for package-manager result")
+            val result = stream.openInputStream().bufferedReader().readText().trim()
+            Log.d(tag, "installApk result=$result elapsedMs=${SystemClock.elapsedRealtime() - startedAt}")
+            if (result.lineSequence().none { it.trim() == "Success" }) {
+                throw IOException("Package install failed: $result")
+            }
             return result
         }
     }
