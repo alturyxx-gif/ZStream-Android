@@ -28,6 +28,7 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.animation.*
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
@@ -303,6 +304,12 @@ private data class AudioOption(
 )
 
 private const val PLAYER_AUTO_HIDE_DURATION = 7000L
+private const val PAUSE_OVERLAY_DELAY_MS = 2000L
+private const val PAUSE_OVERLAY_ANIMATION_MS = 700
+private const val PAUSE_OVERLAY_STAGGER_MS = 80
+private val PAUSE_OVERLAY_SLIDE_OFFSET = 12.dp
+private val PAUSED_GRAPHIC_BOTTOM_PADDING = 20.dp
+private val PAUSE_OVERLAY_EASING = CubicBezierEasing(0.22f, 1f, 0.36f, 1f)
 
 @OptIn(UnstableApi::class, ExperimentalComposeUiApi::class)
 @Composable
@@ -874,8 +881,15 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                             }
                         }
                         override fun onIsPlayingChanged(playing: Boolean) {
+                            val wasPlaying = isPlaying
                             isPlaying = playing
                             pipIsPlaying = playing
+                            if (!playing) {
+                                controlsVisible = true
+                            } else if (!wasPlaying) {
+                                controlsVisible = true
+                                lastInteractionTime = System.currentTimeMillis()
+                            }
                         }
                     }
                     player.addListener(listener)
@@ -1203,8 +1217,11 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                 PlayerControls(
                     player = player,
                     title = vm.title,
-                    episodeLabel = if (vm.mediaType == "tv" && vm.season != null && vm.episode != null) {
-                        "S${vm.season} E${vm.episode}"
+                    episodeLabel = if (vm.mediaType == "tv") {
+                        buildList<String> {
+                            vm.season?.let { add("S$it") }
+                            vm.episode?.let { add("E$it") }
+                        }.takeIf { it.isNotEmpty() }?.joinToString(" • ")
                     } else null,
                     readyState = s,
                     settings = settings,
@@ -1837,6 +1854,37 @@ private fun PlayerControls(
     val skipFocusRequester = remember { FocusRequester() }
     val muteFocusRequester = remember { FocusRequester() }
     var menuSourceRequester by remember { mutableStateOf<FocusRequester?>(null) }
+    var hasPlaybackStarted by remember { mutableStateOf(false) }
+    var pauseOverlayVisible by remember { mutableStateOf(false) }
+
+    LaunchedEffect(playWhenReady, playbackState, menuOpen, showInfoSheet) {
+        if (playbackState == Player.STATE_READY && (playWhenReady || player.currentPosition > 0L)) {
+            hasPlaybackStarted = true
+        }
+
+        val shouldDelayOverlay =
+            hasPlaybackStarted &&
+                !playWhenReady &&
+                playbackState == Player.STATE_READY &&
+                settings.enablePauseOverlay &&
+                !menuOpen &&
+                !showInfoSheet
+
+        pauseOverlayVisible = false
+        if (shouldDelayOverlay) {
+            delay(PAUSE_OVERLAY_DELAY_MS)
+            if (
+                hasPlaybackStarted &&
+                !playWhenReady &&
+                playbackState == Player.STATE_READY &&
+                settings.enablePauseOverlay &&
+                !menuOpen &&
+                !showInfoSheet
+            ) {
+                pauseOverlayVisible = true
+            }
+        }
+    }
 
     LaunchedEffect(controlsVisible) {
         if (controlsVisible) {
@@ -1945,12 +1993,9 @@ private fun PlayerControls(
         pauseMetadata?.let { metadata ->
             PauseOverlay(
                 metadata = metadata,
-                visible = if (isTv) {
-                    !playWhenReady && playbackState == Player.STATE_READY && settings.enablePauseOverlay && controlsVisible && !menuOpen && !showInfoSheet
-                } else {
-                    !playWhenReady && playbackState == Player.STATE_READY && settings.enablePauseOverlay && !controlsVisible && !menuOpen && !showInfoSheet
-                },
-                showImageLogos = settings.enableImageLogos
+                visible = pauseOverlayVisible,
+                showImageLogos = settings.enableImageLogos,
+                fallbackRuntimeMinutes = (durationMs / 60000L).toInt()
             )
         }
 
@@ -5148,232 +5193,316 @@ private fun PauseOverlay(
     metadata: PauseMetadata,
     visible: Boolean,
     showImageLogos: Boolean,
+    fallbackRuntimeMinutes: Int,
     modifier: Modifier = Modifier
 ) {
-    val isTv = LocalIsTv.current
+    fun formatRuntime(minutes: Int): String {
+        val hours = minutes / 60
+        val mins = minutes % 60
+        return if (hours > 0) "${hours}h ${mins}m" else "${mins}m"
+    }
+
+    val runtimeText = metadata.runtime ?: fallbackRuntimeMinutes.takeIf { it > 0 }?.let(::formatRuntime)
+    val slideOffsetPx = with(LocalDensity.current) { PAUSE_OVERLAY_SLIDE_OFFSET.roundToPx() }
+    var revealStage by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(visible) {
+        revealStage = 0
+        if (visible) {
+            repeat(6) { index ->
+                if (index > 0) delay(PAUSE_OVERLAY_STAGGER_MS.toLong())
+                revealStage = index + 1
+            }
+        }
+    }
+
+    fun enter() = fadeIn(
+        tween(PAUSE_OVERLAY_ANIMATION_MS, easing = PAUSE_OVERLAY_EASING)
+    ) + slideInVertically(
+        tween(PAUSE_OVERLAY_ANIMATION_MS, easing = PAUSE_OVERLAY_EASING)
+    ) { slideOffsetPx }
+    fun exit() = fadeOut(
+        tween(PAUSE_OVERLAY_ANIMATION_MS, easing = PAUSE_OVERLAY_EASING)
+    ) + slideOutVertically(
+        tween(PAUSE_OVERLAY_ANIMATION_MS, easing = PAUSE_OVERLAY_EASING)
+    ) { slideOffsetPx }
 
     AnimatedVisibility(
         visible = visible,
-        enter = fadeIn(),
-        exit = fadeOut(),
+        enter = fadeIn(animationSpec = tween(PAUSE_OVERLAY_ANIMATION_MS)),
+        exit = fadeOut(animationSpec = tween(PAUSE_OVERLAY_ANIMATION_MS)),
         modifier = modifier.fillMaxSize()
     ) {
-        if (isTv) {
-            TvPauseOverlay(metadata, showImageLogos)
-        } else {
-            PhonePauseOverlay(metadata, showImageLogos)
-        }
-    }
-}
-
-@Composable
-private fun TvPauseOverlay(metadata: PauseMetadata, showImageLogos: Boolean) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    listOf(
-                        Color.Transparent,
-                        Color.Black.copy(alpha = 0.3f),
-                        Color.Black.copy(alpha = 0.7f)
-                    ),
-                    startY = 300f
-                )
-            )
-    ) {
-        BoxWithConstraints(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(start = 64.dp, end = 64.dp, top = 64.dp, bottom = 120.dp)
-        ) {
-            val totalHeight = maxHeight
-            // Safe height for overview text to stay below center buttons (at height/2)
-            // Center buttons are 64dp tall. Space below starts at height/2 + 32dp.
-            // Text starts at bottom-padding (120dp from bottom).
-            // Safe max height = (totalHeight - 120dp) - (totalHeight / 2 + buttonHalfSize + safetySpacing)
-            val maxOverviewHeight = (totalHeight - 120.dp) - (totalHeight / 2 + 32.dp + 32.dp)
-
-            Column(
-                modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.Bottom
-            ) {
-                // Top section: Logo or Title
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth(0.30f),
-                    contentAlignment = Alignment.BottomStart
-                ) {
-                    if (showImageLogos && metadata.logoUrl != null) {
-                        AsyncImage(
-                            model = metadata.logoUrl,
-                            contentDescription = metadata.title,
-                            modifier = Modifier
-                                .fillMaxHeight()
-                                .fillMaxWidth(),
-                            contentScale = ContentScale.Fit,
-                            alignment = Alignment.BottomStart
+                .background(
+                    Brush.verticalGradient(
+                        listOf(
+                            Color.Transparent,
+                            Color.Black.copy(alpha = 0.55f),
+                            Color.Black.copy(alpha = 0.85f)
                         )
-                    } else {
-                        Text(
-                            text = metadata.title,
-                            color = Color.White,
-                            fontSize = 42.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            lineHeight = 48.sp,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                            style = LocalTextStyle.current.copy(
-                                platformStyle = PlatformTextStyle(includeFontPadding = false)
-                            )
-                        )
-                    }
-                }
-
-                Spacer(Modifier.height(32.dp))
-
-                // Metadata Row
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    metadata.mediaLabel?.let {
-                        PausePill(
-                            icon = if (metadata.type == "movie") Icons.Filled.Movie else Icons.Filled.LiveTv,
-                            text = it
-                        )
-                    }
-
-                    metadata.year?.let {
-                        PausePill(
-                            icon = Icons.Filled.Event,
-                            text = it
-                        )
-                    }
-
-                    metadata.rating?.let {
-                        PausePill(
-                            icon = Icons.Filled.Star,
-                            text = it,
-                            iconColor = Color(0xFFFFD700)
-                        )
-                    }
-
-                    metadata.runtime?.let {
-                        PausePill(
-                            icon = Icons.Filled.Schedule,
-                            text = it
-                        )
-                    }
-                }
-
-                metadata.overview?.let {
-                    Spacer(Modifier.height(32.dp))
-                    Text(
-                        text = it,
-                        color = Color.White.copy(alpha = 0.7f),
-                        fontSize = 15.sp,
-                        lineHeight = 22.sp,
-                        maxLines = 6,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier
-                            .fillMaxWidth(0.7f)
-                            .heightIn(max = maxOverviewHeight)
                     )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun PhonePauseOverlay(metadata: PauseMetadata, showImageLogos: Boolean) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.45f))
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 64.dp, vertical = 48.dp)
+                )
         ) {
             Box(
                 modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth(),
-                contentAlignment = Alignment.BottomStart
+                    .fillMaxSize()
+                    .background(
+                        Brush.radialGradient(
+                            colors = listOf(
+                                Color.Transparent,
+                                Color.Black.copy(alpha = 0.6f)
+                            )
+                        )
+                    )
+            )
+
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(start = 40.dp, top = 32.dp, end = 40.dp, bottom = 72.dp)
             ) {
-                if (showImageLogos && metadata.logoUrl != null) {
-                    AsyncImage(
-                        model = metadata.logoUrl,
-                        contentDescription = metadata.title,
-                        modifier = Modifier
-                            .fillMaxHeight()
-                            .fillMaxWidth(0.6f),
-                        contentScale = ContentScale.Fit,
-                        alignment = Alignment.BottomStart
-                    )
-                } else {
-                    Text(
-                        text = metadata.title,
-                        color = Color.White,
-                        fontSize = 36.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        lineHeight = 40.sp
-                    )
+                val contentMaxWidth = 0.31f
+                val logoMaxHeight = 180.dp
+                val titleSize = 56.sp
+                val bodySize = 15.sp
+                val bodyLineHeight = 22.sp
+
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .fillMaxWidth(contentMaxWidth)
+                        .padding(bottom = 48.dp)
+                ) {
+                    AnimatedVisibility(
+                        visible = revealStage >= 1,
+                        enter = enter(),
+                        exit = exit()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(bottom = 18.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier.size(8.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .matchParentSize()
+                                        .clip(CircleShape)
+                                        .background(Color(0xFFB388FF).copy(alpha = 0.6f))
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFFD1C4FF))
+                                )
+                            }
+                            Text(
+                                text = "Now Playing",
+                                color = Color.White.copy(alpha = 0.8f),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                letterSpacing = 3.sp
+                            )
+                        }
+                    }
+
+                    AnimatedVisibility(
+                        visible = revealStage >= 2,
+                        enter = enter(),
+                        exit = exit()
+                    ) {
+                        if (showImageLogos && metadata.logoUrl != null) {
+                            AsyncImage(
+                                model = metadata.logoUrl,
+                                contentDescription = metadata.title,
+                                modifier = Modifier
+                                    .heightIn(max = logoMaxHeight)
+                                    .padding(bottom = 20.dp),
+                                contentScale = ContentScale.Fit,
+                                alignment = Alignment.CenterStart
+                            )
+                        } else {
+                            Text(
+                                text = metadata.title,
+                                color = Color.White,
+                                fontSize = titleSize,
+                                fontWeight = FontWeight.Bold,
+                                lineHeight = titleSize * 1.05f,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                                style = LocalTextStyle.current.copy(
+                                    platformStyle = PlatformTextStyle(includeFontPadding = false)
+                                )
+                            )
+                        }
+                    }
+
+                    AnimatedVisibility(
+                        visible = revealStage >= 3 && metadata.mediaLabel != null,
+                        enter = enter(),
+                        exit = exit()
+                    ) {
+                        metadata.mediaLabel?.let {
+                            Spacer(Modifier.height(18.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                PausePill(
+                                    icon = Icons.Filled.LiveTv,
+                                    text = it
+                                )
+                            }
+                        }
+                    }
+
+                    AnimatedVisibility(
+                        visible = revealStage >= 4 && metadata.overview != null,
+                        enter = enter(),
+                        exit = exit()
+                    ) {
+                        metadata.overview?.let {
+                            Spacer(Modifier.height(18.dp))
+                            Text(
+                                text = it,
+                                color = Color.White.copy(alpha = 0.7f),
+                                fontSize = bodySize,
+                                lineHeight = bodyLineHeight,
+                                maxLines = 3,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    }
+
+                    AnimatedVisibility(
+                        visible = revealStage >= 5,
+                        enter = enter(),
+                        exit = exit()
+                    ) {
+                        FlowRow(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 18.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            metadata.rating?.let { rating ->
+                                PauseStatPill(Icons.Filled.Star, rating, Color(0xFFFFD180))
+                            }
+                            runtimeText?.let { runtime ->
+                                PauseStatPill(Icons.Filled.Schedule, runtime, Color.White.copy(alpha = 0.7f))
+                            }
+                            metadata.genres.forEach { PauseGenrePill(text = it) }
+                        }
+                    }
+                }
+
+                AnimatedVisibility(
+                    visible = revealStage >= 6,
+                    enter = fadeIn(tween(PAUSE_OVERLAY_ANIMATION_MS)) +
+                        slideInVertically(tween(PAUSE_OVERLAY_ANIMATION_MS)) { it / 6 },
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(bottom = PAUSED_GRAPHIC_BOTTOM_PADDING)
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.End,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier.size(22.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .offset(x = 5.5.dp, y = 4.58.dp)
+                                        .size(width = 3.67.dp, height = 12.83.dp)
+                                        .clip(RoundedCornerShape(0.92.dp))
+                                        .background(Color.White.copy(alpha = 0.6f))
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .offset(x = 12.83.dp, y = 4.58.dp)
+                                        .size(width = 3.67.dp, height = 12.83.dp)
+                                        .clip(RoundedCornerShape(0.92.dp))
+                                        .background(Color.White.copy(alpha = 0.6f))
+                                )
+                            }
+                            val fontSize = if (LocalConfiguration.current.screenWidthDp >= 768) 30.sp else 24.sp
+                            Text(
+                                text = "PAUSED",
+                                color = Color.White.copy(alpha = 0.7f),
+                                fontSize = fontSize,
+                                fontWeight = FontWeight.Light,
+                                letterSpacing = fontSize * 0.35f
+                            )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .width(128.dp)
+                                .height(1.5.dp)
+                                .clip(RoundedCornerShape(999.dp))
+                                .background(
+                                    Brush.horizontalGradient(
+                                        listOf(
+                                            Color.Transparent,
+                                            Color(0xFFC084FC).copy(alpha = 0.6f),
+                                            Color.Transparent
+                                        )
+                                    )
+                                )
+                        )
+                    }
                 }
             }
+        }
+    }
+}
 
-            Spacer(Modifier.height(16.dp))
+@Composable
+private fun PauseGenrePill(text: String) {
+    Surface(
+        color = Color.White.copy(alpha = 0.05f),
+        contentColor = Color.White.copy(alpha = 0.85f),
+        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.08f)),
+        shape = RoundedCornerShape(999.dp)
+    ) {
+        Text(
+            text = text,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium
+        )
+    }
+}
 
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                metadata.mediaLabel?.let {
-                    PausePill(
-                        icon = if (metadata.type == "movie") Icons.Filled.Movie else Icons.Filled.LiveTv,
-                        text = it
-                    )
-                }
-
-                metadata.year?.let {
-                    PausePill(
-                        icon = Icons.Filled.Event,
-                        text = it
-                    )
-                }
-
-                metadata.rating?.let {
-                    PausePill(
-                        icon = Icons.Filled.Star,
-                        text = it,
-                        iconColor = Color(0xFFFFD700)
-                    )
-                }
-
-                metadata.runtime?.let {
-                    PausePill(
-                        icon = Icons.Filled.Schedule,
-                        text = it
-                    )
-                }
-            }
-
-            metadata.overview?.let {
-                Spacer(Modifier.height(16.dp))
-                Text(
-                    text = it,
-                    color = Color.White.copy(alpha = 0.8f),
-                    fontSize = 14.sp,
-                    lineHeight = 20.sp,
-                    maxLines = 5,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.fillMaxWidth(0.7f)
-                )
-            }
+@Composable
+private fun PauseStatPill(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    text: String,
+    iconTint: Color
+) {
+    Surface(
+        color = Color.White.copy(alpha = 0.1f),
+        contentColor = Color.White.copy(alpha = 0.9f),
+        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.15f)),
+        shape = RoundedCornerShape(999.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Icon(imageVector = icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(12.dp))
+            Text(text = text, fontSize = 12.sp, fontWeight = FontWeight.Medium)
         }
     }
 }
