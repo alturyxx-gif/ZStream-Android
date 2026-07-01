@@ -73,6 +73,7 @@ fun TvInstallerDialog(onDismiss: () -> Unit) {
     }
 
     fun install() {
+        Log.d(tag, "install flow start savedTv=$savedTv apkUrl=$apkUrl")
         activeJob = scope.launch {
             val operationJob = coroutineContext.job
             lastError = null
@@ -89,12 +90,14 @@ fun TvInstallerDialog(onDismiss: () -> Unit) {
                 progress = null
                 Log.d(tag, "install succeeded output=${result.packageManagerOutput}")
             } catch (_: CancellationException) {
+                Log.d(tag, "install cancelled")
                 status = "Cancelled"
                 progress = null
             } catch (t: Throwable) {
                 fail(t)
             } finally {
                 activeJob = null
+                Log.d(tag, "install flow end")
             }
         }
     }
@@ -130,6 +133,7 @@ fun TvInstallerDialog(onDismiss: () -> Unit) {
                     Button(
                         enabled = !running,
                         onClick = {
+                            Log.d(tag, "find TVs pressed")
                             activeJob = scope.launch {
                                 lastError = null
                                 status = "Searching for TVs…"
@@ -137,7 +141,9 @@ fun TvInstallerDialog(onDismiss: () -> Unit) {
                                     devices = withContext(Dispatchers.IO) { manager.discoverDevices() }
                                     selected = devices.firstOrNull()
                                     status = "Found ${devices.size} TV${if (devices.size == 1) "" else "s"}"
+                                    Log.d(tag, "find TVs succeeded count=${devices.size} devices=$devices")
                                 } catch (t: Throwable) {
+                                    Log.w(tag, "find TVs failed type=${t.javaClass.simpleName} msg=${t.message}")
                                     fail(AdbOperationException(AdbFailureKind.DISCOVERY, "No TVs were found.", t))
                                 } finally {
                                     activeJob = null
@@ -170,6 +176,7 @@ fun TvInstallerDialog(onDismiss: () -> Unit) {
                         Button(
                             enabled = !running && pairingCode.length == 6,
                             onClick = {
+                                Log.d(tag, "pair TV pressed host=${device.host} pairingPort=${device.pairingPort} connectPort=${device.connectPort}")
                                 activeJob = scope.launch {
                                     lastError = null
                                     status = "Pairing…"
@@ -185,7 +192,9 @@ fun TvInstallerDialog(onDismiss: () -> Unit) {
                                         savedTv = manager.getSavedTv()
                                         pairingCode = ""
                                         status = "Paired with $model"
+                                        Log.d(tag, "pair TV succeeded model=$model")
                                     } catch (t: Throwable) {
+                                        Log.w(tag, "pair TV failed type=${t.javaClass.simpleName} msg=${t.message}")
                                         fail(t)
                                     } finally {
                                         activeJob = null
@@ -215,6 +224,7 @@ fun TvInstallerDialog(onDismiss: () -> Unit) {
                     Button(
                         enabled = !running && legacyHost.isNotBlank() && legacyPort.toIntOrNull() in 1..65535,
                         onClick = {
+                            Log.d(tag, "legacy connect pressed host=$legacyHost port=$legacyPort")
                             activeJob = scope.launch {
                                 lastError = null
                                 status = "Connecting… Accept the debugging prompt on the TV."
@@ -224,7 +234,9 @@ fun TvInstallerDialog(onDismiss: () -> Unit) {
                                     }
                                     savedTv = manager.getSavedTv()
                                     status = "Connected to $model"
+                                    Log.d(tag, "legacy connect succeeded model=$model")
                                 } catch (t: Throwable) {
+                                    Log.w(tag, "legacy connect failed type=${t.javaClass.simpleName} msg=${t.message}")
                                     fail(t)
                                 } finally {
                                     activeJob = null
@@ -259,13 +271,22 @@ fun TvInstallerDialog(onDismiss: () -> Unit) {
 
                     Text(status, color = theme.colors.type.text)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(
-                            enabled = !running && savedTv != null && apkUrl.isNotBlank(),
-                            onClick = { install() },
-                        ) { Text("Install") }
-                        if (running) TextButton(onClick = { activeJob?.cancel() }) { Text("Cancel") }
+                    Button(
+                        enabled = !running && savedTv != null && apkUrl.isNotBlank(),
+                        onClick = {
+                            Log.d(tag, "install pressed savedTv=$savedTv apkUrl=$apkUrl")
+                            install()
+                        },
+                    ) { Text("Install") }
+                        if (running) TextButton(onClick = {
+                            Log.d(tag, "cancel pressed")
+                            activeJob?.cancel()
+                        }) { Text("Cancel") }
                         if (!running && lastError != null && savedTv != null) {
-                            TextButton(onClick = { install() }) { Text("Retry") }
+                            TextButton(onClick = {
+                                Log.d(tag, "retry pressed")
+                                install()
+                            }) { Text("Retry") }
                         }
                     }
                 }
