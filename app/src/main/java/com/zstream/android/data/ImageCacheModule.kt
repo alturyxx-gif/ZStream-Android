@@ -9,6 +9,7 @@ import coil.memory.MemoryCache
 import coil.request.ErrorResult
 import coil.request.ImageRequest
 import coil.request.SuccessResult
+import com.zstream.android.di.TlsHelper
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -29,6 +30,10 @@ object ImageCacheModule {
         val maxCacheSize = 100 * 1024 * 1024L // 100MB
 
         val loggingClient = OkHttpClient.Builder()
+            .apply {
+                val tls = TlsHelper.build()
+                sslSocketFactory(tls.socketFactory, tls.trustManager)
+            }
             .addInterceptor { chain ->
                 val req = chain.request()
                 Log.d(TAG, "→ OkHttp request: ${req.url}")
