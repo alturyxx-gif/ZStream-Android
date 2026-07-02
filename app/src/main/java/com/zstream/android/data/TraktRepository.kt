@@ -33,6 +33,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
+import kotlin.math.roundToInt
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -95,6 +96,7 @@ class TraktRepository @Inject constructor(
         scope.launch {
             if (isAuthenticated()) {
                 pullHistory()
+                pullPlaybackProgress()
                 importPlaybackProgressOnce()
             }
             while (true) {
@@ -213,6 +215,7 @@ class TraktRepository @Inject constructor(
 
     suspend fun syncHistory() = sync("History sync failed") {
         pullHistory()
+        pullPlaybackProgress()
         progressDao.getAllSync().filter { it.duration > 0 && it.watched.toDouble() / it.duration >= .25 }.forEach { progress ->
             buildTraktHistoryPayload(progress)?.let { api("/sync/history", "POST", it) }
         }
@@ -265,6 +268,54 @@ class TraktRepository @Inject constructor(
                     posterPath = metadata?.second,
                 ))
             }
+        }
+    }
+
+    private suspend fun pullPlaybackProgress() {
+        if (!isAuthenticated()) return
+        api("/sync/playback").asJsonArray.forEach { element ->
+            val item = element.asJsonObject
+            val movie = item.getAsJsonObject("movie")
+            val episode = item.getAsJsonObject("episode")
+            val show = item.getAsJsonObject("show")
+            val media = movie ?: show ?: return@forEach
+            val tmdbId = media.getAsJsonObject("ids")?.get("tmdb")?.asString ?: return@forEach
+            val season = episode?.get("season")?.asInt
+            val number = episode?.get("number")?.asInt
+            val id = ProgressEntity.computeId(tmdbId, season, number)
+            val existing = progressDao.getAllByTmdbId(tmdbId).firstOrNull { it.id == id }
+
+            // ZStream progress has real seconds; Trakt history placeholders use 0/1.
+            if (existing != null && existing.watched > 0 && existing.duration > 1) return@forEach
+
+            val progress = item.get("progress")?.asDouble?.coerceIn(0.0, 100.0) ?: return@forEach
+            if (progress <= 0.0 || progress >= 95.0) return@forEach
+            val type = if (movie != null) "movie" else "show"
+            val metadata = tmdbMetadata(type, tmdbId)
+            progressDao.insert(existing?.copy(
+                title = metadata?.first ?: existing.title,
+                posterPath = metadata?.second ?: existing.posterPath,
+                watched = (progress * 100).roundToInt(),
+                duration = 10_000,
+                updatedAt = item.get("paused_at")?.asString?.let {
+                    runCatching { java.time.Instant.parse(it).toEpochMilli() }.getOrNull()
+                } ?: System.currentTimeMillis(),
+            ) ?: ProgressEntity(
+                id = id,
+                tmdbId = tmdbId,
+                title = metadata?.first ?: media.get("title")?.asString.orEmpty(),
+                year = media.get("year")?.asInt,
+                posterPath = metadata?.second,
+                type = type,
+                watched = (progress * 100).roundToInt(),
+                duration = 10_000,
+                updatedAt = item.get("paused_at")?.asString?.let {
+                    runCatching { java.time.Instant.parse(it).toEpochMilli() }.getOrNull()
+                } ?: System.currentTimeMillis(),
+                episodeId = episode?.getAsJsonObject("ids")?.get("tmdb")?.asString,
+                seasonNumber = season,
+                episodeNumber = number,
+            ))
         }
     }
 
