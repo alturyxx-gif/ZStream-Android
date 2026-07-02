@@ -16,12 +16,15 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
@@ -31,7 +34,6 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -75,7 +77,6 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.zstream.android.data.AccountRepository
 import com.zstream.android.data.TraktRepository
 import com.zstream.android.data.local.preferences.SettingsPreferences
 
@@ -87,7 +88,6 @@ class TvSyncViewModel @Inject constructor(
     private val repo: TvSyncRepository,
     settingsPreferences: SettingsPreferences,
     private val traktRepository: TraktRepository,
-    accountRepository: AccountRepository,
 ) : ViewModel() {
     val receiverState: StateFlow<TvSyncReceiverState> = repo.receiverState
     val settings: StateFlow<SettingsEntity> = settingsPreferences.settings.stateIn(
@@ -96,12 +96,6 @@ class TvSyncViewModel @Inject constructor(
         SettingsEntity(),
     )
     val traktState: StateFlow<TraktState> = traktRepository.state
-    val accountSession = accountRepository.session.stateIn(
-        viewModelScope,
-        SharingStarted.WhileSubscribed(5_000),
-        null,
-    )
-
     suspend fun discoverReceivers(): List<TvSyncDiscoveredReceiver> = repo.discoverReceivers()
     suspend fun fetchHello(host: String, port: Int) = repo.fetchHello(host, port)
     suspend fun pair(host: String, port: Int, code: String, salt: String, sessionId: String, phoneName: String) =
@@ -130,11 +124,13 @@ class TvSyncViewModel @Inject constructor(
     }
 
     suspend fun sendPayload(host: String, port: Int, payload: TvSyncPayload) = repo.sendPayload(host, port, payload)
+    suspend fun waitForTransferResult(host: String, port: Int) = repo.waitForTransferResult(host, port)
     fun startReceiver() = viewModelScope.launch { repo.startReceiver() }
     fun stopReceiver() = repo.stopReceiver()
     fun renameTv(name: String) = viewModelScope.launch { repo.setDefaultTvName(name) }
-    fun applyPending() = viewModelScope.launch { repo.applyPendingPayload() }
+    suspend fun applyPending() = repo.applyPendingPayload()
     fun rejectPending() = repo.rejectPendingPayload()
+    suspend fun waitForDecisionDelivery(token: String) = repo.waitForDecisionDelivery(token)
 }
 
 @Composable
@@ -162,7 +158,6 @@ private fun TvSyncSenderScreen(
     val onBack = rememberSafeNavigateBack(nav, scope)
     val settings by vm.settings.collectAsStateWithLifecycle()
     val trakt by vm.traktState.collectAsStateWithLifecycle()
-    val session by vm.accountSession.collectAsStateWithLifecycle()
 
     var page by remember { mutableStateOf(TvSyncPhonePage.INTRO) }
     var status by remember { mutableStateOf<String?>(null) }
@@ -175,10 +170,10 @@ private fun TvSyncSenderScreen(
     var pairCode by remember { mutableStateOf("") }
     var pairSalt by remember { mutableStateOf("") }
     var pairSessionId by remember { mutableStateOf("") }
-    var senderName by remember(session) { mutableStateOf(session?.deviceName?.ifBlank { "Android Phone" } ?: "Android Phone") }
     var passphraseEnabled by remember { mutableStateOf(false) }
     var passphrase by remember { mutableStateOf("") }
     var accountDeviceName by remember { mutableStateOf("ZStream TV") }
+    var transferResult by remember { mutableStateOf<String?>(null) }
     val selected = remember { mutableStateMapOf<String, Boolean>() }
     val available = remember { mutableStateMapOf<String, Pair<Boolean, String>>() }
 
@@ -224,7 +219,7 @@ private fun TvSyncSenderScreen(
         }
     }
 
-    BackHandler {
+    fun goBack() {
         when (page) {
             TvSyncPhonePage.INTRO -> onBack()
             TvSyncPhonePage.DISCOVER -> page = TvSyncPhonePage.INTRO
@@ -236,20 +231,39 @@ private fun TvSyncSenderScreen(
             TvSyncPhonePage.RESULT -> onBack()
         }
     }
+    BackHandler { goBack() }
 
     Box(Modifier.fillMaxSize().background(theme.colors.background.main)) {
-        ZsIconButton(
-            onClick = { onBack() },
-            icon = Icons.AutoMirrored.Filled.ArrowBack,
-            contentDescription = "Back",
-            variant = ZsIconButtonVariant.Ghost,
-            modifier = Modifier.align(Alignment.TopStart).padding(8.dp),
-        )
         Column(
             Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().verticalScroll(rememberScrollState()).padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Text("Sync to TV", color = theme.colors.type.emphasis, fontSize = 26.sp, fontWeight = FontWeight.Bold)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                ZsIconButton(
+                    onClick = { goBack() },
+                    icon = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Back",
+                    variant = ZsIconButtonVariant.Ghost,
+                )
+                Spacer(Modifier.width(8.dp))
+                Column {
+                    Text("Sync to TV", color = theme.colors.type.emphasis, fontSize = 26.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        when (page) {
+                            TvSyncPhonePage.INTRO -> "Set up your TV without typing on it"
+                            TvSyncPhonePage.DISCOVER -> "Find your TV"
+                            TvSyncPhonePage.PAIR -> "Confirm pairing"
+                            TvSyncPhonePage.INTEGRATIONS -> "Choose integrations"
+                            TvSyncPhonePage.PASSPHRASE -> "Choose account sign-in"
+                            TvSyncPhonePage.ACCOUNT_DEVICE -> "Name the account session"
+                            TvSyncPhonePage.REVIEW -> "Review before sending"
+                            TvSyncPhonePage.RESULT -> "Ready for TV confirmation"
+                        },
+                        color = theme.colors.type.secondary,
+                        fontSize = 13.sp,
+                    )
+                }
+            }
             status?.let {
                 ZsStatusBanner(
                     message = it,
@@ -258,10 +272,9 @@ private fun TvSyncSenderScreen(
             }
             when (page) {
                 TvSyncPhonePage.INTRO -> {
-                    Text("Use your phone to send integrations and optionally sign the TV in with your passphrase.", color = theme.colors.type.secondary)
                     SyncInstructionCard(
-                        title = "Before you start",
-                        body = "Open ZStream on the TV and choose Sync from phone. Leave that screen open."
+                        title = "On your TV",
+                        body = "Open ZStream → Sync from phone, then leave the pairing code on screen."
                     )
                     ZsButton(
                         text = "Find TV",
@@ -270,7 +283,7 @@ private fun TvSyncSenderScreen(
                     )
                 }
                 TvSyncPhonePage.DISCOVER -> {
-                    SyncInstructionCard("Find your TV", "Discovery looks for TVs on the same network. If none appear, enter the TV IP manually and still use the code shown on the TV.")
+                    SyncInstructionCard("Same network", "Scan first. If your TV does not appear, use the IP and port shown on its screen.")
                     ZsButton(
                         text = if (loading) "Scanning…" else "Scan for TVs",
                         onClick = {
@@ -352,9 +365,8 @@ private fun TvSyncSenderScreen(
                     )
                 }
                 TvSyncPhonePage.PAIR -> {
-                    Text("Pair with ${selectedReceiver?.tvName ?: tvName}", color = theme.colors.type.secondary)
-                    OutlinedTextField(value = senderName, onValueChange = { senderName = it }, label = { Text("Phone/device name") }, modifier = Modifier.fillMaxWidth())
-                    OutlinedTextField(value = pairCode, onValueChange = { pairCode = it.filter(Char::isDigit).take(6) }, label = { Text("6-digit code from TV") }, modifier = Modifier.fillMaxWidth())
+                    SyncInstructionCard("${selectedReceiver?.tvName ?: tvName}", "Enter the 6-digit code shown on this TV.")
+                    OutlinedTextField(value = pairCode, onValueChange = { pairCode = it.filter(Char::isDigit).take(6) }, label = { Text("Pairing code") }, modifier = Modifier.fillMaxWidth())
                     ZsButton(
                         text = "Pair",
                         onClick = {
@@ -362,11 +374,11 @@ private fun TvSyncSenderScreen(
                             scope.launch {
                                 loading = true
                                 Log.d(TV_SYNC_UI_TAG, "pair start host=${receiver.host} port=${receiver.port} codeLength=${pairCode.length}")
-                                runCatching { vm.pair(receiver.host, receiver.port, pairCode, pairSalt, pairSessionId, senderName) }
+                                runCatching { vm.pair(receiver.host, receiver.port, pairCode, pairSalt, pairSessionId, "Android Phone") }
                                     .onSuccess {
                                         Log.d(TV_SYNC_UI_TAG, "pair success host=${receiver.host} port=${receiver.port}")
                                         page = TvSyncPhonePage.INTEGRATIONS
-                                        status = "Paired with ${receiver.tvName}"
+                                        status = null
                                     }
                                     .onFailure {
                                         Log.w(TV_SYNC_UI_TAG, "pair failed host=${receiver.host} port=${receiver.port} error=${it.message}", it)
@@ -381,7 +393,7 @@ private fun TvSyncSenderScreen(
                     )
                 }
                 TvSyncPhonePage.INTEGRATIONS -> {
-                    Text("Choose what to sync", color = theme.colors.type.secondary)
+                    Text("Only available, validated items can be selected.", color = theme.colors.type.secondary)
                     if (loading) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                     IntegrationRow("TMDB", available["tmdb"], selected["tmdb"] == true) { selected["tmdb"] = it }
                     IntegrationRow("Trakt", available["trakt"], selected["trakt"] == true) { selected["trakt"] = it }
@@ -392,17 +404,17 @@ private fun TvSyncSenderScreen(
                     ZsButton(text = "Continue", onClick = { page = TvSyncPhonePage.PASSPHRASE }, modifier = Modifier.fillMaxWidth())
                 }
                 TvSyncPhonePage.PASSPHRASE -> {
-                    Text("Passphrase login", color = theme.colors.type.secondary)
-                    Text("Choose Yes only if you want the TV to sign into your account as a new device.", color = theme.colors.type.secondary)
+                    Text("Sign this TV into your ZStream account?", color = theme.colors.type.emphasis, fontWeight = FontWeight.SemiBold)
+                    Text("This creates a separate account session for the TV. Integration sync works without it.", color = theme.colors.type.secondary)
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         ZsButton(
-                            text = if (!passphraseEnabled) "Yes" else "Yes selected",
+                            text = if (passphraseEnabled) "Yes, selected" else "Yes",
                             onClick = { passphraseEnabled = true },
                             variant = if (passphraseEnabled) ZsButtonVariant.Primary else ZsButtonVariant.Secondary,
                             modifier = Modifier.weight(1f),
                         )
                         ZsButton(
-                            text = if (!passphraseEnabled) "No selected" else "No",
+                            text = if (!passphraseEnabled) "No, selected" else "No",
                             onClick = { passphraseEnabled = false; passphrase = "" },
                             variant = if (!passphraseEnabled) ZsButtonVariant.Primary else ZsButtonVariant.Secondary,
                             modifier = Modifier.weight(1f),
@@ -412,13 +424,13 @@ private fun TvSyncSenderScreen(
                         OutlinedTextField(
                             value = passphrase,
                             onValueChange = { passphrase = it },
-                            label = { Text("Enter your passphrase") },
+                            label = { Text("ZStream passphrase") },
                             visualTransformation = PasswordVisualTransformation(),
                             modifier = Modifier.fillMaxWidth(),
                         )
                     }
                     ZsButton(
-                        text = "Review",
+                        text = if (passphraseEnabled) "Continue" else "Review",
                         onClick = {
                             if (passphraseEnabled && passphrase.isBlank()) {
                                 status = "Enter your passphrase before continuing"
@@ -431,8 +443,7 @@ private fun TvSyncSenderScreen(
                     )
                 }
                 TvSyncPhonePage.ACCOUNT_DEVICE -> {
-                    Text("ZStream account device", color = theme.colors.type.secondary)
-                    Text("This name identifies the new TV session in your ZStream account.", color = theme.colors.type.secondary)
+                    SyncInstructionCard("Account device name", "Use a recognizable name such as Living Room TV. You will see it in your ZStream account's device list.")
                     OutlinedTextField(
                         value = accountDeviceName,
                         onValueChange = { accountDeviceName = it },
@@ -454,14 +465,21 @@ private fun TvSyncSenderScreen(
                 }
                 TvSyncPhonePage.REVIEW -> {
                     val pendingSummary = buildList {
-                        selected.filterValues { it }.keys.forEach { add(it) }
-                        if (passphraseEnabled) add("passphrase")
+                        listOf(
+                            "tmdb" to "TMDB API key",
+                            "trakt" to "Trakt session",
+                            "febbox" to "Febbox key",
+                            "debrid" to "Debrid token",
+                            "tidb" to "TheIntroDB key",
+                            "wyzie" to "Wyzie key",
+                        ).filter { selected[it.first] == true }.forEach { add(it.second) }
+                        if (passphraseEnabled) add("ZStream account sign-in")
                     }
                     val canSend = pendingSummary.isNotEmpty()
-                    SyncInstructionCard("Review", "The TV will show one more review screen before anything is applied.")
-                    Text("TV name: $tvName", color = theme.colors.type.text)
+                    SyncInstructionCard("Nothing changes yet", "After sending, review and apply this request on the TV.")
+                    Text("TV: $tvName", color = theme.colors.type.text)
                     if (passphraseEnabled) Text("Account device: $accountDeviceName", color = theme.colors.type.text)
-                    Text("Selected: ${pendingSummary.joinToString().ifBlank { "Nothing selected" }}", color = theme.colors.type.text)
+                    pendingSummary.forEach { Text("• $it", color = theme.colors.type.text) }
                     ZsButton(
                         text = "Send to TV",
                         onClick = {
@@ -475,7 +493,11 @@ private fun TvSyncSenderScreen(
                                 }.onSuccess {
                                     Log.d(TV_SYNC_UI_TAG, "send success host=${receiver.host} port=${receiver.port}")
                                     page = TvSyncPhonePage.RESULT
-                                    status = "Sent to ${receiver.tvName}. Confirm on the TV."
+                                    status = null
+                                    loading = false
+                                    runCatching { vm.waitForTransferResult(receiver.host, receiver.port) }
+                                        .onSuccess { transferResult = it }
+                                        .onFailure { status = it.message ?: "Could not receive the TV response" }
                                 }.onFailure {
                                     Log.w(TV_SYNC_UI_TAG, "send failed host=${receiver.host} port=${receiver.port} error=${it.message}", it)
                                     status = it.message ?: "Could not send to TV"
@@ -492,10 +514,50 @@ private fun TvSyncSenderScreen(
                     }
                 }
                 TvSyncPhonePage.RESULT -> {
-                    SyncInstructionCard("Sent to TV", "Review the request on the TV and confirm there. You can close this screen after the TV finishes.")
+                    when (transferResult) {
+                        "accepted" -> SyncResult(true) {
+                            transferResult = null
+                            status = null
+                            page = TvSyncPhonePage.INTRO
+                        }
+                        "rejected" -> SyncResult(false) {
+                            transferResult = null
+                            status = null
+                            page = TvSyncPhonePage.INTRO
+                        }
+                        else -> SyncInstructionCard("Waiting for ${selectedReceiver?.tvName ?: tvName}", "Accept or reject the request on your TV.")
+                    }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun SyncResult(accepted: Boolean, onRestart: () -> Unit) {
+    val theme = LocalZStreamTheme.current
+    Column(
+        Modifier.fillMaxWidth().padding(vertical = 48.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(20.dp),
+    ) {
+        Icon(
+            imageVector = if (accepted) Icons.Default.CheckCircle else Icons.Default.Close,
+            contentDescription = null,
+            tint = if (accepted) theme.colors.type.success else theme.colors.type.danger,
+            modifier = Modifier.size(112.dp),
+        )
+        Text(
+            if (accepted) "Sync accepted" else "Sync rejected",
+            color = theme.colors.type.emphasis,
+            fontSize = 26.sp,
+            fontWeight = FontWeight.Bold,
+        )
+        Text(
+            if (accepted) "Your TV applied the selected items." else "Your TV did not apply this request.",
+            color = theme.colors.type.secondary,
+        )
+        ZsButton(text = "Start another sync", onClick = onRestart)
     }
 }
 
@@ -536,6 +598,12 @@ private fun TvSyncReceiverScreen(
     val onBack = rememberSafeNavigateBack(nav, scope)
     val state by vm.receiverState.collectAsStateWithLifecycle()
     var tvNameInput by remember(state.tvName) { mutableStateOf(state.tvName) }
+    var applying by remember { mutableStateOf(false) }
+
+    fun returnHome() {
+        vm.stopReceiver()
+        nav.navigate("home") { popUpTo("home") { inclusive = true } }
+    }
 
     LaunchedEffect(Unit) {
         vm.startReceiver()
@@ -565,51 +633,75 @@ private fun TvSyncReceiverScreen(
                 Text("Sync from phone", color = theme.colors.type.emphasis, fontSize = 26.sp, fontWeight = FontWeight.Bold)
             }
             SyncInstructionCard(
-                "Instructions",
+                if (state.pendingPayload == null) "Connect your phone" else "Confirm this request",
                 if (state.pendingPayload == null)
-                    "Open ZStream on your phone, choose Sync to TV, then enter the 6-digit code shown here."
+                    "On your phone, open Settings → Sync to TV and enter the code below."
                 else
-                    "Your phone sent a sync request. Review it before applying anything."
+                    "Nothing is changed until you choose Apply."
             )
-            OutlinedTextField(
-                value = tvNameInput,
-                onValueChange = { tvNameInput = it },
-                label = { Text("TV name") },
-                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(showKeyboardOnFocus = false),
-                modifier = Modifier.fillMaxWidth(),
-            )
-            TextButton(onClick = { vm.renameTv(tvNameInput) }) { Text("Save TV name") }
             if (state.pendingPayload == null) {
                 ZsCard(variant = ZsCardVariant.Elevated, modifier = Modifier.fillMaxWidth()) {
                     Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("Pairing code", color = theme.colors.type.secondary)
+                        Text("Enter this code on your phone", color = theme.colors.type.secondary)
                         Text(state.code, color = theme.colors.type.emphasis, fontSize = 42.sp, fontWeight = FontWeight.Bold)
                         Text(state.status, color = theme.colors.type.text)
                     }
                 }
-                state.localIps.forEach { ip ->
-                    Text("Manual IP: $ip:${state.port}", color = theme.colors.type.secondary)
+                if (state.localIps.isNotEmpty()) {
+                    Text("Manual connection: ${state.localIps.joinToString { "$it:${state.port}" }}", color = theme.colors.type.secondary)
                 }
+                OutlinedTextField(
+                    value = tvNameInput,
+                    onValueChange = { tvNameInput = it },
+                    label = { Text("Local network TV name") },
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(showKeyboardOnFocus = false),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                ZsButton(
+                    text = "Save TV name",
+                    onClick = { vm.renameTv(tvNameInput) },
+                    enabled = tvNameInput.isNotBlank() && tvNameInput.trim() != state.tvName,
+                    variant = ZsButtonVariant.Secondary,
+                    modifier = Modifier.fillMaxWidth(),
+                )
             } else {
                 val payload = state.pendingPayload ?: return@Column
-                Text("Review incoming sync", color = theme.colors.type.emphasis)
+                Text("Your phone wants to sync", color = theme.colors.type.emphasis, fontWeight = FontWeight.SemiBold)
                 ZsCard(variant = ZsCardVariant.Elevated, modifier = Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("TV device name: ${payload.tvName}", color = theme.colors.type.text)
+                        payload.accountDeviceName?.let { Text("Account device: $it", color = theme.colors.type.text) }
                         payload.summaryLines().forEach { Text("• $it", color = theme.colors.type.secondary) }
                     }
                 }
-                Text(state.status, color = theme.colors.type.secondary)
+                ZsStatusBanner(message = state.status, variant = ZsStatusBannerVariant.Info)
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     ZsButton(
-                        text = "Apply",
-                        onClick = { vm.applyPending() },
+                        text = "Apply sync",
+                        onClick = {
+                            scope.launch {
+                                applying = true
+                                val result = vm.applyPending()
+                                applying = false
+                                result.getOrNull()?.let { token ->
+                                    vm.waitForDecisionDelivery(token)
+                                    returnHome()
+                                }
+                            }
+                        },
                         leadingIcon = Icons.Default.Check,
+                        loading = applying,
                         modifier = Modifier.weight(1f),
                     )
                     ZsButton(
                         text = "Reject",
-                        onClick = { vm.rejectPending() },
+                        onClick = {
+                            val token = vm.rejectPending()
+                            if (token != null) scope.launch {
+                                vm.waitForDecisionDelivery(token)
+                                returnHome()
+                            }
+                        },
+                        enabled = !applying,
                         variant = ZsButtonVariant.Secondary,
                         modifier = Modifier.weight(1f),
                     )

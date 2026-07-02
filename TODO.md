@@ -1,1 +1,1 @@
-tv login from phone
+tv passkey login from phone
