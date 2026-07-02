@@ -68,6 +68,14 @@ class AccountRepository @Inject constructor(
         return challengeLogin(keys.publicKey.toBase64Url(), keys.privateKey, keys.seed, deviceName, true)
     }
 
+    /** Login using a raw 32-byte seed (e.g. received via TV sync from a passkey account). */
+    suspend fun loginWithSeed(seedBase64Url: String, deviceName: String): AccountSession {
+        @OptIn(kotlin.io.encoding.ExperimentalEncodingApi::class)
+        val seed = kotlin.io.encoding.Base64.UrlSafe.withPadding(kotlin.io.encoding.Base64.PaddingOption.ABSENT).decode(seedBase64Url)
+        val keys = CryptoUtils.keysFromSeed(seed)
+        return challengeLogin(keys.publicKey.toBase64Url(), keys.privateKey, keys.seed, deviceName, true)
+    }
+
     suspend fun registerWithPasskey(userName: String, deviceName: String = "Android"): AccountSession {
         val credId = CryptoUtils.createPasskey(ctx, userName)
         val keys   = CryptoUtils.keysFromSeed(CryptoUtils.pbkdf2(credId))

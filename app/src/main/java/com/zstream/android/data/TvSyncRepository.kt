@@ -83,6 +83,9 @@ data class TvSyncPayload(
     val traktSession: TraktSessionExport? = null,
     val passphrase: String? = null,
     val accountDeviceName: String? = null,
+    /** Base64Url-encoded 32-byte Ed25519 seed derived from the phone's passkey credential ID.
+     *  TV calls keysFromSeed(seed) and runs the normal challenge-login flow. */
+    val passkeyKeySeed: String? = null,
 ) {
     fun summaryLines(): List<String> = buildList {
         if (tmdbApiKey != null) add("TMDB API key")
@@ -92,6 +95,7 @@ data class TvSyncPayload(
         if (wyzieKey != null) add("Wyzie key")
         if (traktSession != null) add("Trakt session")
         if (passphrase != null) add("Account login via passphrase")
+        if (passkeyKeySeed != null) add("Account login via passkey")
     }
 }
 
@@ -334,9 +338,31 @@ class TvSyncRepository @Inject constructor(
         val payload = _receiverState.value.pendingPayload ?: error("No sync request to apply")
         val token = _receiverState.value.pendingToken ?: error("Sync request expired")
         Log.d(tag, "applyPendingPayload start summary=${payload.summaryLines()}")
+
+        // Mark accepted immediately — login/sync below can take time and we don't want
+        // the phone's status poller to time out waiting.
+        _receiverState.value = _receiverState.value.copy(
+            pendingPayload = null,
+            pendingToken = null,
+            status = when {
+                payload.passphrase != null || payload.passkeyKeySeed != null -> "Signed in and synced from your phone"
+                else -> "Synced from your phone"
+            },
+        )
+        pairedSecrets.clear()
+        sessionIds.clear()
+        currentCode = (100000..999999).random().toString()
+        currentSalt = randomToken(16)
+        _receiverState.value = _receiverState.value.copy(code = currentCode.orEmpty())
+        transferResults[token] = "accepted"
+
         if (payload.passphrase != null) {
-            Log.d(tag, "applyPendingPayload account login passphraseLength=${payload.passphrase.length} leadingOrTrailingWhitespace=${payload.passphrase != payload.passphrase.trim()} deviceName=${payload.accountDeviceName}")
+            Log.d(tag, "applyPendingPayload account login passphraseLength=${payload.passphrase.length} deviceName=${payload.accountDeviceName}")
             accountRepository.login(payload.passphrase, payload.accountDeviceName ?: payload.tvName)
+        }
+        if (payload.passkeyKeySeed != null) {
+            Log.d(tag, "applyPendingPayload account login via passkey seed deviceName=${payload.accountDeviceName}")
+            accountRepository.loginWithSeed(payload.passkeyKeySeed, payload.accountDeviceName ?: payload.tvName)
         }
         val current = settingsPreferences.settings.first()
         settingsPreferences.updateSettings(
@@ -351,17 +377,6 @@ class TvSyncRepository @Inject constructor(
             syncToRemote = false,
         )
         payload.traktSession?.let { traktRepository.importSession(it) }
-        _receiverState.value = _receiverState.value.copy(
-            pendingPayload = null,
-            pendingToken = null,
-            status = if (payload.passphrase != null) "Signed in and synced from your phone" else "Synced from your phone",
-        )
-        pairedSecrets.clear()
-        sessionIds.clear()
-        currentCode = (100000..999999).random().toString()
-        currentSalt = randomToken(16)
-        _receiverState.value = _receiverState.value.copy(code = currentCode.orEmpty())
-        transferResults[token] = "accepted"
         Log.d(tag, "applyPendingPayload success")
         token
     }.onFailure {
@@ -526,6 +541,7 @@ class TvSyncRepository @Inject constructor(
         payload.wyzieKey?.let { put("wyzieKey", it) }
         payload.passphrase?.let { put("passphrase", it) }
         payload.accountDeviceName?.let { put("accountDeviceName", it) }
+        payload.passkeyKeySeed?.let { put("passkeyKeySeed", it) }
         payload.traktSession?.let { put("traktSession", gson.toJson(it)) }
     }.toString()
 
@@ -541,6 +557,7 @@ class TvSyncRepository @Inject constructor(
             wyzieKey = obj.optString("wyzieKey").takeIf { it.isNotBlank() },
             passphrase = obj.optString("passphrase").takeIf { it.isNotBlank() },
             accountDeviceName = obj.optString("accountDeviceName").takeIf { it.isNotBlank() },
+            passkeyKeySeed = obj.optString("passkeyKeySeed").takeIf { it.isNotBlank() },
             traktSession = obj.optString("traktSession").takeIf { it.isNotBlank() }?.let {
                 gson.fromJson(it, TraktSessionExport::class.java)
             },
