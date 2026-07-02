@@ -103,6 +103,7 @@ data class TvSyncReceiverState(
     val localIps: List<String> = emptyList(),
     val status: String = "Receiver offline",
     val pendingPayload: TvSyncPayload? = null,
+    val pendingToken: String? = null,
 )
 
 @Singleton
@@ -126,6 +127,8 @@ class TvSyncRepository @Inject constructor(
     private var currentSalt: String? = null
     private val pairedSecrets = ConcurrentHashMap<String, ByteArray>()
     private val sessionIds = ConcurrentHashMap<String, String>()
+    private val transferResults = ConcurrentHashMap<String, String>()
+    private val deliveredResults = ConcurrentHashMap.newKeySet<String>()
 
     private val keyTvName = stringPreferencesKey("tv_name")
 
@@ -147,6 +150,8 @@ class TvSyncRepository @Inject constructor(
         currentSalt = salt
         pairedSecrets.clear()
         sessionIds.clear()
+        transferResults.clear()
+        deliveredResults.clear()
         val actualName = (tvName ?: defaultTvName()).trim().ifBlank { "ZStream TV" }
         setDefaultTvName(actualName)
         _receiverState.value = TvSyncReceiverState(
@@ -304,8 +309,30 @@ class TvSyncRepository @Inject constructor(
         }
     }
 
-    suspend fun applyPendingPayload(): Result<Unit> = runCatching {
-        val payload = _receiverState.value.pendingPayload ?: return@runCatching
+    suspend fun waitForTransferResult(host: String, port: Int): String {
+        val token = sessionIds["$host:$port"] ?: error("Pair with the TV first")
+        repeat(600) {
+            val status = runCatching {
+                withContext(Dispatchers.IO) {
+                    val request = Request.Builder().url("http://$host:$port/status?token=$token").build()
+                    httpClient.newCall(request).execute().use { response ->
+                        if (!response.isSuccessful) error("TV status unavailable")
+                        JSONObject(response.body?.string().orEmpty()).getString("status")
+                    }
+                }
+            }.getOrNull()
+            if (status == "accepted" || status == "rejected") {
+                Log.d(tag, "waitForTransferResult status=$status host=$host port=$port")
+                return status
+            }
+            delay(500)
+        }
+        error("Timed out waiting for the TV")
+    }
+
+    suspend fun applyPendingPayload(): Result<String> = runCatching {
+        val payload = _receiverState.value.pendingPayload ?: error("No sync request to apply")
+        val token = _receiverState.value.pendingToken ?: error("Sync request expired")
         Log.d(tag, "applyPendingPayload start summary=${payload.summaryLines()}")
         if (payload.passphrase != null) {
             Log.d(tag, "applyPendingPayload account login passphraseLength=${payload.passphrase.length} leadingOrTrailingWhitespace=${payload.passphrase != payload.passphrase.trim()} deviceName=${payload.accountDeviceName}")
@@ -326,6 +353,7 @@ class TvSyncRepository @Inject constructor(
         payload.traktSession?.let { traktRepository.importSession(it) }
         _receiverState.value = _receiverState.value.copy(
             pendingPayload = null,
+            pendingToken = null,
             status = if (payload.passphrase != null) "Signed in and synced from your phone" else "Synced from your phone",
         )
         pairedSecrets.clear()
@@ -333,7 +361,9 @@ class TvSyncRepository @Inject constructor(
         currentCode = (100000..999999).random().toString()
         currentSalt = randomToken(16)
         _receiverState.value = _receiverState.value.copy(code = currentCode.orEmpty())
+        transferResults[token] = "accepted"
         Log.d(tag, "applyPendingPayload success")
+        token
     }.onFailure {
         Log.w(tag, "applyPendingPayload failed error=${it.message}", it)
         _receiverState.value = _receiverState.value.copy(
@@ -341,13 +371,24 @@ class TvSyncRepository @Inject constructor(
         )
     }
 
-    fun rejectPendingPayload() {
+    fun rejectPendingPayload(): String? {
+        val token = _receiverState.value.pendingToken
+        token?.let { transferResults[it] = "rejected" }
         _receiverState.value = _receiverState.value.copy(
             pendingPayload = null,
+            pendingToken = null,
             status = "Transfer rejected. Waiting for your phone",
         )
         pairedSecrets.clear()
         sessionIds.clear()
+        return token
+    }
+
+    suspend fun waitForDecisionDelivery(token: String) {
+        repeat(30) {
+            if (token in deliveredResults) return
+            delay(100)
+        }
     }
 
     private fun registerService(tvName: String, port: Int) {
@@ -398,6 +439,7 @@ class TvSyncRepository @Inject constructor(
                 requestLine.startsWith("GET /hello") -> respond(writer, 200, helloJson().toString())
                 requestLine.startsWith("POST /pair") -> handlePair(body, writer)
                 requestLine.startsWith("POST /transfer") -> handleTransfer(body, writer)
+                requestLine.startsWith("GET /status") -> handleStatus(requestLine, writer)
                 else -> respond(writer, 404, """{"error":"Not found"}""")
             }
         }
@@ -445,6 +487,7 @@ class TvSyncRepository @Inject constructor(
             Log.d(tag, "handleTransfer success token=$token summary=${payload.summaryLines()} tvName=${payload.tvName}")
             _receiverState.value = _receiverState.value.copy(
                 pendingPayload = payload,
+                pendingToken = token,
                 status = "Review the incoming sync on this TV",
             )
             respond(writer, 200, """{"ok":true}""")
@@ -452,6 +495,15 @@ class TvSyncRepository @Inject constructor(
             Log.w(tag, "handleTransfer failed error=${it.message}", it)
             respond(writer, 400, JSONObject().put("error", it.message ?: "Transfer failed").toString())
         }
+    }
+
+    private fun handleStatus(requestLine: String, writer: OutputStreamWriter) {
+        val token = requestLine.substringAfter("token=", "").substringBefore(' ')
+        val status = transferResults[token]
+            ?: if (_receiverState.value.pendingToken == token) "pending" else "unknown"
+        Log.d(tag, "handleStatus status=$status")
+        respond(writer, 200, JSONObject().put("status", status).toString())
+        if (status == "accepted" || status == "rejected") deliveredResults += token
     }
 
     private fun respond(writer: OutputStreamWriter, code: Int, body: String) {
