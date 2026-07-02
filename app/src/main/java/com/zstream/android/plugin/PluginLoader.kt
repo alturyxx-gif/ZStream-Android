@@ -46,7 +46,7 @@ class PluginLoader @Inject constructor(
      * ponytail: placeholder value — will cause every plugin to fail signature check
      * until replaced with the real cert fingerprint.
      */
-    private val PINNED_CERT_SHA256 = "0000000000000000000000000000000000000000000000000000000000000000"
+    private val PINNED_CERT_SHA256 = "36f25bd39f566958bae8274e6b87b4c0ad91774e64834ec319cca9df6177cf0e"
 
     // -------------------------------------------------------------------------
     // Directories
