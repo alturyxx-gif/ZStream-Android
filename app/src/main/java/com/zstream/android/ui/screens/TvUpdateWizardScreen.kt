@@ -4,12 +4,16 @@ import android.content.Intent
 import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -34,11 +38,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -46,14 +56,12 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
-import com.zstream.android.data.adb.APK_ROWS_PER_PAGE
 import com.zstream.android.data.adb.DEFAULT_RELEASE_REPOSITORY
 import com.zstream.android.data.adb.GithubApkAsset
 import com.zstream.android.data.adb.GithubReleaseCatalog
 import com.zstream.android.data.adb.InstallProgress
 import com.zstream.android.data.adb.ReleaseUpdateManager
 import com.zstream.android.data.adb.TvAdbManager
-import com.zstream.android.data.adb.releasePage
 import com.zstream.android.theme.LocalZStreamTheme
 import com.zstream.android.theme.ZStreamTheme
 import com.zstream.android.ui.components.themed.ZsButton
@@ -72,7 +80,6 @@ import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
-import kotlin.math.ceil
 
 // Detection helpers — readable by both the wizard and MainActivity/HomeScreen
 internal fun isAdbEnabled(context: android.content.Context): Boolean =
@@ -118,16 +125,17 @@ fun TvUpdateWizardScreen(onDismiss: () -> Unit) {
 
     var step by remember { mutableStateOf(WizardStep.CONFIRM) }
     var apks by remember { mutableStateOf<List<GithubApkAsset>>(emptyList()) }
-    var apkPage by remember { mutableStateOf(0) }
     var selectedApk by remember { mutableStateOf<GithubApkAsset?>(null) }
     var status by remember { mutableStateOf("") }
     var progress by remember { mutableStateOf<InstallProgress?>(null) }
     var lastError by remember { mutableStateOf<String?>(null) }
     var activeJob by remember { mutableStateOf<Job?>(null) }
+    var isReleaseContentFocused by remember { mutableStateOf(false) }
     val running = activeJob != null
 
     // Focus requester for the first actionable element — pulls focus away from home screen
     val primaryFocusRequester = remember { FocusRequester() }
+    val releaseFocusRequesters = remember(apks) { List(apks.size) { FocusRequester() } }
     val contentScrollState = rememberScrollState()
 
     fun detect() {
@@ -138,9 +146,9 @@ fun TvUpdateWizardScreen(onDismiss: () -> Unit) {
         }
     }
 
-    // Re-check when user returns from the Settings app (only relevant after CONFIRM)
+    // Only setup pages should advance when Android Settings returns to the app.
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
-        if (step != WizardStep.CONFIRM && step != WizardStep.CHECKING) detect()
+        if (step == WizardStep.UNLOCK_DEV || step == WizardStep.ENABLE_ADB) detect()
     }
 
     fun openSettings(action: String) {
@@ -179,7 +187,7 @@ fun TvUpdateWizardScreen(onDismiss: () -> Unit) {
                 val url = releaseUpdateManager.repositoryUrl.ifBlank { DEFAULT_RELEASE_REPOSITORY }
                 apks = withContext(Dispatchers.IO) { releaseCatalog.loadAllApks(url) }
                 releaseUpdateManager.recordScan(apks)
-                apkPage = 0
+                selectedApk = apks.firstOrNull()
                 status = if (apks.isEmpty()) "No APK assets found." else "Found ${apks.size} APK${if (apks.size == 1) "" else "s"}."
             } catch (_: CancellationException) {
                 status = "Cancelled."
@@ -199,22 +207,31 @@ fun TvUpdateWizardScreen(onDismiss: () -> Unit) {
 
     BackHandler {
         when {
+            step == WizardStep.RELEASES && isReleaseContentFocused -> {
+                val index = apks.indexOfFirst { it.assetId == selectedApk?.assetId }.coerceAtLeast(0)
+                releaseFocusRequesters.getOrNull(index)?.requestFocus() ?: primaryFocusRequester.requestFocus()
+            }
             step == WizardStep.CONFIRM -> onDismiss()
             running -> Unit
             step == WizardStep.PHONE -> step = WizardStep.CONFIRM
             step == WizardStep.CHECKING -> step = WizardStep.CONFIRM
             step == WizardStep.UNLOCK_DEV -> step = WizardStep.CONFIRM
             step == WizardStep.ENABLE_ADB -> step = WizardStep.UNLOCK_DEV
-            step == WizardStep.READY -> step = WizardStep.RELEASES
-            step == WizardStep.RELEASES && selectedApk != null -> selectedApk = null
+            step == WizardStep.READY -> step = WizardStep.CONFIRM
             step == WizardStep.RELEASES -> step = WizardStep.CONFIRM
         }
     }
 
-    LaunchedEffect(step, selectedApk, apkPage, apks.size, running) {
+    LaunchedEffect(step, apks.size) {
         if (step == WizardStep.CONFIRM) return@LaunchedEffect
         withFrameNanos { }
-        runCatching { primaryFocusRequester.requestFocus() }
+        runCatching {
+            when {
+                step != WizardStep.RELEASES -> primaryFocusRequester.requestFocus()
+                releaseFocusRequesters.isNotEmpty() -> releaseFocusRequesters.first().requestFocus()
+                else -> primaryFocusRequester.requestFocus()
+            }
+        }
     }
 
     if (step == WizardStep.CONFIRM) {
@@ -302,7 +319,7 @@ fun TvUpdateWizardScreen(onDismiss: () -> Unit) {
                             WizardStep.CHECKING -> "Checking…"
                             WizardStep.UNLOCK_DEV -> "Enable developer options"
                             WizardStep.ENABLE_ADB -> "Enable ADB debugging"
-                            WizardStep.RELEASES -> if (selectedApk != null) "Release details" else "Available releases"
+                            WizardStep.RELEASES -> "Available releases"
                             else -> ""
                         },
                         color = theme.colors.type.emphasis,
@@ -324,8 +341,8 @@ fun TvUpdateWizardScreen(onDismiss: () -> Unit) {
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .then(if (step == WizardStep.PHONE) Modifier else Modifier.verticalScroll(contentScrollState))
-                    .padding(20.dp),
+                    .then(if (step == WizardStep.PHONE || step == WizardStep.RELEASES) Modifier else Modifier.verticalScroll(contentScrollState))
+                    .then(if (step == WizardStep.RELEASES) Modifier else Modifier.padding(20.dp)),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 when (step) {
@@ -507,15 +524,81 @@ fun TvUpdateWizardScreen(onDismiss: () -> Unit) {
                     }
 
                     WizardStep.RELEASES -> {
-                        if (selectedApk != null) {
+                        val contentFocusRequester = remember { FocusRequester() }
+                        Row(Modifier.fillMaxSize()) {
+                            Column(
+                                Modifier
+                                    .widthIn(min = 280.dp, max = 340.dp)
+                                    .fillMaxHeight()
+                                    .background(Brush.verticalGradient(listOf(theme.colors.background.secondary, theme.colors.background.main)))
+                                    .padding(vertical = 16.dp),
+                            ) {
+                                Text(
+                                    "RELEASES",
+                                    color = theme.colors.type.dimmed,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    letterSpacing = 1.5.sp,
+                                    modifier = Modifier.padding(horizontal = 32.dp, vertical = 8.dp),
+                                )
+                                if (status.isNotBlank()) {
+                                    Text(status, color = theme.colors.type.secondary, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
+                                }
+                                if (running && progress == null) {
+                                    LinearProgressIndicator(
+                                        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
+                                        color = theme.colors.global.accentA,
+                                        trackColor = theme.colors.background.secondary,
+                                    )
+                                }
+                                lastError?.let {
+                                    Box(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                                        ZsStatusBanner(it, variant = ZsStatusBannerVariant.Error)
+                                    }
+                                }
+                                LazyColumn(Modifier.weight(1f)) {
+                                    itemsIndexed(apks, key = { _, apk -> apk.assetId }) { index, apk ->
+                                        ApkRow(
+                                            apk = apk,
+                                            selected = apk.assetId == selectedApk?.assetId,
+                                            theme = theme,
+                                            modifier = Modifier
+                                                .padding(top = 10.dp)
+                                                .focusRequester(releaseFocusRequesters[index])
+                                                .focusProperties { right = contentFocusRequester },
+                                            onSelect = { selectedApk = apk },
+                                        )
+                                    }
+                                }
+                                ZsButton(
+                                    text = if (running) "Cancel" else "Refresh releases",
+                                    onClick = { if (running) activeJob?.cancel() else scanReleases() },
+                                    variant = ZsButtonVariant.Secondary,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp)
+                                        .then(if (apks.isEmpty()) Modifier.focusRequester(primaryFocusRequester) else Modifier),
+                                )
+                            }
+                            Box(Modifier.widthIn(min = 1.dp, max = 1.dp).fillMaxHeight().background(theme.colors.utils.divider.copy(alpha = 0.15f)))
+                            Column(
+                                Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight()
+                                    .onFocusChanged { isReleaseContentFocused = it.hasFocus }
+                                    .verticalScroll(rememberScrollState())
+                                    .padding(20.dp),
+                                verticalArrangement = Arrangement.spacedBy(16.dp),
+                            ) {
+                                selectedApk?.let { apk ->
+                                    val releaseIndex = apks.indexOfFirst { it.assetId == apk.assetId }.coerceAtLeast(0)
                             ReleaseDetailContent(
-                                apk = selectedApk!!,
+                                apk = apk,
                                 status = status,
                                 progress = progress,
                                 lastError = lastError,
                                 running = running,
                                 theme = theme,
-                                primaryFocusRequester = primaryFocusRequester,
                                 onInstall = {
                                     activeJob = scope.launch {
                                         val operationJob = coroutineContext.job
@@ -525,7 +608,7 @@ fun TvUpdateWizardScreen(onDismiss: () -> Unit) {
                                             val tvManager = TvAdbManager.get(context)
                                             val result = withContext(Dispatchers.IO) {
                                                 tvManager.installFromUrl(
-                                                    selectedApk!!.downloadUrl,
+                                                    apk.downloadUrl,
                                                     onProgress = { progress = it },
                                                     isCancelled = { !operationJob.isActive },
                                                 )
@@ -545,67 +628,11 @@ fun TvUpdateWizardScreen(onDismiss: () -> Unit) {
                                     }
                                 },
                                 onCancel = { activeJob?.cancel() },
-                                onBack = { selectedApk = null },
+                                installFocusRequester = contentFocusRequester,
+                                releaseFocusRequester = releaseFocusRequesters.getOrElse(releaseIndex) { primaryFocusRequester },
                             )
-                        } else {
-                            if (status.isNotBlank()) {
-                                Text(status, color = theme.colors.type.secondary, fontSize = 13.sp)
-                            }
-                            if (running) {
-                                LinearProgressIndicator(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    color = theme.colors.global.accentA,
-                                    trackColor = theme.colors.background.secondary,
-                                )
-                            }
-                            lastError?.let {
-                                ZsStatusBanner(it, variant = ZsStatusBannerVariant.Error)
-                            }
-                            if (apks.isNotEmpty()) {
-                                val page = releasePage(apks, apkPage)
-                                val totalPages = ceil(apks.size.toDouble() / APK_ROWS_PER_PAGE).toInt()
-                                page.forEachIndexed { index, apk ->
-                                    ApkRow(
-                                        apk = apk,
-                                        theme = theme,
-                                        modifier = if (index == 0) Modifier.focusRequester(primaryFocusRequester).tvAdbFocusClampHorizontal() else Modifier.tvAdbFocusClampHorizontal(),
-                                        onClick = { selectedApk = apk },
-                                    )
-                                }
-                                if (totalPages > 1) {
-                                    Row(
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                    ) {
-                                        ZsButton(
-                                            text = "← Prev",
-                                            onClick = { apkPage-- },
-                                            enabled = apkPage > 0,
-                                            variant = ZsButtonVariant.Secondary,
-                                            modifier = Modifier, // might need to fix focus here
-                                        )
-                                        Text(
-                                            "${apkPage + 1} / $totalPages",
-                                            color = theme.colors.type.secondary,
-                                            fontSize = 13.sp,
-                                        )
-                                        ZsButton(
-                                            text = "Next →",
-                                            onClick = { apkPage++ },
-                                            enabled = apkPage < totalPages - 1,
-                                            variant = ZsButtonVariant.Secondary,
-                                            modifier = Modifier, // might need to fix focus here
-                                        )
-                                    }
                                 }
                             }
-                            ZsButton(
-                                text = if (running) "Scanning…" else "Refresh releases",
-                                onClick = { scanReleases() },
-                                enabled = !running,
-                                variant = ZsButtonVariant.Secondary,
-                                modifier = Modifier.fillMaxWidth(), // might need to fix focus here
-                            )
                         }
                     }
                 }
@@ -631,9 +658,10 @@ private fun StepCard(
 @Composable
 private fun ApkRow(
     apk: GithubApkAsset,
+    selected: Boolean,
     theme: ZStreamTheme,
     modifier: Modifier = Modifier,
-    onClick: () -> Unit,
+    onSelect: () -> Unit,
 ) {
     val fmt = remember {
         SimpleDateFormat("MMM d, yyyy", Locale.US).apply { timeZone = TimeZone.getDefault() }
@@ -649,40 +677,43 @@ private fun ApkRow(
     var focused by remember { mutableStateOf(false) }
     ZsOutlinedWrapper(
         visible = focused,
-        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
-        outlineColor = theme.colors.type.emphasis,
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
+        outlineColor = Color.White,
+        outlineWidth = 2.dp,
         gap = 4.dp,
         modifier = modifier
-            .fillMaxWidth()
-            .tvAdbFocusClampHorizontal()
-            .onFocusChanged { focused = it.isFocused },
+            .padding(horizontal = 16.dp, vertical = 3.dp),
     ) {
-        ZsCard(
-            variant = ZsCardVariant.Elevated,
-            modifier = Modifier
+        Column(
+            Modifier
                 .fillMaxWidth()
-                .clickable(onClick = onClick),
-        ) {
-            Column(
-                Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        apk.releaseTag.ifBlank { apk.releaseName }.ifBlank { apk.apkName },
-                        color = theme.colors.type.emphasis,
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 14.sp,
+                .clip(androidx.compose.foundation.shape.RoundedCornerShape(10.dp))
+                .background(if (selected) theme.colors.global.accentA.copy(alpha = 0.25f) else Color.Transparent)
+                .then(if (selected) Modifier.drawBehind {
+                    drawRoundRect(
+                        color = theme.colors.global.accentA,
+                        size = androidx.compose.ui.geometry.Size(4.dp.toPx(), size.height * 0.6f),
+                        cornerRadius = CornerRadius(2.dp.toPx()),
+                        topLeft = Offset(0f, size.height * 0.2f),
                     )
-                    Text(date, color = theme.colors.type.dimmed, fontSize = 12.sp)
+                } else Modifier)
+                .onFocusChanged {
+                    focused = it.isFocused
+                    if (it.isFocused && !selected) onSelect()
                 }
-                Text(apk.apkName, color = theme.colors.type.secondary, fontSize = 12.sp)
-                Text("%.1f MB".format(apk.size / 1_048_576.0), color = theme.colors.type.dimmed, fontSize = 11.sp)
+                .clickable(onClick = onSelect)
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(apk.releaseTag.ifBlank { apk.releaseName }.ifBlank { apk.apkName }, color = theme.colors.type.emphasis, fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium, fontSize = 14.sp)
+                Text(date, color = theme.colors.type.dimmed, fontSize = 11.sp)
             }
+            Text(apk.apkName, color = theme.colors.type.secondary, fontSize = 12.sp)
         }
     }
 }
@@ -695,10 +726,10 @@ private fun ReleaseDetailContent(
     lastError: String?,
     running: Boolean,
     theme: ZStreamTheme,
-    primaryFocusRequester: FocusRequester,
+    installFocusRequester: FocusRequester,
+    releaseFocusRequester: FocusRequester,
     onInstall: () -> Unit,
     onCancel: () -> Unit,
-    onBack: () -> Unit,
 ) {
     ZsCard(variant = ZsCardVariant.Elevated, modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -748,27 +779,30 @@ private fun ReleaseDetailContent(
     lastError?.let { ZsStatusBanner(it, variant = ZsStatusBannerVariant.Error) }
 
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        ZsButton(
-            text = "← Back",
-            onClick = onBack,
-            enabled = !running,
-            variant = ZsButtonVariant.Secondary,
-            modifier = Modifier.tvAdbFocusClampVertical(),
-        )
         if (running) {
             ZsButton(
                 text = "Cancel",
                 onClick = onCancel,
                 variant = ZsButtonVariant.Danger,
-                modifier = Modifier.tvAdbFocusClampVertical(),
+                modifier = Modifier
+                    .focusRequester(installFocusRequester)
+                    .focusProperties {
+                        up = FocusRequester.Cancel
+                        down = FocusRequester.Cancel
+                        left = releaseFocusRequester
+                    },
             )
         } else {
             ZsButton(
                 text = "Install on TV",
                 onClick = onInstall,
                 modifier = Modifier
-                    .focusRequester(primaryFocusRequester)
-                    .tvAdbFocusClampVertical(),
+                    .focusRequester(installFocusRequester)
+                    .focusProperties {
+                        up = FocusRequester.Cancel
+                        down = FocusRequester.Cancel
+                        left = releaseFocusRequester
+                    },
             )
         }
     }
