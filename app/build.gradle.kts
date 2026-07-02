@@ -108,7 +108,6 @@ dependencies {
     implementation(libs.androidx.work)
     implementation(libs.haze)
     implementation("org.bouncycastle:bcpkix-jdk15to18:1.81")
-    implementation("org.conscrypt:conscrypt-android:2.5.3")
     implementation(project(":libadb"))
 
     testImplementation(libs.junit)
