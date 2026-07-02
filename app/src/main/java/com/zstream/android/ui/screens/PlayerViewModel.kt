@@ -47,7 +47,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 
 enum class SourceStatus { IDLE, TRYING, SUCCESS, FAILED }
-data class SourceResult(val id: String, val status: SourceStatus)
+data class SourceResult(val id: String, val status: SourceStatus, val codec: String = "")
 data class SkipSegment(val type: String, val startMs: Long?, val endMs: Long?)
 data class SkipSegmentSubmission(
     val tmdbId: Int,
@@ -75,6 +75,7 @@ sealed class PlayerState {
         val subtitles: List<SubtitleTrack>,
         val sources: List<SourceResult>,
         val sourceId: String? = null,
+        val variants: List<StreamVariant> = emptyList(),
     ) : PlayerState()
     data class Error(val message: String, val sources: List<SourceResult>) : PlayerState()
 }
@@ -89,6 +90,32 @@ data class SubtitleTrack(
     val hearingImpaired: Boolean = false,
     val external: Boolean = false,
 )
+
+data class StreamVariant(
+    val id: String,
+    val quality: String,
+    val codec: String,
+    val tag: String,
+    val streamUrl: String,
+) {
+    /** Label shown in the variant picker: e.g. "4K · HEVC · HDR" */
+    fun displayLabel(): String {
+        val parts = mutableListOf<String>()
+        if (quality.isNotBlank()) parts += quality
+        when (codec.lowercase()) {
+            "hevc", "h265" -> parts += "HEVC"
+            "h264", "avc"  -> parts += "H.264"
+            else -> if (codec.isNotBlank()) parts += codec
+        }
+        when (tag.lowercase()) {
+            "hdr"   -> parts += "HDR"
+            "dv"    -> parts += "Dolby Vision"
+            "remux" -> parts += "REMUX"
+            "bw"    -> parts += "B&W"
+        }
+        return parts.joinToString(" · ")
+    }
+}
 
 private data class WyzieSubtitleEntry(
     val url: String? = null,
@@ -542,7 +569,7 @@ class PlayerViewModel @Inject constructor(
                     when (result) {
                         is StreamResult.Success -> {
                             val success = sources.map {
-                                if (it.id == source.id) it.copy(status = SourceStatus.SUCCESS) else it
+                                if (it.id == source.id) it.copy(status = SourceStatus.SUCCESS, codec = result.codec) else it
                             }
                             sources.clear()
                             sources.addAll(success)
@@ -562,6 +589,9 @@ class PlayerViewModel @Inject constructor(
                                 subtitles  = subtitles,
                                 sources    = success,
                                 sourceId   = source.id,
+                                variants   = result.variants.map { v ->
+                                    StreamVariant(id = v.id, quality = v.quality, codec = v.codec, tag = v.tag, streamUrl = v.streamUrl)
+                                },
                             )
 
                             if (settingsValue.subtitlesEnabled && subtitles.isNotEmpty()) {
@@ -628,7 +658,7 @@ class PlayerViewModel @Inject constructor(
                         _state.value = PlayerState.ManualSourceSelection(failed, selectedSourceId = sourceId, candidate = null, message = result.message)
                     }
                     is StreamResult.Success -> {
-                        val success = updated.map { if (it.id == sourceId) it.copy(status = SourceStatus.SUCCESS) else it }
+                        val success = updated.map { if (it.id == sourceId) it.copy(status = SourceStatus.SUCCESS, codec = result.codec) else it }
                         val subtitles = result.captions.map { it.toSubtitleTrack() }.toMutableList()
                         fetchExternalSubtitles(subtitles)
                         val candidate = PlayerState.Ready(
@@ -637,6 +667,9 @@ class PlayerViewModel @Inject constructor(
                             subtitles = subtitles,
                             sources   = success,
                             sourceId  = sourceId,
+                            variants  = result.variants.map { v ->
+                                StreamVariant(id = v.id, quality = v.quality, codec = v.codec, tag = v.tag, streamUrl = v.streamUrl)
+                            },
                         )
                         sources.clear(); sources.addAll(success)
                         _state.value = PlayerState.ManualSourceSelection(success, selectedSourceId = sourceId, candidate = candidate, message = null)
@@ -648,6 +681,12 @@ class PlayerViewModel @Inject constructor(
                 _state.value = PlayerState.ManualSourceSelection(failed, selectedSourceId = sourceId, candidate = null, message = it.message ?: "Failed to probe source")
             }
         }
+    }
+
+    /** Switches to a different stream variant without re-resolving the source. */
+    fun switchVariant(variant: StreamVariant) {
+        val current = _state.value as? PlayerState.Ready ?: return
+        _state.value = current.copy(streamUrl = variant.streamUrl)
     }
 
     private fun Caption.toSubtitleTrack() = SubtitleTrack(
@@ -792,6 +831,10 @@ class PlayerViewModel @Inject constructor(
 
     fun setTvPipPosition(value: String) {
         viewModelScope.launch { settingsPrefs.setTvPipPosition(value) }
+    }
+
+    fun updatePlayerSettings(settings: SettingsEntity) {
+        viewModelScope.launch { settingsPrefs.updateSettings(settings) }
     }
 
     suspend fun getAutoplayEpisodeTarget(): AutoplayEpisodeTarget? = withContext(Dispatchers.IO) {
