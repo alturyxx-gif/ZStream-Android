@@ -1730,6 +1730,35 @@ private fun MediaCarouselSection(
     val theme = LocalZStreamTheme.current
     val isTv = LocalIsTv.current
     var tvEditMediaId by remember { mutableStateOf<Int?>(null) }
+    val rowListState = rememberLazyListState()
+    val viewMoreFocusRequester = remember { FocusRequester() }
+    // Track whether the ViewMoreCard was the last focused item in this row
+    var viewMoreWasLastFocused by remember { mutableStateOf(false) }
+    var rowHasFocus by remember { mutableStateOf(false) }
+    val hasViewMore = isTv && section.source != null
+    val viewMoreIndex = section.items.size // ViewMoreCard is appended after all media items
+    // When focus re-enters the row and ViewMoreCard was last focused, scroll it back
+    // into view (it may have been de-composed while scrolled off-screen) and then
+    // explicitly request focus on it. focusRestorer alone can't restore a de-composed item.
+    LaunchedEffect(rowHasFocus) {
+        if (rowHasFocus && viewMoreWasLastFocused && hasViewMore) {
+            rowListState.scrollToItem(viewMoreIndex)
+            // The item needs a frame or two to compose and attach its FocusRequester after
+            // scrolling. Retry across a few frames until the request succeeds.
+            var attempts = 0
+            while (attempts < 5) {
+                withFrameMillis { }
+                val ok = try {
+                    viewMoreFocusRequester.requestFocus()
+                    true
+                } catch (_: Exception) {
+                    false
+                }
+                if (ok) break
+                attempts++
+            }
+        }
+    }
     Column(modifier = modifier) {
         Column {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1743,11 +1772,11 @@ private fun MediaCarouselSection(
                     trailingContent?.invoke(this)
                 }
             }
-            if (section.source != null && section.items.isNotEmpty()) {
+            if (!isTv && section.source != null && section.items.isNotEmpty()) {
                 Row(
                     modifier = Modifier.padding(
-                        start = if (isTv) TvHomeMetrics.screenPadding else 16.dp,
-                        end = if (isTv) TvHomeMetrics.screenPadding else 16.dp,
+                        start = 16.dp,
+                        end = 16.dp,
                         top = 0.dp,
                         bottom = 0.dp,
                     ),
@@ -1756,8 +1785,7 @@ private fun MediaCarouselSection(
                     ZsTextButton(
                         text = "View more",
                         onClick = { nav.navigate("more/${section.source.name}?group=${Uri.encode(section.groupKey.orEmpty())}") },
-                        modifier = if (isTv) Modifier.height(48.dp).offset(x = (-10).dp)
-                        else Modifier.height(30.dp).offset(x = (-10).dp, y = (-15).dp),
+                        modifier = Modifier.height(30.dp).offset(x = (-10).dp, y = (-15).dp),
                     )
                 }
             } else {
@@ -1766,13 +1794,19 @@ private fun MediaCarouselSection(
         }
 
         LazyRow(
+            state = rowListState,
+            modifier = Modifier
+                .focusRestorer()
+                .onFocusChanged { rowHasFocus = it.hasFocus },
             contentPadding = PaddingValues(horizontal = if (isTv) TvHomeMetrics.screenPadding else 16.dp),
             horizontalArrangement = Arrangement.spacedBy(if (isTv) TvHomeMetrics.railItemSpacing else 10.dp)
         ) {
             items(section.items) { media ->
                 val progress = progressMap[media.id.toString()]
                 val progressInfo = progress?.let { getProgressInfo(it) }
-                Box {
+                Box(
+                    modifier = if (isTv) Modifier.onFocusChanged { if (it.hasFocus) viewMoreWasLastFocused = false } else Modifier
+                ) {
                     MediaCard(
                         media = media,
                         onClick = {
@@ -1818,6 +1852,17 @@ private fun MediaCarouselSection(
                             onDismiss = { tvEditMediaId = null },
                         )
                     }
+                }
+            }
+            if (isTv && section.source != null) {
+                item {
+                    ViewMoreCard(
+                        onClick = {
+                            nav.navigate("more/${section.source.name}?group=${Uri.encode(section.groupKey.orEmpty())}")
+                        },
+                        focusRequester = viewMoreFocusRequester,
+                        onFocused = { viewMoreWasLastFocused = true },
+                    )
                 }
             }
         }

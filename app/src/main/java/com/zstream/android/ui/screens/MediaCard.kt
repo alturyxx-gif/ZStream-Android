@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Tv
@@ -34,6 +35,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import coil.compose.AsyncImage
+import com.zstream.android.AppChromeViewModel
 import com.zstream.android.data.model.Media
 import com.zstream.android.theme.LocalZStreamTheme
 import com.zstream.android.ui.LocalIsTv
@@ -480,6 +482,98 @@ fun MediaCardMinimal(
                     Icon(Icons.Default.PlayArrow, "Play", tint = Color.Black, modifier = Modifier.size(24.dp))
                 }
             }
+        }
+    }
+}
+
+/**
+ * A double-wide end-of-carousel card for TV that replaces the ZsTextButton "View more".
+ * Width is 2× a standard TV card plus one gap so it sits flush in the LazyRow.
+ * Its Column structure mirrors MediaCardStandard exactly so the total height is identical.
+ */
+@Composable
+fun ViewMoreCard(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    focusRequester: FocusRequester = remember { FocusRequester() },
+    onFocused: (() -> Unit)? = null,
+) {
+    val theme = LocalZStreamTheme.current
+    val isTv = LocalIsTv.current
+    var isFocused by remember { mutableStateOf(false) }
+
+    // Matches MediaCardStandard's TV dimensions exactly
+    // 2 × cardWidth(120) + 1 × gap(12) = 252.dp
+    val cardWidth = 252.dp
+    val chromeVm: AppChromeViewModel = androidx.hilt.navigation.compose.hiltViewModel()
+    val useMinimalCards by chromeVm.useMinimalCards.collectAsState()
+    val cardHeight = if (useMinimalCards) 180.dp else 236.dp
+
+    ZsOutlinedWrapper(
+        visible = isFocused && isTv,
+        shape = RoundedCornerShape(14.dp),
+        outlineColor = Color.White,
+        start = 4.dp,
+        top = 4.dp,
+        end = 4.dp,
+        bottom = 0.dp,
+        modifier = modifier,
+    ) {
+        Box(
+            modifier = Modifier
+                .width(cardWidth)
+                .focusRequester(focusRequester)
+                .onFocusChanged {
+                    isFocused = it.isFocused
+                    if (it.isFocused) onFocused?.invoke()
+                }
+                .graphicsLayer {
+                    shadowElevation = if (isFocused && isTv) 12.dp.toPx() else 0f
+                    clip = false
+                }
+                .clickable(onClick = onClick),
+        ) {
+            Box(
+                modifier = Modifier
+                        .fillMaxWidth()
+                        .height(cardHeight)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(theme.colors.background.secondary)
+                        .border(
+                            1.dp,
+                            theme.colors.type.divider.copy(alpha = 0.35f),
+                            RoundedCornerShape(10.dp),
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                            contentDescription = null,
+                            tint = theme.colors.type.emphasis,
+                            modifier = Modifier.size(36.dp),
+                        )
+                        Text(
+                            text = "View more",
+                            color = theme.colors.type.emphasis,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+
+                    // TV focus overlay — matches MediaCardStandard
+                    if (isFocused && isTv) {
+                        Box(
+                            modifier = Modifier
+                                .matchParentSize()
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color.Black.copy(alpha = 0.25f))
+                        )
+                    }
+                }
         }
     }
 }
