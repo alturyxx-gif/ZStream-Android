@@ -30,13 +30,17 @@ import com.zstream.android.data.adb.OPEN_TV_INSTALLER_EXTRA
 import com.zstream.android.data.adb.RELEASE_UPDATE_EXTRA
 import com.zstream.android.data.adb.ReleaseUpdateNavigation
 import com.zstream.android.data.adb.ReleaseUpdateManager
-import com.zstream.android.provider.ProviderEngine
+import com.zstream.android.plugin.PluginGateViewModel
+import com.zstream.android.plugin.PluginManager
+import com.zstream.android.plugin.PluginState
 import com.zstream.android.ui.LocalIsTv
 import com.zstream.android.ui.navigation.NavGraph
 import com.zstream.android.ui.screens.LocalMediaCard
 import com.zstream.android.ui.screens.MediaCardComponent
 import com.zstream.android.ui.screens.MediaCardMinimal
 import com.zstream.android.ui.screens.MediaCardStandard
+import com.zstream.android.ui.screens.PluginInstallScreen
+import com.zstream.android.ui.screens.PluginLoadingScreen
 import com.zstream.android.ui.theme.ZStreamTheme
 import dagger.hilt.android.AndroidEntryPoint
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -48,9 +52,9 @@ import javax.inject.Inject
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
-    @Inject lateinit var providerEngine: ProviderEngine
     @Inject lateinit var watchPartyManager: WatchPartyManager
     @Inject lateinit var releaseUpdateManager: ReleaseUpdateManager
+    @Inject lateinit var pluginManager: PluginManager
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -60,7 +64,8 @@ class MainActivity : ComponentActivity() {
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
             window.isNavigationBarContrastEnforced = false
         }
-        providerEngine.init(this)
+        // Kick off plugin load + background update check
+        pluginManager.initialize()
         handleReleaseUpdateIntent(intent)
         val uiModeManager = getSystemService(UI_MODE_SERVICE) as UiModeManager
         val isTv = uiModeManager.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
@@ -74,28 +79,42 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            val navController = rememberNavController()
-            val chromeVm: AppChromeViewModel = hiltViewModel()
-            val useMinimalCards by chromeVm.useMinimalCards.collectAsStateWithLifecycle()
-            val mediaCard: MediaCardComponent = if (useMinimalCards) {
-                @Composable { media, onClick, percentage, seriesLabel, width, height, editOverlay ->
-                    MediaCardMinimal(media, onClick, percentage, seriesLabel, width, height, editOverlay)
-                }
-            } else {
-                @Composable { media, onClick, percentage, seriesLabel, width, height, editOverlay ->
-                    MediaCardStandard(media, onClick, percentage, seriesLabel, width, height, editOverlay)
-                }
-            }
-            
-            AppBehaviorEffect(navController, isTv)
-            WatchPartyGlobalEffect(navController, watchPartyManager)
-            
-            CompositionLocalProvider(
-                LocalMediaCard provides mediaCard,
-                LocalIsTv provides isTv
-            ) {
-                ZStreamTheme {
-                    NavGraph(navController)
+            val pluginGateVm: PluginGateViewModel = hiltViewModel()
+            val pluginState by pluginGateVm.pluginState.collectAsStateWithLifecycle()
+
+            ZStreamTheme {
+                when (pluginState) {
+                    is PluginState.NotInstalled,
+                    is PluginState.Failed -> PluginInstallScreen(pluginGateVm)
+
+                    is PluginState.Loading -> PluginLoadingScreen()
+
+                    is PluginState.Ready,
+                    is PluginState.UpdateAvailable -> {
+                        // Plugin is present — initialize the normal app chrome
+                        val navController = rememberNavController()
+                        val chromeVm: AppChromeViewModel = hiltViewModel()
+                        val useMinimalCards by chromeVm.useMinimalCards.collectAsStateWithLifecycle()
+                        val mediaCard: MediaCardComponent = if (useMinimalCards) {
+                            @Composable { media, onClick, percentage, seriesLabel, width, height, editOverlay ->
+                                MediaCardMinimal(media, onClick, percentage, seriesLabel, width, height, editOverlay)
+                            }
+                        } else {
+                            @Composable { media, onClick, percentage, seriesLabel, width, height, editOverlay ->
+                                MediaCardStandard(media, onClick, percentage, seriesLabel, width, height, editOverlay)
+                            }
+                        }
+
+                        AppBehaviorEffect(navController, isTv)
+                        WatchPartyGlobalEffect(navController, watchPartyManager)
+
+                        CompositionLocalProvider(
+                            LocalMediaCard provides mediaCard,
+                            LocalIsTv provides isTv
+                        ) {
+                            NavGraph(navController)
+                        }
+                    }
                 }
             }
         }

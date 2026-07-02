@@ -73,8 +73,6 @@ class SettingsPreferences @Inject constructor(
     private val KEY_MANUAL_SOURCE_SELECTION = booleanPreferencesKey("manual_source_selection")
     private val KEY_SOURCE_ORDER = stringPreferencesKey("source_order") // Stored as comma-separated
     private val KEY_ENABLE_SOURCE_ORDER = booleanPreferencesKey("enable_source_order")
-    private val KEY_EMBED_ORDER = stringPreferencesKey("embed_order") // Stored as comma-separated
-    private val KEY_ENABLE_EMBED_ORDER = booleanPreferencesKey("enable_embed_order")
 
     // External Services
     private val KEY_PROXY_URLS = stringPreferencesKey("proxy_urls")
@@ -146,8 +144,6 @@ class SettingsPreferences @Inject constructor(
             manualSourceSelection = prefs[KEY_MANUAL_SOURCE_SELECTION] ?: false,
             sourceOrder = prefs[KEY_SOURCE_ORDER]?.split(",")?.filter { it.isNotBlank() } ?: emptyList(),
             enableSourceOrder = prefs[KEY_ENABLE_SOURCE_ORDER] ?: false,
-            embedOrder = prefs[KEY_EMBED_ORDER]?.split(",")?.filter { it.isNotBlank() } ?: emptyList(),
-            enableEmbedOrder = prefs[KEY_ENABLE_EMBED_ORDER] ?: false,
             proxyUrls = prefs[KEY_PROXY_URLS]?.split(",")?.filter { it.isNotBlank() } ?: emptyList(),
             febboxKey = prefs[KEY_FEBBOX_KEY],
             debridToken = prefs[KEY_DEBRID_TOKEN],
@@ -226,8 +222,6 @@ class SettingsPreferences @Inject constructor(
             prefs[KEY_MANUAL_SOURCE_SELECTION] = entity.manualSourceSelection
             prefs[KEY_SOURCE_ORDER] = entity.sourceOrder.joinToString(",")
             prefs[KEY_ENABLE_SOURCE_ORDER] = entity.enableSourceOrder
-            prefs[KEY_EMBED_ORDER] = entity.embedOrder.joinToString(",")
-            prefs[KEY_ENABLE_EMBED_ORDER] = entity.enableEmbedOrder
             prefs[KEY_PROXY_URLS] = entity.proxyUrls.joinToString(",")
             if (entity.febboxKey != null) prefs[KEY_FEBBOX_KEY] = entity.febboxKey else prefs.remove(KEY_FEBBOX_KEY)
             if (entity.debridToken != null) prefs[KEY_DEBRID_TOKEN] = entity.debridToken else prefs.remove(KEY_DEBRID_TOKEN)
@@ -339,8 +333,6 @@ class SettingsPreferences @Inject constructor(
                 manualSourceSelection = remote.manualSourceSelection ?: false,
                 sourceOrder = remote.sourceOrder ?: emptyList(),
                 enableSourceOrder = remote.enableSourceOrder ?: false,
-                embedOrder = remote.embedOrder ?: emptyList(),
-                enableEmbedOrder = remote.enableEmbedOrder ?: false,
                 proxyUrls = remote.proxyUrls ?: emptyList(),
                 febboxKey = remote.febboxKey,
                 debridToken = remote.debridToken,

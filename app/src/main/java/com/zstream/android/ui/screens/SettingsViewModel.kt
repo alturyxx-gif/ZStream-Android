@@ -15,6 +15,8 @@ import com.zstream.android.data.remote.SavedCustomThemeResponse
 import com.zstream.android.data.remote.ThemeTripletResponse
 import com.zstream.android.data.adb.ReleaseCheckInterval
 import com.zstream.android.data.adb.ReleaseUpdateManager
+import com.zstream.android.plugin.PluginManager
+import com.zstream.android.plugin.PluginState
 import com.google.gson.Gson
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.FlowPreview
@@ -43,10 +45,34 @@ class SettingsViewModel @Inject constructor(
     private val traktRepo: TraktRepository,
     private val httpClient: OkHttpClient,
     private val releaseUpdateManager: ReleaseUpdateManager,
+    private val pluginManager: PluginManager,
 ) : ViewModel() {
     val traktState = traktRepo.state
     val releaseChecksEnabled = releaseUpdateManager.enabled
     val releaseCheckInterval = releaseUpdateManager.interval
+
+    // Plugin state — exposed directly from PluginManager
+    val pluginState = pluginManager.pluginState
+
+    private val _pluginUpdateMessage = MutableStateFlow<String?>(null)
+    val pluginUpdateMessage = _pluginUpdateMessage.asStateFlow()
+
+    fun checkPluginUpdate() {
+        viewModelScope.launch {
+            _pluginUpdateMessage.value = null
+            runCatching {
+                val stagedVersion = pluginManager.checkForUpdate()
+                _pluginUpdateMessage.value = if (stagedVersion != null) {
+                    "Plugin v$stagedVersion will be applied on next launch."
+                } else {
+                    val current = pluginManager.pluginVersion()
+                    "Plugin is up to date${if (current != null) " (v$current)" else ""}."
+                }
+            }.onFailure {
+                _pluginUpdateMessage.value = "Update check failed: ${it.message}"
+            }
+        }
+    }
 
     fun setReleaseChecksEnabled(enabled: Boolean) = releaseUpdateManager.setEnabled(enabled)
     fun setReleaseCheckInterval(label: String) = releaseUpdateManager.setInterval(ReleaseCheckInterval.fromLabel(label))
@@ -166,10 +192,6 @@ class SettingsViewModel @Inject constructor(
 
     fun setEnableSourceOrder(v: Boolean) {
         update { copy(enableSourceOrder = v) }
-    }
-
-    fun setEnableEmbedOrder(v: Boolean) {
-        update { copy(enableEmbedOrder = v) }
     }
 
     fun setTmdbApiKey(key: String?) {

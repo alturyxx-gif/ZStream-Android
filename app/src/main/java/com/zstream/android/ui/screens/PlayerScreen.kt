@@ -126,10 +126,11 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.CacheDataSource.EventListener
+import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.ui.PlayerView
 import androidx.navigation.NavController
 import com.zstream.android.R
-import com.zstream.android.provider.WebViewDataSource
 import androidx.media3.common.MediaItem.SubtitleConfiguration
 import android.net.Uri
 import androidx.compose.foundation.focusGroup
@@ -448,18 +449,34 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
             is PlayerState.Idle, is PlayerState.Scraping -> {
                 val sources = (s as? PlayerState.Scraping)?.sources ?: emptyList()
                 Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
-                    // sources list
                     CircularProgressIndicator(color = theme.colors.type.emphasis, modifier = Modifier.size(36.dp))
                     Spacer(Modifier.height(16.dp))
-                    Text("Finding stream…", color = theme.colors.type.emphasis, fontSize = 14.sp)
                     sources.forEach { src ->
                         val statusColor = sourceStatusColor(theme, src.status)
-                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 2.dp)) {
-                            Text(when (src.status) { SourceStatus.IDLE -> "•"; SourceStatus.TRYING -> "⟳"; SourceStatus.SUCCESS -> "✓"; SourceStatus.FAILED -> "✕" },
-                                color = statusColor,
-                                fontSize = 11.sp)
-                            Spacer(Modifier.width(6.dp))
-                            Text(src.id, color = theme.colors.type.dimmed, fontSize = 11.sp)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(vertical = 3.dp),
+                        ) {
+                            when (src.status) {
+                                SourceStatus.TRYING ->
+                                    CircularProgressIndicator(
+                                        color = statusColor,
+                                        modifier = Modifier.size(12.dp),
+                                        strokeWidth = 1.5.dp,
+                                    )
+                                SourceStatus.SUCCESS ->
+                                    Icon(Icons.Default.Check, null, tint = statusColor, modifier = Modifier.size(12.dp))
+                                SourceStatus.FAILED ->
+                                    Icon(Icons.Default.Close, null, tint = statusColor, modifier = Modifier.size(12.dp))
+                                SourceStatus.IDLE ->
+                                    Spacer(Modifier.size(12.dp))
+                            }
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                sourceDisplayName(src.id),
+                                color = if (src.status == SourceStatus.IDLE) theme.colors.type.dimmed else statusColor,
+                                fontSize = 12.sp,
+                            )
                         }
                     }
                 }
@@ -582,6 +599,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                 var resumeDuration by remember { mutableLongStateOf(0L) }
                 var pendingResumeMs by remember { mutableLongStateOf(-1L) }
 
+                val context = LocalContext.current
                 val player = remember {
                     val subtitleConfigs = if (settings.enableNativeSubtitles) {
                         s.subtitles.mapNotNull { track ->
@@ -611,7 +629,12 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
 
                     val cacheDataSourceFactory = CacheDataSource.Factory()
                         .setCache(vm.playerCache)
-                        .setUpstreamDataSourceFactory(WebViewDataSource.Factory(vm.getProxyPort()))
+                        .setUpstreamDataSourceFactory(
+                            DefaultDataSource.Factory(
+                                context,
+                                DefaultHttpDataSource.Factory().setDefaultRequestProperties(s.headers),
+                            )
+                        )
                         .setEventListener(object : EventListener {
                             override fun onCachedBytesRead(cacheSizeBytes: Long, cachedBytesRead: Long) {
                                 Log.d("PlayerCache", "cachedBytesRead=$cachedBytesRead cacheSizeBytes=$cacheSizeBytes")
@@ -2758,7 +2781,6 @@ private fun PlayerControls(
                         title = title,
                         settings = settings,
                         sourceId = readyState.sourceId,
-                        embedId = readyState.embedId,
                         sourceResults = readyState.sources,
                         manualSourceSelection = settings.manualSourceSelection,
                         selectedSubtitleLanguage = selectedSubtitleLanguage,
@@ -3362,7 +3384,6 @@ private fun PlayerMenuContent(
     title: String,
     settings: com.zstream.android.data.local.entity.SettingsEntity,
     sourceId: String?,
-    embedId: String?,
     sourceResults: List<SourceResult>,
     manualSourceSelection: Boolean,
     selectedSubtitleLanguage: String?,
@@ -3730,7 +3751,7 @@ private fun PlayerMenuContent(
                     PlayerMenuSection {
                         PlayerMenuSummaryCard(
                             title = sourceId ?: "Unknown source",
-                            value = embedId ?: "No embed metadata",
+                            value = sourceId ?: "No source",
                             subtitle = if (manualSourceSelection) "Pick a source to retry playback through that provider." else "Enable Manual Source Selection in settings to choose providers here."
                         )
                     }
@@ -3738,7 +3759,7 @@ private fun PlayerMenuContent(
                         PlayerMenuSection {
                             sourceResults.forEachIndexed { index, source ->
                                 PlayerMenuSelectableRow(
-                                    title = source.id,
+                                    title = sourceDisplayName(source.id),
                                     subtitle = source.status.name.lowercase().replaceFirstChar { it.uppercase() },
                                     selected = source.id == sourceId,
                                     onClick = {

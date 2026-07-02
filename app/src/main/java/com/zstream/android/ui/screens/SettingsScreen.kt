@@ -819,6 +819,53 @@ private fun SettingsCard(theme: ZStreamTheme, content: @Composable ColumnScope.(
 }
 
 @Composable
+private fun PluginVersionSection(vm: SettingsViewModel, theme: ZStreamTheme, isTv: Boolean) {
+    val pluginState by vm.pluginState.collectAsStateWithLifecycle()
+    val updateMessage by vm.pluginUpdateMessage.collectAsStateWithLifecycle()
+
+    val versionLabel = when (pluginState) {
+        is com.zstream.android.plugin.PluginState.Ready ->
+            "v${(pluginState as com.zstream.android.plugin.PluginState.Ready).version}"
+        is com.zstream.android.plugin.PluginState.UpdateAvailable -> {
+            val s = pluginState as com.zstream.android.plugin.PluginState.UpdateAvailable
+            "v${s.currentVersion} (v${s.stagedVersion} ready)"
+        }
+        else -> "Not installed"
+    }
+
+    if (isTv) {
+        TvSettingsRow(theme) {
+            Text("Plugin Version", color = theme.colors.type.text, fontSize = 14.sp, modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 12.dp))
+            Text(versionLabel, color = theme.colors.type.secondary, fontSize = 13.sp, modifier = Modifier.padding(end = 12.dp))
+        }
+        TvSettingsRow(theme, onActivate = { vm.checkPluginUpdate() }) {
+            Text("Check for Plugin Update", color = theme.colors.type.link, fontSize = 14.sp, modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 12.dp))
+        }
+    } else {
+        SettingsRow("Plugin Version", versionLabel, theme)
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clickable { vm.checkPluginUpdate() }
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Check for Plugin Update", color = theme.colors.type.link, fontSize = 14.sp)
+        }
+    }
+
+    updateMessage?.takeIf { it.isNotBlank() }?.let { msg ->
+        Text(
+            msg,
+            color = if (msg.startsWith("Update check failed")) theme.colors.type.danger else theme.colors.type.secondary,
+            fontSize = 12.sp,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+        )
+    }
+}
+
+@Composable
 private fun SettingsRow(label: String, value: String, theme: ZStreamTheme) {
     Row(
         Modifier
@@ -1038,12 +1085,16 @@ private fun AccountSection(
                     Text("App Version", color = theme.colors.type.text, fontSize = 14.sp, modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 12.dp))
                     Text(com.zstream.android.BuildConfig.VERSION_NAME, color = theme.colors.type.secondary, fontSize = 13.sp, modifier = Modifier.padding(end = 12.dp))
                 }
+                HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
+                PluginVersionSection(vm = vm, theme = theme, isTv = true)
             }
         } else {
             SettingsCard(theme) {
                 SettingsRow("Backend URL", com.zstream.android.Urls.BACKEND.removePrefix("https://").removePrefix("http://"), theme)
                 HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                 SettingsRow("App Version", com.zstream.android.BuildConfig.VERSION_NAME, theme)
+                HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
+                PluginVersionSection(vm = vm, theme = theme, isTv = false)
             }
         }
     }
