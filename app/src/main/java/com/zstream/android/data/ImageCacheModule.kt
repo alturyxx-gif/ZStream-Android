@@ -2,22 +2,23 @@ package com.zstream.android.data
 
 import android.content.Context
 import android.util.Log
+import coil.EventListener
 import coil.ImageLoader
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
+import coil.request.ErrorResult
+import coil.request.ImageRequest
+import coil.request.SuccessResult
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import okhttp3.OkHttpClient
 import javax.inject.Singleton
 
-private const val TAG = "ImageCacheConfig"
+private const val TAG = "ZSTREAM_IMG"
 
-/**
- * Provides a configured ImageLoader with LRU disk cache (100MB) for image caching
- * Based on requirements: Implement LRU cache with 100MB capacity limit
- */
 @Module
 @InstallIn(SingletonComponent::class)
 object ImageCacheModule {
@@ -27,10 +28,25 @@ object ImageCacheModule {
     fun provideImageLoader(@ApplicationContext context: Context): ImageLoader {
         val maxCacheSize = 100 * 1024 * 1024L // 100MB
 
+        val loggingClient = OkHttpClient.Builder()
+            .addInterceptor { chain ->
+                val req = chain.request()
+                Log.d(TAG, "→ OkHttp request: ${req.url}")
+                try {
+                    val resp = chain.proceed(req)
+                    Log.d(TAG, "← OkHttp response: ${resp.code} for ${req.url}")
+                    resp
+                } catch (e: Exception) {
+                    Log.e(TAG, "✗ OkHttp FAILED for ${req.url}: ${e.javaClass.simpleName}: ${e.message}", e)
+                    throw e
+                }
+            }
+            .build()
+
         return ImageLoader.Builder(context)
             .memoryCache {
                 MemoryCache.Builder(context)
-                    .maxSizePercent(0.25) // Use 25% of available memory
+                    .maxSizePercent(0.25)
                     .build()
             }
             .diskCache {
@@ -39,9 +55,22 @@ object ImageCacheModule {
                     .maxSizeBytes(maxCacheSize)
                     .build()
             }
+            .okHttpClient(loggingClient)
+            .eventListener(object : EventListener {
+                override fun onStart(request: ImageRequest) {
+                    Log.d(TAG, "onStart: ${request.data}")
+                }
+                override fun onSuccess(request: ImageRequest, result: SuccessResult) {
+                    Log.d(TAG, "onSuccess: ${request.data} dataSource=${result.dataSource}")
+                }
+                override fun onError(request: ImageRequest, result: ErrorResult) {
+                    Log.e(TAG, "onError: ${request.data} throwable=${result.throwable.javaClass.simpleName}: ${result.throwable.message}", result.throwable)
+                }
+                override fun onCancel(request: ImageRequest) {
+                    Log.d(TAG, "onCancel: ${request.data}")
+                }
+            })
             .build()
-            .apply {
-                Log.d(TAG, "ImageLoader configured with 100MB LRU disk cache")
-            }
+            .also { Log.d(TAG, "ImageLoader configured with dedicated OkHttpClient + logging") }
     }
 }

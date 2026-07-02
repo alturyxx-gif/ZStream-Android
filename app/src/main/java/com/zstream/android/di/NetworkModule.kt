@@ -31,7 +31,16 @@ object NetworkModule {
         .cache(Cache(context.cacheDir.resolve("http_cache"), 100L * 1024 * 1024))
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
-        .addInterceptor(HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.NONE })
+        .addInterceptor(HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.BASIC })
+        .addInterceptor { chain ->
+            val req = chain.request()
+            try {
+                chain.proceed(req)
+            } catch (e: Exception) {
+                android.util.Log.e("ZSTREAM_NET", "✗ OkHttp FAILED: ${req.url}: ${e.javaClass.simpleName}: ${e.message}", e)
+                throw e
+            }
+        }
         .build()
 
     @Provides @Singleton @TmdbRetrofit
