@@ -32,6 +32,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import com.zstream.android.data.CryptoUtils
 import com.zstream.android.theme.LocalZStreamTheme
+import com.zstream.android.ui.LocalIsTv
 import com.zstream.android.ui.components.themed.ZsButton
 import com.zstream.android.ui.components.themed.ZsButtonVariant
 import com.zstream.android.ui.components.themed.ZsIconButton
@@ -45,6 +46,7 @@ import com.zstream.android.ui.navigation.rememberSafeNavigateBack
 @Composable
 fun LoginScreen(nav: NavController, vm: AccountViewModel = hiltViewModel()) {
     val theme = LocalZStreamTheme.current
+    val isTv = LocalIsTv.current
     val authState by vm.authState.collectAsState()
     val bg = theme.colors.background
     val txt = theme.colors.type
@@ -80,6 +82,8 @@ fun LoginScreen(nav: NavController, vm: AccountViewModel = hiltViewModel()) {
                 txt = txt,
                 bg = bg,
                 authState = authState,
+                isTv = isTv,
+                onPhoneLogin = { nav.navigate("tvSync") },
                 onRegister = {
                     generatedMnemonic = CryptoUtils.generateMnemonic(context)
                     screen = "register_show"
@@ -107,6 +111,8 @@ private fun BoxScope.LoginPanel(
     txt: com.zstream.android.theme.Type,
     bg: com.zstream.android.theme.Background,
     authState: AuthState,
+    isTv: Boolean,
+    onPhoneLogin: () -> Unit,
     onRegister: () -> Unit,
 ) {
     var passphrase by remember { mutableStateOf("") }
@@ -189,6 +195,17 @@ private fun BoxScope.LoginPanel(
             variant = ZsButtonVariant.Secondary,
             leadingIcon = Icons.Default.Lock,
         )
+
+        if (isTv) {
+            ZsButton(
+                text = "Sign in from phone",
+                onClick = onPhoneLogin,
+                enabled = authState !is AuthState.Loading,
+                modifier = Modifier.fillMaxWidth().height(48.dp),
+                variant = ZsButtonVariant.Secondary,
+                leadingIcon = Icons.Default.PhoneAndroid,
+            )
+        }
 
         ZsTextButton(
             text = "Don't have an account? Create one",

@@ -102,6 +102,23 @@ object CryptoUtils {
         return "${Base64.Default.encode(iv)}.${Base64.Default.encode(ct)}.${Base64.Default.encode(tag)}"
     }
 
+    fun decryptData(ciphertext: String, secret: ByteArray): String {
+        require(secret.size == 32) { "secret must be 32 bytes" }
+        val parts = ciphertext.split(".")
+        require(parts.size == 3) { "invalid ciphertext" }
+        @OptIn(ExperimentalEncodingApi::class)
+        val iv = Base64.Default.decode(parts[0])
+        @OptIn(ExperimentalEncodingApi::class)
+        val ct = Base64.Default.decode(parts[1])
+        @OptIn(ExperimentalEncodingApi::class)
+        val tag = Base64.Default.decode(parts[2])
+        val cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
+        val keySpec = javax.crypto.spec.SecretKeySpec(secret, "AES")
+        val paramSpec = javax.crypto.spec.GCMParameterSpec(128, iv)
+        cipher.init(javax.crypto.Cipher.DECRYPT_MODE, keySpec, paramSpec)
+        return cipher.doFinal(ct + tag).toString(Charsets.UTF_8)
+    }
+
     //  Passkey helpers 
 
     @OptIn(ExperimentalEncodingApi::class)

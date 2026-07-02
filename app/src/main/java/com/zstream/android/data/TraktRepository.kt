@@ -145,6 +145,34 @@ class TraktRepository @Inject constructor(
         _state.value = TraktState()
     }
 
+    suspend fun exportSession(): TraktSessionExport? {
+        val prefs = context.traktStore.data.first()
+        val accessToken = prefs[accessKey] ?: return null
+        val refreshToken = prefs[refreshKey] ?: return null
+        return TraktSessionExport(
+            accessToken = accessToken,
+            refreshToken = refreshToken,
+            expiresAt = prefs[expiresKey] ?: 0L,
+            profileJson = prefs[profileKey],
+            playbackImported = prefs[playbackImportedKey] ?: false,
+        )
+    }
+
+    suspend fun importSession(session: TraktSessionExport) {
+        authorizationJob?.cancel()
+        context.traktStore.edit {
+            it[accessKey] = session.accessToken
+            it[refreshKey] = session.refreshToken
+            it[expiresKey] = session.expiresAt
+            if (session.profileJson != null) it[profileKey] = session.profileJson
+            it[playbackImportedKey] = session.playbackImported
+        }
+        session.profileJson
+            ?.let { runCatching { JsonParser.parseString(it).asJsonObject }.getOrNull() }
+            ?.let(::applyProfile)
+            ?: run { _state.value = TraktState(connected = true) }
+    }
+
     fun updateWatchlist(bookmark: BookmarkEntity, add: Boolean) {
         scope.launch {
             if (!isAuthenticated()) return@launch
