@@ -82,6 +82,7 @@ data class TvSyncPayload(
     val wyzieKey: String? = null,
     val traktSession: TraktSessionExport? = null,
     val passphrase: String? = null,
+    val accountDeviceName: String? = null,
 ) {
     fun summaryLines(): List<String> = buildList {
         if (tmdbApiKey != null) add("TMDB API key")
@@ -307,7 +308,8 @@ class TvSyncRepository @Inject constructor(
         val payload = _receiverState.value.pendingPayload ?: return@runCatching
         Log.d(tag, "applyPendingPayload start summary=${payload.summaryLines()}")
         if (payload.passphrase != null) {
-            accountRepository.login(payload.passphrase, payload.tvName)
+            Log.d(tag, "applyPendingPayload account login passphraseLength=${payload.passphrase.length} leadingOrTrailingWhitespace=${payload.passphrase != payload.passphrase.trim()} deviceName=${payload.accountDeviceName}")
+            accountRepository.login(payload.passphrase, payload.accountDeviceName ?: payload.tvName)
         }
         val current = settingsPreferences.settings.first()
         settingsPreferences.updateSettings(
@@ -471,6 +473,7 @@ class TvSyncRepository @Inject constructor(
         payload.tidbKey?.let { put("tidbKey", it) }
         payload.wyzieKey?.let { put("wyzieKey", it) }
         payload.passphrase?.let { put("passphrase", it) }
+        payload.accountDeviceName?.let { put("accountDeviceName", it) }
         payload.traktSession?.let { put("traktSession", gson.toJson(it)) }
     }.toString()
 
@@ -485,6 +488,7 @@ class TvSyncRepository @Inject constructor(
             tidbKey = obj.optString("tidbKey").takeIf { it.isNotBlank() },
             wyzieKey = obj.optString("wyzieKey").takeIf { it.isNotBlank() },
             passphrase = obj.optString("passphrase").takeIf { it.isNotBlank() },
+            accountDeviceName = obj.optString("accountDeviceName").takeIf { it.isNotBlank() },
             traktSession = obj.optString("traktSession").takeIf { it.isNotBlank() }?.let {
                 gson.fromJson(it, TraktSessionExport::class.java)
             },

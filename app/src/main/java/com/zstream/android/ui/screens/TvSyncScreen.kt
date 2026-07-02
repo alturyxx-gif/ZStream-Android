@@ -79,7 +79,7 @@ import com.zstream.android.data.AccountRepository
 import com.zstream.android.data.TraktRepository
 import com.zstream.android.data.local.preferences.SettingsPreferences
 
-private enum class TvSyncPhonePage { INTRO, DISCOVER, PAIR, INTEGRATIONS, PASSPHRASE, REVIEW, RESULT }
+private enum class TvSyncPhonePage { INTRO, DISCOVER, PAIR, INTEGRATIONS, PASSPHRASE, ACCOUNT_DEVICE, REVIEW, RESULT }
 private const val TV_SYNC_UI_TAG = "TvSyncUI"
 
 @HiltViewModel
@@ -111,6 +111,7 @@ class TvSyncViewModel @Inject constructor(
         tvName: String,
         selected: Map<String, Boolean>,
         passphrase: String?,
+        accountDeviceName: String?,
     ): TvSyncPayload {
         val current = settings.value
         val traktSession = if (selected["trakt"] == true) traktRepository.exportSession() else null
@@ -123,7 +124,8 @@ class TvSyncViewModel @Inject constructor(
             tidbKey = current.tidbKey.takeIf { selected["tidb"] == true },
             wyzieKey = current.wyzieKey.takeIf { selected["wyzie"] == true },
             traktSession = traktSession,
-            passphrase = passphrase?.takeIf(String::isNotBlank),
+            passphrase = passphrase?.trim()?.takeIf(String::isNotBlank),
+            accountDeviceName = accountDeviceName?.trim()?.takeIf(String::isNotBlank),
         )
     }
 
@@ -176,6 +178,7 @@ private fun TvSyncSenderScreen(
     var senderName by remember(session) { mutableStateOf(session?.deviceName?.ifBlank { "Android Phone" } ?: "Android Phone") }
     var passphraseEnabled by remember { mutableStateOf(false) }
     var passphrase by remember { mutableStateOf("") }
+    var accountDeviceName by remember { mutableStateOf("ZStream TV") }
     val selected = remember { mutableStateMapOf<String, Boolean>() }
     val available = remember { mutableStateMapOf<String, Pair<Boolean, String>>() }
 
@@ -228,7 +231,8 @@ private fun TvSyncSenderScreen(
             TvSyncPhonePage.PAIR -> page = TvSyncPhonePage.DISCOVER
             TvSyncPhonePage.INTEGRATIONS -> page = TvSyncPhonePage.PAIR
             TvSyncPhonePage.PASSPHRASE -> page = TvSyncPhonePage.INTEGRATIONS
-            TvSyncPhonePage.REVIEW -> page = TvSyncPhonePage.PASSPHRASE
+            TvSyncPhonePage.ACCOUNT_DEVICE -> page = TvSyncPhonePage.PASSPHRASE
+            TvSyncPhonePage.REVIEW -> page = if (passphraseEnabled) TvSyncPhonePage.ACCOUNT_DEVICE else TvSyncPhonePage.PASSPHRASE
             TvSyncPhonePage.RESULT -> onBack()
         }
     }
@@ -419,10 +423,32 @@ private fun TvSyncSenderScreen(
                             if (passphraseEnabled && passphrase.isBlank()) {
                                 status = "Enter your passphrase before continuing"
                             } else {
+                                page = if (passphraseEnabled) TvSyncPhonePage.ACCOUNT_DEVICE else TvSyncPhonePage.REVIEW
+                                status = null
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                TvSyncPhonePage.ACCOUNT_DEVICE -> {
+                    Text("ZStream account device", color = theme.colors.type.secondary)
+                    Text("This name identifies the new TV session in your ZStream account.", color = theme.colors.type.secondary)
+                    OutlinedTextField(
+                        value = accountDeviceName,
+                        onValueChange = { accountDeviceName = it },
+                        label = { Text("Account device name") },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    ZsButton(
+                        text = "Review",
+                        onClick = {
+                            if (accountDeviceName.isBlank()) status = "Enter an account device name"
+                            else {
                                 page = TvSyncPhonePage.REVIEW
                                 status = null
                             }
                         },
+                        enabled = accountDeviceName.isNotBlank(),
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
@@ -434,6 +460,7 @@ private fun TvSyncSenderScreen(
                     val canSend = pendingSummary.isNotEmpty()
                     SyncInstructionCard("Review", "The TV will show one more review screen before anything is applied.")
                     Text("TV name: $tvName", color = theme.colors.type.text)
+                    if (passphraseEnabled) Text("Account device: $accountDeviceName", color = theme.colors.type.text)
                     Text("Selected: ${pendingSummary.joinToString().ifBlank { "Nothing selected" }}", color = theme.colors.type.text)
                     ZsButton(
                         text = "Send to TV",
@@ -441,9 +468,9 @@ private fun TvSyncSenderScreen(
                             val receiver = selectedReceiver ?: return@ZsButton
                             scope.launch {
                                 loading = true
-                                Log.d(TV_SYNC_UI_TAG, "send start host=${receiver.host} port=${receiver.port} selected=${selected.filterValues { it }.keys} passphrase=$passphraseEnabled")
+                                Log.d(TV_SYNC_UI_TAG, "send start host=${receiver.host} port=${receiver.port} selected=${selected.filterValues { it }.keys} passphrase=$passphraseEnabled passphraseLength=${passphrase.length} leadingOrTrailingWhitespace=${passphrase != passphrase.trim()} accountDeviceName=$accountDeviceName")
                                 runCatching {
-                                    val payload = vm.buildPayload(tvName, selected.toMap(), passphrase.takeIf { passphraseEnabled })
+                                    val payload = vm.buildPayload(tvName, selected.toMap(), passphrase.takeIf { passphraseEnabled }, accountDeviceName.takeIf { passphraseEnabled })
                                     vm.sendPayload(receiver.host, receiver.port, payload)
                                 }.onSuccess {
                                     Log.d(TV_SYNC_UI_TAG, "send success host=${receiver.host} port=${receiver.port}")
@@ -548,6 +575,7 @@ private fun TvSyncReceiverScreen(
                 value = tvNameInput,
                 onValueChange = { tvNameInput = it },
                 label = { Text("TV name") },
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(showKeyboardOnFocus = false),
                 modifier = Modifier.fillMaxWidth(),
             )
             TextButton(onClick = { vm.renameTv(tvNameInput) }) { Text("Save TV name") }

@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.first
+import retrofit2.HttpException
 
 private const val TAG = "AccountRepo"
 private val Context.accountStore by preferencesDataStore("account")
@@ -47,6 +48,7 @@ class AccountRepository @Inject constructor(
     //  Passphrase auth 
 
     suspend fun login(passphrase: String, deviceName: String = "Android"): AccountSession {
+        Log.d(TAG, "login derive keys passphraseLength=${passphrase.length} leadingOrTrailingWhitespace=${passphrase != passphrase.trim()} deviceNameLength=${deviceName.length}")
         val keys = CryptoUtils.keysFromPassphrase(passphrase)
         return challengeLogin(keys.publicKey.toBase64Url(), keys.privateKey, keys.seed, deviceName)
     }
@@ -100,12 +102,20 @@ class AccountRepository @Inject constructor(
 
     private suspend fun challengeLogin(pubB64: String, privKey: ByteArray, seed: ByteArray, device: String): AccountSession {
         Log.d(TAG, "login/start pubKey=$pubB64")
-        val challenge = api.loginStart(LoginStartBody(pubB64))
+        val challenge = runCatching { api.loginStart(LoginStartBody(pubB64)) }.onFailure {
+            val http = it as? HttpException
+            Log.w(TAG, "login/start failed http=${http?.code()} backend=${http?.response()?.errorBody()?.string()} error=${it.message}", it)
+        }.getOrThrow()
         Log.d(TAG, "login/start challenge=${challenge.challenge}")
         val sig = CryptoUtils.signChallenge(challenge.challenge, privKey)
         val encDevice = CryptoUtils.encryptData(device, seed)
         Log.d(TAG, "login/complete sig=${sig.take(20)}… device(enc)=${encDevice.take(20)}…")
-        val resp = api.loginComplete(LoginCompleteBody(pubB64, ChallengePayload(challenge.challenge, sig), encDevice))
+        val resp = runCatching {
+            api.loginComplete(LoginCompleteBody(pubB64, ChallengePayload(challenge.challenge, sig), encDevice))
+        }.onFailure {
+            val http = it as? HttpException
+            Log.w(TAG, "login/complete failed http=${http?.code()} backend=${http?.response()?.errorBody()?.string()} error=${it.message}", it)
+        }.getOrThrow()
         val userId = resp.user?.id ?: resp.session.userId
         Log.d(TAG, "login/complete resp token=${resp.token.take(20)}… userId=$userId session=${resp.session}")
         return AccountSession(userId, resp.token, resp.user?.nickname ?: "", resp.session.device).also { persist(it) }
