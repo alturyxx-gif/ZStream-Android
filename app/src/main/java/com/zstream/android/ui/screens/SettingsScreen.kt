@@ -949,6 +949,10 @@ private fun AccountSection(
                         .clip(RoundedCornerShape(12.dp))
                         .background(theme.colors.settings.card.background)
                 ) {
+                    TvSettingsRow(theme, onActivate = { nav.navigate("tvSync") }) {
+                        Text("Sync from phone", color = theme.colors.type.link, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 12.dp, top = 14.dp, bottom = 14.dp))
+                    }
+                    HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                     TvSettingsRow(theme, onActivate = { onLogoutConfirmChange(true) }) {
                         Text("Log out", color = theme.colors.buttons.danger, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 12.dp, top = 14.dp, bottom = 14.dp))
                     }
