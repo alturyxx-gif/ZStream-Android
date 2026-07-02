@@ -7,7 +7,6 @@ import com.zstream.android.data.BookmarkRepository
 import com.zstream.android.data.ProgressRepository
 import com.zstream.android.data.TmdbRepository
 import com.zstream.android.data.local.entity.BookmarkEntity
-import com.zstream.android.data.local.entity.ProgressEntity
 import com.zstream.android.data.model.Media
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -58,7 +57,7 @@ class MoreViewModel @Inject constructor(
         viewModelScope.launch {
             when (sourceName) {
                 MediaSectionSource.ContinueWatching.name -> progressRepo.observeAllProgress().collectLatest { progress ->
-                    fullItems = progress.toContinueWatchingMedia()
+                    fullItems = progress.toContinueWatchingResult().media
                     refreshFromSource()
                 }
                 MediaSectionSource.Bookmarks.name -> bookmarkRepo.observeAllBookmarks().collectLatest { bookmarks ->
@@ -207,31 +206,6 @@ class MoreViewModel @Inject constructor(
 
     private fun normalizeGroupTitle(group: String): String =
         group.replace(Regex("^\\[[^\\]]+]\\s*"), "").trim()
-
-    private fun List<ProgressEntity>.toContinueWatchingMedia(): List<Media> {
-        val latestPerShow = groupBy { it.tmdbId }.mapValues { (_, entries) ->
-            val nonCompleted = entries.filter { it.duration <= 0 || it.watched < it.duration * 0.95f }
-            val candidates = if (nonCompleted.isNotEmpty()) nonCompleted else entries
-            candidates.maxByOrNull {
-                (it.seasonNumber ?: 0) * 100000 + (it.episodeNumber ?: 0)
-            } ?: candidates.first()
-        }
-        return latestPerShow.values.map { p ->
-            Media(
-                id = p.tmdbId.toIntOrNull() ?: 0,
-                title = if (p.type == "movie") p.title else null,
-                name = if (p.type == "show") p.title else null,
-                overview = null,
-                posterPath = p.posterPath,
-                backdropPath = null,
-                releaseDate = p.year?.toString(),
-                firstAirDate = p.year?.toString(),
-                voteAverage = null,
-                mediaType = if (p.type == "show") "tv" else p.type,
-                genreIds = null,
-            )
-        }
-    }
 
     private fun List<BookmarkEntity>.toBookmarkMedia(): List<Media> =
         map { b ->
