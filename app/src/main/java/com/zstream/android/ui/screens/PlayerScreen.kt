@@ -278,7 +278,7 @@ private fun SubtitleTrackBadges(track: SubtitleTrack) {
 }
 
 private enum class PlayerMenuPage {
-    Root, Captions, CaptionLanguage, Playback, AdvancedColor, Sources, Quality, Audio, Download, WatchParty, SkipSegments, Seasons, Episodes
+    Root, Captions, CaptionLanguage, CaptionSettings, Playback, AdvancedColor, Sources, Quality, Audio, Download, WatchParty, SkipSegments, Seasons, Episodes, Variants
 }
 
 private sealed class PlayerInfoState {
@@ -473,7 +473,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                             }
                             Spacer(Modifier.width(8.dp))
                             Text(
-                                sourceDisplayName(src.id),
+                                sourceDisplayName(src.id, src.codec),
                                 color = if (src.status == SourceStatus.IDLE) theme.colors.type.dimmed else statusColor,
                                 fontSize = 12.sp,
                             )
@@ -507,7 +507,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                         ) {
                             s.sources.forEach { source ->
                                 PlayerMenuSelectableRow(
-                                    title = sourceDisplayName(source.id),
+                                    title = sourceDisplayName(source.id, source.codec),
                                     selected = source.id == s.selectedSourceId,
                                     onClick = { vm.probeSource(source.id) },
                                     rightContent = {
@@ -1288,6 +1288,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     onSelectSubtitle = vm::selectSubtitle,
                     onAutoSelectSubtitle = vm::autoSelectSubtitle,
                     onDisableSubtitles = vm::disableSubtitles,
+                    onUpdateSettings = vm::updatePlayerSettings,
                     onSetEnableAutoplay = vm::setEnableAutoplay,
                     onSetVideoBrightness = vm::setVideoBrightness,
                     onSetVideoContrast = vm::setVideoContrast,
@@ -1301,6 +1302,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                         videoTextureRef.value?.let { applyVideoAdjustments(it, updatedSettings, currentVideoSize) }
                     },
                     onSelectSource = vm::selectSource,
+                    onSwitchVariant = vm::switchVariant,
                     skipSegments = skipSegments,
                     canSubmitSkipSegments = LocalConfiguration.current.smallestScreenWidthDp < 600,
                     hasTidbKey = !settings.tidbKey.isNullOrBlank(),
@@ -1730,6 +1732,7 @@ private fun PlayerControls(
     onSelectSubtitle: (String) -> Unit,
     onAutoSelectSubtitle: () -> Unit,
     onDisableSubtitles: () -> Unit,
+    onUpdateSettings: (com.zstream.android.data.local.entity.SettingsEntity) -> Unit,
     onSetEnableAutoplay: (Boolean) -> Unit,
     onSetVideoBrightness: (Int) -> Unit,
     onSetVideoContrast: (Int) -> Unit,
@@ -1739,6 +1742,7 @@ private fun PlayerControls(
     onSetVolumeBoost: (Int) -> Unit,
     onSetVideoScaleMode: (String) -> Unit,
     onSelectSource: (String) -> Unit,
+    onSwitchVariant: (StreamVariant) -> Unit,
     skipSegments: List<SkipSegment>,
     canSubmitSkipSegments: Boolean,
     hasTidbKey: Boolean,
@@ -2723,6 +2727,7 @@ private fun PlayerControls(
                                     null, PlayerMenuPage.Root -> null
                                     PlayerMenuPage.AdvancedColor -> PlayerMenuPage.Playback
                                     PlayerMenuPage.CaptionLanguage -> PlayerMenuPage.Captions
+                                    PlayerMenuPage.CaptionSettings -> PlayerMenuPage.Captions
                                     else -> PlayerMenuPage.Root
                                 }
                             )
@@ -2782,6 +2787,7 @@ private fun PlayerControls(
                         settings = settings,
                         sourceId = readyState.sourceId,
                         sourceResults = readyState.sources,
+                        variants = readyState.variants,
                         manualSourceSelection = settings.manualSourceSelection,
                         selectedSubtitleLanguage = selectedSubtitleLanguage,
                         selectedSubtitleId = selectedSubtitleId,
@@ -2817,6 +2823,7 @@ private fun PlayerControls(
                         },
                         onToggleSubtitles = onToggleSubtitles,
                         onDisableSubtitles = onDisableSubtitles,
+                        onUpdateSettings = onUpdateSettings,
                         onSelectSubtitle = onSelectSubtitle,
                         onAutoSelectSubtitle = onAutoSelectSubtitle,
                         onSetEnableAutoplay = onSetEnableAutoplay,
@@ -2853,6 +2860,7 @@ private fun PlayerControls(
                                 .build()
                         },
                         onSelectSource = onSelectSource,
+                        onSwitchVariant = onSwitchVariant,
                         onOpenSkipSubmission = {
                             skipSubmissionSeed = it ?: (skipSegments.firstOrNull() ?: SkipSegment("intro", null, null))
                             showSkipSubmissionDialog = true
@@ -3385,6 +3393,7 @@ private fun PlayerMenuContent(
     settings: com.zstream.android.data.local.entity.SettingsEntity,
     sourceId: String?,
     sourceResults: List<SourceResult>,
+    variants: List<StreamVariant>,
     manualSourceSelection: Boolean,
     selectedSubtitleLanguage: String?,
     selectedSubtitleId: String?,
@@ -3407,6 +3416,7 @@ private fun PlayerMenuContent(
     onOpenCaptionLanguage: (String) -> Unit,
     onToggleSubtitles: () -> Unit,
     onDisableSubtitles: () -> Unit,
+    onUpdateSettings: (com.zstream.android.data.local.entity.SettingsEntity) -> Unit,
     onSelectSubtitle: (String) -> Unit,
     onAutoSelectSubtitle: () -> Unit,
     onSetEnableAutoplay: (Boolean) -> Unit,
@@ -3422,6 +3432,7 @@ private fun PlayerMenuContent(
     onSelectAutoQuality: () -> Unit,
     onSelectAudio: (AudioOption) -> Unit,
     onSelectSource: (String) -> Unit,
+    onSwitchVariant: (StreamVariant) -> Unit,
     onOpenSkipSubmission: (SkipSegment?) -> Unit,
     onSeekToMs: (Long) -> Unit,
     onPip: () -> Unit,
@@ -3489,6 +3500,7 @@ private fun PlayerMenuContent(
                     PlayerMenuPage.Root -> ""
                     PlayerMenuPage.Captions -> "Subtitles"
                     PlayerMenuPage.CaptionLanguage -> captionLanguage?.let(::subtitleLanguageName) ?: "Subtitles"
+                    PlayerMenuPage.CaptionSettings -> "Subtitle Settings"
                     PlayerMenuPage.Playback -> "Playback"
                     PlayerMenuPage.AdvancedColor -> "Advanced Color"
                     PlayerMenuPage.Sources -> "Source"
@@ -3499,6 +3511,7 @@ private fun PlayerMenuContent(
                     PlayerMenuPage.SkipSegments -> "Skip Segments"
                     PlayerMenuPage.Seasons -> "Seasons"
                     PlayerMenuPage.Episodes -> currentSeason?.let { "Season $it" } ?: "Episodes"
+                    PlayerMenuPage.Variants -> "Stream Variants"
                 },
                 showBack = true,
                 onBack = onBack,
@@ -3533,11 +3546,12 @@ private fun PlayerMenuContent(
                 PlayerMenuPage.Root -> {
                     PlayerMenuGridSection(
                         firstItemFocusRequester = firstItemFocusRequester,
-                        items = listOf(
+                        items = listOfNotNull(
                             PlayerMenuTileItem("Quality", selectedQualityLabel) { onOpenPage(PlayerMenuPage.Quality) },
                             PlayerMenuTileItem("Source", sourceId ?: "Auto") { onOpenPage(PlayerMenuPage.Sources) },
                             PlayerMenuTileItem("Subtitles", selectedSubtitleLanguage?.let(::subtitleLanguageName) ?: "Off") { onOpenPage(PlayerMenuPage.Captions) },
                             PlayerMenuTileItem("Audio", selectedAudioLabel) { onOpenPage(PlayerMenuPage.Audio) },
+                            if (variants.size > 1) PlayerMenuTileItem("Variants", "${variants.size}") { onOpenPage(PlayerMenuPage.Variants) } else null,
                         )
                     )
                     PlayerMenuSection {
@@ -3549,6 +3563,7 @@ private fun PlayerMenuContent(
                         }
                     }
                     PlayerMenuSection {
+                        PlayerMenuToggleRow("Enable subtitles", subtitlesEnabled, onToggle = onToggleSubtitles)
                         PlayerMenuChevronRow("Playback") {
                             onOpenPage(PlayerMenuPage.Playback)
                         }
@@ -3558,6 +3573,9 @@ private fun PlayerMenuContent(
                     }
                 }
                 PlayerMenuPage.Captions -> {
+                    PlayerMenuSection {
+                        PlayerMenuChevronRow("Subtitle settings") { onOpenPage(PlayerMenuPage.CaptionSettings) }
+                    }
                     PlayerMenuSection {
                         PlayerMenuSelectableRow(
                             title = "Off",
@@ -3610,6 +3628,130 @@ private fun PlayerMenuContent(
                                 onClick = { onSelectSubtitle(track.id) },
                                 focusRequester = firstItemFocusRequester.takeIf { index == 0 },
                                 rightContent = { SubtitleTrackBadges(track) },
+                            )
+                        }
+                    }
+                }
+                PlayerMenuPage.CaptionSettings -> {
+                    PlayerMenuSection {
+                        PlayerMenuToggleRow(
+                            title = "Use native video subtitles",
+                            checked = settings.enableNativeSubtitles,
+                            focusRequester = firstItemFocusRequester,
+                        ) { onUpdateSettings(settings.copy(enableNativeSubtitles = !settings.enableNativeSubtitles)) }
+                        PlayerMenuHintText("Uses the system subtitle renderer. Turn it off to customize subtitle appearance.")
+                    }
+                    if (!settings.enableNativeSubtitles) {
+                        PlayerMenuSection {
+                            PlayerMenuSliderRow(
+                                label = "Background opacity",
+                                value = settings.subtitleBackgroundOpacity * 100f,
+                                valueText = "${(settings.subtitleBackgroundOpacity * 100).toInt()}%",
+                                range = 0f..100f,
+                                steps = 0,
+                                onValueChange = { onUpdateSettings(settings.copy(subtitleBackgroundOpacity = it / 100f)) },
+                                onReset = { onUpdateSettings(settings.copy(subtitleBackgroundOpacity = .25f)) },
+                                isDefault = settings.subtitleBackgroundOpacity == .25f,
+                                tickStep = 5f,
+                            )
+                            PlayerMenuToggleRow("Background blur", settings.subtitleBackgroundBlurEnabled) {
+                                onUpdateSettings(settings.copy(subtitleBackgroundBlurEnabled = !settings.subtitleBackgroundBlurEnabled))
+                            }
+                            if (settings.subtitleBackgroundBlurEnabled) {
+                                PlayerMenuSliderRow(
+                                    label = "Blur amount",
+                                    value = settings.subtitleBackgroundBlur * 100f,
+                                    valueText = "${(settings.subtitleBackgroundBlur * 100).toInt()}%",
+                                    range = 0f..100f,
+                                    steps = 0,
+                                    onValueChange = { onUpdateSettings(settings.copy(subtitleBackgroundBlur = it / 100f)) },
+                                    onReset = { onUpdateSettings(settings.copy(subtitleBackgroundBlur = .25f)) },
+                                    isDefault = settings.subtitleBackgroundBlur == .25f,
+                                    tickStep = 5f,
+                                )
+                            }
+                            PlayerMenuSliderRow(
+                                label = "Text size",
+                                value = settings.subtitleSize * 100f,
+                                valueText = "${(settings.subtitleSize * 100).toInt()}%",
+                                range = 1f..200f,
+                                steps = 0,
+                                onValueChange = { onUpdateSettings(settings.copy(subtitleSize = it / 100f)) },
+                                onReset = { onUpdateSettings(settings.copy(subtitleSize = .75f)) },
+                                isDefault = settings.subtitleSize == .75f,
+                                tickStep = 5f,
+                            )
+                            PlayerMenuFieldTitle("Font style")
+                            PlayerMenuSegmentedOptions(
+                                options = listOf("default" to "Default", "raised" to "Raised", "depressed" to "Inset"),
+                                selected = settings.subtitleFontStyle,
+                                onSelect = { onUpdateSettings(settings.copy(subtitleFontStyle = it)) },
+                            )
+                            PlayerMenuSegmentedOptions(
+                                options = listOf("Border" to "Border", "dropShadow" to "Shadow"),
+                                selected = settings.subtitleFontStyle,
+                                onSelect = { onUpdateSettings(settings.copy(subtitleFontStyle = it)) },
+                            )
+                            if (settings.subtitleFontStyle == "Border") {
+                                PlayerMenuSliderRow(
+                                    label = "Border thickness",
+                                    value = settings.subtitleBorderThickness,
+                                    valueText = "${String.format("%.1f", settings.subtitleBorderThickness)}px",
+                                    range = 0f..10f,
+                                    steps = 0,
+                                    onValueChange = { onUpdateSettings(settings.copy(subtitleBorderThickness = it)) },
+                                    onReset = { onUpdateSettings(settings.copy(subtitleBorderThickness = 1f)) },
+                                    isDefault = settings.subtitleBorderThickness == 1f,
+                                    tickStep = .5f,
+                                )
+                            }
+                            PlayerMenuToggleRow("Bold text", settings.subtitleBold) {
+                                onUpdateSettings(settings.copy(subtitleBold = !settings.subtitleBold))
+                            }
+                            PlayerMenuFieldTitle("Text color")
+                            PlayerMenuColorOptions(settings.subtitleColor) {
+                                onUpdateSettings(settings.copy(subtitleColor = it))
+                            }
+                            PlayerMenuSliderRow(
+                                label = "Vertical position",
+                                value = settings.subtitleVerticalPosition,
+                                valueText = "${settings.subtitleVerticalPosition.toInt()}rem",
+                                range = 0f..30f,
+                                steps = 0,
+                                onValueChange = { onUpdateSettings(settings.copy(subtitleVerticalPosition = it)) },
+                                onReset = { onUpdateSettings(settings.copy(subtitleVerticalPosition = 1f)) },
+                                isDefault = settings.subtitleVerticalPosition == 1f,
+                                tickStep = 1f,
+                            )
+                            PlayerMenuSliderRow(
+                                label = "Line spacing",
+                                value = settings.subtitleLineHeight * 100f,
+                                valueText = "${(settings.subtitleLineHeight * 100).toInt()}%",
+                                range = 100f..250f,
+                                steps = 0,
+                                onValueChange = { onUpdateSettings(settings.copy(subtitleLineHeight = it / 100f)) },
+                                onReset = { onUpdateSettings(settings.copy(subtitleLineHeight = 1.5f)) },
+                                isDefault = settings.subtitleLineHeight == 1.5f,
+                                tickStep = 5f,
+                            )
+                            ZsButton(
+                                text = "Reset",
+                                onClick = {
+                                    onUpdateSettings(settings.copy(
+                                        subtitleColor = "#ffffff",
+                                        subtitleSize = .75f,
+                                        subtitleBackgroundOpacity = .25f,
+                                        subtitleBackgroundBlur = .25f,
+                                        subtitleBackgroundBlurEnabled = true,
+                                        subtitleBold = false,
+                                        subtitleVerticalPosition = 1f,
+                                        subtitleFontStyle = "default",
+                                        subtitleBorderThickness = 1f,
+                                        subtitleLineHeight = 1.5f,
+                                    ))
+                                },
+                                variant = ZsButtonVariant.Secondary,
+                                modifier = Modifier.fillMaxWidth(),
                             )
                         }
                     }
@@ -3759,7 +3901,7 @@ private fun PlayerMenuContent(
                         PlayerMenuSection {
                             sourceResults.forEachIndexed { index, source ->
                                 PlayerMenuSelectableRow(
-                                    title = sourceDisplayName(source.id),
+                                    title = sourceDisplayName(source.id, source.codec),
                                     subtitle = source.status.name.lowercase().replaceFirstChar { it.uppercase() },
                                     selected = source.id == sourceId,
                                     onClick = {
@@ -3775,6 +3917,24 @@ private fun PlayerMenuContent(
                         }
                     } else {
                         PlayerMenuStubCard("Manual source selection is currently disabled in app settings.")
+                    }
+                }
+                PlayerMenuPage.Variants -> {
+                    PlayerMenuSection {
+                        variants.forEachIndexed { index, variant ->
+                            PlayerMenuSelectableRow(
+                                title = variant.displayLabel().ifBlank { "Variant ${index + 1}" },
+                                selected = variant.streamUrl == streamUrl,
+                                onClick = {
+                                    onClose()
+                                    onSwitchVariant(variant)
+                                },
+                                focusRequester = if (index == 0) firstItemFocusRequester else null
+                            )
+                        }
+                    }
+                    if (variants.isEmpty()) {
+                        PlayerMenuStubCard("No stream variants available for this source.")
                     }
                 }
                 PlayerMenuPage.Quality -> {
@@ -4625,6 +4785,41 @@ private fun PlayerMenuSegmentedOptions(
 }
 
 @Composable
+private fun PlayerMenuColorOptions(selected: String, onSelect: (String) -> Unit) {
+    val isTv = LocalIsTv.current
+    val colors = listOf("#ffffff", "#80b1fa", "#e2e535", "#10B239")
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        colors.forEach { hex ->
+            var focused by remember { mutableStateOf(false) }
+            val color = Color(android.graphics.Color.parseColor(hex))
+            ZsOutlinedWrapper(
+                visible = focused && isTv,
+                shape = CircleShape,
+                outlineColor = Color.White,
+                gap = 3.dp,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(38.dp)
+                        .clip(CircleShape)
+                        .background(color)
+                        .border(
+                            if (selected.equals(hex, true)) 3.dp else 1.dp,
+                            if (selected.equals(hex, true)) Color.White else Color.White.copy(alpha = .25f),
+                            CircleShape,
+                        )
+                        .onFocusChanged { focused = it.isFocused }
+                        .clickable { onSelect(hex) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun PlayerMenuChevronRow(title: String, value: String? = null, onClick: () -> Unit) {
     val theme = LocalZStreamTheme.current
     val isTv = LocalIsTv.current
@@ -5044,11 +5239,19 @@ private fun ManualSourceStatusContent(source: SourceResult, onUse: () -> Unit) {
     }
 }
 
-private fun sourceDisplayName(id: String): String = when (id.lowercase()) {
-    "vidlink" -> "VidLink"
-    else -> id.split('-', '_').joinToString(" ") { token ->
-        token.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+private fun sourceDisplayName(id: String, codec: String = ""): String {
+    val name = when (id.lowercase()) {
+        "vidlink" -> "VidLink"
+        else -> id.split('-', '_').joinToString(" ") { token ->
+            token.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+        }
     }
+    val codecLabel = when (codec.lowercase()) {
+        "hevc", "h265" -> "HEVC"
+        "h264", "avc"  -> "H.264"
+        else -> ""
+    }
+    return if (codecLabel.isNotEmpty()) "$name • $codecLabel" else name
 }
 
 @Composable
