@@ -658,6 +658,18 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     if (player.isPlaying) player.pause() else player.play()
                 }
 
+                // Re-load when the variant switches — streamUrl changes but player instance stays the same
+                LaunchedEffect(player, s.streamUrl) {
+                    val current = player.currentMediaItem?.localConfiguration?.uri?.toString()
+                    if (current == s.streamUrl) return@LaunchedEffect  // already playing this URL
+                    val mediaItem = MediaItem.Builder()
+                        .setUri(s.streamUrl)
+                        .build()
+                    player.setMediaItem(mediaItem)
+                    player.prepare()
+                    player.playWhenReady = true
+                }
+
                 LaunchedEffect(isClosingPip) {
                     if (!isClosingPip) return@LaunchedEffect
                     val initialVolume = player.volume
@@ -3546,15 +3558,21 @@ private fun PlayerMenuContent(
                 PlayerMenuPage.Root -> {
                     PlayerMenuGridSection(
                         firstItemFocusRequester = firstItemFocusRequester,
-                        items = listOfNotNull(
+                        items = listOf(
                             PlayerMenuTileItem("Quality", selectedQualityLabel) { onOpenPage(PlayerMenuPage.Quality) },
                             PlayerMenuTileItem("Source", sourceId ?: "Auto") { onOpenPage(PlayerMenuPage.Sources) },
                             PlayerMenuTileItem("Subtitles", selectedSubtitleLanguage?.let(::subtitleLanguageName) ?: "Off") { onOpenPage(PlayerMenuPage.Captions) },
                             PlayerMenuTileItem("Audio", selectedAudioLabel) { onOpenPage(PlayerMenuPage.Audio) },
-                            if (variants.size > 1) PlayerMenuTileItem("Variants", "${variants.size}") { onOpenPage(PlayerMenuPage.Variants) } else null,
                         )
                     )
                     PlayerMenuSection {
+                        if (variants.size > 1) {
+                            val currentVariant = variants.find { it.streamUrl == streamUrl }
+                            PlayerMenuChevronRow(
+                                title = "Stream Variants",
+                                value = currentVariant?.displayLabel() ?: "${variants.size} variants",
+                            ) { onOpenPage(PlayerMenuPage.Variants) }
+                        }
                         PlayerMenuLinkRow("Download", rightIcon = Icons.Filled.Download) {
                             onOpenPage(PlayerMenuPage.Download)
                         }
@@ -3921,14 +3939,21 @@ private fun PlayerMenuContent(
                 }
                 PlayerMenuPage.Variants -> {
                     PlayerMenuSection {
+                        // Deduplicate labels — if multiple variants share the same label, append " (1)", " (2)"
+                        val labelCounts = variants.groupBy { it.displayLabel() }.mapValues { it.value.size }
+                        val labelIndices = mutableMapOf<String, Int>()
                         variants.forEachIndexed { index, variant ->
+                            val base = variant.displayLabel()
+                            val count = labelCounts[base] ?: 1
+                            val label = if (count > 1) {
+                                val idx = (labelIndices[base] ?: 0) + 1
+                                labelIndices[base] = idx
+                                "$base ($idx)"
+                            } else base
                             PlayerMenuSelectableRow(
-                                title = variant.displayLabel().ifBlank { "Variant ${index + 1}" },
+                                title = label,
                                 selected = variant.streamUrl == streamUrl,
-                                onClick = {
-                                    onClose()
-                                    onSwitchVariant(variant)
-                                },
+                                onClick = { onSwitchVariant(variant) },
                                 focusRequester = if (index == 0) firstItemFocusRequester else null
                             )
                         }

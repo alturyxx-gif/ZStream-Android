@@ -93,12 +93,13 @@ data class SubtitleTrack(
 
 data class StreamVariant(
     val id: String,
+    val name: String,
     val quality: String,
     val codec: String,
     val tag: String,
     val streamUrl: String,
 ) {
-    /** Label shown in the variant picker: e.g. "4K · HEVC · HDR" */
+    /** Label shown in the variant picker: e.g. "4K · HEVC · HDR", falls back to API name */
     fun displayLabel(): String {
         val parts = mutableListOf<String>()
         if (quality.isNotBlank()) parts += quality
@@ -113,7 +114,9 @@ data class StreamVariant(
             "remux" -> parts += "REMUX"
             "bw"    -> parts += "B&W"
         }
-        return parts.joinToString(" · ")
+        val derived = parts.joinToString(" · ")
+        // Fall back to the raw name if we can't derive a meaningful label
+        return derived.ifBlank { name.ifBlank { id } }
     }
 }
 
@@ -590,7 +593,7 @@ class PlayerViewModel @Inject constructor(
                                 sources    = success,
                                 sourceId   = source.id,
                                 variants   = result.variants.map { v ->
-                                    StreamVariant(id = v.id, quality = v.quality, codec = v.codec, tag = v.tag, streamUrl = v.streamUrl)
+                                    StreamVariant(id = v.id, name = v.name, quality = v.quality, codec = v.codec, tag = v.tag, streamUrl = v.streamUrl)
                                 },
                             )
 
@@ -668,7 +671,7 @@ class PlayerViewModel @Inject constructor(
                             sources   = success,
                             sourceId  = sourceId,
                             variants  = result.variants.map { v ->
-                                StreamVariant(id = v.id, quality = v.quality, codec = v.codec, tag = v.tag, streamUrl = v.streamUrl)
+                                StreamVariant(id = v.id, name = v.name, quality = v.quality, codec = v.codec, tag = v.tag, streamUrl = v.streamUrl)
                             },
                         )
                         sources.clear(); sources.addAll(success)
