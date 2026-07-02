@@ -192,14 +192,20 @@ class PluginLoader @Inject constructor(
     /**
      * Loads the plugin APK via DexClassLoader and returns a [StreamPlugin] instance.
      * Marks [file] read-only before loading.
+     * Extracts native libraries from the APK into a private dir so DexClassLoader can find them.
      * Throws if the entry class is missing or does not implement [StreamPlugin].
      */
     fun load(file: File): StreamPlugin {
         file.setReadOnly()
+
+        // Extract native libs from the APK into a private dir keyed by APK name.
+        // DexClassLoader requires a filesystem path — it cannot load .so directly from a ZIP.
+        val nativeLibDir = extractNativeLibs(file)
+
         val classLoader = dalvik.system.DexClassLoader(
             file.absolutePath,
             dexCacheDir().absolutePath,
-            null,
+            nativeLibDir?.absolutePath,
             PluginLoader::class.java.classLoader,
         )
         val clazz = classLoader.loadClass(PluginConstants.ENTRY_CLASS)
@@ -209,6 +215,33 @@ class PluginLoader @Inject constructor(
                 "${PluginConstants.ENTRY_CLASS} does not implement StreamPlugin. " +
                     "Ensure the plugin was compiled against a compatible plugin-api version."
             )
+    }
+
+    /**
+     * Extracts .so files for the current ABI from the plugin APK into a private directory.
+     * Returns the directory, or null if no native libs are present.
+     */
+    private fun extractNativeLibs(apkFile: File): File? {
+        val abi = Build.SUPPORTED_ABIS.firstOrNull() ?: return null
+        val outDir = context.filesDir.resolve("plugin-native/${apkFile.nameWithoutExtension}/$abi")
+        outDir.mkdirs()
+
+        var found = false
+        java.util.zip.ZipFile(apkFile).use { zip ->
+            val prefix = "lib/$abi/"
+            zip.entries().asSequence()
+                .filter { it.name.startsWith(prefix) && it.name.endsWith(".so") }
+                .forEach { entry ->
+                    val soFile = outDir.resolve(entry.name.removePrefix(prefix))
+                    if (!soFile.exists()) {
+                        zip.getInputStream(entry).use { input ->
+                            soFile.outputStream().use { output -> input.copyTo(output) }
+                        }
+                    }
+                    found = true
+                }
+        }
+        return if (found) outDir else null
     }
 
     // -------------------------------------------------------------------------
