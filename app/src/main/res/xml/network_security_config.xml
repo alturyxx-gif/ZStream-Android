@@ -1,6 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-    <base-config cleartextTrafficPermitted="true" />
+    <!--
+        Android 7.0 (API 24) ships without ISRG Root X1 in its system trust store,
+        causing TLS handshake failures against image.tmdb.org and other Let's Encrypt
+        backed servers. Bundling it here extends the system store for all connections
+        made by the app, fixing the issue on all API levels without affecting security.
+    -->
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="@raw/isrg_root_x1" />
+        </trust-anchors>
+    </base-config>
     <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="false">127.0.0.1</domain>
     </domain-config>
