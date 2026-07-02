@@ -1,3 +1,6 @@
 [submodule "libadb-android"]
 	path = libadb-android
 	url = https://github.com/alturyxx-gif/libadb-android
+[submodule "plugin-api"]
+	path = plugin-api
+	url = https://github.com/alturyxx-gif/plugin-api.git

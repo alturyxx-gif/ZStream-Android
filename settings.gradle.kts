@@ -27,3 +27,4 @@ rootProject.name = "ZStream-Android"
 include(":app")
 include(":libadb")
 project(":libadb").projectDir = file("libadb-android/libadb")
+include(":plugin-api")

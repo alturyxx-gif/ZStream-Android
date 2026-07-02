@@ -51,8 +51,6 @@ data class SettingsEntity(
     val manualSourceSelection: Boolean = false,
     val sourceOrder: List<String> = emptyList(),
     val enableSourceOrder: Boolean = false,
-    val embedOrder: List<String> = emptyList(),
-    val enableEmbedOrder: Boolean = false,
 
     // External Services
     val proxyUrls: List<String> = emptyList(),
@@ -129,8 +127,6 @@ data class SettingsEntity(
         json.put("manualSourceSelection", manualSourceSelection)
         json.put("sourceOrder", JSONArray(sourceOrder))
         json.put("enableSourceOrder", enableSourceOrder)
-        json.put("embedOrder", JSONArray(embedOrder))
-        json.put("enableEmbedOrder", enableEmbedOrder)
         json.put("enableImageLogos", enableImageLogos)
         json.put("enableCarouselView", enableCarouselView)
         json.put("enableMinimalCards", enableMinimalCards)

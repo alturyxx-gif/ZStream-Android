@@ -6,7 +6,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.zstream.android.data.BookmarkRepository
 import com.zstream.android.data.TmdbRepository
-import com.zstream.android.provider.ProviderEngine
+import com.zstream.android.plugin.PluginManager
+import com.zstream.android.plugin.SourceOrderStore
+import com.zstream.plugin.api.Caption
+import com.zstream.plugin.api.MediaRequest as PluginMediaRequest
+import com.zstream.plugin.api.StreamResult
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -71,7 +75,6 @@ sealed class PlayerState {
         val subtitles: List<SubtitleTrack>,
         val sources: List<SourceResult>,
         val sourceId: String? = null,
-        val embedId: String? = null,
     ) : PlayerState()
     data class Error(val message: String, val sources: List<SourceResult>) : PlayerState()
 }
@@ -155,7 +158,8 @@ data class AutoplayEpisodeTarget(
 
 @HiltViewModel
 class PlayerViewModel @Inject constructor(
-    private val engine: ProviderEngine,
+    private val pluginManager: PluginManager,
+    private val sourceOrderStore: SourceOrderStore,
     private val settingsPrefs: SettingsPreferences,
     private val bookmarkRepo: BookmarkRepository,
     private val traktRepository: com.zstream.android.data.TraktRepository,
@@ -419,7 +423,16 @@ class PlayerViewModel @Inject constructor(
         watchPartyManager.clearLocalState(localStateOwner)
     }
 
-    fun getProxyPort() = engine.proxy.port
+    fun reorderSources(newOrder: List<String>) {
+        viewModelScope.launch { sourceOrderStore.saveOrder(newOrder) }
+    }
+
+    private fun buildPluginMediaRequest() = PluginMediaRequest(
+        type = if (mediaType == "tv") PluginMediaRequest.Type.SHOW else PluginMediaRequest.Type.MOVIE,
+        tmdbId = id.toString(),
+        season = season,
+        episode = episode,
+    )
 
     fun loadSkipSegments(durationMs: Long) {
         val cacheKey = buildSkipSegmentsCacheKey() ?: return
@@ -477,65 +490,100 @@ class PlayerViewModel @Inject constructor(
         viewModelScope.launch {
             runCatching {
                 val settingsValue = settingsPrefs.settings.first()
+                val pluginSources = pluginManager.availableSources()
+
                 if (selectedSourceId == null && settingsValue.manualSourceSelection) {
-                    val availableSources = engine.sourceIds().map { SourceResult(it, SourceStatus.IDLE) }
+                    val orderedSources = sourceOrderStore.getOrderedSources(pluginSources)
+                    val availableSources = orderedSources.map { SourceResult(it.id, SourceStatus.IDLE) }
                     sources.clear()
                     sources.addAll(availableSources)
                     _state.value = PlayerState.ManualSourceSelection(availableSources)
                     return@runCatching
                 }
 
-                _state.value = PlayerState.Scraping(emptyList())
-
-                val mediaInput = buildMap<String, Any> {
-                    put("type", if (mediaType == "tv") "show" else "movie")
-                    put("tmdbId", id.toString())
-                    put("title", title)
-                    put("releaseYear", year)
-                    if (mediaType == "tv" && season != null && episode != null) {
-                        put("season", mapOf("number" to season, "tmdbId" to "", "title" to "Season $season"))
-                        put("episode", mapOf("number" to episode, "tmdbId" to "", "title" to "Episode $episode"))
-                    }
-                }
-
-                val result = if (selectedSourceId != null) {
-                    engine.runSelected(mediaInput, selectedSourceId) { evt ->
-                        handleEvent(evt)
-                    }
+                val orderedSources = if (selectedSourceId != null) {
+                    pluginSources.filter { it.id == selectedSourceId }
                 } else {
-                    engine.runAll(mediaInput) { evt ->
-                        handleEvent(evt)
+                    var ordered = sourceOrderStore.getOrderedSources(pluginSources)
+                    // Boost last successful source to front if setting enabled
+                    if (settingsValue.enableLastSuccessfulSource) {
+                        val lastId = settingsValue.lastSuccessfulSource
+                        if (lastId != null) {
+                            val boosted = ordered.filter { it.id == lastId }
+                            val rest = ordered.filter { it.id != lastId }
+                            ordered = boosted + rest
+                        }
+                    }
+                    ordered
+                }
+
+                if (orderedSources.isEmpty()) {
+                    _state.value = PlayerState.Error("Plugin has no sources available", emptyList())
+                    return@runCatching
+                }
+
+                val initialSources = orderedSources.map { SourceResult(it.id, SourceStatus.IDLE) }
+                sources.clear()
+                sources.addAll(initialSources)
+                _state.value = PlayerState.Scraping(sources.toList())
+
+                val media = buildPluginMediaRequest()
+
+                for (source in orderedSources) {
+                    val updated = sources.map {
+                        if (it.id == source.id) it.copy(status = SourceStatus.TRYING) else it
+                    }
+                    sources.clear()
+                    sources.addAll(updated)
+                    _state.value = PlayerState.Scraping(sources.toList())
+
+                    val result = pluginManager.resolve(media, source.id)
+
+                    when (result) {
+                        is StreamResult.Success -> {
+                            val success = sources.map {
+                                if (it.id == source.id) it.copy(status = SourceStatus.SUCCESS) else it
+                            }
+                            sources.clear()
+                            sources.addAll(success)
+
+                            // Save last successful source
+                            viewModelScope.launch {
+                                settingsPrefs.updateSettings(settings.value.copy(lastSuccessfulSource = source.id))
+                            }
+
+                            subtitleSearchLanguage = settingsValue.defaultSubtitleLanguage ?: "en"
+                            val subtitles = result.captions.map { it.toSubtitleTrack() }.toMutableList()
+                            fetchExternalSubtitles(subtitles)
+
+                            _state.value = PlayerState.Ready(
+                                streamUrl  = result.streamUrl,
+                                headers    = result.headers,
+                                subtitles  = subtitles,
+                                sources    = success,
+                                sourceId   = source.id,
+                            )
+
+                            if (settingsValue.subtitlesEnabled && subtitles.isNotEmpty()) {
+                                downloadAndParseSubtitles(subtitles)
+                            }
+                            return@runCatching
+                        }
+                        is StreamResult.NotFound, is StreamResult.Error -> {
+                            val failed = sources.map {
+                                if (it.id == source.id) it.copy(status = SourceStatus.FAILED) else it
+                            }
+                            sources.clear()
+                            sources.addAll(failed)
+                            _state.value = PlayerState.Scraping(sources.toList())
+                        }
                     }
                 }
-                Log.d("PlayerVM", "runAll result: ${result.toString().take(500)}")
 
-                if (!result.optBoolean("ok", false)) {
-                    _state.value = PlayerState.Error(result.optString("error", "No sources found"), sources.toList())
-                    return@runCatching
-                }
+                _state.value = PlayerState.Error("No playable stream found", sources.toList())
 
-                val data = result.optJSONObject("data")
-                // RunOutput: { sourceId, embedId?, stream: Stream }
-                val stream = data?.optJSONObject("stream")
-                val streamUrl = stream?.let { findStreamUrl(it) }
-                Log.d("PlayerVM", "stream type=${stream?.optString("type")} url=$streamUrl")
-                Log.d("PlayerVM", "stream headers=${stream?.optJSONObject("headers")}")
-
-                if (streamUrl == null) {
-                    _state.value = PlayerState.Error("No playable stream found", sources.toList())
-                    return@runCatching
-                }
-
-                val readyState = buildReadyState(data, streamUrl)
-                Log.d("PlayerVM", "parsed headers: ${readyState.headers}, subtitles: ${readyState.subtitles.size}")
-                _state.value = readyState
-
-                // Mirror web behavior: subtitle on/off is a local persisted preference.
-                if (settings.value.subtitlesEnabled && readyState.subtitles.isNotEmpty()) {
-                    downloadAndParseSubtitles(readyState.subtitles)
-                }
             }.onFailure {
-                Log.e("PlayerVM", "error: ${it.message}", it)
+                Log.e("PlayerVM", "load error: ${it.message}", it)
                 _state.value = PlayerState.Error(it.message ?: "Unknown error", sources.toList())
             }
         }
@@ -550,8 +598,9 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun probeSource(sourceId: String) {
+        val pluginSources = pluginManager.availableSources()
         val currentSources = if (sources.isEmpty()) {
-            engine.sourceIds().map { SourceResult(it, SourceStatus.IDLE) }.also {
+            pluginSources.map { SourceResult(it.id, SourceStatus.IDLE) }.also {
                 sources.clear()
                 sources.addAll(it)
             }
@@ -566,61 +615,72 @@ class PlayerViewModel @Inject constructor(
 
         viewModelScope.launch {
             runCatching {
-                val mediaInput = buildMap<String, Any> {
-                    put("type", if (mediaType == "tv") "show" else "movie")
-                    put("tmdbId", id.toString())
-                    put("title", title)
-                    put("releaseYear", year)
-                    if (mediaType == "tv" && season != null && episode != null) {
-                        put("season", mapOf("number" to season, "tmdbId" to "", "title" to "Season $season"))
-                        put("episode", mapOf("number" to episode, "tmdbId" to "", "title" to "Episode $episode"))
+                val media = buildPluginMediaRequest()
+                when (val result = pluginManager.resolve(media, sourceId)) {
+                    is StreamResult.NotFound -> {
+                        val failed = updated.map { if (it.id == sourceId) it.copy(status = SourceStatus.FAILED) else it }
+                        sources.clear(); sources.addAll(failed)
+                        _state.value = PlayerState.ManualSourceSelection(failed, selectedSourceId = sourceId, candidate = null, message = "Not available")
+                    }
+                    is StreamResult.Error -> {
+                        val failed = updated.map { if (it.id == sourceId) it.copy(status = SourceStatus.FAILED) else it }
+                        sources.clear(); sources.addAll(failed)
+                        _state.value = PlayerState.ManualSourceSelection(failed, selectedSourceId = sourceId, candidate = null, message = result.message)
+                    }
+                    is StreamResult.Success -> {
+                        val success = updated.map { if (it.id == sourceId) it.copy(status = SourceStatus.SUCCESS) else it }
+                        val subtitles = result.captions.map { it.toSubtitleTrack() }.toMutableList()
+                        fetchExternalSubtitles(subtitles)
+                        val candidate = PlayerState.Ready(
+                            streamUrl = result.streamUrl,
+                            headers   = result.headers,
+                            subtitles = subtitles,
+                            sources   = success,
+                            sourceId  = sourceId,
+                        )
+                        sources.clear(); sources.addAll(success)
+                        _state.value = PlayerState.ManualSourceSelection(success, selectedSourceId = sourceId, candidate = candidate, message = null)
                     }
                 }
-                val result = engine.runSelected(mediaInput, sourceId) { }
-                if (!result.optBoolean("ok", false)) {
-                    val failed = updated.map { if (it.id == sourceId) it.copy(status = SourceStatus.FAILED) else it }
-                    sources.clear()
-                    sources.addAll(failed)
-                    _state.value = PlayerState.ManualSourceSelection(
-                        failed,
-                        selectedSourceId = sourceId,
-                        candidate = null,
-                        message = result.optString("error", "Source did not return a playable stream")
-                    )
-                    return@runCatching
-                }
-                val data = result.optJSONObject("data")
-                val stream = data?.optJSONObject("stream")
-                val streamUrl = stream?.let { findStreamUrl(it) }
-                if (streamUrl == null) {
-                    val failed = updated.map { if (it.id == sourceId) it.copy(status = SourceStatus.FAILED) else it }
-                    sources.clear()
-                    sources.addAll(failed)
-                    _state.value = PlayerState.ManualSourceSelection(
-                        failed,
-                        selectedSourceId = sourceId,
-                        candidate = null,
-                        message = "No playable stream found"
-                    )
-                    return@runCatching
-                }
-                val success = updated.map { if (it.id == sourceId) it.copy(status = SourceStatus.SUCCESS) else it }
-                val candidate = buildReadyState(data, streamUrl, success)
-                sources.clear()
-                sources.addAll(success)
-                _state.value = PlayerState.ManualSourceSelection(success, selectedSourceId = sourceId, candidate = candidate, message = null)
             }.onFailure {
                 val failed = updated.map { if (it.id == sourceId) it.copy(status = SourceStatus.FAILED) else it }
-                sources.clear()
-                sources.addAll(failed)
-                _state.value = PlayerState.ManualSourceSelection(
-                    failed,
-                    selectedSourceId = sourceId,
-                    candidate = null,
-                    message = it.message ?: "Failed to probe source"
-                )
+                sources.clear(); sources.addAll(failed)
+                _state.value = PlayerState.ManualSourceSelection(failed, selectedSourceId = sourceId, candidate = null, message = it.message ?: "Failed to probe source")
             }
         }
+    }
+
+    private fun Caption.toSubtitleTrack() = SubtitleTrack(
+        label    = language,
+        url      = url,
+        language = langIso,
+        type     = type,
+        id       = url,
+        source   = "plugin",
+        external = false,
+    )
+
+    /** Fetches Wyzie external subtitles and merges into [tracks]. */
+    private suspend fun fetchExternalSubtitles(tracks: MutableList<SubtitleTrack>) = coroutineScope {
+        val language = settings.value.defaultSubtitleLanguage ?: "en"
+        val external = listOf(
+            async { fetchWyzieSubtitles(language) },
+            async { fetchOpenSubtitles(language) },
+            async { fetchGraniteSubtitles(language) },
+        ).flatMap { it.await() }.distinctBy { it.id }
+        tracks.addAll(external)
+    }
+
+    private suspend fun refreshExternalSubtitles(language: String) {
+        val current = _state.value as? PlayerState.Ready ?: return
+        val external = coroutineScope {
+            listOf(
+                async { fetchWyzieSubtitles(language) },
+                async { fetchOpenSubtitles(language) },
+                async { fetchGraniteSubtitles(language) },
+            ).flatMap { it.await() }
+        }.distinctBy { it.id }
+        _state.value = current.copy(subtitles = (current.subtitles.filterNot { it.external } + external).distinctBy { it.id })
     }
 
     fun confirmManualSourceSelection() {
@@ -1036,67 +1096,6 @@ class PlayerViewModel @Inject constructor(
         return runCatching { URLDecoder.decode(this, "UTF-8") }.getOrDefault(this)
     }
 
-    private fun handleEvent(evt: JSONObject) {
-        when (evt.optString("event")) {
-            "init" -> {
-                val ids = evt.optJSONArray("sourceIds") ?: return
-                sources.clear()
-                for (i in 0 until ids.length()) sources.add(SourceResult(ids.getString(i), SourceStatus.TRYING))
-                _state.value = PlayerState.Scraping(sources.toList())
-            }
-            "start" -> {
-                val id = evt.optString("id")
-                updateSource(id, SourceStatus.TRYING)
-            }
-            "update" -> {
-                val id = evt.optString("id")
-                val status = when (evt.optString("status")) {
-                    "success" -> SourceStatus.SUCCESS
-                    "failure", "notfound" -> SourceStatus.FAILED
-                    else -> SourceStatus.TRYING
-                }
-                updateSource(id, status)
-            }
-        }
-    }
-
-    private fun updateSource(id: String, status: SourceStatus) {
-        val idx = sources.indexOfFirst { it.id == id }
-        if (idx >= 0) sources[idx] = SourceResult(id, status)
-        else sources.add(SourceResult(id, status))
-        if (_state.value is PlayerState.Scraping) {
-            _state.value = PlayerState.Scraping(sources.toList())
-        }
-    }
-
-    private suspend fun buildReadyState(
-        data: JSONObject?,
-        streamUrl: String,
-        sourceList: List<SourceResult> = sources.toList()
-    ): PlayerState.Ready {
-        val stream = data?.optJSONObject("stream")
-        val headers = parseStreamHeaders(streamUrl)
-        subtitleSearchLanguage = settings.value.defaultSubtitleLanguage ?: "en"
-        val subtitleTracks = (fetchExternalSubtitles(subtitleSearchLanguage) + parseSubtitles(stream)).distinctBy { it.id }
-        val sourceId = data?.optString("sourceId")?.takeIf { it.isNotBlank() }
-        val embedId = data?.optString("embedId")?.takeIf { it.isNotBlank() }
-        return PlayerState.Ready(streamUrl, headers, subtitleTracks, sourceList, sourceId, embedId)
-    }
-
-    private suspend fun fetchExternalSubtitles(language: String): List<SubtitleTrack> = coroutineScope {
-        listOf(
-            async { fetchWyzieSubtitles(language) },
-            async { fetchOpenSubtitles(language) },
-            async { fetchGraniteSubtitles(language) },
-        ).flatMap { it.await() }.distinctBy { it.id }
-    }
-
-    private suspend fun refreshExternalSubtitles(language: String) {
-        val current = _state.value as? PlayerState.Ready ?: return
-        val external = fetchExternalSubtitles(language)
-        _state.value = current.copy(subtitles = (current.subtitles.filterNot { it.external } + external).distinctBy { it.id })
-    }
-
     private suspend fun fetchWyzieSubtitles(language: String): List<SubtitleTrack> = withContext(Dispatchers.IO) {
         val key = settings.value.wyzieKey ?: return@withContext emptyList()
         val url = "https://sub.wyzie.io/search".toHttpUrl().newBuilder()
@@ -1169,47 +1168,4 @@ class PlayerViewModel @Inject constructor(
         }.onFailure { Log.w("PlayerVM", "Granite subtitle lookup failed", it) }.getOrDefault(emptyList())
     }
 
-    private fun findStreamUrl(stream: JSONObject): String? {
-        return when (stream.optString("type")) {
-            "hls" -> stream.optString("playlist").takeIf { it.isNotEmpty() }
-            "file" -> {
-                val qualities = stream.optJSONObject("qualities") ?: return null
-                // prefer highest quality
-                for (q in listOf("4k", "1080", "720", "480", "360", "unknown")) {
-                    val url = qualities.optJSONObject(q)?.optString("url")
-                    if (!url.isNullOrEmpty()) return url
-                }
-                null
-            }
-            else -> null
-        }
-    }
-
-    private fun parseStreamHeaders(url: String): Map<String, String> {
-        return try {
-            val encodedHeaders = android.net.Uri.parse(url).getQueryParameter("headers") ?: return emptyMap()
-            val obj = org.json.JSONObject(encodedHeaders)
-            obj.keys().asSequence().associateWith { obj.getString(it) }
-        } catch (e: Exception) { emptyMap() }
-    }
-
-    private fun parseSubtitles(stream: JSONObject?): List<SubtitleTrack> {
-        val arr = stream?.optJSONArray("captions") ?: return emptyList()
-        return (0 until arr.length()).mapNotNull { i ->
-            val obj = arr.optJSONObject(i) ?: return@mapNotNull null
-            val url = obj.optString("url").takeIf { it.isNotEmpty() } ?: return@mapNotNull null
-            val label = obj.optString("language", "Unknown")
-            val language = normalizeLanguageCode(obj.optString("langIso").takeIf { it.isNotBlank() } ?: label)
-            val type = obj.optString("type", "vtt")
-            SubtitleTrack(
-                label = label,
-                url = url,
-                language = language,
-                type = type,
-                id = obj.optString("id").takeIf { it.isNotBlank() } ?: url,
-                source = obj.optString("source").takeIf { it.isNotBlank() },
-                hearingImpaired = obj.optBoolean("isHearingImpaired"),
-            )
-        }
-    }
 }

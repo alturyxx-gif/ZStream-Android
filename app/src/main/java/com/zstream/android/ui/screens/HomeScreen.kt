@@ -1,6 +1,5 @@
 package com.zstream.android.ui.screens
 
-import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.util.Log
@@ -11,7 +10,6 @@ import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.BringIntoViewSpec
 import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -19,8 +17,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
@@ -58,11 +54,9 @@ import dev.chrisbanes.haze.hazeEffect
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.HazeProgressive
 import dev.chrisbanes.haze.rememberHazeState
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.requestFocus
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.geometry.Offset
@@ -87,10 +81,8 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalUriHandler
-import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.text.AnnotatedString
@@ -100,7 +92,6 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.sp
@@ -108,9 +99,6 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
-import androidx.datastore.preferences.core.edit
-import androidx.datastore.preferences.core.stringPreferencesKey
-import androidx.datastore.preferences.preferencesDataStore
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import androidx.lifecycle.Lifecycle
@@ -123,7 +111,6 @@ import com.zstream.android.data.adb.ReleaseUpdateManager
 import com.zstream.android.data.adb.ReleaseUpdateNavigation
 import com.zstream.android.data.adb.TvAdbManager
 import com.zstream.android.data.local.entity.BookmarkEntity
-import com.zstream.android.data.local.preferences.UserPreferences
 import com.zstream.android.data.model.Media
 import com.zstream.android.theme.LocalZStreamTheme
 import com.zstream.android.ui.LocalIsTv
@@ -131,12 +118,9 @@ import com.zstream.android.ui.components.themed.ZsIconButton
 import com.zstream.android.ui.components.themed.ZsIconButtonVariant
 import com.zstream.android.ui.components.themed.ZsTextButton
 import com.zstream.android.ui.components.themed.ZsOutlinedWrapper
-import com.zstream.android.ui.components.themed.ZsTextField
 import kotlinx.coroutines.Dispatchers
 import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.sin
@@ -2800,7 +2784,7 @@ private fun SandwichMenuDialog(
                 HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp), color = theme.colors.type.divider.copy(alpha = 0.15f))
 
                 val links = listOf(
-                    Icons.Default.Code to Urls.GITHUB_REPO,
+                    Icons.Default.Code to Urls.APP_GITHUB_REPO,
                 )
                 Row(
                     modifier = Modifier
@@ -2827,7 +2811,7 @@ private fun SandwichMenuDialog(
                                         CircleShape
                                     )
                                     .onFocusChanged { isLinkFocused = it.isFocused }
-                                    .clickable { uriHandler.openUri(Urls.GITHUB_REPO) },
+                                    .clickable { uriHandler.openUri(Urls.APP_GITHUB_REPO) },
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(Icons.Default.Code, null, tint = theme.colors.type.secondary, modifier = Modifier.size(18.dp))
@@ -2965,7 +2949,7 @@ private fun SandwichMenuDialog(
                                     theme.colors.type.divider.copy(alpha = 0.3f),
                                     CircleShape
                                 )
-                                .clickable { uriHandler.openUri(Urls.GITHUB_REPO) },
+                                .clickable { uriHandler.openUri(Urls.APP_GITHUB_REPO) },
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(Icons.Default.Code, null, tint = theme.colors.type.secondary, modifier = Modifier.size(24.dp))
