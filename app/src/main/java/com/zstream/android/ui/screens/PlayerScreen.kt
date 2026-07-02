@@ -3,16 +3,12 @@ package com.zstream.android.ui.screens
 import androidx.compose.ui.layout.ContentScale
 import android.app.Activity
 import android.app.PictureInPictureParams
-import android.graphics.ColorMatrix
-import android.graphics.ColorMatrixColorFilter
-import android.graphics.Paint
 import android.content.pm.ActivityInfo
 import android.content.res.Resources
 import android.media.audiofx.LoudnessEnhancer
 import android.os.Build
 import android.util.Log
 import android.util.Rational
-import android.view.TextureView
 import android.view.View
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.util.TypedValue
@@ -123,7 +119,10 @@ import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.source.LoadEventInfo
+import androidx.media3.exoplayer.source.MediaLoadData
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.CacheDataSource.EventListener
 import androidx.media3.datasource.DefaultDataSource
@@ -147,6 +146,7 @@ import com.zstream.android.ui.components.themed.ZsOutlinedWrapper
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicInteger
 import dagger.hilt.android.EntryPointAccessors
 import com.zstream.android.data.model.MovieDetail
 import com.zstream.android.data.model.Season
@@ -194,6 +194,7 @@ private val BOTTOM_RIGHT_END_PADDING = 36.dp    // padding after last right icon
 private val BOTTOM_BAR_PADDING_V = 8.dp        // vertical padding in bottom controls row
 private const val NATIVE_SUBTITLE_BASE_OFFSET_DP = 20f
 private const val NATIVE_SUBTITLE_OVERLAY_MULTIPLIER = 5f
+private const val HLS_LOADS_TO_LOG = 6
 @Composable
 private fun playerMenuSectionDivider(): Color = LocalZStreamTheme.current.colors.type.divider.copy(alpha = 0.25f)
 
@@ -600,6 +601,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                 var pendingResumeMs by remember { mutableLongStateOf(-1L) }
 
                 val context = LocalContext.current
+                val loggedHlsSegments = remember { AtomicInteger() }
                 val player = remember {
                     val subtitleConfigs = if (settings.enableNativeSubtitles) {
                         s.subtitles.mapNotNull { track ->
@@ -648,6 +650,66 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     ExoPlayer.Builder(context).build().apply {
                         setMediaSource(DefaultMediaSourceFactory(cacheDataSourceFactory).createMediaSource(mediaItem))
                         videoScalingMode = androidx.media3.common.C.VIDEO_SCALING_MODE_SCALE_TO_FIT
+                        addListener(object : androidx.media3.common.Player.Listener {
+                            override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
+                                Log.d("VideoFormat", "size=${videoSize.width}x${videoSize.height} pixelRatio=${videoSize.pixelWidthHeightRatio}")
+                            }
+                            override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
+                                tracks.groups.forEach { group ->
+                                    for (i in 0 until group.length) {
+                                        val fmt = group.getTrackFormat(i)
+                                        if (fmt.sampleMimeType?.startsWith("video/") == true) {
+                                            Log.d("VideoFormat", buildString {
+                                                appendLine("=== VIDEO TRACK ===")
+                                                appendLine("  mime:         ${fmt.sampleMimeType}")
+                                                appendLine("  codecs:       ${fmt.codecs}")
+                                                appendLine("  res:          ${fmt.width}x${fmt.height} @ ${fmt.frameRate}fps")
+                                                appendLine("  bitrate:      ${fmt.bitrate}")
+                                                appendLine("  profile:      ${fmt.colorInfo?.colorSpace} space, ${fmt.colorInfo?.colorRange} range, ${fmt.colorInfo?.colorTransfer} transfer")
+                                                appendLine("  hdrStaticInfo:${fmt.colorInfo?.hdrStaticInfo?.contentToString()}")
+                                                appendLine("  selected:     ${group.isTrackSelected(i)}")
+                                            })
+                                        }
+                                        if (fmt.sampleMimeType?.startsWith("audio/") == true) {
+                                            Log.d("VideoFormat", "  AUDIO: mime=${fmt.sampleMimeType} codecs=${fmt.codecs} channels=${fmt.channelCount} sampleRate=${fmt.sampleRate}")
+                                        }
+                                    }
+                                }
+                            }
+                        })
+                        addAnalyticsListener(object : AnalyticsListener {
+                            override fun onVideoDecoderInitialized(
+                                eventTime: AnalyticsListener.EventTime,
+                                decoderName: String,
+                                initializedTimestampMs: Long,
+                                initializationDurationMs: Long,
+                            ) {
+                                Log.d(
+                                    "VideoFormat",
+                                    "decoder=$decoderName initDurationMs=$initializationDurationMs",
+                                )
+                            }
+
+                            override fun onLoadCompleted(
+                                eventTime: AnalyticsListener.EventTime,
+                                loadEventInfo: LoadEventInfo,
+                                mediaLoadData: MediaLoadData,
+                            ) {
+                                if (mediaLoadData.dataType != C.DATA_TYPE_MEDIA &&
+                                    mediaLoadData.dataType != C.DATA_TYPE_MEDIA_INITIALIZATION ||
+                                    mediaLoadData.trackType == C.TRACK_TYPE_AUDIO ||
+                                    loggedHlsSegments.getAndIncrement() >= HLS_LOADS_TO_LOG
+                                ) return
+                                Log.d(
+                                    "HlsSegment",
+                                    "type=${mediaLoadData.dataType} uri=${loadEventInfo.uri} " +
+                                        "bytes=${loadEventInfo.bytesLoaded} " +
+                                        "range=${mediaLoadData.mediaStartTimeMs}..${mediaLoadData.mediaEndTimeMs}ms " +
+                                        "mime=${mediaLoadData.trackFormat?.sampleMimeType} " +
+                                        "codecs=${mediaLoadData.trackFormat?.codecs}",
+                                )
+                            }
+                        })
                         prepare()
                         playWhenReady = true
                     }
@@ -662,12 +724,19 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                 LaunchedEffect(player, s.streamUrl) {
                     val current = player.currentMediaItem?.localConfiguration?.uri?.toString()
                     if (current == s.streamUrl) return@LaunchedEffect  // already playing this URL
+                    val positionMs = player.currentPosition
+                    val shouldPlay = player.playWhenReady
+                    loggedHlsSegments.set(0)
+                    Log.d("VideoFormat", "=== SWITCHING VARIANT === url=${s.streamUrl}")
                     val mediaItem = MediaItem.Builder()
                         .setUri(s.streamUrl)
+                        .setSubtitleConfigurations(
+                            player.currentMediaItem?.localConfiguration?.subtitleConfigurations.orEmpty()
+                        )
                         .build()
-                    player.setMediaItem(mediaItem)
+                    player.setMediaItem(mediaItem, positionMs)
                     player.prepare()
-                    player.playWhenReady = true
+                    player.playWhenReady = shouldPlay
                 }
 
                 LaunchedEffect(isClosingPip) {
@@ -909,12 +978,9 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                 var lastInteractionTime by remember { mutableLongStateOf(System.currentTimeMillis()) }
                 val updateActivity = { lastInteractionTime = System.currentTimeMillis() }
 
-                // Re-apply RESIZE_MODE_FIT when video size changes (codec resolution updates)
+                // Re-apply the native resize mode when codec resolution changes.
                 val playerViewRef = remember { androidx.compose.runtime.mutableStateOf<PlayerView?>(null) }
-                val videoTextureRef = remember { androidx.compose.runtime.mutableStateOf<TextureView?>(null) }
                 var currentVideoSize by remember { mutableStateOf(androidx.media3.common.VideoSize.UNKNOWN) }
-                val latestSettings by rememberUpdatedState(settings)
-                val latestVideoSize by rememberUpdatedState(currentVideoSize)
                 DisposableEffect(player) {
                     val listener = object : Player.Listener {
                         override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
@@ -923,12 +989,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                                 pipAspectRatio = videoSize.width * videoSize.pixelWidthHeightRatio / videoSize.height
                             }
                             val pv = playerViewRef.value ?: return
-                            pv.resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
-                            videoTextureRef.value?.let { textureView ->
-                                textureView.post {
-                                    applyVideoAdjustments(textureView, settings, videoSize)
-                                }
-                            }
+                            pv.resizeMode = nativeResizeMode(settings.videoScaleMode)
                         }
                         override fun onIsPlayingChanged(playing: Boolean) {
                             val wasPlaying = isPlaying
@@ -1118,29 +1179,15 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                             PlayerView(ctx).apply {
                                 this.player = player
                                 useController = false
-                                resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
+                                resizeMode = nativeResizeMode(settings.videoScaleMode)
                                 layoutParams = FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT)
-                                val textureView = TextureView(ctx).apply {
-                                    layoutParams = FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT)
-                                }
-                                textureView.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
-                                    applyVideoAdjustments(textureView, latestSettings, latestVideoSize)
-                                }
-                                addView(textureView, 0)
-                                player.setVideoTextureView(textureView)
-                                post {
-                                    hidePlayerVideoSurface(this)
-                                    applyVideoAdjustments(textureView, settings, currentVideoSize)
-                                }
                                 applyNativeSubtitleStyle(subtitleView, settings, controlsVisible, isInPip)
                                 playerViewRef.value = this
-                                videoTextureRef.value = textureView
                             }
                         },
                         update = { view ->
-                            view.resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
+                            view.resizeMode = nativeResizeMode(settings.videoScaleMode)
                             applyNativeSubtitleStyle(view.subtitleView, settings, controlsVisible, isInPip)
-                            videoTextureRef.value?.let { applyVideoAdjustments(it, settings, currentVideoSize) }
                         },
                         modifier = Modifier.fillMaxSize()
                     )
@@ -1310,8 +1357,6 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     onSetVolumeBoost = vm::setVolumeBoost,
                     onSetVideoScaleMode = { mode ->
                         vm.setVideoScaleMode(mode)
-                        val updatedSettings = settings.copy(videoScaleMode = mode.lowercase())
-                        videoTextureRef.value?.let { applyVideoAdjustments(it, updatedSettings, currentVideoSize) }
                     },
                     onSelectSource = vm::selectSource,
                     onSwitchVariant = vm::switchVariant,
@@ -1583,138 +1628,10 @@ private fun volumeBoostToMillibels(volumeBoost: Int): Int {
     return over * 45
 }
 
-private fun hidePlayerVideoSurface(view: View) {
-    if (view is TextureView) return
-    if (view is android.view.SurfaceView) {
-        view.visibility = View.GONE
-        return
-    }
-    if (view is android.view.ViewGroup) {
-        for (index in 0 until view.childCount) {
-            hidePlayerVideoSurface(view.getChildAt(index))
-        }
-    }
-}
-
-private fun buildVideoColorMatrix(
-    settings: com.zstream.android.data.local.entity.SettingsEntity,
-): ColorMatrix? {
-    val brightness = settings.videoBrightness
-    val contrast = settings.videoContrast
-    val saturation = settings.videoSaturation
-    val hueRotate = settings.videoHueRotate
-
-    if (brightness == 100 && contrast == 100 && saturation == 100 && hueRotate == 0) {
-        return null
-    }
-
-    val result = ColorMatrix()
-
-    if (brightness != 100) {
-        val brightnessScale = brightness / 100f
-        result.postConcat(
-            ColorMatrix(
-                floatArrayOf(
-                    brightnessScale, 0f, 0f, 0f, 0f,
-                    0f, brightnessScale, 0f, 0f, 0f,
-                    0f, 0f, brightnessScale, 0f, 0f,
-                    0f, 0f, 0f, 1f, 0f
-                )
-            )
-        )
-    }
-
-    if (contrast != 100) {
-        val contrastScale = contrast / 100f
-        val translate = (-0.5f * contrastScale + 0.5f) * 255f
-        result.postConcat(
-            android.graphics.ColorMatrix(
-                floatArrayOf(
-                    contrastScale, 0f, 0f, 0f, translate,
-                    0f, contrastScale, 0f, 0f, translate,
-                    0f, 0f, contrastScale, 0f, translate,
-                    0f, 0f, 0f, 1f, 0f
-                )
-            )
-        )
-    }
-
-    if (saturation != 100) {
-        val saturationMatrix = android.graphics.ColorMatrix()
-        saturationMatrix.setSaturation(saturation / 100f)
-        result.postConcat(saturationMatrix)
-    }
-
-    if (hueRotate != 0) {
-        val hueMatrix = ColorMatrix().apply { setRotate(0, hueRotate.toFloat()) }
-        val tempMatrix = ColorMatrix().apply { setRotate(1, hueRotate.toFloat()) }
-        hueMatrix.postConcat(tempMatrix)
-        tempMatrix.setRotate(2, hueRotate.toFloat())
-        hueMatrix.postConcat(tempMatrix)
-        result.postConcat(hueMatrix)
-    }
-
-    return result
-}
-
-private fun applyVideoAdjustments(
-    textureView: TextureView,
-    settings: com.zstream.android.data.local.entity.SettingsEntity,
-    videoSize: androidx.media3.common.VideoSize,
-) {
-    textureView.post {
-        val transform = android.graphics.Matrix()
-        val viewWidth = textureView.width.toFloat()
-        val viewHeight = textureView.height.toFloat()
-        val videoWidth = videoSize.width.takeIf { it > 0 }?.toFloat()
-        val videoHeight = videoSize.height.takeIf { it > 0 }?.toFloat()
-        val pixelRatio = videoSize.pixelWidthHeightRatio.takeIf { it > 0f } ?: 1f
-
-        if (viewWidth > 0f && viewHeight > 0f && videoWidth != null && videoHeight != null) {
-            val contentWidth = videoWidth * pixelRatio
-            val contentHeight = videoHeight
-            val widthRatio = contentWidth / viewWidth
-            val heightRatio = contentHeight / viewHeight
-            val fitScaleX: Float
-            val fitScaleY: Float
-
-            if (widthRatio > heightRatio) {
-                fitScaleX = 1f
-                fitScaleY = heightRatio / widthRatio
-            } else {
-                fitScaleX = widthRatio / heightRatio
-                fitScaleY = 1f
-            }
-
-            when (settings.videoScaleMode.lowercase()) {
-                "stretch" -> {
-                    val stretchScaleX = (1f / fitScaleX.coerceAtLeast(0.0001f))
-                    val stretchScaleY = (1f / fitScaleY.coerceAtLeast(0.0001f))
-                    transform.setScale(stretchScaleX, stretchScaleY, viewWidth / 2f, viewHeight / 2f)
-                }
-                "fill" -> {
-                    val minFitScale = minOf(fitScaleX, fitScaleY).coerceAtLeast(0.0001f)
-                    val fillScaleX = fitScaleX / minFitScale
-                    val fillScaleY = fitScaleY / minFitScale
-                    transform.setScale(fillScaleX, fillScaleY, viewWidth / 2f, viewHeight / 2f)
-                }
-                else -> {
-                    transform.setScale(fitScaleX, fitScaleY, viewWidth / 2f, viewHeight / 2f)
-                }
-            }
-        }
-        textureView.setTransform(transform)
-    }
-
-    val matrix = buildVideoColorMatrix(settings)
-    if (matrix == null) {
-        textureView.setLayerType(View.LAYER_TYPE_NONE, null)
-    } else {
-        val paint = Paint().apply {
-            colorFilter = ColorMatrixColorFilter(matrix)
-        }
-        textureView.setLayerType(View.LAYER_TYPE_HARDWARE, paint)
-    }
+private fun nativeResizeMode(mode: String) = when (mode.lowercase()) {
+    "stretch" -> androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FILL
+    "fill" -> androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+    else -> androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
 }
 
 @OptIn(UnstableApi::class)
