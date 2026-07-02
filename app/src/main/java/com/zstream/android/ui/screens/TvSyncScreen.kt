@@ -25,6 +25,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
@@ -90,6 +91,7 @@ class TvSyncViewModel @Inject constructor(
     settingsPreferences: SettingsPreferences,
     private val traktRepository: TraktRepository,
     accountRepository: AccountRepository,
+    @dagger.hilt.android.qualifiers.ApplicationContext private val appContext: android.content.Context,
 ) : ViewModel() {
     val receiverState: StateFlow<TvSyncReceiverState> = repo.receiverState
     val settings: StateFlow<SettingsEntity> = settingsPreferences.settings.stateIn(
@@ -113,6 +115,7 @@ class TvSyncViewModel @Inject constructor(
         selected: Map<String, Boolean>,
         passphrase: String?,
         accountDeviceName: String?,
+        passkeyKeySeed: String? = null,
     ): TvSyncPayload {
         val current = settings.value
         val traktSession = if (selected["trakt"] == true) traktRepository.exportSession() else null
@@ -127,7 +130,17 @@ class TvSyncViewModel @Inject constructor(
             traktSession = traktSession,
             passphrase = passphrase?.trim()?.takeIf(String::isNotBlank),
             accountDeviceName = accountDeviceName?.trim()?.takeIf(String::isNotBlank),
+            passkeyKeySeed = passkeyKeySeed,
         )
+    }
+
+    /** Authenticates the phone's passkey and returns the Base64Url-encoded 32-byte seed.
+     *  The TV can call CryptoUtils.keysFromSeed(decode(seed)) to derive the same Ed25519
+     *  key pair and run the normal challenge-login against the backend. */
+    suspend fun resolvePasskeySeed(): String {
+        val credId = com.zstream.android.data.CryptoUtils.authenticatePasskey(appContext)
+        val seed = com.zstream.android.data.CryptoUtils.pbkdf2(credId)
+        return with(com.zstream.android.data.CryptoUtils) { seed.toBase64Url() }
     }
 
     suspend fun sendPayload(host: String, port: Int, payload: TvSyncPayload) = repo.sendPayload(host, port, payload)
@@ -135,10 +148,20 @@ class TvSyncViewModel @Inject constructor(
     fun startReceiver() = viewModelScope.launch { repo.startReceiver() }
     fun stopReceiver() = repo.stopReceiver()
     fun renameTv(name: String) = viewModelScope.launch { repo.setDefaultTvName(name) }
+
+    /** Runs apply on viewModelScope so it survives navigation away from the screen. */
+    fun applyPendingAndNotify(onDone: (Result<String>) -> Unit) {
+        viewModelScope.launch {
+            val result = repo.applyPendingPayload()
+            // Wait for the phone to poll /status and receive the result
+            result.getOrNull()?.let { repo.waitForDecisionDelivery(it) }
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) { onDone(result) }
+        }
+    }
+
     suspend fun applyPending() = repo.applyPendingPayload()
     fun rejectPending() = repo.rejectPendingPayload()
-    suspend fun waitForDecisionDelivery(token: String) = repo.waitForDecisionDelivery(token)
-}
+    suspend fun waitForDecisionDelivery(token: String) = repo.waitForDecisionDelivery(token)}
 
 @Composable
 fun TvSyncScreen(
@@ -181,6 +204,8 @@ private fun TvSyncSenderScreen(
     var passphraseEnabled by remember { mutableStateOf(false) }
     var passphrase by remember { mutableStateOf("") }
     var accountDeviceName by remember { mutableStateOf("ZStream TV") }
+    var passkeyKeySeed by remember { mutableStateOf<String?>(null) }
+    var passkeyDeclined by remember { mutableStateOf(false) }
     var transferResult by remember { mutableStateOf<String?>(null) }
     val selected = remember { mutableStateMapOf<String, Boolean>() }
     val available = remember { mutableStateMapOf<String, Pair<Boolean, String>>() }
@@ -189,6 +214,9 @@ private fun TvSyncSenderScreen(
         if (accountSession?.usesPasskey == true) {
             passphraseEnabled = false
             passphrase = ""
+        } else {
+            passkeyKeySeed = null
+            passkeyDeclined = false
         }
     }
 
@@ -420,7 +448,62 @@ private fun TvSyncSenderScreen(
                 }
                 TvSyncPhonePage.PASSPHRASE -> {
                     if (accountSession?.usesPasskey == true) {
-                        SyncInstructionCard("Passkey account", "This account has no passphrase to send. Account sign-in is skipped; your selected integrations can still sync.")
+                        Text("Sign this TV into your ZStream account?", color = theme.colors.type.emphasis, fontWeight = FontWeight.SemiBold)
+                        Text("Your phone will prompt for your passkey. The TV will use it to create its own login session.", color = theme.colors.type.secondary)
+                        when {
+                            passkeyKeySeed != null -> {
+                                ZsStatusBanner(message = "Passkey authenticated — TV will sign in on apply.", variant = ZsStatusBannerVariant.Info)
+                                OutlinedTextField(
+                                    value = accountDeviceName,
+                                    onValueChange = { accountDeviceName = it },
+                                    label = { Text("Account device name for the TV") },
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                                ZsButton(
+                                    text = "Change to: No",
+                                    onClick = { passkeyKeySeed = null; passkeyDeclined = true },
+                                    variant = ZsButtonVariant.Secondary,
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            }
+                            passkeyDeclined -> {
+                                ZsStatusBanner(message = "Account sign-in skipped — integrations only.", variant = ZsStatusBannerVariant.Info)
+                                ZsButton(
+                                    text = "Change to: Yes, use passkey",
+                                    onClick = { passkeyDeclined = false },
+                                    variant = ZsButtonVariant.Secondary,
+                                    leadingIcon = Icons.Default.Fingerprint,
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            }
+                            else -> {
+                                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    ZsButton(
+                                        text = "Yes, use passkey",
+                                        onClick = {
+                                            scope.launch {
+                                                loading = true
+                                                status = null
+                                                runCatching { vm.resolvePasskeySeed() }
+                                                    .onSuccess { seed -> passkeyKeySeed = seed; status = null }
+                                                    .onFailure { status = it.message ?: "Passkey authentication failed" }
+                                                loading = false
+                                            }
+                                        },
+                                        loading = loading,
+                                        variant = ZsButtonVariant.Primary,
+                                        leadingIcon = Icons.Default.Fingerprint,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    ZsButton(
+                                        text = "No",
+                                        onClick = { passkeyDeclined = true },
+                                        variant = ZsButtonVariant.Secondary,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                }
+                            }
+                        }
                     } else {
                         Text("Sign this TV into your ZStream account?", color = theme.colors.type.emphasis, fontWeight = FontWeight.SemiBold)
                         Text("This creates a separate account session for the TV. Integration sync works without it.", color = theme.colors.type.secondary)
@@ -453,6 +536,8 @@ private fun TvSyncSenderScreen(
                         onClick = {
                             if (passphraseEnabled && passphrase.isBlank()) {
                                 status = "Enter your passphrase before continuing"
+                            } else if (passkeyKeySeed != null && accountDeviceName.isBlank()) {
+                                status = "Enter a device name for the TV account session"
                             } else {
                                 page = if (passphraseEnabled) TvSyncPhonePage.ACCOUNT_DEVICE else TvSyncPhonePage.REVIEW
                                 status = null
@@ -493,6 +578,7 @@ private fun TvSyncSenderScreen(
                             "wyzie" to "Wyzie key",
                         ).filter { selected[it.first] == true }.forEach { add(it.second) }
                         if (passphraseEnabled) add("ZStream account sign-in")
+                        if (passkeyKeySeed != null) add("ZStream account sign-in via passkey")
                     }
                     val canSend = pendingSummary.isNotEmpty()
                     SyncInstructionCard("Nothing changes yet", "After sending, review and apply this request on the TV.")
@@ -507,7 +593,7 @@ private fun TvSyncSenderScreen(
                                 loading = true
                                 Log.d(TV_SYNC_UI_TAG, "send start host=${receiver.host} port=${receiver.port} selected=${selected.filterValues { it }.keys} passphrase=$passphraseEnabled passphraseLength=${passphrase.length} leadingOrTrailingWhitespace=${passphrase != passphrase.trim()} accountDeviceName=$accountDeviceName")
                                 runCatching {
-                                    val payload = vm.buildPayload(tvName, selected.toMap(), passphrase.takeIf { passphraseEnabled }, accountDeviceName.takeIf { passphraseEnabled })
+                                    val payload = vm.buildPayload(tvName, selected.toMap(), passphrase.takeIf { passphraseEnabled }, accountDeviceName.takeIf { passphraseEnabled || passkeyKeySeed != null }, passkeyKeySeed)
                                     vm.sendPayload(receiver.host, receiver.port, payload)
                                 }.onSuccess {
                                     Log.d(TV_SYNC_UI_TAG, "send success host=${receiver.host} port=${receiver.port}")
@@ -621,7 +707,10 @@ private fun TvSyncReceiverScreen(
 
     fun returnHome() {
         vm.stopReceiver()
-        nav.navigate("home") { popUpTo("home") { inclusive = true } }
+        nav.navigate("home") {
+            popUpTo(0) { inclusive = true }
+            launchSingleTop = true
+        }
     }
 
     LaunchedEffect(Unit) {
@@ -681,7 +770,7 @@ private fun TvSyncReceiverScreen(
                     onClick = { vm.renameTv(tvNameInput) },
                     enabled = tvNameInput.isNotBlank() && tvNameInput.trim() != state.tvName,
                     variant = ZsButtonVariant.Secondary,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier,
                 )
             } else {
                 val payload = state.pendingPayload ?: return@Column
@@ -697,14 +786,10 @@ private fun TvSyncReceiverScreen(
                     ZsButton(
                         text = "Apply sync",
                         onClick = {
-                            scope.launch {
-                                applying = true
-                                val result = vm.applyPending()
+                            applying = true
+                            vm.applyPendingAndNotify { result ->
                                 applying = false
-                                result.getOrNull()?.let { token ->
-                                    vm.waitForDecisionDelivery(token)
-                                    returnHome()
-                                }
+                                if (result.isSuccess) returnHome()
                             }
                         },
                         leadingIcon = Icons.Default.Check,

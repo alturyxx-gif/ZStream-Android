@@ -171,7 +171,7 @@ private fun BoxScope.LoginPanel(
             onClick = { vm.login(passphrase, deviceName) },
             enabled = authState !is AuthState.Loading && passphrase.isNotBlank() && deviceName.isNotBlank(),
             loading = authState is AuthState.Loading,
-            modifier = Modifier.fillMaxWidth().height(48.dp),
+            modifier = Modifier.height(48.dp).padding(top = 10.dp),
         )
 
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -180,23 +180,26 @@ private fun BoxScope.LoginPanel(
             HorizontalDivider(Modifier.weight(1f), color = txt.dimmed.copy(0.3f))
         }
 
-        ZsButton(
-            text = "Sign in with Passkey",
-            onClick = { vm.loginWithPasskey(deviceName.ifBlank { "Android" }) },
-            enabled = authState !is AuthState.Loading,
-            modifier = Modifier.fillMaxWidth().height(48.dp),
-            variant = ZsButtonVariant.Secondary,
-            leadingIcon = Icons.Default.Lock,
-        )
+        if (!isTv)
+        {
+            ZsButton(
+                text = "Sign in with Passkey",
+                onClick = { vm.loginWithPasskey(deviceName.ifBlank { "Android" }) },
+                enabled = authState !is AuthState.Loading,
+                modifier = Modifier.fillMaxWidth().height(47.dp),
+                variant = ZsButtonVariant.Secondary,
+                leadingIcon = Icons.Default.Lock,
+            )
 
-        ZsButton(
-            text = "Create account with Passkey",
-            onClick = { vm.registerWithPasskey(deviceName.ifBlank { "Android" }) },
-            enabled = authState !is AuthState.Loading && deviceName.isNotBlank(),
-            modifier = Modifier.fillMaxWidth().height(48.dp),
-            variant = ZsButtonVariant.Secondary,
-            leadingIcon = Icons.Default.Lock,
-        )
+            ZsButton(
+                text = "Create account with Passkey",
+                onClick = { vm.registerWithPasskey(deviceName.ifBlank { "Android" }) },
+                enabled = authState !is AuthState.Loading && deviceName.isNotBlank(),
+                modifier = Modifier.fillMaxWidth().height(47.dp),
+                variant = ZsButtonVariant.Secondary,
+                leadingIcon = Icons.Default.Lock,
+            )
+        }
 
         if (isTv) {
             ZsButton(
@@ -204,6 +207,7 @@ private fun BoxScope.LoginPanel(
                 onClick = onPhoneLogin,
                 enabled = authState !is AuthState.Loading,
                 modifier = Modifier.fillMaxWidth().height(48.dp),
+                buttonModifier = Modifier.fillMaxWidth(),
                 variant = ZsButtonVariant.Secondary,
                 leadingIcon = Icons.Default.PhoneAndroid,
             )
@@ -225,6 +229,7 @@ private fun BoxScope.ShowPassphrasePanel(
     bg: com.zstream.android.theme.Background,
     onNext: () -> Unit,
 ) {
+    val isTv = LocalIsTv.current
     val clipboard = LocalClipboardManager.current
     val words = mnemonic.split(" ")
     var copied by remember { mutableStateOf(false) }
@@ -236,7 +241,7 @@ private fun BoxScope.ShowPassphrasePanel(
     ) {
         Text("Your Passphrase", color = txt.text, fontSize = 24.sp, fontWeight = FontWeight.Bold)
         Text(
-            "Write this down or copy it. You cannot recover your account without it.",
+            "Write this down or copy it. You cannot recover your account without it.\nDo not include the numbers. the numbers are for your convenience. Separate each word with a space.",
             color = txt.dimmed, fontSize = 13.sp,
         )
 
@@ -260,18 +265,21 @@ private fun BoxScope.ShowPassphrasePanel(
             }
         }
 
-        ZsButton(
-            text = if (copied) "Copied!" else "Copy to clipboard",
-            onClick = { clipboard.setText(AnnotatedString(mnemonic)); copied = true },
-            modifier = Modifier.fillMaxWidth().height(44.dp),
-            variant = if (copied) ZsButtonVariant.Primary else ZsButtonVariant.Secondary,
-            leadingIcon = if (copied) Icons.Default.Check else Icons.Default.ContentCopy,
-        )
+        if (!isTv)
+        {
+            ZsButton(
+                text = if (copied) "Copied!" else "Copy to clipboard",
+                onClick = { clipboard.setText(AnnotatedString(mnemonic)); copied = true },
+                modifier = Modifier.height(44.dp),
+                variant = if (copied) ZsButtonVariant.Primary else ZsButtonVariant.Secondary,
+                leadingIcon = if (copied) Icons.Default.Check else Icons.Default.ContentCopy,
+            )
+        }
 
         ZsButton(
             text = "I've saved it — continue",
             onClick = onNext,
-            modifier = Modifier.fillMaxWidth().height(48.dp),
+            modifier = Modifier.height(48.dp),
         )
     }
 }
@@ -325,16 +333,19 @@ private fun BoxScope.ConfirmRegisterPanel(
             onClick = { vm.register(mnemonic, deviceName) },
             enabled = authState !is AuthState.Loading && deviceName.isNotBlank(),
             loading = authState is AuthState.Loading,
-            modifier = Modifier.fillMaxWidth().height(48.dp),
+            modifier = Modifier.height(48.dp),
         )
 
-        ZsButton(
-            text = "Create with Passkey",
-            onClick = { vm.registerWithPasskey(deviceName.ifBlank { "Android" }) },
-            enabled = authState !is AuthState.Loading && deviceName.isNotBlank(),
-            modifier = Modifier.fillMaxWidth().height(48.dp),
-            variant = ZsButtonVariant.Secondary,
-            leadingIcon = Icons.Default.Lock,
-        )
+        if (!isTv)
+        {
+            ZsButton(
+                text = "Create with Passkey",
+                onClick = { vm.registerWithPasskey(deviceName.ifBlank { "Android" }) },
+                enabled = authState !is AuthState.Loading && deviceName.isNotBlank(),
+                modifier = Modifier.height(48.dp),
+                variant = ZsButtonVariant.Secondary,
+                leadingIcon = Icons.Default.Lock,
+            )
+        }
     }
 }
