@@ -135,6 +135,7 @@ private fun BoxScope.LoginPanel(
             onValueChange = { deviceName = it },
             singleLine = true,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+            showKeyboardOnFocus = !isTv,
             keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) }),
             modifier = Modifier.fillMaxWidth(),
         )
@@ -144,6 +145,7 @@ private fun BoxScope.LoginPanel(
             onValueChange = { passphrase = it },
             singleLine = true,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+            showKeyboardOnFocus = !isTv,
             keyboardActions = KeyboardActions(onDone = {
                 focusManager.clearFocus()
                 if (passphrase.isNotBlank()) vm.login(passphrase, deviceName)
@@ -284,6 +286,7 @@ private fun BoxScope.ConfirmRegisterPanel(
     bg: com.zstream.android.theme.Background,
     authState: AuthState,
 ) {
+    val isTv = LocalIsTv.current
     var deviceName by remember { mutableStateOf("Android") }
     val focusManager = LocalFocusManager.current
 
@@ -302,6 +305,7 @@ private fun BoxScope.ConfirmRegisterPanel(
             onValueChange = { deviceName = it },
             singleLine = true,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+            showKeyboardOnFocus = !isTv,
             keyboardActions = KeyboardActions(onDone = {
                 focusManager.clearFocus()
                 vm.register(mnemonic, deviceName)
