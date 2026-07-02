@@ -28,6 +28,10 @@ object NetworkModule {
 
     @Provides @Singleton
     fun okHttp(@ApplicationContext context: Context): OkHttpClient = OkHttpClient.Builder()
+        .apply {
+            val tls = TlsHelper.build()
+            sslSocketFactory(tls.socketFactory, tls.trustManager)
+        }
         .cache(Cache(context.cacheDir.resolve("http_cache"), 100L * 1024 * 1024))
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
