@@ -489,13 +489,13 @@ fun HomeScreen(
                 showReleaseUpdatePrompt = true
             }
             ReleaseUpdateNavigation.consume()
-        } else if (isTv || releaseUpdateManager.hasPendingUpdate) {
+        } else if (releaseUpdateManager.hasPendingUpdate) {
             showReleaseUpdatePrompt = true
         }
     }
 
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
-        if (ReleaseUpdateNavigation.launch.value == null && (isTv || releaseUpdateManager.hasPendingUpdate)) {
+        if (ReleaseUpdateNavigation.launch.value == null && releaseUpdateManager.hasPendingUpdate) {
             showReleaseUpdatePrompt = true
         }
     }
