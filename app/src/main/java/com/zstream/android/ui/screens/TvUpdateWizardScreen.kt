@@ -91,6 +91,23 @@ private enum class WizardStep {
     RELEASES,        // ADB on → paginated release list + install
 }
 
+private fun Modifier.tvAdbFocusClampAll(): Modifier = focusProperties {
+    up = FocusRequester.Cancel
+    down = FocusRequester.Cancel
+    left = FocusRequester.Cancel
+    right = FocusRequester.Cancel
+}
+
+private fun Modifier.tvAdbFocusClampHorizontal(): Modifier = focusProperties {
+    left = FocusRequester.Cancel
+    right = FocusRequester.Cancel
+}
+
+private fun Modifier.tvAdbFocusClampVertical(): Modifier = focusProperties {
+    up = FocusRequester.Cancel
+    down = FocusRequester.Cancel
+}
+
 @Composable
 fun TvUpdateWizardScreen(onDismiss: () -> Unit) {
     val theme = LocalZStreamTheme.current
@@ -234,7 +251,7 @@ fun TvUpdateWizardScreen(onDismiss: () -> Unit) {
                             onClick = {
                                 step = WizardStep.PHONE
                             },
-                            modifier = Modifier.focusRequester(primaryFocusRequester),
+                            modifier = Modifier.focusRequester(primaryFocusRequester).tvAdbFocusClampVertical(),
                         )
                         ZsButton(
                             text = "Update on this TV",
@@ -242,11 +259,13 @@ fun TvUpdateWizardScreen(onDismiss: () -> Unit) {
                                 step = WizardStep.CHECKING
                                 detect()
                             },
+                            modifier = Modifier.tvAdbFocusClampVertical(),
                         )
                         ZsButton(
                             text = "Not now",
                             onClick = onDismiss,
                             variant = ZsButtonVariant.Secondary,
+                            modifier = Modifier.tvAdbFocusClampVertical(),
                         )
                     }
                 }
@@ -295,11 +314,7 @@ fun TvUpdateWizardScreen(onDismiss: () -> Unit) {
                         onClick = onDismiss,
                         enabled = !running,
                         variant = ZsButtonVariant.Secondary,
-                        modifier = Modifier.focusProperties {
-                            up = FocusRequester.Cancel
-                            left = FocusRequester.Cancel
-                            right = FocusRequester.Cancel
-                        },
+                        modifier = Modifier.tvAdbFocusClampVertical(),
                     )
                 }
                 HorizontalDivider(color = theme.colors.type.divider.copy(alpha = 0.18f))
@@ -355,23 +370,27 @@ fun TvUpdateWizardScreen(onDismiss: () -> Unit) {
                                 verticalArrangement = Arrangement.spacedBy(10.dp),
                             ) {
                                 ZsButton(
-                                text = "Wi-Fi settings",
-                                onClick = { openSettings(Settings.ACTION_WIFI_SETTINGS) },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .focusRequester(primaryFocusRequester),
+                                    text = "Wi-Fi settings",
+                                    onClick = { openSettings(Settings.ACTION_WIFI_SETTINGS) },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .focusRequester(primaryFocusRequester)
+                                        .tvAdbFocusClampHorizontal(),
+                                    buttonModifier = Modifier.fillMaxWidth(),
                                 )
                                 ZsButton(
                                     text = "About / Build number",
                                     onClick = { openAboutDevice() },
                                     variant = ZsButtonVariant.Secondary,
-                                    modifier = Modifier.fillMaxWidth(),
+                                    modifier = Modifier.fillMaxWidth().tvAdbFocusClampHorizontal(),
+                                    buttonModifier = Modifier.fillMaxWidth(),
                                 )
                                 ZsButton(
                                     text = "Developer options/ADB debugging/Wireless debugging",
                                     onClick = { openSettings(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS) },
                                     variant = ZsButtonVariant.Secondary,
-                                    modifier = Modifier.fillMaxWidth(),
+                                    modifier = Modifier.fillMaxWidth().tvAdbFocusClampHorizontal(),
+                                    buttonModifier = Modifier.fillMaxWidth(),
                                 )
                             }
                         }
@@ -380,7 +399,7 @@ fun TvUpdateWizardScreen(onDismiss: () -> Unit) {
                     WizardStep.CHECKING -> {
                         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                             CircularProgressIndicator(
-                                modifier = Modifier.size(32.dp).focusRequester(primaryFocusRequester),
+                                modifier = Modifier.size(32.dp).focusRequester(primaryFocusRequester).tvAdbFocusClampVertical(),
                                 color = theme.colors.global.accentA,
                                 strokeWidth = 3.dp,
                             )
@@ -400,13 +419,14 @@ fun TvUpdateWizardScreen(onDismiss: () -> Unit) {
                                 lineHeight = 20.sp,
                             )
                             Spacer(Modifier.height(8.dp))
-                            ZsButton(
-                                text = "About / Build number",
-                                onClick = { openAboutDevice() },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .focusRequester(primaryFocusRequester),
-                            )
+                                ZsButton(
+                                    text = "About / Build number",
+                                    onClick = { openAboutDevice() },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .focusRequester(primaryFocusRequester)
+                                        .tvAdbFocusClampAll(),
+                                )
                         }
                         StepCard(theme, "Step 2 — Tap Build Number 7 times") {
                             Text(
@@ -439,13 +459,14 @@ fun TvUpdateWizardScreen(onDismiss: () -> Unit) {
                                 lineHeight = 20.sp,
                             )
                             Spacer(Modifier.height(8.dp))
-                            ZsButton(
-                                text = "Developer options/ADB debugging/Wireless debugging",
-                                onClick = { openSettings(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS) },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .focusRequester(primaryFocusRequester),
-                            )
+                                ZsButton(
+                                    text = "Developer options/ADB debugging/Wireless debugging",
+                                    onClick = { openSettings(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS) },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .focusRequester(primaryFocusRequester)
+                                        .tvAdbFocusClampAll(),
+                                )
                         }
                         StepCard(theme, "Step 2 — Enable Wireless Debugging") {
                             Text(
@@ -481,8 +502,7 @@ fun TvUpdateWizardScreen(onDismiss: () -> Unit) {
                         ZsButton(
                             text = "Open available releases",
                             onClick = { step = WizardStep.RELEASES },
-                            modifier = Modifier
-                                .focusRequester(primaryFocusRequester),
+                            modifier = Modifier.focusRequester(primaryFocusRequester).tvAdbFocusClampHorizontal(),
                         )
                     }
 
@@ -548,7 +568,7 @@ fun TvUpdateWizardScreen(onDismiss: () -> Unit) {
                                     ApkRow(
                                         apk = apk,
                                         theme = theme,
-                                        modifier = if (index == 0) Modifier.focusRequester(primaryFocusRequester) else Modifier,
+                                        modifier = if (index == 0) Modifier.focusRequester(primaryFocusRequester).tvAdbFocusClampHorizontal() else Modifier.tvAdbFocusClampHorizontal(),
                                         onClick = { selectedApk = apk },
                                     )
                                 }
@@ -562,6 +582,7 @@ fun TvUpdateWizardScreen(onDismiss: () -> Unit) {
                                             onClick = { apkPage-- },
                                             enabled = apkPage > 0,
                                             variant = ZsButtonVariant.Secondary,
+                                            modifier = Modifier, // might need to fix focus here
                                         )
                                         Text(
                                             "${apkPage + 1} / $totalPages",
@@ -573,6 +594,7 @@ fun TvUpdateWizardScreen(onDismiss: () -> Unit) {
                                             onClick = { apkPage++ },
                                             enabled = apkPage < totalPages - 1,
                                             variant = ZsButtonVariant.Secondary,
+                                            modifier = Modifier, // might need to fix focus here
                                         )
                                     }
                                 }
@@ -582,7 +604,7 @@ fun TvUpdateWizardScreen(onDismiss: () -> Unit) {
                                 onClick = { scanReleases() },
                                 enabled = !running,
                                 variant = ZsButtonVariant.Secondary,
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier.fillMaxWidth(), // might need to fix focus here
                             )
                         }
                     }
@@ -632,6 +654,7 @@ private fun ApkRow(
         gap = 4.dp,
         modifier = modifier
             .fillMaxWidth()
+            .tvAdbFocusClampHorizontal()
             .onFocusChanged { focused = it.isFocused },
     ) {
         ZsCard(
@@ -730,26 +753,29 @@ private fun ReleaseDetailContent(
             onClick = onBack,
             enabled = !running,
             variant = ZsButtonVariant.Secondary,
+            modifier = Modifier.tvAdbFocusClampVertical(),
         )
         if (running) {
             ZsButton(
                 text = "Cancel",
                 onClick = onCancel,
                 variant = ZsButtonVariant.Danger,
+                modifier = Modifier.tvAdbFocusClampVertical(),
             )
         } else {
             ZsButton(
                 text = "Install on TV",
                 onClick = onInstall,
                 modifier = Modifier
-                    .focusRequester(primaryFocusRequester),
+                    .focusRequester(primaryFocusRequester)
+                    .tvAdbFocusClampVertical(),
             )
         }
     }
     Text(
         "Always allow the ADB debugging prompt on the TV when it appears. If the update was successful, the app will close. You can then restart the app.",
         color = theme.colors.type.success,
-        fontSize = 13.sp,
+        fontSize = 15.sp,
         lineHeight = 18.sp,
     )
 }
