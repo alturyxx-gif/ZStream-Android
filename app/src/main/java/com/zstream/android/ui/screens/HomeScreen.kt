@@ -11,6 +11,10 @@ import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.BringIntoViewSpec
 import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.lazy.LazyColumn
@@ -47,6 +51,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import dev.chrisbanes.haze.HazeStyle
 import dev.chrisbanes.haze.HazeTint
 import dev.chrisbanes.haze.hazeEffect
@@ -61,6 +66,7 @@ import androidx.compose.ui.focus.requestFocus
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
@@ -442,6 +448,10 @@ fun HomeScreen(
     val hazeState = rememberHazeState()
     val placeholder = rememberRandomPlaceholder()
 
+    var isRefreshing by remember { mutableStateOf(false) }
+    var pullOffset by remember { mutableStateOf(0f) }
+    val maxPullOffset = 120f
+
     val watchPartyRoomCode by vm.watchPartyRoomCode.collectAsState()
     val watchPartyEnabled by vm.watchPartyEnabled.collectAsState()
     val watchPartyIsOffline by vm.watchPartyIsOffline.collectAsState()
@@ -479,6 +489,17 @@ fun HomeScreen(
 
     val unreadCount = notifications.count { it.guid !in readGuids }
     val scope = rememberCoroutineScope()
+
+    LaunchedEffect(isRefreshing) {
+        if (isRefreshing) {
+            scope.launch {
+                vm.refresh()
+                delay(500)
+                isRefreshing = false
+                pullOffset = 0f
+            }
+        }
+    }
 
     LaunchedEffect(releaseUpdateLaunch) {
         val launch = releaseUpdateLaunch
@@ -905,12 +926,45 @@ fun HomeScreen(
                 }
 
                 Box(Modifier.fillMaxSize()) {
+                    val pullNestedScrollConnection = remember {
+                        object : NestedScrollConnection {
+                            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                                // Eat upward scroll to retract the indicator before the list moves
+                                if (pullOffset > 0f && available.y < 0f && source == NestedScrollSource.UserInput) {
+                                    val consumed = available.y.coerceAtLeast(-pullOffset)
+                                    pullOffset = (pullOffset + consumed).coerceAtLeast(0f)
+                                    return Offset(0f, consumed)
+                                }
+                                return Offset.Zero
+                            }
+
+                            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+                                // available.y > 0 means the list is already at the top — accumulate pull distance
+                                if (!isRefreshing && available.y > 0f && source == NestedScrollSource.UserInput) {
+                                    pullOffset = (pullOffset + available.y * 0.5f).coerceIn(0f, maxPullOffset)
+                                }
+                                return Offset.Zero
+                            }
+
+                            override suspend fun onPreFling(available: Velocity): Velocity {
+                                // Finger has lifted — decide whether to trigger refresh or snap back
+                                if (!isRefreshing && pullOffset >= maxPullOffset) {
+                                    isRefreshing = true
+                                } else if (!isRefreshing) {
+                                    pullOffset = 0f
+                                }
+                                return Velocity.Zero
+                            }
+                        }
+                    }
+
                     LazyColumn(
                         state = listState,
                         modifier = Modifier
                             .fillMaxWidth()
                             .hazeSource(hazeState)
-                            .animateContentSize(),
+                            .animateContentSize()
+                            .nestedScroll(pullNestedScrollConnection),
                         contentPadding = WindowInsets.navigationBars.asPaddingValues()
                     ) {
                         item {
@@ -1089,6 +1143,44 @@ fun HomeScreen(
                                     }
                                     item { Spacer(Modifier.height(20.dp)) }
                                 }
+                            }
+                        }
+                    }
+                    
+                    // Pull-to-Refresh Indicator
+                    if (pullOffset > 0 || isRefreshing) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.TopCenter)
+                                .offset(y = (pullOffset / 2).dp)
+                                .size(40.dp)
+                                .background(
+                                    color = theme.colors.modal.background,
+                                    shape = CircleShape
+                                )
+                                .border(
+                                    width = 2.dp,
+                                    color = theme.colors.global.accentA,
+                                    shape = CircleShape
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (isRefreshing) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(24.dp),
+                                    color = theme.colors.global.accentA,
+                                    strokeWidth = 2.dp
+                                )
+                            } else {
+                                val rotationAngle = (pullOffset / maxPullOffset * 360).coerceIn(0f, 360f)
+                                Icon(
+                                    imageVector = Icons.Default.ArrowDownward,
+                                    contentDescription = "Pull to refresh",
+                                    tint = theme.colors.global.accentA,
+                                    modifier = Modifier
+                                        .size(20.dp)
+                                        .rotate(rotationAngle)
+                                )
                             }
                         }
                     }

@@ -113,6 +113,8 @@ class HomeViewModel @Inject constructor(
     private val settingsPrefs: SettingsPreferences,
     val userPrefs: UserPreferences,
     private val watchPartyManager: WatchPartyManager,
+    private val dataSyncManager: com.zstream.android.data.DataSyncManager,
+    private val traktRepo: com.zstream.android.data.TraktRepository,
 ) : ViewModel() {
     private val _state = MutableStateFlow(HomeState())
     val state = _state.asStateFlow()
@@ -333,6 +335,16 @@ class HomeViewModel @Inject constructor(
                 android.util.Log.e("HomeVM", "Failed to load home sections", e)
                 _state.update { it.copy(loading = false, error = e.message ?: "No connection") }
             }
+        }
+    }
+
+    /** Pull-to-refresh: reload TMDB data + sync backend + sync Trakt (fire-and-forget each). */
+    fun refresh() {
+        load()
+        viewModelScope.launch { runCatching { dataSyncManager.syncAllFromRemote() } }
+        viewModelScope.launch {
+            runCatching { traktRepo.syncHistory() }
+            runCatching { traktRepo.syncWatchlist() }
         }
     }
 
