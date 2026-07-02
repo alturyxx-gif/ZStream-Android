@@ -197,35 +197,10 @@ class HomeViewModel @Inject constructor(
     private fun observeUserContent() {
         viewModelScope.launch {
             progressRepo.observeAllProgress().collect { progress ->
-                // Group by tmdbId, keep only the latest episode per show
-                val latestPerShow = progress.groupBy { it.tmdbId }
-                    .mapValues { (_, entries) ->
-                        val nonCompleted = entries.filter { it.duration <= 0 || it.watched < it.duration * 0.95f }
-                        val candidates = if (nonCompleted.isNotEmpty()) nonCompleted else entries
-                        candidates.maxByOrNull {
-                            (it.seasonNumber ?: 0) * 100000 + (it.episodeNumber ?: 0)
-                        } ?: candidates.first()
-                    }
-                val mediaMap = mutableMapOf<String, ProgressEntity>()
-                val watchingMedia = latestPerShow.map { (tmdbId, p) ->
-                    mediaMap[tmdbId] = p
-                    Media(
-                        id = p.tmdbId.toIntOrNull() ?: 0,
-                        title = if (p.type == "movie") p.title else null,
-                        name = if (p.type == "show") p.title else null,
-                        overview = null,
-                        posterPath = p.posterPath,
-                        backdropPath = null,
-                        releaseDate = p.year?.toString(),
-                        firstAirDate = p.year?.toString(),
-                        voteAverage = null,
-                        mediaType = if (p.type == "show") "tv" else p.type,
-                        genreIds = null
-                    )
-                }
+                val continueWatching = progress.toContinueWatchingResult()
                 _state.update { it.copy(
-                    progressMap = mediaMap,
-                    continueWatching = if (watchingMedia.isNotEmpty()) listOf(MediaSection("Continue Watching", watchingMedia, MediaSectionSource.ContinueWatching)) else emptyList(),
+                    progressMap = continueWatching.progressMap,
+                    continueWatching = if (continueWatching.media.isNotEmpty()) listOf(MediaSection("Continue Watching", continueWatching.media, MediaSectionSource.ContinueWatching)) else emptyList(),
                 ) }
             }
         }
