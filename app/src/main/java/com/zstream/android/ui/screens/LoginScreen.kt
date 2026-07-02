@@ -1,5 +1,6 @@
 package com.zstream.android.ui.screens
 
+import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -180,7 +181,7 @@ private fun BoxScope.LoginPanel(
             HorizontalDivider(Modifier.weight(1f), color = txt.dimmed.copy(0.3f))
         }
 
-        if (!isTv)
+        if (!isTv && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P)
         {
             ZsButton(
                 text = "Sign in with Passkey",
@@ -336,7 +337,7 @@ private fun BoxScope.ConfirmRegisterPanel(
             modifier = Modifier.height(48.dp),
         )
 
-        if (!isTv)
+        if (!isTv && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P)
         {
             ZsButton(
                 text = "Create with Passkey",
