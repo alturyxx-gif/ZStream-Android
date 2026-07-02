@@ -51,4 +51,13 @@ class PluginGateViewModel @Inject constructor(
                 .onFailure { _installError.value = it.message ?: "Update check failed" }
         }
     }
+
+    /** DEBUG only — loads plugin APK directly from a file path, no download/verification. */
+    fun debugSideload(path: String) {
+        viewModelScope.launch {
+            _installError.value = null
+            runCatching { pluginManager.debugSideload(path) }
+                .onFailure { _installError.value = it.message ?: "Sideload failed" }
+        }
+    }
 }

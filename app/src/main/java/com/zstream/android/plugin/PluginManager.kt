@@ -106,6 +106,33 @@ class PluginManager @Inject constructor(
     }
 
     // -------------------------------------------------------------------------
+    // Debug sideload (DEBUG builds only)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Loads a plugin APK directly from [path] without downloading or verifying hash/signature.
+     * Usage: adb push plugin-debug.apk /sdcard/Download/plugin-debug.apk
+     *        then call this from the dev menu or PluginGateViewModel.
+     */
+    suspend fun debugSideload(path: String) = withContext(Dispatchers.IO) {
+        check(BuildConfig.DEBUG) { "debugSideload is only available in debug builds" }
+        val src = java.io.File(path)
+        check(src.exists()) { "Sideload file not found: $path" }
+        val dest = loader.pluginDir().resolve("plugin-v0.apk")
+        src.copyTo(dest, overwrite = true)
+        val meta = PluginMetadata(
+            version     = 0,
+            hash        = "sha256:dev",
+            fileName    = dest.name,
+            activatedAt = System.currentTimeMillis() / 1000,
+        )
+        writeActiveMeta(meta)
+        val plugin = loader.load(dest)
+        _pluginState.value = PluginState.Ready(plugin, 0)
+        Log.i(TAG, "Debug sideload complete: $path")
+    }
+
+    // -------------------------------------------------------------------------
     // Manual install (first time)
     // -------------------------------------------------------------------------
 
