@@ -3,9 +3,7 @@ package com.zstream.android.di
 import org.conscrypt.Conscrypt
 import javax.net.ssl.SSLContext
 import javax.net.ssl.SSLSocketFactory
-import javax.net.ssl.TrustManagerFactory
 import javax.net.ssl.X509TrustManager
-import java.security.KeyStore
 
 /**
  * Builds an SSLSocketFactory + X509TrustManager backed entirely by Conscrypt's own
@@ -26,11 +24,10 @@ object TlsHelper {
 
     fun build(): TlsConfig {
         val provider = Conscrypt.newProvider()
-        val tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm(), provider)
-        tmf.init(null as KeyStore?) // null = use the provider's default trust store
-        val trustManager = tmf.trustManagers
-            .filterIsInstance<X509TrustManager>()
-            .first()
+        // Conscrypt.getDefaultX509TrustManager() returns a TrustManager backed by Conscrypt's
+        // own bundled root CA set, bypassing Android's NetworkSecurityTrustManager entirely.
+        // This is the correct fix for Android 7 (API 24) which is missing ISRG Root X1.
+        val trustManager = Conscrypt.getDefaultX509TrustManager()
         val sslContext = SSLContext.getInstance("TLS", provider)
         sslContext.init(null, arrayOf(trustManager), null)
         return TlsConfig(sslContext.socketFactory, trustManager)
