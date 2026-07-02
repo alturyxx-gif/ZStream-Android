@@ -45,6 +45,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.requestFocus
 import androidx.compose.ui.geometry.CornerRadius
@@ -208,6 +209,7 @@ private fun TvSettingsScreen(
                 Modifier
                     .width(220.dp)
                     .fillMaxHeight()
+                    .focusRestorer(tabFocusRequesters[currentTab])
                     .background(
                         Brush.verticalGradient(
                             listOf(
