@@ -30,6 +30,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.zstream.android.BuildConfig
 import com.zstream.android.plugin.PluginGateViewModel
 import com.zstream.android.plugin.PluginState
 import com.zstream.android.ui.components.themed.ZsButton
@@ -157,6 +158,22 @@ fun PluginInstallScreen(vm: PluginGateViewModel) {
                 enabled = progress == null,
                 modifier = Modifier.align(Alignment.CenterHorizontally)
             )
+
+            // Debug sideload button — only visible in debug builds
+            if (BuildConfig.DEBUG) {
+                Spacer(modifier = Modifier.height(12.dp))
+                ZsButton(
+                    text = "Dev: Sideload plugin",
+                    onClick = {
+                        val path = context.getExternalFilesDir(null)
+                            ?.resolve("plugin-debug.apk")?.absolutePath
+                            ?: "/sdcard/Android/data/com.zstream.android/files/plugin-debug.apk"
+                        vm.debugSideload(path)
+                    },
+                    enabled = progress == null,
+                    modifier = Modifier.align(Alignment.CenterHorizontally),
+                )
+            }
         }
     }
 }

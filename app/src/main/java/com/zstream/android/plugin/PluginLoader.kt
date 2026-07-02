@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import android.util.Log
+import com.zstream.android.BuildConfig
 import com.zstream.plugin.api.StreamPlugin
 import dagger.hilt.android.qualifiers.ApplicationContext
 import okhttp3.OkHttpClient
@@ -144,6 +145,8 @@ class PluginLoader @Inject constructor(
      * Uses PackageManager to extract the signing certificate from the archive.
      */
     fun verifySignature(file: File): Boolean {
+        // ponytail: skip cert pin in debug builds — replace PINNED_CERT_SHA256 before release
+        if (BuildConfig.DEBUG) return true
         return try {
             val pm = context.packageManager
             val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
