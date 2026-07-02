@@ -78,6 +78,7 @@ import javax.inject.Inject
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.zstream.android.data.TraktRepository
+import com.zstream.android.data.AccountRepository
 import com.zstream.android.data.local.preferences.SettingsPreferences
 
 private enum class TvSyncPhonePage { INTRO, DISCOVER, PAIR, INTEGRATIONS, PASSPHRASE, ACCOUNT_DEVICE, REVIEW, RESULT }
@@ -88,6 +89,7 @@ class TvSyncViewModel @Inject constructor(
     private val repo: TvSyncRepository,
     settingsPreferences: SettingsPreferences,
     private val traktRepository: TraktRepository,
+    accountRepository: AccountRepository,
 ) : ViewModel() {
     val receiverState: StateFlow<TvSyncReceiverState> = repo.receiverState
     val settings: StateFlow<SettingsEntity> = settingsPreferences.settings.stateIn(
@@ -96,6 +98,11 @@ class TvSyncViewModel @Inject constructor(
         SettingsEntity(),
     )
     val traktState: StateFlow<TraktState> = traktRepository.state
+    val accountSession = accountRepository.session.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5_000),
+        null,
+    )
     suspend fun discoverReceivers(): List<TvSyncDiscoveredReceiver> = repo.discoverReceivers()
     suspend fun fetchHello(host: String, port: Int) = repo.fetchHello(host, port)
     suspend fun pair(host: String, port: Int, code: String, salt: String, sessionId: String, phoneName: String) =
@@ -158,6 +165,7 @@ private fun TvSyncSenderScreen(
     val onBack = rememberSafeNavigateBack(nav, scope)
     val settings by vm.settings.collectAsStateWithLifecycle()
     val trakt by vm.traktState.collectAsStateWithLifecycle()
+    val accountSession by vm.accountSession.collectAsStateWithLifecycle()
 
     var page by remember { mutableStateOf(TvSyncPhonePage.INTRO) }
     var status by remember { mutableStateOf<String?>(null) }
@@ -176,6 +184,13 @@ private fun TvSyncSenderScreen(
     var transferResult by remember { mutableStateOf<String?>(null) }
     val selected = remember { mutableStateMapOf<String, Boolean>() }
     val available = remember { mutableStateMapOf<String, Pair<Boolean, String>>() }
+
+    LaunchedEffect(accountSession?.usesPasskey) {
+        if (accountSession?.usesPasskey == true) {
+            passphraseEnabled = false
+            passphrase = ""
+        }
+    }
 
     suspend fun refreshAvailability() {
         available["tmdb"] = settings.tmdbApiKey
@@ -404,30 +419,34 @@ private fun TvSyncSenderScreen(
                     ZsButton(text = "Continue", onClick = { page = TvSyncPhonePage.PASSPHRASE }, modifier = Modifier.fillMaxWidth())
                 }
                 TvSyncPhonePage.PASSPHRASE -> {
-                    Text("Sign this TV into your ZStream account?", color = theme.colors.type.emphasis, fontWeight = FontWeight.SemiBold)
-                    Text("This creates a separate account session for the TV. Integration sync works without it.", color = theme.colors.type.secondary)
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        ZsButton(
-                            text = if (passphraseEnabled) "Yes, selected" else "Yes",
-                            onClick = { passphraseEnabled = true },
-                            variant = if (passphraseEnabled) ZsButtonVariant.Primary else ZsButtonVariant.Secondary,
-                            modifier = Modifier.weight(1f),
-                        )
-                        ZsButton(
-                            text = if (!passphraseEnabled) "No, selected" else "No",
-                            onClick = { passphraseEnabled = false; passphrase = "" },
-                            variant = if (!passphraseEnabled) ZsButtonVariant.Primary else ZsButtonVariant.Secondary,
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
-                    if (passphraseEnabled) {
-                        OutlinedTextField(
-                            value = passphrase,
-                            onValueChange = { passphrase = it },
-                            label = { Text("ZStream passphrase") },
-                            visualTransformation = PasswordVisualTransformation(),
-                            modifier = Modifier.fillMaxWidth(),
-                        )
+                    if (accountSession?.usesPasskey == true) {
+                        SyncInstructionCard("Passkey account", "This account has no passphrase to send. Account sign-in is skipped; your selected integrations can still sync.")
+                    } else {
+                        Text("Sign this TV into your ZStream account?", color = theme.colors.type.emphasis, fontWeight = FontWeight.SemiBold)
+                        Text("This creates a separate account session for the TV. Integration sync works without it.", color = theme.colors.type.secondary)
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            ZsButton(
+                                text = if (passphraseEnabled) "Yes, selected" else "Yes",
+                                onClick = { passphraseEnabled = true },
+                                variant = if (passphraseEnabled) ZsButtonVariant.Primary else ZsButtonVariant.Secondary,
+                                modifier = Modifier.weight(1f),
+                            )
+                            ZsButton(
+                                text = if (!passphraseEnabled) "No, selected" else "No",
+                                onClick = { passphraseEnabled = false; passphrase = "" },
+                                variant = if (!passphraseEnabled) ZsButtonVariant.Primary else ZsButtonVariant.Secondary,
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                        if (passphraseEnabled) {
+                            OutlinedTextField(
+                                value = passphrase,
+                                onValueChange = { passphrase = it },
+                                label = { Text("ZStream passphrase") },
+                                visualTransformation = PasswordVisualTransformation(),
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
                     }
                     ZsButton(
                         text = if (passphraseEnabled) "Continue" else "Review",

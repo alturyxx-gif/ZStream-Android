@@ -59,6 +59,7 @@ class TraktRepository @Inject constructor(
     @ApplicationContext private val context: Context,
     private val bookmarkDao: BookmarkDao,
     private val progressDao: ProgressDao,
+    private val tmdbRepository: TmdbRepository,
 ) {
     private val accessKey = stringPreferencesKey("access_token")
     private val refreshKey = stringPreferencesKey("refresh_token")
@@ -171,6 +172,8 @@ class TraktRepository @Inject constructor(
             ?.let { runCatching { JsonParser.parseString(it).asJsonObject }.getOrNull() }
             ?.let(::applyProfile)
             ?: run { _state.value = TraktState(connected = true) }
+        syncWatchlist()
+        syncHistory()
     }
 
     fun updateWatchlist(bookmark: BookmarkEntity, add: Boolean) {
@@ -190,12 +193,21 @@ class TraktRepository @Inject constructor(
             val obj = item.asJsonObject
             val media = obj.getAsJsonObject("movie") ?: obj.getAsJsonObject("show") ?: return@forEach
             val id = media.getAsJsonObject("ids")?.get("tmdb")?.asString ?: return@forEach
-            if (!bookmarkDao.exists(id)) bookmarkDao.insert(BookmarkEntity(
-                tmdbId = id,
-                title = media.get("title")?.asString.orEmpty(),
-                year = media.get("year")?.asInt,
-                type = if (obj.has("movie")) "movie" else "show",
-            ))
+            val existing = bookmarkDao.getByTmdbId(id)
+            if (existing?.posterPath == null) {
+                val type = if (obj.has("movie")) "movie" else "show"
+                val metadata = tmdbMetadata(type, id)
+                bookmarkDao.insert(existing?.copy(
+                    title = metadata?.first ?: existing.title,
+                    posterPath = metadata?.second,
+                ) ?: BookmarkEntity(
+                    tmdbId = id,
+                    title = metadata?.first ?: media.get("title")?.asString.orEmpty(),
+                    year = media.get("year")?.asInt,
+                    type = type,
+                    posterPath = metadata?.second,
+                ))
+            }
         }
     }
 
@@ -231,21 +243,38 @@ class TraktRepository @Inject constructor(
             val season = episode?.get("season")?.asInt
             val number = episode?.get("number")?.asInt
             val id = ProgressEntity.computeId(showId, season, number)
-            if (progressDao.getAllByTmdbId(showId).none { it.id == id }) progressDao.insert(ProgressEntity(
-                id = id,
-                tmdbId = showId,
-                title = media.get("title")?.asString.orEmpty(),
-                year = media.get("year")?.asInt,
-                type = if (movie != null) "movie" else "show",
-                watched = 0,
-                duration = 1,
-                updatedAt = item.get("watched_at")?.asString?.let { runCatching { java.time.Instant.parse(it).toEpochMilli() }.getOrNull() } ?: System.currentTimeMillis(),
-                episodeId = episode?.getAsJsonObject("ids")?.get("tmdb")?.asString,
-                seasonNumber = season,
-                episodeNumber = number,
-            ))
+            val existing = progressDao.getAllByTmdbId(showId).firstOrNull { it.id == id }
+            if (existing?.posterPath == null) {
+                val type = if (movie != null) "movie" else "show"
+                val metadata = tmdbMetadata(type, showId)
+                progressDao.insert(existing?.copy(
+                    title = metadata?.first ?: existing.title,
+                    posterPath = metadata?.second,
+                ) ?: ProgressEntity(
+                    id = id,
+                    tmdbId = showId,
+                    title = metadata?.first ?: media.get("title")?.asString.orEmpty(),
+                    year = media.get("year")?.asInt,
+                    type = type,
+                    watched = 0,
+                    duration = 1,
+                    updatedAt = item.get("watched_at")?.asString?.let { runCatching { java.time.Instant.parse(it).toEpochMilli() }.getOrNull() } ?: System.currentTimeMillis(),
+                    episodeId = episode?.getAsJsonObject("ids")?.get("tmdb")?.asString,
+                    seasonNumber = season,
+                    episodeNumber = number,
+                    posterPath = metadata?.second,
+                ))
+            }
         }
     }
+
+    private suspend fun tmdbMetadata(type: String, tmdbId: String): Pair<String, String?>? = runCatching {
+        val id = tmdbId.toInt()
+        if (type == "movie") tmdbRepository.movieDetail(id).let { it.title to it.posterPath }
+        else tmdbRepository.tvDetail(id).let { it.name to it.posterPath }
+    }.onFailure {
+        android.util.Log.w("TraktRepository", "Failed to fetch TMDB poster for $type $tmdbId", it)
+    }.getOrNull()
 
     fun reportPlayback(type: String, tmdbId: String, season: Int?, episode: Int?, playing: Boolean, positionMs: Long, durationMs: Long) {
         if (!_state.value.connected || durationMs <= 0) return
