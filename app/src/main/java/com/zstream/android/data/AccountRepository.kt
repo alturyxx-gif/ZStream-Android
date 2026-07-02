@@ -3,6 +3,7 @@ package com.zstream.android.data
 import android.content.Context
 import android.util.Log
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.zstream.android.data.CryptoUtils.toBase64Url
@@ -18,7 +19,7 @@ import retrofit2.HttpException
 private const val TAG = "AccountRepo"
 private val Context.accountStore by preferencesDataStore("account")
 
-data class AccountSession(val userId: String, val token: String, val nickname: String, val deviceName: String = "")
+data class AccountSession(val userId: String, val token: String, val nickname: String, val deviceName: String = "", val usesPasskey: Boolean = false)
 
 @Singleton
 class AccountRepository @Inject constructor(
@@ -29,6 +30,7 @@ class AccountRepository @Inject constructor(
     private val KEY_USER_ID  = stringPreferencesKey("user_id")
     private val KEY_NICKNAME = stringPreferencesKey("nickname")
     private val KEY_DEVICE   = stringPreferencesKey("device_name")
+    private val KEY_PASSKEY  = booleanPreferencesKey("uses_passkey")
     private val KEY_GUEST_ID = stringPreferencesKey("guest_id")
 
     // Current session (can be null)
@@ -40,7 +42,7 @@ class AccountRepository @Inject constructor(
         val userId     = prefs[KEY_USER_ID]  ?: return@map null
         val nickname   = prefs[KEY_NICKNAME] ?: ""
         val deviceName = prefs[KEY_DEVICE]   ?: ""
-        val account = AccountSession(userId, token, nickname, deviceName)
+        val account = AccountSession(userId, token, nickname, deviceName, prefs[KEY_PASSKEY] ?: false)
         currentSession = account
         account
     }
@@ -49,13 +51,13 @@ class AccountRepository @Inject constructor(
 
     suspend fun login(passphrase: String, deviceName: String = "Android"): AccountSession {
         Log.d(TAG, "login derive keys passphraseLength=${passphrase.length} leadingOrTrailingWhitespace=${passphrase != passphrase.trim()} deviceNameLength=${deviceName.length}")
-        val keys = CryptoUtils.keysFromPassphrase(passphrase)
-        return challengeLogin(keys.publicKey.toBase64Url(), keys.privateKey, keys.seed, deviceName)
+        val keys = CryptoUtils.keysFromPassphrase(passphrase.trim())
+        return challengeLogin(keys.publicKey.toBase64Url(), keys.privateKey, keys.seed, deviceName, false)
     }
 
     suspend fun register(passphrase: String, deviceName: String = "Android"): AccountSession {
-        val keys = CryptoUtils.keysFromPassphrase(passphrase)
-        return challengeRegister(keys.publicKey.toBase64Url(), keys.privateKey, keys.seed, deviceName)
+        val keys = CryptoUtils.keysFromPassphrase(passphrase.trim())
+        return challengeRegister(keys.publicKey.toBase64Url(), keys.privateKey, keys.seed, deviceName, false)
     }
 
     //  Passkey auth 
@@ -63,13 +65,13 @@ class AccountRepository @Inject constructor(
     suspend fun loginWithPasskey(deviceName: String = "Android"): AccountSession {
         val credId = CryptoUtils.authenticatePasskey(ctx)
         val keys   = CryptoUtils.keysFromSeed(CryptoUtils.pbkdf2(credId))
-        return challengeLogin(keys.publicKey.toBase64Url(), keys.privateKey, keys.seed, deviceName)
+        return challengeLogin(keys.publicKey.toBase64Url(), keys.privateKey, keys.seed, deviceName, true)
     }
 
     suspend fun registerWithPasskey(userName: String, deviceName: String = "Android"): AccountSession {
         val credId = CryptoUtils.createPasskey(ctx, userName)
         val keys   = CryptoUtils.keysFromSeed(CryptoUtils.pbkdf2(credId))
-        return challengeRegister(keys.publicKey.toBase64Url(), keys.privateKey, keys.seed, deviceName)
+        return challengeRegister(keys.publicKey.toBase64Url(), keys.privateKey, keys.seed, deviceName, true)
     }
 
     suspend fun logout() = ctx.accountStore.edit { it.clear() }
@@ -100,7 +102,7 @@ class AccountRepository @Inject constructor(
 
     //  Private 
 
-    private suspend fun challengeLogin(pubB64: String, privKey: ByteArray, seed: ByteArray, device: String): AccountSession {
+    private suspend fun challengeLogin(pubB64: String, privKey: ByteArray, seed: ByteArray, device: String, usesPasskey: Boolean): AccountSession {
         Log.d(TAG, "login/start pubKey=$pubB64")
         val challenge = runCatching { api.loginStart(LoginStartBody(pubB64)) }.onFailure {
             val http = it as? HttpException
@@ -118,10 +120,10 @@ class AccountRepository @Inject constructor(
         }.getOrThrow()
         val userId = resp.user?.id ?: resp.session.userId
         Log.d(TAG, "login/complete resp token=${resp.token.take(20)}… userId=$userId session=${resp.session}")
-        return AccountSession(userId, resp.token, resp.user?.nickname ?: "", resp.session.device).also { persist(it) }
+        return AccountSession(userId, resp.token, resp.user?.nickname ?: "", device, usesPasskey).also { persist(it) }
     }
 
-    private suspend fun challengeRegister(pubB64: String, privKey: ByteArray, seed: ByteArray, device: String): AccountSession {
+    private suspend fun challengeRegister(pubB64: String, privKey: ByteArray, seed: ByteArray, device: String, usesPasskey: Boolean): AccountSession {
         Log.d(TAG, "register/start pubKey=$pubB64")
         val challenge = api.registerStart(RegisterStartBody())
         Log.d(TAG, "register/start challenge=${challenge.challenge}")
@@ -130,7 +132,7 @@ class AccountRepository @Inject constructor(
         Log.d(TAG, "register/complete sig=${sig.take(20)}… device(enc)=${encDevice.take(20)}…")
         val resp = api.registerComplete(RegisterCompleteBody(pubB64, ChallengePayload(challenge.challenge, sig), encDevice, ProfileBody()))
         Log.d(TAG, "register/complete resp token=${resp.token.take(20)}… session=${resp.session} user=${resp.user}")
-        return AccountSession(resp.session.userId, resp.token, resp.user.nickname, resp.session.device).also { persist(it) }
+        return AccountSession(resp.session.userId, resp.token, resp.user.nickname, device, usesPasskey).also { persist(it) }
     }
 
     private suspend fun persist(account: AccountSession) = ctx.accountStore.edit { prefs ->
@@ -138,6 +140,7 @@ class AccountRepository @Inject constructor(
         prefs[KEY_USER_ID]  = account.userId
         prefs[KEY_NICKNAME] = account.nickname
         prefs[KEY_DEVICE]   = account.deviceName
+        prefs[KEY_PASSKEY]  = account.usesPasskey
     }
 
     private fun AccountSession.bearer() = "Bearer $token"
