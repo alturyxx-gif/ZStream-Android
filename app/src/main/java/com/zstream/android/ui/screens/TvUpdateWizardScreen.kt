@@ -42,6 +42,7 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalContext
@@ -326,13 +327,6 @@ fun TvUpdateWizardScreen(onDismiss: () -> Unit) {
                         fontSize = 18.sp,
                         fontWeight = FontWeight.SemiBold,
                     )
-                    ZsButton(
-                        text = "Close",
-                        onClick = onDismiss,
-                        enabled = !running,
-                        variant = ZsButtonVariant.Secondary,
-                        modifier = Modifier.tvAdbFocusClampVertical(),
-                    )
                 }
                 HorizontalDivider(color = theme.colors.type.divider.copy(alpha = 0.18f))
             }
@@ -525,6 +519,8 @@ fun TvUpdateWizardScreen(onDismiss: () -> Unit) {
 
                     WizardStep.RELEASES -> {
                         val contentFocusRequester = remember { FocusRequester() }
+                        val selectedReleaseIndex = apks.indexOfFirst { it.assetId == selectedApk?.assetId }.coerceAtLeast(0)
+                        val selectedReleaseFocusRequester = releaseFocusRequesters.getOrElse(selectedReleaseIndex) { primaryFocusRequester }
                         Row(Modifier.fillMaxSize()) {
                             Column(
                                 Modifier
@@ -533,30 +529,7 @@ fun TvUpdateWizardScreen(onDismiss: () -> Unit) {
                                     .background(Brush.verticalGradient(listOf(theme.colors.background.secondary, theme.colors.background.main)))
                                     .padding(vertical = 16.dp),
                             ) {
-                                Text(
-                                    "RELEASES",
-                                    color = theme.colors.type.dimmed,
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    letterSpacing = 1.5.sp,
-                                    modifier = Modifier.padding(horizontal = 32.dp, vertical = 8.dp),
-                                )
-                                if (status.isNotBlank()) {
-                                    Text(status, color = theme.colors.type.secondary, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
-                                }
-                                if (running && progress == null) {
-                                    LinearProgressIndicator(
-                                        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
-                                        color = theme.colors.global.accentA,
-                                        trackColor = theme.colors.background.secondary,
-                                    )
-                                }
-                                lastError?.let {
-                                    Box(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                                        ZsStatusBanner(it, variant = ZsStatusBannerVariant.Error)
-                                    }
-                                }
-                                LazyColumn(Modifier.weight(1f)) {
+                                LazyColumn(Modifier.weight(1f).focusRestorer(selectedReleaseFocusRequester)) {
                                     itemsIndexed(apks, key = { _, apk -> apk.assetId }) { index, apk ->
                                         ApkRow(
                                             apk = apk,
@@ -566,7 +539,13 @@ fun TvUpdateWizardScreen(onDismiss: () -> Unit) {
                                                 .padding(top = 10.dp)
                                                 .focusRequester(releaseFocusRequesters[index])
                                                 .focusProperties { right = contentFocusRequester },
-                                            onSelect = { selectedApk = apk },
+                                            onSelect = {
+                                                if (!running && selectedApk?.assetId != apk.assetId) {
+                                                    selectedApk = apk
+                                                    status = ""
+                                                    lastError = null
+                                                }
+                                            },
                                         )
                                     }
                                 }
@@ -578,6 +557,7 @@ fun TvUpdateWizardScreen(onDismiss: () -> Unit) {
                                         .fillMaxWidth()
                                         .padding(horizontal = 16.dp)
                                         .then(if (apks.isEmpty()) Modifier.focusRequester(primaryFocusRequester) else Modifier),
+                                    buttonModifier = Modifier.fillMaxWidth()
                                 )
                             }
                             Box(Modifier.widthIn(min = 1.dp, max = 1.dp).fillMaxHeight().background(theme.colors.utils.divider.copy(alpha = 0.15f)))
@@ -591,7 +571,6 @@ fun TvUpdateWizardScreen(onDismiss: () -> Unit) {
                                 verticalArrangement = Arrangement.spacedBy(16.dp),
                             ) {
                                 selectedApk?.let { apk ->
-                                    val releaseIndex = apks.indexOfFirst { it.assetId == apk.assetId }.coerceAtLeast(0)
                             ReleaseDetailContent(
                                 apk = apk,
                                 status = status,
@@ -629,7 +608,7 @@ fun TvUpdateWizardScreen(onDismiss: () -> Unit) {
                                 },
                                 onCancel = { activeJob?.cancel() },
                                 installFocusRequester = contentFocusRequester,
-                                releaseFocusRequester = releaseFocusRequesters.getOrElse(releaseIndex) { primaryFocusRequester },
+                                releaseFocusRequester = selectedReleaseFocusRequester,
                             )
                                 }
                             }
@@ -731,6 +710,15 @@ private fun ReleaseDetailContent(
     onInstall: () -> Unit,
     onCancel: () -> Unit,
 ) {
+    var previousRunning by remember { mutableStateOf(running) }
+    LaunchedEffect(running) {
+        if (previousRunning != running) {
+            previousRunning = running
+            withFrameNanos { }
+            installFocusRequester.requestFocus()
+        }
+    }
+
     ZsCard(variant = ZsCardVariant.Elevated, modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(
@@ -779,32 +767,18 @@ private fun ReleaseDetailContent(
     lastError?.let { ZsStatusBanner(it, variant = ZsStatusBannerVariant.Error) }
 
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        if (running) {
-            ZsButton(
-                text = "Cancel",
-                onClick = onCancel,
-                variant = ZsButtonVariant.Danger,
-                modifier = Modifier
-                    .focusRequester(installFocusRequester)
-                    .focusProperties {
-                        up = FocusRequester.Cancel
-                        down = FocusRequester.Cancel
-                        left = releaseFocusRequester
-                    },
-            )
-        } else {
-            ZsButton(
-                text = "Install on TV",
-                onClick = onInstall,
-                modifier = Modifier
-                    .focusRequester(installFocusRequester)
-                    .focusProperties {
-                        up = FocusRequester.Cancel
-                        down = FocusRequester.Cancel
-                        left = releaseFocusRequester
-                    },
-            )
-        }
+        ZsButton(
+            text = if (running) "Cancel" else "Install on TV",
+            onClick = if (running) onCancel else onInstall,
+            variant = if (running) ZsButtonVariant.Danger else ZsButtonVariant.Primary,
+            modifier = Modifier
+                .focusRequester(installFocusRequester)
+                .focusProperties {
+                    up = FocusRequester.Cancel
+                    down = FocusRequester.Cancel
+                    left = releaseFocusRequester
+                },
+        )
     }
     Text(
         "Always allow the ADB debugging prompt on the TV when it appears. If the update was successful, the app will close. You can then restart the app.",
