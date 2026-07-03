@@ -16,7 +16,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -45,6 +48,7 @@ fun ZsIconButton(
     containerSize: Dp = 40.dp,
     iconSize: Dp = 20.dp,
     shape: Shape = CircleShape,
+    focusRequester: FocusRequester? = null,
 ) {
     require(icon != null || painter != null) { "ZsIconButton requires either an icon or painter." }
 
@@ -77,13 +81,14 @@ fun ZsIconButton(
         shape = shape,
         outlineColor = if (isTv) Color.White else theme.colors.global.accentA.copy(alpha = 0.6f),
         gap = 4.dp,
-        modifier = modifier
+        modifier = modifier.alpha(if (enabled) 1f else 0.4f)
     ) {
         Surface(
             onClick = onClick,
             enabled = enabled,
             modifier = Modifier
                 .size(containerSize)
+                .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
                 .onFocusChanged { isFocused = it.isFocused },
             color = when {
                 !enabled -> containerColor.copy(alpha = 0.45f)

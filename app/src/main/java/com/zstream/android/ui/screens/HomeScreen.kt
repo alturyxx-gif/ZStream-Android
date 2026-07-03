@@ -76,6 +76,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
@@ -1991,19 +1992,36 @@ private fun MediaGridRow(
     editable: Boolean = false,
     onRemoveItem: ((Media) -> Unit)? = null,
     onEditItem: ((Media) -> Unit)? = null,
+    previousPageFocusRequester: FocusRequester? = null,
+    nextPageFocusRequester: FocusRequester? = null,
+    onRowFocused: ((Int, Int) -> Unit)? = null,
 ) {
     val isTv = LocalIsTv.current
     var tvEditMediaId by remember { mutableStateOf<Int?>(null) }
+    var rowTopPx by remember { mutableIntStateOf(0) }
+    var rowHeightPx by remember { mutableIntStateOf(0) }
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .onGloballyPositioned {
+                rowTopPx = it.positionInParent().y.roundToInt()
+                rowHeightPx = it.size.height
+            }
+            .onFocusChanged { if (it.hasFocus) onRowFocused?.invoke(rowTopPx, rowHeightPx) }
             .padding(horizontal = 16.dp, vertical = 5.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        rowItems.forEach { media ->
+        rowItems.forEachIndexed { index, media ->
             val progress = progressMap[media.id.toString()]
             val progressInfo = progress?.let { getProgressInfo(it) }
-                Box(modifier = Modifier.weight(1f)) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .focusProperties {
+                            if (previousPageFocusRequester != null && index == 0) left = previousPageFocusRequester
+                            if (nextPageFocusRequester != null && index == rowItems.lastIndex) right = nextPageFocusRequester
+                        }
+                ) {
                     MediaCard(
                         media = media,
                         onClick = {
@@ -2084,55 +2102,123 @@ private fun LazyListScope.MediaGridPages(
     onRemoveItem: ((Media) -> Unit)? = null,
     onEditItem: ((Media) -> Unit)? = null,
     trailingContent: (@Composable RowScope.() -> Unit)? = null,
+    onRowFocused: ((Int, Int) -> Unit)? = null,
 ) {
     item {
         val theme = LocalZStreamTheme.current
+        val isTv = LocalIsTv.current
         val focusManager = LocalFocusManager.current
         val pageSize = remember(numOfColumns, numOfRows) { numOfColumns * numOfRows }
         val totalPages = remember(section.items.size, pageSize) {
             (section.items.size + pageSize - 1) / pageSize
         }
         val clampedPage = currentPage.coerceIn(0, (totalPages - 1).coerceAtLeast(0))
-        val displayedCards = remember(clampedPage, section.items, pageSize) {
-            section.items.drop(clampedPage * pageSize).take(pageSize)
-        }
         var editValue by remember { mutableStateOf((clampedPage + 1).toString()) }
 
         LaunchedEffect(clampedPage, pageSize) {
             editValue = (clampedPage + 1).toString()
         }
 
-        AnimatedContent(
-            targetState = clampedPage,
-            label = "pageTransition",
-            transitionSpec = {
-                fadeIn(animationSpec = tween(200)) togetherWith fadeOut(animationSpec = tween(200))
-            }
-        ) { targetPage ->
-            val cards = remember(targetPage, section.items, pageSize) {
-                section.items.drop(targetPage * pageSize).take(pageSize)
-            }
+        val previousPageFocusRequester = remember { FocusRequester() }
+        val nextPageFocusRequester = remember { FocusRequester() }
+        var focusedRowTopPx by remember { mutableIntStateOf(0) }
+        var focusedRowHeightPx by remember { mutableIntStateOf(0) }
 
-            Column {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    SyncedSectionTitle(section.title)
-                    Spacer(Modifier.weight(1f))
-                    trailingContent?.invoke(this)
+        val pageContent: @Composable () -> Unit = {
+            AnimatedContent(
+                targetState = clampedPage,
+                label = "pageTransition",
+                transitionSpec = {
+                    fadeIn(animationSpec = tween(200)) togetherWith fadeOut(animationSpec = tween(200))
                 }
-                Spacer(Modifier.height(6.dp))
-                cards.chunked(numOfColumns).forEach { rowItems ->
-                    MediaGridRow(
-                        rowItems = rowItems,
-                        nav = nav,
-                        progressMap = progressMap,
-                        numOfColumns = numOfColumns,
-                        editable = editable,
-                        onRemoveItem = onRemoveItem,
-                        onEditItem = onEditItem,
-                    )
+            ) { targetPage ->
+                val cards = remember(targetPage, section.items, pageSize) {
+                    section.items.drop(targetPage * pageSize).take(pageSize)
                 }
-                Spacer(Modifier.height(0.dp))
+
+                Column {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        SyncedSectionTitle(section.title)
+                        Spacer(Modifier.weight(1f))
+                        trailingContent?.invoke(this)
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    cards.chunked(numOfColumns).forEach { rowItems ->
+                        MediaGridRow(
+                            rowItems = rowItems,
+                            nav = nav,
+                            progressMap = progressMap,
+                            numOfColumns = numOfColumns,
+                            editable = editable,
+                            onRemoveItem = onRemoveItem,
+                            onEditItem = onEditItem,
+                            previousPageFocusRequester = previousPageFocusRequester.takeIf { isTv && clampedPage > 0 },
+                            nextPageFocusRequester = nextPageFocusRequester.takeIf { isTv && clampedPage < totalPages - 1 },
+                            onRowFocused = { top, height ->
+                                focusedRowTopPx = top
+                                focusedRowHeightPx = height
+                                onRowFocused?.invoke(top, height)
+                            },
+                        )
+                    }
+                }
             }
+        }
+
+        if (isTv) {
+            val arrowSizePx = with(LocalDensity.current) { 48.dp.roundToPx() }
+            var gridHeightPx by remember { mutableIntStateOf(0) }
+            var gridHasFocus by remember { mutableStateOf(false) }
+            val maxArrowOffset = (gridHeightPx - arrowSizePx).coerceAtLeast(0)
+            val restingArrowOffset = maxArrowOffset / 2
+            val trackedArrowOffset = (focusedRowTopPx + focusedRowHeightPx / 2 - arrowSizePx / 2)
+                .coerceIn(0, maxArrowOffset)
+            val arrowOffsetY by animateIntAsState(
+                targetValue = if (gridHasFocus) trackedArrowOffset else restingArrowOffset,
+                animationSpec = tween(200),
+                label = "gridArrowOffset",
+            )
+
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .onFocusChanged { gridHasFocus = it.hasFocus }
+                    .onGloballyPositioned {
+                        gridHeightPx = it.size.height
+                    }
+            ) {
+                Box(Modifier.fillMaxWidth().padding(horizontal = 58.dp)) { pageContent() }
+                ZsIconButton(
+                    onClick = { if (clampedPage > 0) onPageChange(clampedPage - 1) },
+                    icon = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                    contentDescription = "Previous page",
+                    variant = ZsIconButtonVariant.Ghost,
+                    enabled = clampedPage > 0,
+                    containerSize = 48.dp,
+                    iconSize = 36.dp,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(start = 10.dp)
+                        .offset { IntOffset(0, arrowOffsetY) },
+                    focusRequester = previousPageFocusRequester,
+                )
+                ZsIconButton(
+                    onClick = { if (clampedPage < totalPages - 1) onPageChange(clampedPage + 1) },
+                    icon = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                    contentDescription = "Next page",
+                    variant = ZsIconButtonVariant.Ghost,
+                    enabled = clampedPage < totalPages - 1,
+                    containerSize = 48.dp,
+                    iconSize = 36.dp,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(end = 10.dp)
+                        .offset { IntOffset(0, arrowOffsetY) },
+                    focusRequester = nextPageFocusRequester,
+                )
+            }
+        } else {
+            pageContent()
         }
         Row(
             modifier = Modifier
@@ -2141,15 +2227,17 @@ private fun LazyListScope.MediaGridPages(
             horizontalArrangement = Arrangement.spacedBy(24.dp, Alignment.CenterHorizontally),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            ZsIconButton(
-                onClick = { if (clampedPage > 0) onPageChange(clampedPage - 1) },
-                icon = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
-                contentDescription = null,
-                variant = ZsIconButtonVariant.Ghost,
-                enabled = clampedPage > 0,
-                containerSize = 36.dp,
-                iconSize = 32.dp,
-            )
+            if (!isTv) {
+                ZsIconButton(
+                    onClick = { if (clampedPage > 0) onPageChange(clampedPage - 1) },
+                    icon = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                    contentDescription = null,
+                    variant = ZsIconButtonVariant.Ghost,
+                    enabled = clampedPage > 0,
+                    containerSize = 36.dp,
+                    iconSize = 32.dp,
+                )
+            }
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
@@ -2182,7 +2270,9 @@ private fun LazyListScope.MediaGridPages(
                         fontWeight = FontWeight.Bold
                     ),
                     cursorBrush = SolidColor(theme.colors.global.accentA),
-                    modifier = Modifier.width(40.dp)
+                    modifier = Modifier
+                        .width(40.dp)
+                        .focusProperties { canFocus = !isTv }
                 )
                 Text(
                     text = " / $totalPages",
@@ -2191,15 +2281,17 @@ private fun LazyListScope.MediaGridPages(
                     fontWeight = FontWeight.Bold
                 )
             }
-            ZsIconButton(
-                onClick = { if (clampedPage < totalPages - 1) onPageChange(clampedPage + 1) },
-                icon = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                contentDescription = null,
-                variant = ZsIconButtonVariant.Ghost,
-                enabled = clampedPage < totalPages - 1,
-                containerSize = 36.dp,
-                iconSize = 32.dp,
-            )
+            if (!isTv) {
+                ZsIconButton(
+                    onClick = { if (clampedPage < totalPages - 1) onPageChange(clampedPage + 1) },
+                    icon = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                    contentDescription = null,
+                    variant = ZsIconButtonVariant.Ghost,
+                    enabled = clampedPage < totalPages - 1,
+                    containerSize = 36.dp,
+                    iconSize = 32.dp,
+                )
+            }
         }
     }
 }
@@ -4259,6 +4351,7 @@ private fun TvHomeScreenContent(
     }
 
     val listState = rememberLazyListState()
+    val gridPages = remember { mutableStateMapOf<String, Int>() }
     var isCarouselFocused by remember { mutableStateOf(false) }
     var listHasFocus by remember { mutableStateOf(false) }
     val isFeaturedActive = state.enableFeatured && state.featuredMedia.isNotEmpty()
@@ -4478,20 +4571,39 @@ private fun TvHomeScreenContent(
                 } else {
                     userSections.forEachIndexed { sectionIndex, section ->
                         val sectionItemIndex = startIndexOffset + sectionIndex * 2
-                        item(key = section.title) {
-                            MediaCarouselSection(
-                                section,
-                                nav,
-                                state.progressMap,
-                                modifier = Modifier.onFocusChanged {
-                                    if (it.hasFocus) {
-                                        requestTvHomeScroll(
-                                            itemIndex = sectionItemIndex,
-                                            scrollOffset = -topPaddingPx,
-                                            reason = "section-focus:${section.title}",
-                                        )
-                                    }
-                                }
+                        if (state.enableCarouselView) {
+                            item(key = section.title) {
+                                MediaCarouselSection(
+                                    section,
+                                    nav,
+                                    state.progressMap,
+                                    modifier = Modifier.onFocusChanged {
+                                        if (it.hasFocus) {
+                                            requestTvHomeScroll(
+                                                itemIndex = sectionItemIndex,
+                                                scrollOffset = -topPaddingPx,
+                                                reason = "section-focus:${section.title}",
+                                            )
+                                        }
+                                    },
+                                )
+                            }
+                        } else {
+                            MediaGridPages(
+                                section = section,
+                                nav = nav,
+                                progressMap = state.progressMap,
+                                numOfColumns = 6,
+                                numOfRows = state.gridRows,
+                                currentPage = gridPages[section.title] ?: 0,
+                                onPageChange = { gridPages[section.title] = it },
+                                onRowFocused = { rowTopPx, _ ->
+                                    requestTvHomeScroll(
+                                        itemIndex = sectionItemIndex,
+                                        scrollOffset = rowTopPx - topPaddingPx,
+                                        reason = "grid-row-focus:${section.title}",
+                                    )
+                                },
                             )
                         }
                         item { Spacer(Modifier.height(TvHomeMetrics.sectionSpacing)) }
@@ -4516,20 +4628,40 @@ private fun TvHomeScreenContent(
 
                         discoverSections.forEachIndexed { sectionIndex, section ->
                             val sectionItemIndex = tabsItemIndex + 2 + sectionIndex * 2
-                            item(key = "discover-${section.title}") {
-                                MediaCarouselSection(
-                                    section,
-                                    nav,
-                                    state.progressMap,
-                                    modifier = Modifier.onFocusChanged {
-                                        if (it.hasFocus) {
-                                            requestTvHomeScroll(
-                                                itemIndex = sectionItemIndex,
-                                                scrollOffset = -topPaddingPx,
-                                                reason = "section-focus:${section.title}",
-                                            )
-                                        }
-                                    }
+                            val pageKey = "discover-${section.title}"
+                            if (state.enableCarouselView) {
+                                item(key = pageKey) {
+                                    MediaCarouselSection(
+                                        section,
+                                        nav,
+                                        state.progressMap,
+                                        modifier = Modifier.onFocusChanged {
+                                            if (it.hasFocus) {
+                                                requestTvHomeScroll(
+                                                    itemIndex = sectionItemIndex,
+                                                    scrollOffset = -topPaddingPx,
+                                                    reason = "section-focus:${section.title}",
+                                                )
+                                            }
+                                        },
+                                    )
+                                }
+                            } else {
+                                MediaGridPages(
+                                    section = section,
+                                    nav = nav,
+                                    progressMap = state.progressMap,
+                                    numOfColumns = 6,
+                                    numOfRows = state.gridRows,
+                                    currentPage = gridPages[pageKey] ?: 0,
+                                    onPageChange = { gridPages[pageKey] = it },
+                                    onRowFocused = { rowTopPx, _ ->
+                                        requestTvHomeScroll(
+                                            itemIndex = sectionItemIndex,
+                                            scrollOffset = rowTopPx - topPaddingPx,
+                                            reason = "grid-row-focus:${section.title}",
+                                        )
+                                    },
                                 )
                             }
                             item { Spacer(Modifier.height(TvHomeMetrics.sectionSpacing)) }
