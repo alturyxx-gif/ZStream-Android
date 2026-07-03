@@ -1305,6 +1305,7 @@ class PlayerViewModel @Inject constructor(
         val url = "https://sub.wyzie.io/search".toHttpUrl().newBuilder()
             .addQueryParameter("id", tmdbId)
             .addQueryParameter("key", key)
+            .addQueryParameter("language", language)
             .addQueryParameter("encoding", "utf-8")
             .addQueryParameter("source", "all")
             .apply {
