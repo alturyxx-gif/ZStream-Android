@@ -119,6 +119,7 @@ import com.zstream.android.ui.navigation.rememberSafeNavigateBack
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
+import kotlin.math.abs
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.fadeIn
@@ -2263,7 +2264,14 @@ private fun SliderRow(
     theme: ZStreamTheme,
     steps: Int = 0) {
     var sliderValue by remember { mutableFloatStateOf(value) }
-    LaunchedEffect(value) { sliderValue = value }
+    var pendingValue by remember { mutableStateOf<Float?>(null) }
+    LaunchedEffect(value) {
+        val pending = pendingValue
+        if (pending == null || abs(value - pending) < 0.0001f) {
+            sliderValue = value
+            pendingValue = null
+        }
+    }
     Column(Modifier
         .fillMaxWidth()
         .padding(horizontal = 16.dp, vertical = 8.dp)) {
@@ -2276,7 +2284,11 @@ private fun SliderRow(
         // also reused for gridRows
         Slider(
             value = sliderValue,
-            onValueChange = { sliderValue = it; onValueChange(it) },
+            onValueChange = {
+                sliderValue = it
+                pendingValue = it
+                onValueChange(it)
+            },
             onValueChangeFinished = { /* no‑op */ },
             valueRange = rangeStart..rangeEnd,
             steps = steps,
@@ -2306,6 +2318,12 @@ private fun TvSliderRow(
     var isFocused by remember { mutableStateOf(false) }
     var isAdjusting by remember { mutableStateOf(false) }
     var sliderValue by remember { mutableFloatStateOf(value) }
+    val stepAmount = if (steps > 0) (rangeEnd - rangeStart) / (steps + 1) else (rangeEnd - rangeStart) * 0.05f
+
+    fun stepValue(direction: Int): Float {
+        val tick = ((sliderValue - rangeStart) / stepAmount).roundToInt() + direction
+        return (rangeStart + tick * stepAmount).coerceIn(rangeStart, rangeEnd)
+    }
 
     LaunchedEffect(value) { if (!isAdjusting) sliderValue = value }
 
@@ -2343,16 +2361,14 @@ private fun TvSliderRow(
                     if (isAdjusting) {
                         when (event.key) {
                             Key.DirectionRight -> {
-                                val step = (rangeEnd - rangeStart) * 0.05f
-                                val newVal = (sliderValue + step).coerceIn(rangeStart, rangeEnd)
+                                val newVal = stepValue(1)
                                 sliderValue = newVal
                                 onValueChange(newVal)
                                 true
                             }
 
                             Key.DirectionLeft -> {
-                                val step = (rangeEnd - rangeStart) * 0.05f
-                                val newVal = (sliderValue - step).coerceIn(rangeStart, rangeEnd)
+                                val newVal = stepValue(-1)
                                 sliderValue = newVal
                                 onValueChange(newVal)
                                 true

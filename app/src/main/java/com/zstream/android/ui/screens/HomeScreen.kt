@@ -4351,7 +4351,7 @@ private fun TvHomeScreenContent(
                 HomeTab.EDITOR -> state.editorSections
             }
             base.forEach { section ->
-                val unique = section.items.filter { it.id !in seenIds }
+                val unique = section.items.filter { it.id !in seenIds }.take(20)
                 if (unique.isNotEmpty()) {
                     add(section.copy(items = unique))
                     unique.forEach { seenIds.add(it.id) }
@@ -4363,6 +4363,8 @@ private fun TvHomeScreenContent(
     val listState = rememberLazyListState()
     val gridPages = remember { mutableStateMapOf<String, Int>() }
     var isCarouselFocused by remember { mutableStateOf(false) }
+    var isSearchFocused by remember { mutableStateOf(false) }
+    var isTopBarFocused by remember { mutableStateOf(false) }
     var listHasFocus by remember { mutableStateOf(false) }
     val isFeaturedActive = state.enableFeatured && state.featuredMedia.isNotEmpty()
     val startIndexOffset = if (isFeaturedActive) {
@@ -4379,6 +4381,7 @@ private fun TvHomeScreenContent(
     val carouselPlayButtonRequester = remember { FocusRequester() }
     val searchBarFocusRequester = remember { FocusRequester() }
     val topBarFocusRequester = remember { FocusRequester() }
+    val sandwichFocusRequester = remember { FocusRequester() }
     val homeContentFocusRequester = remember { FocusRequester() }
     var wasPipDrawerExpanded by remember { mutableStateOf(false) }
 
@@ -4506,15 +4509,18 @@ private fun TvHomeScreenContent(
                             nav = nav,
                             placeholder = placeholder,
                             focusRequester = searchBarFocusRequester,
-                            modifier = Modifier.onFocusChanged {
-                                if (it.hasFocus) {
-                                    requestTvHomeScroll(
-                                        itemIndex = 1,
-                                        scrollOffset = -topPaddingPx,
-                                        reason = "hero-section-focus"
-                                    )
+                            modifier = Modifier
+                                .focusProperties { up = sandwichFocusRequester }
+                                .onFocusChanged {
+                                    isSearchFocused = it.hasFocus
+                                    if (it.hasFocus) {
+                                        requestTvHomeScroll(
+                                            itemIndex = 1,
+                                            scrollOffset = -topPaddingPx,
+                                            reason = "hero-section-focus"
+                                        )
+                                    }
                                 }
-                            }
                         )
                     }
                     item { Spacer(Modifier.height(12.dp)) }
@@ -4639,38 +4645,19 @@ private fun TvHomeScreenContent(
                         discoverSections.forEachIndexed { sectionIndex, section ->
                             val sectionItemIndex = tabsItemIndex + 2 + sectionIndex * 2
                             val pageKey = "discover-${section.title}"
-                            if (state.enableCarouselView) {
-                                item(key = pageKey) {
-                                    MediaCarouselSection(
-                                        section,
-                                        nav,
-                                        state.progressMap,
-                                        modifier = Modifier.onFocusChanged {
-                                            if (it.hasFocus) {
-                                                requestTvHomeScroll(
-                                                    itemIndex = sectionItemIndex,
-                                                    scrollOffset = -topPaddingPx,
-                                                    reason = "section-focus:${section.title}",
-                                                )
-                                            }
-                                        },
-                                    )
-                                }
-                            } else {
-                                MediaGridPages(
+                            item(key = pageKey) {
+                                MediaCarouselSection(
                                     section = section,
                                     nav = nav,
                                     progressMap = state.progressMap,
-                                    numOfColumns = 6,
-                                    numOfRows = state.gridRows,
-                                    currentPage = gridPages[pageKey] ?: 0,
-                                    onPageChange = { gridPages[pageKey] = it },
-                                    onRowFocused = { rowTopPx, _ ->
-                                        requestTvHomeScroll(
-                                            itemIndex = sectionItemIndex,
-                                            scrollOffset = rowTopPx - topPaddingPx,
-                                            reason = "grid-row-focus:${section.title}",
-                                        )
+                                    modifier = Modifier.onFocusChanged {
+                                        if (it.hasFocus) {
+                                            requestTvHomeScroll(
+                                                itemIndex = sectionItemIndex,
+                                                scrollOffset = -topPaddingPx,
+                                                reason = "section-focus:${section.title}",
+                                            )
+                                        }
                                     },
                                 )
                             }
@@ -4686,15 +4673,15 @@ private fun TvHomeScreenContent(
                 .fillMaxWidth()
                 .focusRequester(topBarFocusRequester)
                 .onFocusChanged {
+                    isTopBarFocused = it.hasFocus
                     if (it.hasFocus) {
                         requestTvHomeScroll(0, 0, "top-bar-focus")
                     }
                 }
                 .then(
-                    if (isFeaturedActive) {
-                        Modifier.focusProperties { down = carouselFocusRequester }
-                    } else {
-                        Modifier.focusProperties { down = searchBarFocusRequester }
+                    Modifier.focusProperties {
+                        canFocus = isCarouselFocused || isSearchFocused || isTopBarFocused
+                        down = if (isFeaturedActive) carouselFocusRequester else searchBarFocusRequester
                     }
                 )
         ) {
@@ -4707,6 +4694,7 @@ private fun TvHomeScreenContent(
                 onLayout = onShowLayout,
                 onMenu = onShowMenu,
                 onSearch = { nav.navigate("search") },
+                sandwichFocusRequester = sandwichFocusRequester,
             )
         }
         }
@@ -4840,6 +4828,7 @@ private fun TvTopBar(
     onLayout: () -> Unit,
     onMenu: () -> Unit,
     onSearch: () -> Unit,
+    sandwichFocusRequester: FocusRequester,
 ) {
     val theme = LocalZStreamTheme.current
     val hazeStyle = rememberTopNavHazeStyle()
@@ -4896,6 +4885,7 @@ private fun TvTopBar(
                             theme.colors.type.divider.copy(alpha = 0.3f),
                             RoundedCornerShape(50)
                         )
+                        .focusRequester(sandwichFocusRequester)
                         .onFocusChanged { focusedMenu = it.isFocused }
                         .clickable(onClick = onMenu)
                         .padding(horizontal = 12.dp),
