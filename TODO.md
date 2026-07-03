@@ -1,6 +1,5 @@
 waiting for real sources:
 1. wire up the real sources in the obfuscated plugin
-1. enableAutoResumeOnPlaybackError - should be done later when we have sources ready
 2. download page: UI exists, but it is only a placeholder card
 
 

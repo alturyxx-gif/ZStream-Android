@@ -112,6 +112,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Format
 import androidx.media3.common.MimeTypes
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.C
@@ -129,6 +130,7 @@ import androidx.navigation.NavController
 import com.zstream.android.R
 import androidx.media3.common.MediaItem.SubtitleConfiguration
 import android.net.Uri
+import android.widget.Toast
 import androidx.compose.foundation.focusGroup
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.graphics.graphicsLayer
@@ -345,6 +347,10 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
     val activity = context as? Activity
     val playerScope = rememberCoroutineScope()
     val onBack = rememberSafeNavigateBack(nav, playerScope)
+
+    LaunchedEffect(vm) {
+        vm.recoveryNotice.collect { Toast.makeText(context, it, Toast.LENGTH_SHORT).show() }
+    }
 
     DisposableEffect(Unit) {
         val window = activity?.window
@@ -645,6 +651,11 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                         setMediaSource(DefaultMediaSourceFactory(cacheDataSourceFactory).createMediaSource(mediaItem))
                         videoScalingMode = androidx.media3.common.C.VIDEO_SCALING_MODE_SCALE_TO_FIT
                         addListener(object : androidx.media3.common.Player.Listener {
+                            override fun onPlayerError(error: PlaybackException) {
+                                Log.e("PlaybackRecovery", "${error.errorCodeName}: ${error.message}", error)
+                                vm.onPlaybackError(error.message ?: error.errorCodeName)
+                            }
+
                             override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
                                 tracks.groups.forEach { group ->
                                     for (i in 0 until group.length) {
@@ -685,6 +696,13 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     player.setMediaItem(mediaItem, positionMs)
                     player.prepare()
                     player.playWhenReady = shouldPlay
+                }
+
+                LaunchedEffect(player, s.streamUrl) {
+                    delay(20_000)
+                    if (player.currentMediaItem?.localConfiguration?.uri?.toString() == s.streamUrl &&
+                        player.playbackState != Player.STATE_READY
+                    ) vm.onPlaybackError("Playback did not start within 20 seconds")
                 }
 
                 LaunchedEffect(isClosingPip) {
@@ -946,6 +964,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                             if (!playing) {
                                 controlsVisible = true
                             } else if (!wasPlaying) {
+                                vm.onPlaybackStarted()
                                 controlsVisible = true
                                 lastInteractionTime = System.currentTimeMillis()
                             }
