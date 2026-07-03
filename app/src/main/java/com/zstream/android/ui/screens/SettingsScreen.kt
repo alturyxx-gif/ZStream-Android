@@ -1767,7 +1767,7 @@ private fun SubtitlesSettingsContent(
             !settings.subtitleBackgroundBlurEnabled &&
             !settings.subtitleBold &&
             settings.subtitleFontStyle == "dropShadow" &&
-            settings.subtitleLineHeight == 1.4f &&
+            settings.subtitleLineHeight == 1.2f &&
             settings.subtitleSize == 1.0f &&
             settings.subtitleFont == "sans-serif-condensed" -> "netflix"
 

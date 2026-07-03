@@ -3704,8 +3704,8 @@ private fun PlayerMenuContent(
                                 range = 0f..30f,
                                 steps = 0,
                                 onValueChange = { onUpdateSettings(settings.copy(subtitleVerticalPosition = it)) },
-                                onReset = { onUpdateSettings(settings.copy(subtitleVerticalPosition = 1f)) },
-                                isDefault = settings.subtitleVerticalPosition == 1f,
+                                onReset = { onUpdateSettings(settings.copy(subtitleVerticalPosition = 0f)) },
+                                isDefault = settings.subtitleVerticalPosition == 0f,
                                 tickStep = 1f,
                             )
                             PlayerMenuSliderRow(
@@ -3715,8 +3715,8 @@ private fun PlayerMenuContent(
                                 range = 100f..250f,
                                 steps = 0,
                                 onValueChange = { onUpdateSettings(settings.copy(subtitleLineHeight = it / 100f)) },
-                                onReset = { onUpdateSettings(settings.copy(subtitleLineHeight = 1.5f)) },
-                                isDefault = settings.subtitleLineHeight == 1.5f,
+                                onReset = { onUpdateSettings(settings.copy(subtitleLineHeight = 1.2f)) },
+                                isDefault = settings.subtitleLineHeight == 1.2f,
                                 tickStep = 5f,
                             )
                             ZsButton(
@@ -3724,15 +3724,16 @@ private fun PlayerMenuContent(
                                 onClick = {
                                     onUpdateSettings(settings.copy(
                                         subtitleColor = "#ffffff",
-                                        subtitleSize = .75f,
-                                        subtitleBackgroundOpacity = .25f,
-                                        subtitleBackgroundBlur = .25f,
-                                        subtitleBackgroundBlurEnabled = true,
+                                        subtitleSize = 1f,
+                                        subtitleBackgroundOpacity = 0f,
+                                        subtitleBackgroundBlur = 0f,
+                                        subtitleBackgroundBlurEnabled = false,
                                         subtitleBold = false,
-                                        subtitleVerticalPosition = 1f,
-                                        subtitleFontStyle = "default",
+                                        subtitleVerticalPosition = 0f,
+                                        subtitleFontStyle = "dropShadow",
                                         subtitleBorderThickness = 1f,
-                                        subtitleLineHeight = 1.5f,
+                                        subtitleLineHeight = 1.2f,
+                                        subtitleFont = "sans-serif-condensed",
                                     ))
                                 },
                                 variant = ZsButtonVariant.Secondary,

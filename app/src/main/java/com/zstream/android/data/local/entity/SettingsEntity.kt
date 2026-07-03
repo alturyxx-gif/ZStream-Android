@@ -13,9 +13,9 @@ import org.json.JSONObject
  */
 data class SettingsEntity(
     // UI/Display Settings
-    val applicationTheme: String = "default",
+    val applicationTheme: String = "classic",
     val applicationLanguage: String = "en",
-    val enableThumbnails: Boolean = true,
+    val enableThumbnails: Boolean = false,
     val enableImageLogos: Boolean = true,
     val enableCarouselView: Boolean = true,
     val gridRows: Int = 2,
@@ -26,9 +26,9 @@ data class SettingsEntity(
     // Playback Settings
     val defaultSubtitleLanguage: String? = null,
     val enableAutoplay: Boolean = true,
-    val enableSkipCredits: Boolean = false,
+    val enableSkipCredits: Boolean = true,
     val enableAutoSkipSegments: Boolean = false,
-    val enableNativeSubtitles: Boolean = true,
+    val enableNativeSubtitles: Boolean = false,
     val subtitlesEnabled: Boolean = false,
     val enableDoubleClickToSeek: Boolean = true,
     val enableNumberKeySeeking: Boolean = false,
@@ -42,7 +42,7 @@ data class SettingsEntity(
     val tvPipPosition: String = "bottom_end",
 
     // Discover/Home Settings
-    val enableDiscover: Boolean = true, // Synced with backend, but the local UI no longer reads it.
+    val enableDiscover: Boolean = false, // Synced with backend, but the local UI no longer reads it.
     val enableFeatured: Boolean = true,
 
     // Source Settings
@@ -65,15 +65,15 @@ data class SettingsEntity(
     // Subtitle Styling
     val subtitleColor: String = "#ffffff",
     val subtitleSize: Float = 1f,
-    val subtitleBackgroundOpacity: Float = 0.5f,
-    val subtitleBackgroundBlur: Float = 0.5f,
-    val subtitleBackgroundBlurEnabled: Boolean = true,
+    val subtitleBackgroundOpacity: Float = 0f,
+    val subtitleBackgroundBlur: Float = 0f,
+    val subtitleBackgroundBlurEnabled: Boolean = false,
     val subtitleBold: Boolean = false,
-    val subtitleVerticalPosition: Float = 1f,
-    val subtitleFontStyle: String = "default",
+    val subtitleVerticalPosition: Float = 0f,
+    val subtitleFontStyle: String = "dropShadow",
     val subtitleBorderThickness: Float = 1f,
-    val subtitleLineHeight: Float = 1.5f,
-    val subtitleFont: String = "sans-serif",
+    val subtitleLineHeight: Float = 1.2f,
+    val subtitleFont: String = "sans-serif-condensed",
 
     // Interface
     val homeSectionOrder: List<String> = emptyList(),
