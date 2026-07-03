@@ -711,7 +711,14 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                         addListener(object : androidx.media3.common.Player.Listener {
                             override fun onPlayerError(error: PlaybackException) {
                                 Log.e("PlaybackRecovery", "${error.errorCodeName}: ${error.message}", error)
-                                vm.onPlaybackError(error.message ?: error.errorCodeName)
+                                val friendlyMessage = when {
+                                    error.errorCode == PlaybackException.ERROR_CODE_DECODING_FAILED ||
+                                    error.message?.contains("EXCEEDS_CAPABILITIES", ignoreCase = true) == true ||
+                                    error.message?.contains("MediaCodec", ignoreCase = true) == true ->
+                                        "This stream format isn't supported by your device"
+                                    else -> error.message ?: error.errorCodeName
+                                }
+                                vm.onPlaybackError(friendlyMessage)
                             }
 
                             override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
