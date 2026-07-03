@@ -570,7 +570,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                             s.sources.forEach { source ->
                                 PlayerMenuSelectableRow(
                                     title = sourceDisplayName(source.id, source.codec),
-                                    selected = source.id == s.selectedSourceId,
+                                    selected = false,
                                     onClick = { vm.probeSource(source.id) },
                                     rightContent = {
                                         ManualSourceStatusContent(
@@ -686,6 +686,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
 
                     val mediaItem = MediaItem.Builder()
                         .setUri(s.streamUrl)
+                        .setMimeType(MimeTypes.APPLICATION_M3U8)
                         .setSubtitleConfigurations(subtitleConfigs)
                         .build()
 
@@ -713,6 +714,9 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                         addListener(object : androidx.media3.common.Player.Listener {
                             override fun onPlayerError(error: PlaybackException) {
                                 Log.e("PlaybackRecovery", "${error.errorCodeName}: ${error.message}", error)
+                                val httpStatus = generateSequence(error.cause) { it.cause }
+                                    .filterIsInstance<androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException>()
+                                    .firstOrNull()?.responseCode ?: 0
                                 val friendlyMessage = when {
                                     error.errorCode == PlaybackException.ERROR_CODE_DECODING_FAILED ||
                                     error.message?.contains("EXCEEDS_CAPABILITIES", ignoreCase = true) == true ||
@@ -720,7 +724,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                                         "This stream format isn't supported by your device"
                                     else -> error.message ?: error.errorCodeName
                                 }
-                                vm.onPlaybackError(friendlyMessage)
+                                vm.onPlaybackError(friendlyMessage, error.errorCode, httpStatus)
                             }
 
                             override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
@@ -756,6 +760,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     Log.d("PlaybackDebug", "switch uri=${s.streamUrl}")
                     val mediaItem = MediaItem.Builder()
                         .setUri(s.streamUrl)
+                        .setMimeType(MimeTypes.APPLICATION_M3U8)
                         .setSubtitleConfigurations(
                             player.currentMediaItem?.localConfiguration?.subtitleConfigurations.orEmpty()
                         )
@@ -766,10 +771,12 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                 }
 
                 LaunchedEffect(player, s.streamUrl) {
-                    delay(20_000)
+                    delay(45_000)
                     if (player.currentMediaItem?.localConfiguration?.uri?.toString() == s.streamUrl &&
-                        player.playbackState != Player.STATE_READY
-                    ) vm.onPlaybackError("Playback did not start within 20 seconds")
+                        player.playbackState != Player.STATE_READY &&
+                        player.playbackState != Player.STATE_ENDED &&
+                        !player.isPlaying
+                    ) vm.onPlaybackError("Playback did not start within 45 seconds")
                 }
 
                 LaunchedEffect(isClosingPip) {
@@ -2767,6 +2774,7 @@ private fun PlayerControls(
                         sourceId = readyState.sourceId,
                         sourceResults = readyState.sources,
                         variants = readyState.variants,
+                        failedVariantUrls = readyState.failedVariantUrls,
                         manualSourceSelection = settings.manualSourceSelection,
                         selectedSubtitleLanguage = selectedSubtitleLanguage,
                         selectedSubtitleId = selectedSubtitleId,
@@ -3373,6 +3381,7 @@ private fun PlayerMenuContent(
     sourceId: String?,
     sourceResults: List<SourceResult>,
     variants: List<StreamVariant>,
+    failedVariantUrls: Set<String> = emptySet(),
     manualSourceSelection: Boolean,
     selectedSubtitleLanguage: String?,
     selectedSubtitleId: String?,
@@ -3920,11 +3929,20 @@ private fun PlayerMenuContent(
                                 labelIndices[base] = idx
                                 "$base ($idx)"
                             } else base
+                            val isFailed = variant.streamUrl in failedVariantUrls
                             PlayerMenuSelectableRow(
                                 title = label,
                                 selected = variant.streamUrl == streamUrl,
-                                onClick = { onSwitchVariant(variant) },
-                                focusRequester = if (index == 0) firstItemFocusRequester else null
+                                onClick = { if (!isFailed) onSwitchVariant(variant) },
+                                focusRequester = if (index == 0) firstItemFocusRequester else null,
+                                rightContent = if (isFailed) ({
+                                    Icon(
+                                        Icons.Default.Close,
+                                        contentDescription = "Failed",
+                                        tint = LocalZStreamTheme.current.colors.type.danger,
+                                        modifier = Modifier.size(16.dp),
+                                    )
+                                }) else null
                             )
                         }
                     }

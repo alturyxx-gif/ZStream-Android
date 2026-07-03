@@ -4,6 +4,7 @@ import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.media3.common.PlaybackException
 import com.zstream.android.data.BookmarkRepository
 import com.zstream.android.data.TmdbRepository
 import com.zstream.android.plugin.PluginManager
@@ -76,6 +77,7 @@ sealed class PlayerState {
         val sources: List<SourceResult>,
         val sourceId: String? = null,
         val variants: List<StreamVariant> = emptyList(),
+        val failedVariantUrls: Set<String> = emptySet(),
     ) : PlayerState()
     data class Error(val message: String, val sources: List<SourceResult>) : PlayerState()
 }
@@ -98,6 +100,7 @@ data class StreamVariant(
     val codec: String,
     val tag: String,
     val streamUrl: String,
+    val requiresRefreshOnSwitch: Boolean = false,
 ) {
     /** Label shown in the variant picker: e.g. "4K · HEVC · HDR", falls back to API name */
     fun displayLabel(): String {
@@ -121,9 +124,15 @@ data class StreamVariant(
 }
 
 internal fun preferredInitialVariantUrl(
+    sourceId: String,
     defaultUrl: String,
     variants: List<StreamVariant>,
-): String = variants.getOrNull(1)?.streamUrl ?: defaultUrl
+): String = if (sourceId == "artemis") {
+    // Artemis lists its highest-quality stream second; prefer it when present.
+    variants.getOrNull(1)?.streamUrl ?: defaultUrl
+} else {
+    defaultUrl
+}
 
 internal fun nextUnfailedVariantUrl(
     currentUrl: String,
@@ -309,6 +318,8 @@ class PlayerViewModel @Inject constructor(
     private val failedVariantUrls = mutableSetOf<String>()
     private val failedPlaybackSourceIds = mutableSetOf<String>()
     private var skipSegmentsCacheKey: String? = null
+    // Desired variant name to restore after a 403-triggered re-resolve
+    private var desiredVariantName: String? = null
 
     // --- Watch Party Actions ---
     private val _watchPartyEvent = MutableSharedFlow<WatchPartyAction>(replay = 0)
@@ -483,11 +494,12 @@ class PlayerViewModel @Inject constructor(
         viewModelScope.launch { sourceOrderStore.saveOrder(newOrder) }
     }
 
-    private fun buildPluginMediaRequest() = PluginMediaRequest(
+    private fun buildPluginMediaRequest(preferredVariantId: String? = null) = PluginMediaRequest(
         type = if (mediaType == "tv") PluginMediaRequest.Type.SHOW else PluginMediaRequest.Type.MOVIE,
         tmdbId = id.toString(),
         season = season,
         episode = episode,
+        preferredVariantId = preferredVariantId,
     )
 
     fun loadSkipSegments(durationMs: Long) {
@@ -547,6 +559,7 @@ class PlayerViewModel @Inject constructor(
         selectedSourceId: String? = null,
         automaticRecovery: Boolean = false,
         deprioritizedSourceId: String? = null,
+        preferredVariantId: String? = null,
     ) {
         sources.clear()
         failedVariantUrls.clear()
@@ -596,7 +609,7 @@ class PlayerViewModel @Inject constructor(
                 sources.addAll(initialSources)
                 _state.value = PlayerState.Scraping(sources.toList())
 
-                val media = buildPluginMediaRequest()
+                val media = buildPluginMediaRequest(preferredVariantId)
 
                 for (source in orderedSources) {
                     val updated = sources.map {
@@ -626,9 +639,16 @@ class PlayerViewModel @Inject constructor(
                             fetchExternalSubtitles(subtitles)
 
                             val variants = result.variants.map { v ->
-                                StreamVariant(id = v.id, name = v.name, quality = v.quality, codec = v.codec, tag = v.tag, streamUrl = v.streamUrl)
+                                StreamVariant(id = v.id, name = v.name, quality = v.quality, codec = v.codec, tag = v.tag, streamUrl = v.streamUrl, requiresRefreshOnSwitch = v.requiresRefreshOnSwitch)
                             }
-                            val initialUrl = preferredInitialVariantUrl(result.streamUrl, variants)
+                            // If the user had requested a specific variant,
+                            // pick it from the freshly-resolved URLs rather than defaulting to the first one.
+                            val wantedVariant = desiredVariantName?.let { name ->
+                                variants.firstOrNull { it.name.equals(name, ignoreCase = true) }
+                            }
+                            desiredVariantName = null
+                            val initialUrl = wantedVariant?.streamUrl
+                                ?: preferredInitialVariantUrl(source.id, result.streamUrl, variants)
                             logVariantSelection(result.streamUrl, initialUrl, variants)
                             _state.value = PlayerState.Ready(
                                 streamUrl  = initialUrl,
@@ -707,9 +727,9 @@ class PlayerViewModel @Inject constructor(
                         val subtitles = result.captions.map { it.toSubtitleTrack() }.toMutableList()
                         fetchExternalSubtitles(subtitles)
                         val variants = result.variants.map { v ->
-                            StreamVariant(id = v.id, name = v.name, quality = v.quality, codec = v.codec, tag = v.tag, streamUrl = v.streamUrl)
+                            StreamVariant(id = v.id, name = v.name, quality = v.quality, codec = v.codec, tag = v.tag, streamUrl = v.streamUrl, requiresRefreshOnSwitch = v.requiresRefreshOnSwitch)
                         }
-                        val initialUrl = preferredInitialVariantUrl(result.streamUrl, variants)
+                        val initialUrl = preferredInitialVariantUrl(sourceId, result.streamUrl, variants)
                         logVariantSelection(result.streamUrl, initialUrl, variants)
                         val candidate = PlayerState.Ready(
                             streamUrl = initialUrl,
@@ -734,10 +754,22 @@ class PlayerViewModel @Inject constructor(
     /** Switches to a different stream variant without re-resolving the source. */
     fun switchVariant(variant: StreamVariant) {
         val current = _state.value as? PlayerState.Ready ?: return
+        // If the variant signals its URL expires quickly, re-resolve immediately to get a
+        // fresh URL rather than trying a likely-stale cached one.
+        if (variant.requiresRefreshOnSwitch) {
+            desiredVariantName = variant.name
+            loadInternal(
+                selectedSourceId = current.sourceId,
+                automaticRecovery = true,
+                preferredVariantId = variant.id,
+            )
+            return
+        }
+        desiredVariantName = variant.name
         _state.value = current.copy(streamUrl = variant.streamUrl)
     }
 
-    fun onPlaybackError(message: String) {
+    fun onPlaybackError(message: String, errorCode: Int = 0, httpStatus: Int = 0) {
         val current = _state.value as? PlayerState.Ready ?: return
         viewModelScope.launch {
             if (!settingsPrefs.settings.first().enableAutoResumeOnPlaybackError) {
@@ -747,15 +779,56 @@ class PlayerViewModel @Inject constructor(
 
             awaitingRecoveryPlayback = true
             _recoveryNotice.emit("Auto retrying")
-            failedVariantUrls += current.streamUrl
-            if (current.sourceId.equals("artemis", ignoreCase = true)) {
-                nextUnfailedVariantUrl(current.streamUrl, current.variants, failedVariantUrls)?.let {
-                    Log.w("PlaybackRecovery", "variant failed; trying $it")
-                    _state.value = current.copy(streamUrl = it)
-                    return@launch
+
+            if (errorCode == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS) {
+                when (httpStatus) {
+                    403 -> {
+                        // Signed URL expired — re-resolve immediately to get fresh URLs.
+                        // Pass the currently-playing variant as a hint so the source
+                        // can prioritise refreshing that URL.
+                        val playingVariantId = current.variants
+                            .firstOrNull { it.streamUrl == current.streamUrl }?.id
+                        Log.w("PlaybackRecovery", "403 on source ${current.sourceId}; re-resolving (URL expired, variant=$playingVariantId)")
+                        loadInternal(automaticRecovery = true, preferredVariantId = playingVariantId)
+                        return@launch
+                    }
+                    429 -> {
+                        // Rate-limited — this variant's URL is being throttled.
+                        // Mark it failed and try the next variant; if exhausted, wait before re-resolving.
+                        Log.w("PlaybackRecovery", "429 on source ${current.sourceId}; variant rate-limited, trying next")
+                        failedVariantUrls += current.streamUrl
+                        val nextVariant = nextUnfailedVariantUrl(current.streamUrl, current.variants, failedVariantUrls)
+                        if (nextVariant != null) {
+                            _state.value = current.copy(streamUrl = nextVariant, failedVariantUrls = failedVariantUrls.toSet())
+                            return@launch
+                        }
+                        // All variants rate-limited — wait before re-resolving to let the CDN cool down
+                        Log.w("PlaybackRecovery", "all variants rate-limited; waiting 5s before re-resolve")
+                        kotlinx.coroutines.delay(5_000)
+                        failedVariantUrls.clear()
+                        loadInternal(automaticRecovery = true)
+                        return@launch
+                    }
+                    else -> {
+                        // Unknown HTTP error — fall through to variant cycling below
+                    }
                 }
             }
 
+            failedVariantUrls += current.streamUrl
+
+            // Try next unfailed variant for any source (not just Artemis)
+            val nextVariant = nextUnfailedVariantUrl(current.streamUrl, current.variants, failedVariantUrls)
+            if (nextVariant != null) {
+                Log.w("PlaybackRecovery", "variant failed; trying $nextVariant")
+                _state.value = current.copy(
+                    streamUrl = nextVariant,
+                    failedVariantUrls = failedVariantUrls.toSet(),
+                )
+                return@launch
+            }
+
+            // All variants exhausted — try next source
             val sourceId = current.sourceId
             if (sourceId == null || !failedPlaybackSourceIds.add(sourceId)) {
                 _state.value = PlayerState.Error("Playback failed after trying available alternatives: $message", current.sources)
