@@ -1396,8 +1396,8 @@ private fun AppearanceSection(
                         rangeStart = 1f,
                         rangeEnd = 8f,
                         steps = 6,
-                        display = { it.toInt().toString() },
-                        onValueChange = { vm.setGridRows(it.toInt()) },
+                        display = { it.roundToInt().toString() },
+                        onValueChange = { vm.setGridRows(it.roundToInt()) },
                         theme = theme
                     )
                 }
@@ -1449,8 +1449,8 @@ private fun AppearanceSection(
                             rangeStart = 1f,
                             rangeEnd = 8f,
                             steps = 6,
-                            display = { it.toInt().toString() },
-                            onValueChange = { vm.setGridRows(it.toInt()) },
+                            display = { it.roundToInt().toString() },
+                            onValueChange = { vm.setGridRows(it.roundToInt()) },
                             theme = theme
                         )
                     }
