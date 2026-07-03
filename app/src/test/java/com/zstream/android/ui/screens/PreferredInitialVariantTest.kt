@@ -15,5 +15,7 @@ class PreferredInitialVariantTest {
         assertEquals(listOf("sdr-url", "hdr-url"), variants.map { it.streamUrl })
         assertEquals("hdr-url", preferredInitialVariantUrl("hdr-url", variants))
         assertEquals("sdr-url", preferredInitialVariantUrl("sdr-url", listOf(sdr)))
+        assertEquals("sdr-url", nextUnfailedVariantUrl("hdr-url", variants, setOf("hdr-url")))
+        assertEquals(null, nextUnfailedVariantUrl("hdr-url", variants, setOf("hdr-url", "sdr-url")))
     }
 }

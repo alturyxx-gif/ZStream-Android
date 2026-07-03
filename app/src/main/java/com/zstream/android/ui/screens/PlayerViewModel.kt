@@ -125,6 +125,12 @@ internal fun preferredInitialVariantUrl(
     variants: List<StreamVariant>,
 ): String = variants.getOrNull(1)?.streamUrl ?: defaultUrl
 
+internal fun nextUnfailedVariantUrl(
+    currentUrl: String,
+    variants: List<StreamVariant>,
+    failedUrls: Set<String>,
+): String? = variants.firstOrNull { it.streamUrl != currentUrl && it.streamUrl !in failedUrls }?.streamUrl
+
 private fun logVariantSelection(defaultUrl: String, selectedUrl: String, variants: List<StreamVariant>) {
     Log.d("VariantDebug", buildString {
         appendLine("default=$defaultUrl")
@@ -300,11 +306,16 @@ class PlayerViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     private val sources = mutableListOf<SourceResult>()
+    private val failedVariantUrls = mutableSetOf<String>()
+    private val failedPlaybackSourceIds = mutableSetOf<String>()
     private var skipSegmentsCacheKey: String? = null
 
     // --- Watch Party Actions ---
     private val _watchPartyEvent = MutableSharedFlow<WatchPartyAction>(replay = 0)
     val watchPartyEvent = _watchPartyEvent.asSharedFlow()
+    private val _recoveryNotice = MutableSharedFlow<String>(extraBufferCapacity = 1)
+    val recoveryNotice = _recoveryNotice.asSharedFlow()
+    private var awaitingRecoveryPlayback = false
     private val localStateOwner = UUID.randomUUID().toString()
     private var lastPlaybackPosition = 0L
     private var lastPlaybackDuration = 0L
@@ -530,14 +541,22 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
-    fun load(selectedSourceId: String? = null) {
+    fun load() = loadInternal()
+
+    private fun loadInternal(
+        selectedSourceId: String? = null,
+        automaticRecovery: Boolean = false,
+        deprioritizedSourceId: String? = null,
+    ) {
         sources.clear()
+        failedVariantUrls.clear()
+        if (!automaticRecovery) failedPlaybackSourceIds.clear()
         viewModelScope.launch {
             runCatching {
                 val settingsValue = settingsPrefs.settings.first()
                 val pluginSources = pluginManager.availableSources()
 
-                if (selectedSourceId == null && settingsValue.manualSourceSelection) {
+                if (selectedSourceId == null && settingsValue.manualSourceSelection && !automaticRecovery) {
                     val orderedSources = sourceOrderStore.getOrderedSources(pluginSources)
                     val availableSources = orderedSources.map { SourceResult(it.id, SourceStatus.IDLE) }
                     sources.clear()
@@ -558,6 +577,11 @@ class PlayerViewModel @Inject constructor(
                             val rest = ordered.filter { it.id != lastId }
                             ordered = boosted + rest
                         }
+                    }
+                    if (deprioritizedSourceId != null) {
+                        val deprioritizedIds = failedPlaybackSourceIds + deprioritizedSourceId
+                        ordered = ordered.filter { it.id !in deprioritizedIds } +
+                            ordered.filter { it.id in deprioritizedIds }
                     }
                     ordered
                 }
@@ -644,7 +668,7 @@ class PlayerViewModel @Inject constructor(
         if (settings.value.manualSourceSelection && _state.value !is PlayerState.Ready) {
             probeSource(sourceId)
         } else {
-            load(selectedSourceId = sourceId)
+            loadInternal(selectedSourceId = sourceId)
         }
     }
 
@@ -711,6 +735,46 @@ class PlayerViewModel @Inject constructor(
     fun switchVariant(variant: StreamVariant) {
         val current = _state.value as? PlayerState.Ready ?: return
         _state.value = current.copy(streamUrl = variant.streamUrl)
+    }
+
+    fun onPlaybackError(message: String) {
+        val current = _state.value as? PlayerState.Ready ?: return
+        viewModelScope.launch {
+            if (!settingsPrefs.settings.first().enableAutoResumeOnPlaybackError) {
+                _state.value = PlayerState.Error("Playback failed: $message", current.sources)
+                return@launch
+            }
+
+            awaitingRecoveryPlayback = true
+            _recoveryNotice.emit("Auto retrying")
+            failedVariantUrls += current.streamUrl
+            if (current.sourceId.equals("artemis", ignoreCase = true)) {
+                nextUnfailedVariantUrl(current.streamUrl, current.variants, failedVariantUrls)?.let {
+                    Log.w("PlaybackRecovery", "variant failed; trying $it")
+                    _state.value = current.copy(streamUrl = it)
+                    return@launch
+                }
+            }
+
+            val sourceId = current.sourceId
+            if (sourceId == null || !failedPlaybackSourceIds.add(sourceId)) {
+                _state.value = PlayerState.Error("Playback failed after trying available alternatives: $message", current.sources)
+                return@launch
+            }
+            Log.w("PlaybackRecovery", "source ${current.sourceId} failed; restarting with it last")
+            loadInternal(automaticRecovery = true, deprioritizedSourceId = sourceId)
+        }
+    }
+
+    fun onPlaybackStarted() {
+        if (!awaitingRecoveryPlayback) return
+        val current = _state.value as? PlayerState.Ready ?: return
+        awaitingRecoveryPlayback = false
+        val source = current.sourceId.orEmpty().replaceFirstChar { it.uppercase() }
+        val variant = current.variants.find { it.streamUrl == current.streamUrl }
+            ?.displayLabel()
+            ?.takeIf { current.sourceId.equals("artemis", ignoreCase = true) }
+        _recoveryNotice.tryEmit("Use source: $source${variant?.let { " · $it" }.orEmpty()}")
     }
 
     private fun Caption.toSubtitleTrack() = SubtitleTrack(
