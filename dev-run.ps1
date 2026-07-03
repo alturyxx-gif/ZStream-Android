@@ -6,6 +6,26 @@ $PluginDir = Join-Path $PSScriptRoot "zstream-plugin"
 $PluginApk = Join-Path $PluginDir "plugin\build\outputs\apk\debug\plugin-debug.apk"
 $Dest = "/sdcard/Android/data/com.zstream.android/files/plugin-debug.apk"
 
+# ---------------------------------------------------------------------------
+# Ensure zstream-plugin/local.properties has sdk.dir
+# ---------------------------------------------------------------------------
+$LocalProps = Join-Path $PluginDir "local.properties"
+if (-not (Test-Path $LocalProps) -or -not (Select-String -Path $LocalProps -Pattern "sdk\.dir" -Quiet)) {
+    $SdkDir = $env:ANDROID_HOME
+    if (-not $SdkDir) {
+        # Common default install location on Windows
+        $SdkDir = Join-Path $env:LOCALAPPDATA "Android\Sdk"
+    }
+    if (-not (Test-Path $SdkDir)) {
+        Write-Error "Android SDK not found. Set the ANDROID_HOME environment variable or install Android Studio."
+        exit 1
+    }
+    # CMake/Gradle expects forward slashes
+    $SdkDirFwd = $SdkDir.Replace("\", "\\")
+    Add-Content -Path $LocalProps -Value "sdk.dir=$SdkDirFwd"
+    Write-Host "  Created $LocalProps (sdk.dir=$SdkDirFwd)"
+}
+
 Write-Host ">> Building plugin..."
 Push-Location $PluginDir
 & .\gradlew.bat assembleDebug -q
