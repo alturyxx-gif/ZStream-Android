@@ -233,10 +233,8 @@ class PluginLoader @Inject constructor(
                 .filter { it.name.startsWith(prefix) && it.name.endsWith(".so") }
                 .forEach { entry ->
                     val soFile = outDir.resolve(entry.name.removePrefix(prefix))
-                    if (!soFile.exists()) {
-                        zip.getInputStream(entry).use { input ->
-                            soFile.outputStream().use { output -> input.copyTo(output) }
-                        }
+                    zip.getInputStream(entry).use { input ->
+                        soFile.outputStream().use { output -> input.copyTo(output) }
                     }
                     found = true
                 }
