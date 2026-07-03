@@ -1109,7 +1109,7 @@ fun HomeScreen(
                                     item { Spacer(Modifier.height(20.dp)) }
                                 }
 
-                            if (state.enableDiscover) {
+                            if (!isTv) {
                                 item { HomeTabs(state.activeTab, vm::setTab) }
 
                                 // Base sections second
@@ -4625,44 +4625,42 @@ private fun TvHomeScreenContent(
                         item { Spacer(Modifier.height(TvHomeMetrics.sectionSpacing)) }
                     }
 
-                    if (state.enableDiscover) {
-                        val tabsItemIndex = startIndexOffset + userSections.size * 2
-                        item {
-                            HomeTabs(
-                                activeTab = state.activeTab,
-                                onTab = vm::setTab,
-                                onFocused = {
-                                    requestTvHomeScroll(
-                                        itemIndex = tabsItemIndex,
-                                        scrollOffset = -topPaddingPx,
-                                        reason = "home-tabs-focus",
-                                    )
+                    val tabsItemIndex = startIndexOffset + userSections.size * 2
+                    item {
+                        HomeTabs(
+                            activeTab = state.activeTab,
+                            onTab = vm::setTab,
+                            onFocused = {
+                                requestTvHomeScroll(
+                                    itemIndex = tabsItemIndex,
+                                    scrollOffset = -topPaddingPx,
+                                    reason = "home-tabs-focus",
+                                )
+                            },
+                        )
+                    }
+                    item { Spacer(Modifier.height(TvHomeMetrics.sectionSpacing)) }
+
+                    discoverSections.forEachIndexed { sectionIndex, section ->
+                        val sectionItemIndex = tabsItemIndex + 2 + sectionIndex * 2
+                        val pageKey = "discover-${section.title}"
+                        item(key = pageKey) {
+                            MediaCarouselSection(
+                                section = section,
+                                nav = nav,
+                                progressMap = state.progressMap,
+                                modifier = Modifier.onFocusChanged {
+                                    if (it.hasFocus) {
+                                        requestTvHomeScroll(
+                                            itemIndex = sectionItemIndex,
+                                            scrollOffset = -topPaddingPx,
+                                            reason = "section-focus:${section.title}",
+                                        )
+                                    }
                                 },
                             )
                         }
                         item { Spacer(Modifier.height(TvHomeMetrics.sectionSpacing)) }
-
-                        discoverSections.forEachIndexed { sectionIndex, section ->
-                            val sectionItemIndex = tabsItemIndex + 2 + sectionIndex * 2
-                            val pageKey = "discover-${section.title}"
-                            item(key = pageKey) {
-                                MediaCarouselSection(
-                                    section = section,
-                                    nav = nav,
-                                    progressMap = state.progressMap,
-                                    modifier = Modifier.onFocusChanged {
-                                        if (it.hasFocus) {
-                                            requestTvHomeScroll(
-                                                itemIndex = sectionItemIndex,
-                                                scrollOffset = -topPaddingPx,
-                                                reason = "section-focus:${section.title}",
-                                            )
-                                        }
-                                    },
-                                )
-                            }
-                            item { Spacer(Modifier.height(TvHomeMetrics.sectionSpacing)) }
-                        }
                     }
                 }
             }
