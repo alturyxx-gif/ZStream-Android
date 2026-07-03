@@ -25,6 +25,7 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.animation.*
 import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
@@ -99,6 +100,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -324,6 +326,62 @@ private val PAUSE_BODY_SIZE_TV = 13.sp
 private val PAUSE_BODY_LINE_HEIGHT_TV = 25.sp
 private const val PAUSE_DESCRIPTION_MAX_LINES_TV = 5
 private val PAUSED_GRAPHIC_BOTTOM_PADDING_TV = 20.dp
+
+private enum class DoubleTapSeekDirection { Backward, Forward }
+
+@Composable
+private fun BoxScope.DoubleTapSeekIndicator(
+    direction: DoubleTapSeekDirection,
+    animationId: Int,
+    theme: ZStreamTheme,
+    onFinished: (Int) -> Unit,
+) {
+    val progress = remember { Animatable(0f) }
+    val distancePx = with(LocalDensity.current) { 50.dp.toPx() }
+
+    LaunchedEffect(animationId) {
+        progress.snapTo(0f)
+        progress.animateTo(
+            targetValue = 1f,
+            animationSpec = tween(
+                durationMillis = 500,
+                easing = CubicBezierEasing(0f, 0f, 0.2f, 1f),
+            ),
+        )
+        onFinished(animationId)
+    }
+
+    Box(
+        modifier = Modifier
+            .align(if (direction == DoubleTapSeekDirection.Backward) Alignment.CenterStart else Alignment.CenterEnd)
+            .padding(
+                start = if (direction == DoubleTapSeekDirection.Backward) 128.dp else 0.dp,
+                end = if (direction == DoubleTapSeekDirection.Forward) 128.dp else 0.dp,
+            )
+            .size(80.dp)
+            .zIndex(2f)
+            .graphicsLayer {
+                val sign = if (direction == DoubleTapSeekDirection.Backward) -1f else 1f
+                translationX = sign * distancePx * progress.value
+                scaleX = 1f + 0.2f * progress.value
+                scaleY = scaleX
+                alpha = 1f - progress.value
+            }
+            .clip(CircleShape)
+            .background(theme.colors.video.context.background.copy(alpha = 0.5f)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            painter = painterResource(
+                if (direction == DoubleTapSeekDirection.Backward) R.drawable.ic_player_skip_back
+                else R.drawable.ic_player_skip_fwd
+            ),
+            contentDescription = null,
+            tint = theme.colors.video.context.type.main,
+            modifier = Modifier.size(30.dp),
+        )
+    }
+}
 
 @OptIn(UnstableApi::class, ExperimentalComposeUiApi::class)
 @Composable
@@ -1711,6 +1769,8 @@ private fun PlayerControls(
     val enableDoubleTapToSeek = settings.enableDoubleClickToSeek
     var pendingSingleTapJob by remember { mutableStateOf<Job?>(null) }
     var lastTapTimeMs by remember { mutableLongStateOf(0L) }
+    var doubleTapSeekDirection by remember { mutableStateOf<DoubleTapSeekDirection?>(null) }
+    var doubleTapSeekAnimationId by remember { mutableIntStateOf(0) }
     var captionLanguage by remember { mutableStateOf<String?>(null) }
 
     DisposableEffect(player) {
@@ -1892,10 +1952,14 @@ private fun PlayerControls(
                                 when {
                                     release.position.x < oneThird -> {
                                         player.seekTo((player.currentPosition - 10_000L).coerceAtLeast(0L))
+                                        doubleTapSeekDirection = DoubleTapSeekDirection.Backward
+                                        doubleTapSeekAnimationId++
                                     }
 
                                     release.position.x > oneThird * 2f -> {
                                         player.seekTo((player.currentPosition + 10_000L).coerceAtMost(durationMs))
+                                        doubleTapSeekDirection = DoubleTapSeekDirection.Forward
+                                        doubleTapSeekAnimationId++
                                     }
 
                                     !menuOpen -> onControlsVisibilityChanged(!controlsVisible)
@@ -1926,6 +1990,16 @@ private fun PlayerControls(
                     .size(if (isTv) 56.dp else 48.dp)
                     .align(Alignment.Center),
                 strokeWidth = 3.dp
+            )
+        }
+        doubleTapSeekDirection?.let { direction ->
+            DoubleTapSeekIndicator(
+                direction = direction,
+                animationId = doubleTapSeekAnimationId,
+                theme = theme,
+                onFinished = { id ->
+                    if (doubleTapSeekAnimationId == id) doubleTapSeekDirection = null
+                },
             )
         }
         pauseMetadata?.let { metadata ->
