@@ -68,7 +68,6 @@ Configured from the Settings screen inside the app. None are required for basic 
 
 - **TMDB API Key** - used for fetching movies/shows. Can hardcode it during build or give a API key in runtime in settings under connections
 - **Backend API** - used for account sync, settings push (not required for local-only usage)
-- **Vidlink provider** - embedded stream source, fetched automatically
 
 ## Release Builds
 
