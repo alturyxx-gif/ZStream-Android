@@ -217,9 +217,9 @@ private data class PlayerMenuTileItem(
     val value: String,
     val onClick: () -> Unit,
 )
-private val MENU_PANEL_WIDTH = 360.dp
-private val MENU_PANEL_HEIGHT = 430.dp
-private val OVERLAY_PANEL_SHAPE = RoundedCornerShape(24.dp)
+private val MENU_PANEL_WIDTH = 343.dp
+private val MENU_PANEL_HEIGHT = 496.dp
+private val OVERLAY_PANEL_SHAPE = RoundedCornerShape(16.dp)
 private val BOTTOM_BAR_MENU_BUTTON_SIZE = 42.dp
 private val BOTTOM_BAR_MENU_ICON_SIZE = 22.dp
 private val PLAYER_DETAIL_SHEET_CORNER_RADIUS = 28.dp
@@ -3531,18 +3531,20 @@ private fun PlayerMenuContent(
                         )
                     )
                     PlayerMenuSection {
-                        if (variants.size > 1) {
-                            val currentVariant = variants.find { it.streamUrl == streamUrl }
-                            PlayerMenuChevronRow(
-                                title = "Stream Variants",
-                                value = currentVariant?.displayLabel() ?: "${variants.size} variants",
-                            ) { onOpenPage(PlayerMenuPage.Variants) }
-                        }
                         PlayerMenuLinkRow("Download", rightIcon = Icons.Filled.Download) {
                             onOpenPage(PlayerMenuPage.Download)
                         }
                         PlayerMenuLinkRow("Watch Party", rightIcon = Icons.Filled.Group) {
                             onOpenPage(PlayerMenuPage.WatchParty)
+                        }
+                    }
+                    if (variants.size > 1) {
+                        PlayerMenuSection {
+                            val currentVariant = variants.find { it.streamUrl == streamUrl }
+                            PlayerMenuChevronRow(
+                                title = "Stream Variants",
+                                value = currentVariant?.displayLabel() ?: "${variants.size}",
+                            ) { onOpenPage(PlayerMenuPage.Variants) }
                         }
                     }
                     PlayerMenuSection {
@@ -4648,13 +4650,13 @@ private fun PlayerMenuBoxNavTile(
     var isFocused by remember { mutableStateOf(false) }
     ZsOutlinedWrapper(
         visible = isFocused && isTv,
-        shape = RoundedCornerShape(18.dp),
+        shape = RoundedCornerShape(8.dp),
         outlineColor = Color.White,
         gap = 2.dp,
     ) {
         Surface(
             color = playerMenuCardFill(),
-            shape = RoundedCornerShape(18.dp),
+            shape = RoundedCornerShape(8.dp),
             modifier = Modifier
                 .fillMaxWidth()
                 .height(PLAYER_MENU_BOX_TILE_HEIGHT)
@@ -4680,7 +4682,7 @@ private fun PlayerMenuBoxNavTile(
                 Text(
                     value,
                     color = playerMenuMutedText(),
-                    fontSize = 12.sp,
+                    fontSize = 14.sp,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                     textAlign = TextAlign.Center
