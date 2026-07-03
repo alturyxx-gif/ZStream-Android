@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.supervisorScope
 import javax.inject.Inject
 
@@ -43,6 +44,10 @@ enum class MediaSectionSource {
     EditorMovies,
     EditorTv,
 }
+
+private const val CAROUSEL_SECTION_SIZE = 20
+private const val GRID_SECTION_SIZE = 24
+private const val DISCOVER_REPLACEMENT_RESERVE = 20
 
 data class MediaSection(
     val title: String,
@@ -88,9 +93,10 @@ data class HomeState(
             HomeTab.EDITOR -> editorSections
         }
         val seenIds = userSections.flatMap { it.items }.map { it.id }.toMutableSet()
+        val sectionSize = if (enableCarouselView) CAROUSEL_SECTION_SIZE else GRID_SECTION_SIZE
         return base.map { section ->
             val uniqueItems = section.items.filter { seenIds.add(it.id) }
-            section.copy(items = uniqueItems)
+            section.copy(items = uniqueItems.take(sectionSize))
         }.filter { it.items.isNotEmpty() }
     }
 }
@@ -116,6 +122,8 @@ class HomeViewModel @Inject constructor(
     private val dataSyncManager: com.zstream.android.data.DataSyncManager,
     private val traktRepo: com.zstream.android.data.TraktRepository,
 ) : ViewModel() {
+    private val discoverSourcePages = mutableMapOf<MediaSectionSource, Int>()
+    private var replenishDiscoverJob: Job? = null
     private val _state = MutableStateFlow(HomeState())
     val state = _state.asStateFlow()
     private var currentSearchPage = 1
@@ -192,6 +200,7 @@ class HomeViewModel @Inject constructor(
                     enableCarouselView = s.enableCarouselView,
                     gridRows = s.gridRows,
                 ) }
+                scheduleDiscoverReplenish()
             }
         }
     }
@@ -204,6 +213,7 @@ class HomeViewModel @Inject constructor(
                     progressMap = continueWatching.progressMap,
                     continueWatching = if (continueWatching.media.isNotEmpty()) listOf(MediaSection("Continue Watching", continueWatching.media, MediaSectionSource.ContinueWatching)) else emptyList(),
                 ) }
+                scheduleDiscoverReplenish()
             }
         }
         
@@ -266,6 +276,7 @@ class HomeViewModel @Inject constructor(
                 }
 
                 _state.update { it.copy(bookmarks = sections, bookmarkEntities = bookmarkEntities.associateBy { it.tmdbId }) }
+                scheduleDiscoverReplenish()
             }
         }
     }
@@ -326,16 +337,69 @@ class HomeViewModel @Inject constructor(
                             MediaSection("Trending", trendTv.await(), MediaSectionSource.TrendingTv),
                         ),
                         editorSections = listOf(
-                            MediaSection("Editor Picks — Movies", topMovies.await().take(10), MediaSectionSource.EditorMovies),
-                            MediaSection("Editor Picks — Shows", topTv.await().take(10), MediaSectionSource.EditorTv),
+                            MediaSection("Editor Picks — Movies", topMovies.await(), MediaSectionSource.EditorMovies),
+                            MediaSection("Editor Picks — Shows", topTv.await(), MediaSectionSource.EditorTv),
                         ),
                     ) }
+                    discoverSourcePages.clear()
+                    scheduleDiscoverReplenish()
                 }
             }.onFailure { e ->
                 android.util.Log.e("HomeVM", "Failed to load home sections", e)
                 _state.update { it.copy(loading = false, error = e.message ?: "No connection") }
             }
         }
+    }
+
+    private fun scheduleDiscoverReplenish() {
+        val snapshot = _state.value
+        if (snapshot.movieSections.isEmpty()) return
+        replenishDiscoverJob?.cancel()
+        replenishDiscoverJob = viewModelScope.launch {
+            val userIds = _state.value.userSections.flatMapTo(mutableSetOf()) { section -> section.items.map { it.id } }
+            val target = if (_state.value.enableCarouselView) CAROUSEL_SECTION_SIZE else GRID_SECTION_SIZE
+            val (movies, tv, editor) = supervisorScope {
+                val movies = async { replenishSections(_state.value.movieSections, userIds, target) }
+                val tv = async { replenishSections(_state.value.tvSections, userIds, target) }
+                val editor = async { replenishSections(_state.value.editorSections, userIds, target) }
+                Triple(movies.await(), tv.await(), editor.await())
+            }
+            _state.update { it.copy(movieSections = movies, tvSections = tv, editorSections = editor) }
+        }
+    }
+
+    private suspend fun replenishSections(
+        sections: List<MediaSection>,
+        userIds: Set<Int>,
+        target: Int,
+    ): List<MediaSection> = supervisorScope {
+        sections.map { section ->
+            async {
+                val candidates = section.items.distinctBy { it.id }.toMutableList()
+                while (candidates.count { it.id !in userIds } < target + DISCOVER_REPLACEMENT_RESERVE) {
+                    val source = section.source ?: break
+                    val page = (discoverSourcePages[source] ?: 1) + 1
+                    val result = runCatching { loadDiscoverPage(source, page) }.getOrNull() ?: break
+                    discoverSourcePages[source] = page
+                    val additions = result.filterNot { item -> candidates.any { it.id == item.id } }
+                    if (additions.isEmpty()) break
+                    candidates += additions
+                }
+                section.copy(items = candidates)
+            }
+        }.awaitAll()
+    }
+
+    private suspend fun loadDiscoverPage(source: MediaSectionSource, page: Int): List<Media> = when (source) {
+        MediaSectionSource.PopularMovies -> repo.popularMoviesPage(page).items
+        MediaSectionSource.NowPlayingMovies -> repo.nowPlayingMoviesPage(page).items
+        MediaSectionSource.TopRatedMovies, MediaSectionSource.EditorMovies -> repo.topRatedMoviesPage(page).items
+        MediaSectionSource.TrendingMovies -> repo.trendingMoviesPage(page).items
+        MediaSectionSource.PopularTv -> repo.popularTvPage(page).items
+        MediaSectionSource.OnAirTv -> repo.onAirTvPage(page).items
+        MediaSectionSource.TopRatedTv, MediaSectionSource.EditorTv -> repo.topRatedTvPage(page).items
+        MediaSectionSource.TrendingTv -> repo.trendingTvPage(page).items
+        else -> emptyList()
     }
 
     /** Pull-to-refresh: reload TMDB data + sync backend + sync Trakt (fire-and-forget each). */

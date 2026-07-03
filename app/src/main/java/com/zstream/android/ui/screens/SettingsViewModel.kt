@@ -147,7 +147,7 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun setGridRows(v: Int) {
-        update { copy(gridRows = v) }
+        update { copy(gridRows = v.coerceIn(1, 8)) }
     }
 
     fun setEnableMinimalCards(v: Boolean) {

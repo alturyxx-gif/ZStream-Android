@@ -147,6 +147,8 @@ import com.zstream.android.ui.components.themed.ZsOutlinedWrapper
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
+import kotlin.math.abs
 import dagger.hilt.android.EntryPointAccessors
 import com.zstream.android.data.model.MovieDetail
 import com.zstream.android.data.model.Season
@@ -3631,7 +3633,7 @@ private fun PlayerMenuContent(
                             PlayerMenuSliderRow(
                                 label = "Background opacity",
                                 value = settings.subtitleBackgroundOpacity * 100f,
-                                valueText = "${(settings.subtitleBackgroundOpacity * 100).toInt()}%",
+                                valueText = { "${it.toInt()}%" },
                                 range = 0f..100f,
                                 steps = 0,
                                 onValueChange = { onUpdateSettings(settings.copy(subtitleBackgroundOpacity = it / 100f)) },
@@ -3646,7 +3648,7 @@ private fun PlayerMenuContent(
                                 PlayerMenuSliderRow(
                                     label = "Blur amount",
                                     value = settings.subtitleBackgroundBlur * 100f,
-                                    valueText = "${(settings.subtitleBackgroundBlur * 100).toInt()}%",
+                                    valueText = { "${it.toInt()}%" },
                                     range = 0f..100f,
                                     steps = 0,
                                     onValueChange = { onUpdateSettings(settings.copy(subtitleBackgroundBlur = it / 100f)) },
@@ -3658,7 +3660,7 @@ private fun PlayerMenuContent(
                             PlayerMenuSliderRow(
                                 label = "Text size",
                                 value = settings.subtitleSize * 100f,
-                                valueText = "${(settings.subtitleSize * 100).toInt()}%",
+                                valueText = { "${it.toInt()}%" },
                                 range = 1f..200f,
                                 steps = 0,
                                 onValueChange = { onUpdateSettings(settings.copy(subtitleSize = it / 100f)) },
@@ -3681,7 +3683,7 @@ private fun PlayerMenuContent(
                                 PlayerMenuSliderRow(
                                     label = "Border thickness",
                                     value = settings.subtitleBorderThickness,
-                                    valueText = "${String.format("%.1f", settings.subtitleBorderThickness)}px",
+                                    valueText = { "${String.format("%.1f", it)}px" },
                                     range = 0f..10f,
                                     steps = 0,
                                     onValueChange = { onUpdateSettings(settings.copy(subtitleBorderThickness = it)) },
@@ -3700,7 +3702,7 @@ private fun PlayerMenuContent(
                             PlayerMenuSliderRow(
                                 label = "Vertical position",
                                 value = settings.subtitleVerticalPosition,
-                                valueText = "${settings.subtitleVerticalPosition.toInt()}rem",
+                                valueText = { "${it.toInt()}rem" },
                                 range = 0f..30f,
                                 steps = 0,
                                 onValueChange = { onUpdateSettings(settings.copy(subtitleVerticalPosition = it)) },
@@ -3711,7 +3713,7 @@ private fun PlayerMenuContent(
                             PlayerMenuSliderRow(
                                 label = "Line spacing",
                                 value = settings.subtitleLineHeight * 100f,
-                                valueText = "${(settings.subtitleLineHeight * 100).toInt()}%",
+                                valueText = { "${it.toInt()}%" },
                                 range = 100f..250f,
                                 steps = 0,
                                 onValueChange = { onUpdateSettings(settings.copy(subtitleLineHeight = it / 100f)) },
@@ -3756,7 +3758,7 @@ private fun PlayerMenuContent(
                         PlayerMenuSliderRow(
                             label = "Custom speed",
                             value = playbackSpeed,
-                            valueText = "${String.format("%.2f", playbackSpeed)}x",
+                            valueText = { "${String.format("%.2f", it)}x" },
                             range = PLAYBACK_SPEED_MIN..PLAYBACK_SPEED_MAX,
                             steps = 0,
                             onValueChange = { onSetPlaybackSpeed((it * 20).toInt() / 20f) },
@@ -3770,7 +3772,7 @@ private fun PlayerMenuContent(
                         PlayerMenuSliderRow(
                             label = "Brightness",
                             value = settings.videoBrightness.toFloat(),
-                            valueText = "${settings.videoBrightness}%",
+                            valueText = { "${it.toInt()}%" },
                             range = 10f..200f,
                             steps = 0,
                             onValueChange = { onSetVideoBrightness((it / 5).toInt() * 5) },
@@ -3784,7 +3786,7 @@ private fun PlayerMenuContent(
                             PlayerMenuSliderRow(
                                 label = "Boost level",
                                 value = settings.volumeBoost.toFloat(),
-                                valueText = "${settings.volumeBoost}%",
+                                valueText = { "${it.toInt()}%" },
                                 range = 100f..300f,
                                 steps = 0,
                                 onValueChange = { onSetVolumeBoost((it / 10).toInt() * 10) },
@@ -3809,7 +3811,7 @@ private fun PlayerMenuContent(
                         PlayerMenuSliderRow(
                             label = "Brightness",
                             value = settings.videoBrightness.toFloat(),
-                            valueText = "${settings.videoBrightness}%",
+                            valueText = { "${it.toInt()}%" },
                             range = 10f..200f,
                             steps = 0,
                             onValueChange = { onSetVideoBrightness((it / 5).toInt() * 5) },
@@ -3820,7 +3822,7 @@ private fun PlayerMenuContent(
                         PlayerMenuSliderRow(
                             label = "Contrast",
                             value = settings.videoContrast.toFloat(),
-                            valueText = "${settings.videoContrast}%",
+                            valueText = { "${it.toInt()}%" },
                             range = 50f..200f,
                             steps = 0,
                             onValueChange = { onSetVideoContrast((it / 5).toInt() * 5) },
@@ -3830,7 +3832,7 @@ private fun PlayerMenuContent(
                         PlayerMenuSliderRow(
                             label = "Saturation",
                             value = settings.videoSaturation.toFloat(),
-                            valueText = "${settings.videoSaturation}%",
+                            valueText = { "${it.toInt()}%" },
                             range = 0f..200f,
                             steps = 0,
                             onValueChange = { onSetVideoSaturation((it / 5).toInt() * 5) },
@@ -3840,7 +3842,7 @@ private fun PlayerMenuContent(
                         PlayerMenuSliderRow(
                             label = "Hue",
                             value = settings.videoHueRotate.toFloat(),
-                            valueText = "${settings.videoHueRotate}°",
+                            valueText = { "${it.toInt()}°" },
                             range = -180f..180f,
                             steps = 0,
                             onValueChange = { onSetVideoHueRotate((it / 5).toInt() * 5) },
@@ -4931,7 +4933,7 @@ private fun PlayerMenuToggleRow(title: String, checked: Boolean, focusRequester:
 private fun PlayerMenuSliderRow(
     label: String,
     value: Float,
-    valueText: String,
+    valueText: (Float) -> String,
     range: ClosedFloatingPointRange<Float>,
     steps: Int,
     onValueChange: (Float) -> Unit,
@@ -4945,8 +4947,15 @@ private fun PlayerMenuSliderRow(
     var isFocused by remember { mutableStateOf(false) }
     var isAdjusting by remember { mutableStateOf(false) }
     var sliderValue by remember { mutableFloatStateOf(value) }
+    var pendingValue by remember { mutableStateOf<Float?>(null) }
 
-    LaunchedEffect(value) { if (!isAdjusting) sliderValue = value }
+    LaunchedEffect(value) {
+        val pending = pendingValue
+        if (!isAdjusting && (pending == null || abs(value - pending) < 0.0001f)) {
+            sliderValue = value
+            pendingValue = null
+        }
+    }
 
     val bgColor by animateColorAsState(
         if (isAdjusting) theme.colors.global.accentA.copy(alpha = 0.2f)
@@ -4955,6 +4964,12 @@ private fun PlayerMenuSliderRow(
     )
 
     val stepAmount = tickStep ?: (range.endInclusive - range.start) * 0.05f
+    fun snapToStep(rawValue: Float): Float {
+        val tick = ((rawValue - range.start) / stepAmount).roundToInt()
+        return (range.start + tick * stepAmount).coerceIn(range.start, range.endInclusive)
+    }
+
+    fun stepValue(direction: Int): Float = snapToStep(sliderValue + direction * stepAmount)
 
     ZsOutlinedWrapper(
         shape = RoundedCornerShape(8.dp),
@@ -4986,19 +5001,15 @@ private fun PlayerMenuSliderRow(
                     if (isAdjusting) {
                         when (event.nativeKeyEvent.keyCode) {
                             android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                                sliderValue = (sliderValue + stepAmount).coerceIn(
-                                    range.start,
-                                    range.endInclusive
-                                )
+                                sliderValue = stepValue(1)
+                                pendingValue = sliderValue
                                 onValueChange(sliderValue)
                                 true
                             }
 
                             android.view.KeyEvent.KEYCODE_DPAD_LEFT -> {
-                                sliderValue = (sliderValue - stepAmount).coerceIn(
-                                    range.start,
-                                    range.endInclusive
-                                )
+                                sliderValue = stepValue(-1)
+                                pendingValue = sliderValue
                                 onValueChange(sliderValue)
                                 true
                             }
@@ -5038,13 +5049,13 @@ private fun PlayerMenuSliderRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.height(24.dp)
                 ) {
-                    Text(valueText, color = theme.colors.type.emphasis, fontSize = 13.sp)
+                    Text(valueText(sliderValue), color = theme.colors.type.emphasis, fontSize = 13.sp)
                     Box(
                         modifier = Modifier.size(18.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         if (!isDefault) {
-                            TextButton(onClick = onReset, contentPadding = PaddingValues(0.dp)) {
+                            TextButton(onClick = { pendingValue = null; onReset() }, contentPadding = PaddingValues(0.dp)) {
                                 Icon(Icons.Filled.Close, null, tint = playerMenuMutedText(), modifier = Modifier.size(14.dp))
                             }
                         }
@@ -5053,7 +5064,11 @@ private fun PlayerMenuSliderRow(
             }
             Slider(
                 value = sliderValue.coerceIn(range.start, range.endInclusive),
-                onValueChange = { sliderValue = it; onValueChange(it) },
+                onValueChange = {
+                    sliderValue = snapToStep(it)
+                    pendingValue = sliderValue
+                    onValueChange(sliderValue)
+                },
                 valueRange = range,
                 steps = steps,
                 colors = SliderDefaults.colors(

@@ -118,7 +118,7 @@ class SettingsPreferences @Inject constructor(
             enableThumbnails = prefs[KEY_ENABLE_THUMBNAILS] ?: false,
             enableImageLogos = prefs[KEY_ENABLE_IMAGE_LOGOS] ?: true,
             enableCarouselView = prefs[KEY_ENABLE_CAROUSEL_VIEW] ?: true,
-            gridRows = prefs[KEY_GRID_ROWS] ?: 2,
+            gridRows = (prefs[KEY_GRID_ROWS] ?: 2).coerceIn(1, 8),
             enableMinimalCards = prefs[KEY_ENABLE_MINIMAL_CARDS] ?: false,
             enableLowPerformanceMode = prefs[KEY_ENABLE_LOW_PERFORMANCE_MODE] ?: false,
             enablePauseOverlay = prefs[KEY_ENABLE_PAUSE_OVERLAY] ?: true,
@@ -290,7 +290,7 @@ class SettingsPreferences @Inject constructor(
             val currentVolumeBoost = current[KEY_VOLUME_BOOST] ?: 100
             val currentVideoScaleMode = current[KEY_VIDEO_SCALE_MODE] ?: "fit"
             val currentTvPipPosition = current[KEY_TV_PIP_POSITION] ?: "bottom_end"
-            val currentGridRows = current[KEY_GRID_ROWS] ?: 2
+            val currentGridRows = (current[KEY_GRID_ROWS] ?: 2).coerceIn(1, 8)
 
             val mappedHomeSectionOrder = remote.homeSectionOrder?.map { section ->
                 when (section) {
