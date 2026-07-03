@@ -119,10 +119,7 @@ import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
-import androidx.media3.exoplayer.source.LoadEventInfo
-import androidx.media3.exoplayer.source.MediaLoadData
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.CacheDataSource.EventListener
 import androidx.media3.datasource.DefaultDataSource
@@ -146,7 +143,6 @@ import com.zstream.android.ui.components.themed.ZsOutlinedWrapper
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
-import java.util.concurrent.atomic.AtomicInteger
 import dagger.hilt.android.EntryPointAccessors
 import com.zstream.android.data.model.MovieDetail
 import com.zstream.android.data.model.Season
@@ -194,7 +190,6 @@ private val BOTTOM_RIGHT_END_PADDING = 36.dp    // padding after last right icon
 private val BOTTOM_BAR_PADDING_V = 8.dp        // vertical padding in bottom controls row
 private const val NATIVE_SUBTITLE_BASE_OFFSET_DP = 20f
 private const val NATIVE_SUBTITLE_OVERLAY_MULTIPLIER = 5f
-private const val HLS_LOADS_TO_LOG = 6
 @Composable
 private fun playerMenuSectionDivider(): Color = LocalZStreamTheme.current.colors.type.divider.copy(alpha = 0.25f)
 
@@ -601,7 +596,6 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                 var pendingResumeMs by remember { mutableLongStateOf(-1L) }
 
                 val context = LocalContext.current
-                val loggedHlsSegments = remember { AtomicInteger() }
                 val player = remember {
                     val subtitleConfigs = if (settings.enableNativeSubtitles) {
                         s.subtitles.mapNotNull { track ->
@@ -651,63 +645,18 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                         setMediaSource(DefaultMediaSourceFactory(cacheDataSourceFactory).createMediaSource(mediaItem))
                         videoScalingMode = androidx.media3.common.C.VIDEO_SCALING_MODE_SCALE_TO_FIT
                         addListener(object : androidx.media3.common.Player.Listener {
-                            override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
-                                Log.d("VideoFormat", "size=${videoSize.width}x${videoSize.height} pixelRatio=${videoSize.pixelWidthHeightRatio}")
-                            }
                             override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
                                 tracks.groups.forEach { group ->
                                     for (i in 0 until group.length) {
                                         val fmt = group.getTrackFormat(i)
-                                        if (fmt.sampleMimeType?.startsWith("video/") == true) {
-                                            Log.d("VideoFormat", buildString {
-                                                appendLine("=== VIDEO TRACK ===")
-                                                appendLine("  mime:         ${fmt.sampleMimeType}")
-                                                appendLine("  codecs:       ${fmt.codecs}")
-                                                appendLine("  res:          ${fmt.width}x${fmt.height} @ ${fmt.frameRate}fps")
-                                                appendLine("  bitrate:      ${fmt.bitrate}")
-                                                appendLine("  profile:      ${fmt.colorInfo?.colorSpace} space, ${fmt.colorInfo?.colorRange} range, ${fmt.colorInfo?.colorTransfer} transfer")
-                                                appendLine("  hdrStaticInfo:${fmt.colorInfo?.hdrStaticInfo?.contentToString()}")
-                                                appendLine("  selected:     ${group.isTrackSelected(i)}")
-                                            })
-                                        }
-                                        if (fmt.sampleMimeType?.startsWith("audio/") == true) {
-                                            Log.d("VideoFormat", "  AUDIO: mime=${fmt.sampleMimeType} codecs=${fmt.codecs} channels=${fmt.channelCount} sampleRate=${fmt.sampleRate}")
-                                        }
+                                        if (group.isTrackSelected(i) && fmt.sampleMimeType?.startsWith("video/") == true) Log.d(
+                                            "PlaybackDebug",
+                                            "uri=${currentMediaItem?.localConfiguration?.uri} mime=${fmt.sampleMimeType} " +
+                                                "codecs=${fmt.codecs} size=${fmt.width}x${fmt.height} bitrate=${fmt.bitrate} " +
+                                                "color=${fmt.colorInfo}",
+                                        )
                                     }
                                 }
-                            }
-                        })
-                        addAnalyticsListener(object : AnalyticsListener {
-                            override fun onVideoDecoderInitialized(
-                                eventTime: AnalyticsListener.EventTime,
-                                decoderName: String,
-                                initializedTimestampMs: Long,
-                                initializationDurationMs: Long,
-                            ) {
-                                Log.d(
-                                    "VideoFormat",
-                                    "decoder=$decoderName initDurationMs=$initializationDurationMs",
-                                )
-                            }
-
-                            override fun onLoadCompleted(
-                                eventTime: AnalyticsListener.EventTime,
-                                loadEventInfo: LoadEventInfo,
-                                mediaLoadData: MediaLoadData,
-                            ) {
-                                if (mediaLoadData.dataType != C.DATA_TYPE_MEDIA &&
-                                    mediaLoadData.dataType != C.DATA_TYPE_MEDIA_INITIALIZATION ||
-                                    mediaLoadData.trackType == C.TRACK_TYPE_AUDIO ||
-                                    loggedHlsSegments.getAndIncrement() >= HLS_LOADS_TO_LOG
-                                ) return
-                                Log.d(
-                                    "HlsSegment",
-                                    "type=${mediaLoadData.dataType} uri=${loadEventInfo.uri} " +
-                                        "bytes=${loadEventInfo.bytesLoaded} " +
-                                        "range=${mediaLoadData.mediaStartTimeMs}..${mediaLoadData.mediaEndTimeMs}ms " +
-                                        "mime=${mediaLoadData.trackFormat?.sampleMimeType} " +
-                                        "codecs=${mediaLoadData.trackFormat?.codecs}",
-                                )
                             }
                         })
                         prepare()
@@ -726,8 +675,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     if (current == s.streamUrl) return@LaunchedEffect  // already playing this URL
                     val positionMs = player.currentPosition
                     val shouldPlay = player.playWhenReady
-                    loggedHlsSegments.set(0)
-                    Log.d("VideoFormat", "=== SWITCHING VARIANT === url=${s.streamUrl}")
+                    Log.d("PlaybackDebug", "switch uri=${s.streamUrl}")
                     val mediaItem = MediaItem.Builder()
                         .setUri(s.streamUrl)
                         .setSubtitleConfigurations(
