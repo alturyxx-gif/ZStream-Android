@@ -4,3 +4,6 @@
 [submodule "plugin-api"]
 	path = plugin-api
 	url = https://github.com/alturyxx-gif/plugin-api.git
+[submodule "zstream-plugin"]
+	path = zstream-plugin
+	url = https://github.com/alturyxx-gif/zstream-plugin.git
