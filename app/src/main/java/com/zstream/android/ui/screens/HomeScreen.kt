@@ -2000,6 +2000,16 @@ private fun MediaGridRow(
     var tvEditMediaId by remember { mutableStateOf<Int?>(null) }
     var rowTopPx by remember { mutableIntStateOf(0) }
     var rowHeightPx by remember { mutableIntStateOf(0) }
+    var rowHasFocus by remember { mutableStateOf(false) }
+    val currentOnRowFocused by rememberUpdatedState(onRowFocused)
+
+    LaunchedEffect(rowHasFocus, rowTopPx, rowHeightPx) {
+        if (rowHasFocus && rowHeightPx > 0) {
+            withFrameMillis { }
+            currentOnRowFocused?.invoke(rowTopPx, rowHeightPx)
+        }
+    }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -2007,7 +2017,7 @@ private fun MediaGridRow(
                 rowTopPx = it.positionInParent().y.roundToInt()
                 rowHeightPx = it.size.height
             }
-            .onFocusChanged { if (it.hasFocus) onRowFocused?.invoke(rowTopPx, rowHeightPx) }
+            .onFocusChanged { rowHasFocus = it.hasFocus }
             .padding(horizontal = 16.dp, vertical = 5.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
