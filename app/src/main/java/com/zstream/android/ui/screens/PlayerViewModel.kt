@@ -120,6 +120,21 @@ data class StreamVariant(
     }
 }
 
+internal fun preferredInitialVariantUrl(
+    defaultUrl: String,
+    variants: List<StreamVariant>,
+): String = variants.getOrNull(1)?.streamUrl ?: defaultUrl
+
+private fun logVariantSelection(defaultUrl: String, selectedUrl: String, variants: List<StreamVariant>) {
+    Log.d("VariantDebug", buildString {
+        appendLine("default=$defaultUrl")
+        appendLine("selected=$selectedUrl")
+        variants.forEach {
+            appendLine("variant id=${it.id} name=${it.name} quality=${it.quality} codec=${it.codec} tag=${it.tag} url=${it.streamUrl}")
+        }
+    })
+}
+
 private data class WyzieSubtitleEntry(
     val url: String? = null,
     val language: String? = null,
@@ -586,15 +601,18 @@ class PlayerViewModel @Inject constructor(
                             val subtitles = result.captions.map { it.toSubtitleTrack() }.toMutableList()
                             fetchExternalSubtitles(subtitles)
 
+                            val variants = result.variants.map { v ->
+                                StreamVariant(id = v.id, name = v.name, quality = v.quality, codec = v.codec, tag = v.tag, streamUrl = v.streamUrl)
+                            }
+                            val initialUrl = preferredInitialVariantUrl(result.streamUrl, variants)
+                            logVariantSelection(result.streamUrl, initialUrl, variants)
                             _state.value = PlayerState.Ready(
-                                streamUrl  = result.streamUrl,
+                                streamUrl  = initialUrl,
                                 headers    = result.headers,
                                 subtitles  = subtitles,
                                 sources    = success,
                                 sourceId   = source.id,
-                                variants   = result.variants.map { v ->
-                                    StreamVariant(id = v.id, name = v.name, quality = v.quality, codec = v.codec, tag = v.tag, streamUrl = v.streamUrl)
-                                },
+                                variants   = variants,
                             )
 
                             if (settingsValue.subtitlesEnabled && subtitles.isNotEmpty()) {
@@ -664,15 +682,18 @@ class PlayerViewModel @Inject constructor(
                         val success = updated.map { if (it.id == sourceId) it.copy(status = SourceStatus.SUCCESS, codec = result.codec) else it }
                         val subtitles = result.captions.map { it.toSubtitleTrack() }.toMutableList()
                         fetchExternalSubtitles(subtitles)
+                        val variants = result.variants.map { v ->
+                            StreamVariant(id = v.id, name = v.name, quality = v.quality, codec = v.codec, tag = v.tag, streamUrl = v.streamUrl)
+                        }
+                        val initialUrl = preferredInitialVariantUrl(result.streamUrl, variants)
+                        logVariantSelection(result.streamUrl, initialUrl, variants)
                         val candidate = PlayerState.Ready(
-                            streamUrl = result.streamUrl,
+                            streamUrl = initialUrl,
                             headers   = result.headers,
                             subtitles = subtitles,
                             sources   = success,
                             sourceId  = sourceId,
-                            variants  = result.variants.map { v ->
-                                StreamVariant(id = v.id, name = v.name, quality = v.quality, codec = v.codec, tag = v.tag, streamUrl = v.streamUrl)
-                            },
+                            variants  = variants,
                         )
                         sources.clear(); sources.addAll(success)
                         _state.value = PlayerState.ManualSourceSelection(success, selectedSourceId = sourceId, candidate = candidate, message = null)
