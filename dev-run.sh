@@ -8,6 +8,10 @@ PLUGIN_APK="$PLUGIN_DIR/plugin/build/outputs/apk/debug/plugin-debug.apk"
 DEST="/sdcard/Android/data/com.zstream.android/files/plugin-debug.apk"
 
 echo "▶ Building plugin..."
+if [[ ! -f "$PLUGIN_DIR/plugin/src/main/cpp/CMakeLists.txt" ]]; then
+    echo "  zstream-plugin submodule not found, initializing..."
+    git -C "$(dirname "$0")" submodule update --init --recursive
+fi
 (cd "$PLUGIN_DIR" && ./gradlew assembleDebug -q)
 
 mapfile -t DEVICES < <(adb devices | awk '/\tdevice$/{print $1}')

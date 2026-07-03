@@ -7,6 +7,19 @@ $PluginApk = Join-Path $PluginDir "plugin\build\outputs\apk\debug\plugin-debug.a
 $Dest = "/sdcard/Android/data/com.zstream.android/files/plugin-debug.apk"
 
 # ---------------------------------------------------------------------------
+# Ensure zstream-plugin submodule is initialized
+# ---------------------------------------------------------------------------
+$CmakeLists = Join-Path $PluginDir "plugin\src\main\cpp\CMakeLists.txt"
+if (-not (Test-Path $CmakeLists)) {
+    Write-Host "  zstream-plugin submodule not found, initializing..."
+    & git -C $PSScriptRoot submodule update --init --recursive
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "Failed to initialize submodules. Make sure you have access to the plugin repo."
+        exit 1
+    }
+}
+
+# ---------------------------------------------------------------------------
 # Ensure zstream-plugin/local.properties has sdk.dir
 # ---------------------------------------------------------------------------
 $LocalProps = Join-Path $PluginDir "local.properties"
