@@ -367,15 +367,15 @@ class SettingsViewModel @Inject constructor(
         update { copy(
             subtitleColor = "#ffffff",
             subtitleSize = 1f,
-            subtitleBackgroundOpacity = 0.5f,
-            subtitleBackgroundBlur = 0.5f,
-            subtitleBackgroundBlurEnabled = true,
+            subtitleBackgroundOpacity = 0f,
+            subtitleBackgroundBlur = 0f,
+            subtitleBackgroundBlurEnabled = false,
             subtitleBold = false,
-            subtitleVerticalPosition = 1f,
-            subtitleFontStyle = "default",
+            subtitleVerticalPosition = 0f,
+            subtitleFontStyle = "dropShadow",
             subtitleBorderThickness = 1f,
-            subtitleLineHeight = 1.5f,
-            subtitleFont = "sans-serif",
+            subtitleLineHeight = 1.2f,
+            subtitleFont = "sans-serif-condensed",
         ) }
     }
 
@@ -388,10 +388,12 @@ class SettingsViewModel @Inject constructor(
                 "netflix" -> copy(
                     subtitleColor = "#ffffff",
                     subtitleBackgroundOpacity = 0.0f,
+                    subtitleBackgroundBlur = 0.0f,
                     subtitleBackgroundBlurEnabled = false,
                     subtitleBold = false,
+                    subtitleVerticalPosition = 0.0f,
                     subtitleFontStyle = "dropShadow",
-                    subtitleLineHeight = 1.4f,
+                    subtitleLineHeight = 1.2f,
                     subtitleSize = 1.0f,
                     subtitleFont = "sans-serif-condensed"
                 )

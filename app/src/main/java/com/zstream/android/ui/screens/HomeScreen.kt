@@ -1425,7 +1425,6 @@ private fun TopNavBar(
             }
             if (!collapseActionsIntoMenu) {
                 HeaderIconButton(icon = ImageVector.vectorResource(R.drawable.ic_discord), hazeState = hazeState, onClick = onDiscord)
-                HeaderIconButton(icon = Icons.Default.Notifications, hazeState = hazeState, onClick = onNotifications, badgeCount = unreadCount)
                 HeaderIconButton(icon = Icons.Default.AttachMoney, hazeState = hazeState, onClick = onTipJar)
             }
         }
@@ -1632,6 +1631,16 @@ private fun HeroSection(
                                             focusRequester
                                         ) else Modifier
                                     ),
+                            )
+                        }
+                        if (!isTv && searchQuery.isNotEmpty()) {
+                            ZsIconButton(
+                                onClick = { onSearch("") },
+                                icon = Icons.Default.Close,
+                                contentDescription = "Clear search",
+                                variant = ZsIconButtonVariant.Ghost,
+                                containerSize = 28.dp,
+                                iconSize = 16.dp,
                             )
                         }
                     }
@@ -2654,12 +2663,12 @@ private fun SandwichMenuDialog(
                     val settingsModifier = if (session != null) Modifier.focusRequester(firstItemFocusRequester) else Modifier
                     SandwichItem(Icons.Default.Settings, "Settings", theme = theme, modifier = settingsModifier) { nav.navigate("settings"); onDismiss() }
                     SandwichItem(Icons.Default.History, "Watch History", theme = theme) { nav.navigate("watchHistory"); onDismiss() }
+                    SandwichItem(Icons.Default.Notifications, if (unreadCount > 0) "Notifications ($unreadCount)" else "Notifications", theme = theme) {
+                        onNotifications()
+                        onDismiss()
+                    }
                     if (showHeaderActions) {
                         SandwichItem(ImageVector.vectorResource(R.drawable.ic_discord), "Discord", theme = theme) { onDiscord(); onDismiss() }
-                        SandwichItem(Icons.Default.Notifications, if (unreadCount > 0) "Notifications ($unreadCount)" else "Notifications", theme = theme) {
-                            onNotifications()
-                            onDismiss()
-                        }
                         SandwichItem(Icons.Default.AttachMoney, "Tip Jar", theme = theme) { onTipJar(); onDismiss() }
                     }
                     SandwichItem(Icons.Default.Explore, "Discover", theme = theme) { nav.navigate("search"); onDismiss() }
@@ -2855,12 +2864,12 @@ private fun SandwichMenuDialog(
 
                     SandwichItem(Icons.Default.Settings, "Settings", theme = theme) { nav.navigate("settings"); onDismiss() }
                     SandwichItem(Icons.Default.History, "Watch History", theme = theme) { nav.navigate("watchHistory"); onDismiss() }
+                    SandwichItem(Icons.Default.Notifications, if (unreadCount > 0) "Notifications ($unreadCount)" else "Notifications", theme = theme) {
+                        onNotifications()
+                        onDismiss()
+                    }
                     if (showHeaderActions) {
                         SandwichItem(ImageVector.vectorResource(R.drawable.ic_discord), "Discord", theme = theme) { onDiscord(); onDismiss() }
-                        SandwichItem(Icons.Default.Notifications, if (unreadCount > 0) "Notifications ($unreadCount)" else "Notifications", theme = theme) {
-                            onNotifications()
-                            onDismiss()
-                        }
                         SandwichItem(Icons.Default.AttachMoney, "Tip Jar", theme = theme) { onTipJar(); onDismiss() }
                     }
                     SandwichItem(Icons.Default.Explore, "Discover", theme = theme) { nav.navigate("search"); onDismiss() }
@@ -4129,6 +4138,7 @@ private fun SearchOverlay(
     modifier: Modifier = Modifier
 ) {
     val theme = LocalZStreamTheme.current
+    val isTv = LocalIsTv.current
     var focusedMenu by remember { mutableStateOf(false) }
     val focusMenuWidth by animateDpAsState(if (focusedMenu) 3.dp else 0.dp)
     Row(
@@ -4181,6 +4191,16 @@ private fun SearchOverlay(
                                         onSearchFocusedChange(true)
                                     }
                                 },
+                        )
+                    }
+                    if (!isTv && searchQuery.isNotEmpty()) {
+                        ZsIconButton(
+                            onClick = { onSearch("") },
+                            icon = Icons.Default.Close,
+                            contentDescription = "Clear search",
+                            variant = ZsIconButtonVariant.Ghost,
+                            containerSize = 28.dp,
+                            iconSize = 16.dp,
                         )
                     }
                 }
@@ -4714,7 +4734,6 @@ private fun TvTopBar(
             if (collapseActionsIntoMenu) {
                 TvHeaderButton(Icons.Default.Search, null, hazeState, onClick = onSearch)
             } else {
-                TvHeaderButton(Icons.Default.Notifications, if (unreadCount > 0) "$unreadCount" else null, hazeState, onClick = onNotifications)
                 TvHeaderButton(Icons.Default.AttachMoney, null, hazeState, onClick = onTipJar)
             }
             TvHeaderButton(Icons.Default.GridView, null, hazeState, onClick = onLayout)
