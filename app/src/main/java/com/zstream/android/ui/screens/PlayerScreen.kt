@@ -1053,7 +1053,8 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
 
                 var controlsVisible by remember { mutableStateOf(true) }
                 var isPlaying by remember { mutableStateOf(player.isPlaying) }
-                var menuPage by remember { mutableStateOf<PlayerMenuPage?>(null) }
+                val menuBackstack = remember { mutableStateListOf<PlayerMenuPage>() }
+                val menuPage = menuBackstack.lastOrNull()
                 var lastInteractionTime by remember { mutableLongStateOf(System.currentTimeMillis()) }
                 val updateActivity = { lastInteractionTime = System.currentTimeMillis() }
 
@@ -1096,15 +1097,30 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                         }
                         if (isPlaying && !showInfoSheet) {
                             controlsVisible = false
-                            if (menuPage != null) menuPage = null
+                            if (menuPage != null) menuBackstack.clear()
                         }
                     }
                 }
 
                 var audioSessionId by remember(player) { mutableIntStateOf(player.audioSessionId) }
-                val onMenuPageChange: (PlayerMenuPage?) -> Unit = { 
-                    menuPage = it
+                val openMenuPage: (PlayerMenuPage) -> Unit = { page ->
+                    if (menuBackstack.lastOrNull() != page) {
+                        menuBackstack.add(page)
+                    }
                     updateActivity()
+                }
+                val closeMenu: () -> Unit = {
+                    menuBackstack.clear()
+                    updateActivity()
+                }
+                val goBackMenuPage: () -> Unit = {
+                    if (menuBackstack.isNotEmpty()) {
+                        menuBackstack.removeAt(menuBackstack.lastIndex)
+                    }
+                    updateActivity()
+                }
+                val onMenuPageChange: (PlayerMenuPage?) -> Unit = { page ->
+                    if (page == null) closeMenu() else openMenuPage(page)
                 }
                 val enterPip = {
                     val entered = if (isTv) {
@@ -1130,15 +1146,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     if (showInfoSheet) {
                         showInfoSheet = false
                     } else {
-                        onMenuPageChange(
-                            when (menuPage) {
-                                PlayerMenuPage.Root, null -> null
-                                PlayerMenuPage.AdvancedColor -> PlayerMenuPage.Playback
-                                PlayerMenuPage.Episodes -> PlayerMenuPage.Seasons
-                                PlayerMenuPage.CaptionLanguage -> PlayerMenuPage.Captions
-                                else -> PlayerMenuPage.Root
-                            }
-                        )
+                        goBackMenuPage()
                     }
                 }
                 BackHandler(enabled = isTv && roomCode != null && !showInfoSheet && menuPage == null && !isInPip && !isInAppPip) {
@@ -1529,6 +1537,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     },
                     showInfoSheet = showInfoSheet,
                     menuPage = menuPage,
+                    onMenuBack = goBackMenuPage,
                     onMenuPageChange = onMenuPageChange,
                     allProgress = progressList,
                     currentSeason = vm.season,
@@ -1853,6 +1862,7 @@ private fun PlayerControls(
     onLegacyWatchParty: () -> Unit,
     showInfoSheet: Boolean,
     menuPage: PlayerMenuPage?,
+    onMenuBack: () -> Unit,
     onMenuPageChange: (PlayerMenuPage?) -> Unit,
     allProgress: List<com.zstream.android.data.local.entity.ProgressEntity>,
     currentSeason: Int?,
@@ -2822,13 +2832,7 @@ private fun PlayerControls(
                     .onKeyEvent {
                         if (isTv && it.type == KeyEventType.KeyDown && it.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_BACK) {
                             onMenuPageChange(
-                                when (menuPage) {
-                                    null, PlayerMenuPage.Root -> null
-                                    PlayerMenuPage.AdvancedColor -> PlayerMenuPage.Playback
-                                    PlayerMenuPage.CaptionLanguage -> PlayerMenuPage.Captions
-                                    PlayerMenuPage.CaptionSettings -> PlayerMenuPage.Captions
-                                    else -> PlayerMenuPage.Root
-                                }
+                                null
                             )
                             true
                         } else false
@@ -2837,14 +2841,7 @@ private fun PlayerControls(
                         indication = null,
                         interactionSource = remember { MutableInteractionSource() }
                     ) {
-                        onMenuPageChange(
-                            when (menuPage) {
-                                null, PlayerMenuPage.Root -> null
-                                PlayerMenuPage.AdvancedColor -> PlayerMenuPage.Playback
-                                PlayerMenuPage.CaptionLanguage -> PlayerMenuPage.Captions
-                                else -> PlayerMenuPage.Root
-                            }
-                        )
+                        onMenuPageChange(null)
                     }
             ) {
                 Surface(
@@ -2907,17 +2904,7 @@ private fun PlayerControls(
                         subtitleDelay = subtitleDelay,
                         overrideCasing = overrideCasing,
                         onClose = { onMenuPageChange(null) },
-                        onBack = {
-                            onMenuPageChange(
-                                when (menuPage) {
-                                    null, PlayerMenuPage.Root -> null
-                                    PlayerMenuPage.AdvancedColor -> PlayerMenuPage.Playback
-                                    PlayerMenuPage.Episodes -> PlayerMenuPage.Seasons
-                                    PlayerMenuPage.CaptionLanguage -> PlayerMenuPage.Captions
-                                    else -> PlayerMenuPage.Root
-                                }
-                            )
-                        },
+                        onBack = onMenuBack,
                         onOpenPage = { onMenuPageChange(it) },
                         onOpenCaptionLanguage = {
                             captionLanguage = it
