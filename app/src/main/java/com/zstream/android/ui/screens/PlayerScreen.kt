@@ -575,7 +575,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                                     rightContent = {
                                         ManualSourceStatusContent(
                                             source = source,
-                                            onUse = vm::confirmManualSourceSelection
+                                            onUse = { vm.confirmManualSourceSelection(source.id) }
                                         )
                                     }
                                 )
@@ -3525,6 +3525,16 @@ private fun PlayerMenuContent(
                 },
                 showBack = true,
                 onBack = onBack,
+                rightContent = if (page == PlayerMenuPage.Captions) {
+                    {
+                        TextButton(
+                            onClick = { onOpenPage(PlayerMenuPage.CaptionSettings) },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                        ) {
+                            Text("Customize", color = theme.colors.type.emphasis, fontSize = 14.sp)
+                        }
+                    }
+                } else null,
             )
         }
         AnimatedContent(
@@ -3592,9 +3602,6 @@ private fun PlayerMenuContent(
                     }
                 }
                 PlayerMenuPage.Captions -> {
-                    PlayerMenuSection {
-                        PlayerMenuChevronRow("Subtitle settings") { onOpenPage(PlayerMenuPage.CaptionSettings) }
-                    }
                     PlayerMenuSection {
                         PlayerMenuSelectableRow(
                             title = "Off",
@@ -3928,7 +3935,6 @@ private fun PlayerMenuContent(
                         sourceResults.forEachIndexed { index, source ->
                             PlayerMenuSelectableRow(
                                 title = sourceDisplayName(source.id, source.codec),
-                                subtitle = source.status.name.lowercase().replaceFirstChar { it.uppercase() },
                                 selected = source.id == sourceId,
                                 onClick = {
                                     onClose()
@@ -4554,7 +4560,12 @@ private fun PlayerMenuContent(
 }
 
 @Composable
-private fun PlayerMenuHeader(title: String, showBack: Boolean, onBack: () -> Unit) {
+private fun PlayerMenuHeader(
+    title: String,
+    showBack: Boolean,
+    onBack: () -> Unit,
+    rightContent: (@Composable () -> Unit)? = null,
+) {
     val theme = LocalZStreamTheme.current
     val isTv = LocalIsTv.current
     Row(
@@ -4603,6 +4614,7 @@ private fun PlayerMenuHeader(title: String, showBack: Boolean, onBack: () -> Uni
                 overflow = TextOverflow.Ellipsis
             )
         }
+        rightContent?.invoke()
     }
     Box(
         modifier = Modifier
