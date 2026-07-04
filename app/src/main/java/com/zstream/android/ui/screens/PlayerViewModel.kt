@@ -260,6 +260,10 @@ class PlayerViewModel @Inject constructor(
     val selectedSubtitleLang = _selectedSubtitleLang.asStateFlow()
     private val _selectedSubtitleId = MutableStateFlow<String?>(null)
     val selectedSubtitleId = _selectedSubtitleId.asStateFlow()
+    private val _subtitleDelay = MutableStateFlow(0f)
+    val subtitleDelay = _subtitleDelay.asStateFlow()
+    private val _overrideCasing = MutableStateFlow(false)
+    val overrideCasing = _overrideCasing.asStateFlow()
 
     private val _skipSegments = MutableStateFlow<List<SkipSegment>>(emptyList())
     val skipSegments = _skipSegments.asStateFlow()
@@ -996,6 +1000,14 @@ class PlayerViewModel @Inject constructor(
 
     fun updatePlayerSettings(settings: SettingsEntity) {
         viewModelScope.launch { settingsPrefs.updateSettings(settings) }
+    }
+
+    fun setSubtitleDelay(delay: Float) {
+        _subtitleDelay.value = delay.coerceIn(-40f, 40f)
+    }
+
+    fun setOverrideCasing(enabled: Boolean) {
+        _overrideCasing.value = enabled
     }
 
     suspend fun getAutoplayEpisodeTarget(): AutoplayEpisodeTarget? = withContext(Dispatchers.IO) {

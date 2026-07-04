@@ -1236,10 +1236,15 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                 // Custom Subtitle Overlay — using downloaded + parsed cues with timing
                 val vmCues by vm.subtitleCues.collectAsState()
                 val isBookmarked by vm.isBookmarked.collectAsState()
-                val visibleCues = remember(vmCues, currentPositionMs) {
+                val subtitleDelay by vm.subtitleDelay.collectAsState()
+                val overrideCasing by vm.overrideCasing.collectAsState()
+                val visibleCues = remember(vmCues, currentPositionMs, subtitleDelay) {
                     if (vmCues.isEmpty()) emptyList()
-                    else vmCues.filter { cue ->
-                        currentPositionMs in cue.startMs..<cue.endMs
+                    else {
+                        val adjustedTimeMs = currentPositionMs - (subtitleDelay * 1000f).toLong()
+                        vmCues.filter { cue ->
+                            adjustedTimeMs in cue.startMs..<cue.endMs
+                        }
                     }
                 }
                 val selectedLang by vm.selectedSubtitleLang.collectAsState()
@@ -1334,7 +1339,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                                         .padding(horizontal = 16.dp, vertical = 8.dp)
                                 ) {
                                     Text(
-                                        text = cue.text,
+                                        text = if (overrideCasing) cue.text.uppercase() else cue.text,
                                         color = textColor,
                                         fontSize = fontSize,
                                         fontWeight = if (settings.subtitleBold) FontWeight.Bold else FontWeight.Normal,
@@ -1389,6 +1394,10 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     onAutoSelectSubtitle = vm::autoSelectSubtitle,
                     onDisableSubtitles = vm::disableSubtitles,
                     onUpdateSettings = vm::updatePlayerSettings,
+                    onSetSubtitleDelay = vm::setSubtitleDelay,
+                    onSetOverrideCasing = vm::setOverrideCasing,
+                    subtitleDelay = subtitleDelay,
+                    overrideCasing = overrideCasing,
                     onSetEnableAutoplay = vm::setEnableAutoplay,
                     onSetVideoBrightness = vm::setVideoBrightness,
                     onSetVideoContrast = vm::setVideoContrast,
@@ -1669,6 +1678,7 @@ private fun volumeBoostToMillibels(volumeBoost: Int): Int {
     return over * 45
 }
 
+@OptIn(UnstableApi::class)
 private fun nativeResizeMode(mode: String) = when (mode.lowercase()) {
     "stretch" -> androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FILL
     "fill" -> androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM
@@ -1703,6 +1713,10 @@ private fun PlayerControls(
     onAutoSelectSubtitle: () -> Unit,
     onDisableSubtitles: () -> Unit,
     onUpdateSettings: (com.zstream.android.data.local.entity.SettingsEntity) -> Unit,
+    onSetSubtitleDelay: (Float) -> Unit,
+    onSetOverrideCasing: (Boolean) -> Unit,
+    subtitleDelay: Float,
+    overrideCasing: Boolean,
     onSetEnableAutoplay: (Boolean) -> Unit,
     onSetVideoBrightness: (Int) -> Unit,
     onSetVideoContrast: (Int) -> Unit,
@@ -2791,6 +2805,8 @@ private fun PlayerControls(
                         hasTidbKey = hasTidbKey,
                         menuScrollPositions = menuScrollPositions,
                         firstItemFocusRequester = menuFirstItemFocusRequester,
+                        subtitleDelay = subtitleDelay,
+                        overrideCasing = overrideCasing,
                         onClose = { onMenuPageChange(null) },
                         onBack = {
                             onMenuPageChange(
@@ -2811,6 +2827,7 @@ private fun PlayerControls(
                         onToggleSubtitles = onToggleSubtitles,
                         onDisableSubtitles = onDisableSubtitles,
                         onUpdateSettings = onUpdateSettings,
+                        onSetSubtitleDelay = onSetSubtitleDelay,
                         onSelectSubtitle = onSelectSubtitle,
                         onAutoSelectSubtitle = onAutoSelectSubtitle,
                         onSetEnableAutoplay = onSetEnableAutoplay,
@@ -2883,7 +2900,8 @@ private fun PlayerControls(
                         poster = poster,
                         nav = nav,
                         tvDetail = tvDetail,
-                        currentSeasonDetail = currentSeasonDetail
+                        currentSeasonDetail = currentSeasonDetail,
+                        onSetOverrideCasing = onSetOverrideCasing
                     )
                 }
             }
@@ -3396,6 +3414,8 @@ private fun PlayerMenuContent(
     skipSegments: List<SkipSegment>,
     canSubmitSkipSegments: Boolean,
     hasTidbKey: Boolean,
+    subtitleDelay: Float,
+    overrideCasing: Boolean,
     menuScrollPositions: SnapshotStateMap<PlayerMenuPage, Int>,
     firstItemFocusRequester: FocusRequester? = null,
     onClose: () -> Unit,
@@ -3405,6 +3425,8 @@ private fun PlayerMenuContent(
     onToggleSubtitles: () -> Unit,
     onDisableSubtitles: () -> Unit,
     onUpdateSettings: (com.zstream.android.data.local.entity.SettingsEntity) -> Unit,
+    onSetSubtitleDelay: (Float) -> Unit,
+    onSetOverrideCasing: (Boolean) -> Unit,
     onSelectSubtitle: (String) -> Unit,
     onAutoSelectSubtitle: () -> Unit,
     onSetEnableAutoplay: (Boolean) -> Unit,
@@ -3536,7 +3558,8 @@ private fun PlayerMenuContent(
                         firstItemFocusRequester = firstItemFocusRequester,
                         items = listOf(
                             PlayerMenuTileItem("Quality", selectedQualityLabel) { onOpenPage(PlayerMenuPage.Quality) },
-                            PlayerMenuTileItem("Source", sourceId ?: "Auto") { onOpenPage(PlayerMenuPage.Sources) },
+                            PlayerMenuTileItem("Source", sourceId?.replaceFirstChar { it.titlecase() }
+                                ?: "Auto") { onOpenPage(PlayerMenuPage.Sources) },
                             PlayerMenuTileItem("Subtitles", selectedSubtitleLanguage?.let(::subtitleLanguageName) ?: "Off") { onOpenPage(PlayerMenuPage.Captions) },
                             PlayerMenuTileItem("Audio", selectedAudioLabel) { onOpenPage(PlayerMenuPage.Audio) },
                         )
@@ -3639,6 +3662,20 @@ private fun PlayerMenuContent(
                     }
                     if (!settings.enableNativeSubtitles) {
                         PlayerMenuSection {
+                            PlayerMenuSliderRow(
+                                label = "Subtitle delay",
+                                value = subtitleDelay,
+                                valueText = { "${if (it > 0f) "+" else ""}${"%.1f".format(it)}s" },
+                                range = -40f..40f,
+                                steps = 0,
+                                onValueChange = onSetSubtitleDelay,
+                                onReset = { onSetSubtitleDelay(0f) },
+                                isDefault = subtitleDelay == 0f,
+                                tickStep = 0.1f,
+                            )
+                            PlayerMenuToggleRow("Fix capitals", overrideCasing) {
+                                onSetOverrideCasing(!overrideCasing)
+                            }
                             PlayerMenuSliderRow(
                                 label = "Background opacity",
                                 value = settings.subtitleBackgroundOpacity * 100f,
@@ -3888,32 +3925,22 @@ private fun PlayerMenuContent(
 
                 PlayerMenuPage.Sources -> {
                     PlayerMenuSection {
-                        PlayerMenuSummaryCard(
-                            title = sourceId ?: "Unknown source",
-                            value = sourceId ?: "No source",
-                            subtitle = if (manualSourceSelection) "Pick a source to retry playback through that provider." else "Enable Manual Source Selection in settings to choose providers here."
-                        )
+                        sourceResults.forEachIndexed { index, source ->
+                            PlayerMenuSelectableRow(
+                                title = sourceDisplayName(source.id, source.codec),
+                                subtitle = source.status.name.lowercase().replaceFirstChar { it.uppercase() },
+                                selected = source.id == sourceId,
+                                onClick = {
+                                    onClose()
+                                    onSelectSource(source.id)
+                                },
+                                focusRequester = if (index == 0) firstItemFocusRequester else null
+                            )
+                        }
                     }
-                    if (manualSourceSelection) {
-                        PlayerMenuSection {
-                            sourceResults.forEachIndexed { index, source ->
-                                PlayerMenuSelectableRow(
-                                    title = sourceDisplayName(source.id, source.codec),
-                                    subtitle = source.status.name.lowercase().replaceFirstChar { it.uppercase() },
-                                    selected = source.id == sourceId,
-                                    onClick = {
-                                        onClose()
-                                        onSelectSource(source.id)
-                                    },
-                                    focusRequester = if (index == 0) firstItemFocusRequester else null
-                                )
-                            }
-                        }
-                        if (sourceResults.isEmpty()) {
-                            PlayerMenuStubCard("No sources are available for manual selection yet.")
-                        }
-                    } else {
-                        PlayerMenuStubCard("Manual source selection is currently disabled in app settings.")
+
+                    if (sourceResults.isEmpty()) {
+                        PlayerMenuStubCard("No sources are available for manual selection yet.")
                     }
                 }
                 PlayerMenuPage.Variants -> {
