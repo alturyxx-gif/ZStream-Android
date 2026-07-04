@@ -84,6 +84,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.ImeAction
@@ -171,6 +172,7 @@ import com.zstream.android.ui.components.themed.ZsTextField
 import com.zstream.android.ui.navigation.rememberSafeNavigateBack
 import com.zstream.android.data.WatchPartyAction
 import coil.compose.AsyncImage
+import java.time.Instant
 
 //  Layout constants
 private val SCRUBBER_SIDE_PADDING = 36.dp      // horizontal padding on progress bar
@@ -553,6 +555,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                 Surface(
                     Modifier
                         .align(Alignment.Center)
+                        .padding(vertical = 10.dp)
                         .width(MANUAL_SOURCE_PANEL_WIDTH)
                         .heightIn(min = MANUAL_SOURCE_PANEL_HEIGHT),
                     color = theme.colors.modal.background.copy(alpha = 0.98f),
@@ -660,6 +663,9 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                 var resumeWatched by remember { mutableLongStateOf(0L) }
                 var resumeDuration by remember { mutableLongStateOf(0L) }
                 var pendingResumeMs by remember { mutableLongStateOf(-1L) }
+                var showPlaybackErrorDetails by remember { mutableStateOf(false) }
+                val playbackFailure = s.playbackFailure
+                val isPlaybackFailed = playbackFailure != null
 
                 val context = LocalContext.current
                 val player = remember {
@@ -724,7 +730,19 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                                         "This stream format isn't supported by your device"
                                     else -> error.message ?: error.errorCodeName
                                 }
-                                vm.onPlaybackError(friendlyMessage, error.errorCode, httpStatus)
+                                vm.onPlaybackError(
+                                    message = friendlyMessage,
+                                    errorCode = error.errorCode,
+                                    httpStatus = httpStatus,
+                                    details = buildPlaybackErrorDetails(
+                                        error = error,
+                                        httpStatus = httpStatus,
+                                        sourceId = s.sourceId,
+                                        title = vm.title,
+                                        mediaType = vm.mediaType,
+                                        tmdbId = vm.tmdbId,
+                                    ),
+                                )
                             }
 
                             override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
@@ -733,7 +751,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                                         val fmt = group.getTrackFormat(i)
                                         if (group.isTrackSelected(i) && fmt.sampleMimeType?.startsWith("video/") == true) Log.d(
                                             "PlaybackDebug",
-                                            "uri=${currentMediaItem?.localConfiguration?.uri} mime=${fmt.sampleMimeType} " +
+                                            "mime=${fmt.sampleMimeType} " +
                                                 "codecs=${fmt.codecs} size=${fmt.width}x${fmt.height} bitrate=${fmt.bitrate} " +
                                                 "color=${fmt.colorInfo}",
                                         )
@@ -743,6 +761,14 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                         })
                         prepare()
                         playWhenReady = true
+                    }
+                }
+
+                LaunchedEffect(isPlaybackFailed) {
+                    if (isPlaybackFailed) {
+                        player.pause()
+                    } else {
+                        showPlaybackErrorDetails = false
                     }
                 }
 
@@ -756,8 +782,8 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     val current = player.currentMediaItem?.localConfiguration?.uri?.toString()
                     if (current == s.streamUrl) return@LaunchedEffect  // already playing this URL
                     val positionMs = player.currentPosition
-                    val shouldPlay = player.playWhenReady
-                    Log.d("PlaybackDebug", "switch uri=${s.streamUrl}")
+                    val shouldPlay = player.playWhenReady && !isPlaybackFailed
+                    Log.d("PlaybackDebug", "switching stream variant/source")
                     val mediaItem = MediaItem.Builder()
                         .setUri(s.streamUrl)
                         .setMimeType(MimeTypes.APPLICATION_M3U8)
@@ -775,8 +801,18 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     if (player.currentMediaItem?.localConfiguration?.uri?.toString() == s.streamUrl &&
                         player.playbackState != Player.STATE_READY &&
                         player.playbackState != Player.STATE_ENDED &&
-                        !player.isPlaying
-                    ) vm.onPlaybackError("Playback did not start within 45 seconds")
+                        !player.isPlaying &&
+                        !isPlaybackFailed
+                    ) vm.onPlaybackError(
+                        message = "Playback did not start within 45 seconds",
+                        details = buildGenericPlaybackErrorDetails(
+                            message = "Playback did not start within 45 seconds",
+                            sourceId = s.sourceId,
+                            title = vm.title,
+                            mediaType = vm.mediaType,
+                            tmdbId = vm.tmdbId,
+                        ),
+                    )
                 }
 
                 LaunchedEffect(isClosingPip) {
@@ -1215,23 +1251,39 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                         }
                     }
 
-                    AndroidView(
-                        factory = { ctx ->
-                            PlayerView(ctx).apply {
-                                this.player = player
-                                useController = false
-                                resizeMode = nativeResizeMode(settings.videoScaleMode)
-                                layoutParams = FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT)
-                                applyNativeSubtitleStyle(subtitleView, settings, controlsVisible, isInPip)
-                                playerViewRef.value = this
-                            }
-                        },
-                        update = { view ->
-                            view.resizeMode = nativeResizeMode(settings.videoScaleMode)
-                            applyNativeSubtitleStyle(view.subtitleView, settings, controlsVisible, isInPip)
-                        },
-                        modifier = Modifier.fillMaxSize()
-                    )
+                    if (!isPlaybackFailed) {
+                        AndroidView(
+                            factory = { ctx ->
+                                PlayerView(ctx).apply {
+                                    this.player = player
+                                    useController = false
+                                    resizeMode = nativeResizeMode(settings.videoScaleMode)
+                                    layoutParams = FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT)
+                                    applyNativeSubtitleStyle(subtitleView, settings, controlsVisible, isInPip)
+                                    playerViewRef.value = this
+                                }
+                            },
+                            update = { view ->
+                                view.resizeMode = nativeResizeMode(settings.videoScaleMode)
+                                applyNativeSubtitleStyle(view.subtitleView, settings, controlsVisible, isInPip)
+                            },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else {
+                        PlaybackErrorOverlay(
+                            failure = playbackFailure,
+                            sourceId = s.sourceId,
+                            onTryNextSource = vm::retryNextSourceAfterError,
+                            onOpenSources = {
+                                controlsVisible = true
+                                onMenuPageChange(PlayerMenuPage.Sources)
+                                updateActivity()
+                            },
+                            onShowDetails = { showPlaybackErrorDetails = true },
+                            onReload = vm::reloadCurrentSource,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
 
                 // Custom Subtitle Overlay — using downloaded + parsed cues with timing
                 val vmCues by vm.subtitleCues.collectAsState()
@@ -1289,7 +1341,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     player.trackSelectionParameters = builder.build()
                 }
 
-                if ((!settings.enableNativeSubtitles || selectedTrackIsExternal) && subtitlesEnabled && selectedLang != null && visibleCues.isNotEmpty()) {
+                if (!isPlaybackFailed && (!settings.enableNativeSubtitles || selectedTrackIsExternal) && subtitlesEnabled && selectedLang != null && visibleCues.isNotEmpty()) {
                     // Move subtitles up when controls overlay is shown
                     val controlsBottom = if (isInPip) 0.dp else if (controlsVisible) 80.dp else 0.dp
                     Log.d("PlayerScreen", "rendering ${visibleCues.size} cues at ${currentPositionMs}ms, " +
@@ -1607,6 +1659,34 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                         }
                     )
                 }
+
+                if (showPlaybackErrorDetails && playbackFailure != null) {
+                    val theme = LocalZStreamTheme.current
+                    AlertDialog(
+                        onDismissRequest = { showPlaybackErrorDetails = false },
+                        containerColor = theme.colors.modal.background,
+                        title = { Text("Error details", color = theme.colors.type.emphasis) },
+                        text = {
+                            Text(
+                                text = playbackFailure.details,
+                                color = theme.colors.type.secondary,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 12.sp,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = 360.dp)
+                                    .verticalScroll(rememberScrollState())
+                            )
+                        },
+                        confirmButton = {
+                            TextButton(
+                                onClick = { showPlaybackErrorDetails = false },
+                                border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.type.emphasis.copy(alpha = 0.15f)),
+                                shape = RoundedCornerShape(8.dp)
+                            ) { Text("Close", color = theme.colors.type.secondary) }
+                        }
+                    )
+                }
             }
             }
         }
@@ -1773,6 +1853,7 @@ private fun PlayerControls(
     pauseMetadata: PauseMetadata?,
 ) {
     val menuOpen = menuPage != null
+    val playbackErrorActive = readyState.playbackFailure != null
     val theme = LocalZStreamTheme.current
     val focusManager = LocalFocusManager.current
     val scope = rememberCoroutineScope()
@@ -1932,7 +2013,9 @@ private fun PlayerControls(
     Box(modifier = Modifier
         .fillMaxSize()
         .then(
-            if (isTv) {
+            if (playbackErrorActive) {
+                Modifier
+            } else if (isTv) {
                 Modifier.clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) {
                     if (!menuOpen) {
                         onControlsVisibilityChanged(!controlsVisible)
@@ -2128,81 +2211,95 @@ private fun PlayerControls(
                     }
                 }
 
-                Row(
-                        modifier = Modifier.align(Alignment.Center),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(CENTER_ICON_SPACING)
-                    ) {
-                        if (!isTv) {
-                            IconButton(
-                                onClick = {
+                if (!playbackErrorActive) {
+                    Row(
+                            modifier = Modifier.align(Alignment.Center),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(CENTER_ICON_SPACING)
+                        ) {
+                            if (!isTv) {
+                                IconButton(onClick = {
                                     player.seekTo(
                                         (player.currentPosition - 10_000).coerceAtLeast(
                                             0
                                         )
                                     )
                                 },
-                                modifier = Modifier.size(CENTER_BUTTON_SIZE)
-                            ) {
-                                Icon(
-                                    painterResource(R.drawable.ic_player_skip_back),
-                                    null,
-                                    tint = theme.colors.type.emphasis,
-                                    modifier = Modifier
-                                        .height(CENTER_ICON_HEIGHT)
-                                        .wrapContentWidth()
-                                )
+                                    modifier = Modifier.size(CENTER_BUTTON_SIZE)
+                                ) {
+                                    Icon(
+                                        painterResource(R.drawable.ic_player_skip_back),
+                                        null,
+                                        tint = theme.colors.type.emphasis,
+                                        modifier = Modifier
+                                            .height(CENTER_ICON_HEIGHT)
+                                            .wrapContentWidth()
+                                    )
+                                }
                             }
-                        }
-                        var playBtnFocused by remember { mutableStateOf(false) }
-                        if (isTv) {
-                            ZsOutlinedWrapper(
-                                visible = playBtnFocused,
-                                shape = RoundedCornerShape(50),
-                                outlineColor = Color.White,
-                                gap = 4.dp,
-                            ) {
-                                IconButton(onClick = {
-                                    if (player.isPlaying) player.pause() else player.play()
-                                },
-                                    modifier = Modifier
-                                        .size(CENTER_BUTTON_SIZE)
-                                        .background(if (playBtnFocused) Color.White.copy(alpha = 0.2f) else Color.Transparent, CircleShape)
-                                        .focusRequester(playFocusRequester)
-                                        .focusProperties {
-                                            up = bookmarkFocusRequester;
-                                            down =
-                                                if (activeSkipSegments.isNotEmpty()) skipFocusRequester else ccFocusRequester
-                                            if (showInfoSheet || menuOpen) {
-                                                canFocus = false
-                                            }
-                                        }
-                                        .onKeyEvent { keyEvent ->
-                                            if (keyEvent.type == KeyEventType.KeyDown) {
-                                                when (keyEvent.nativeKeyEvent.keyCode) {
-                                                    android.view.KeyEvent.KEYCODE_DPAD_LEFT -> {
-                                                        player.seekTo(
-                                                            (player.currentPosition - 10_000).coerceAtLeast(
-                                                                0
-                                                            )
-                                                        )
-                                                        true
-                                                    }
-
-                                                    android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                                                        player.seekTo(
-                                                            (player.currentPosition + 10_000).coerceAtMost(
-                                                                durationMs
-                                                            )
-                                                        )
-                                                        true
-                                                    }
-
-                                                    else -> false
+                            var playBtnFocused by remember { mutableStateOf(false) }
+                            if (isTv) {
+                                ZsOutlinedWrapper(
+                                    visible = playBtnFocused,
+                                    shape = RoundedCornerShape(50),
+                                    outlineColor = Color.White,
+                                    gap = 4.dp,
+                                ) {
+                                    IconButton(onClick = {
+                                        if (player.isPlaying) player.pause() else player.play()
+                                    },
+                                        modifier = Modifier
+                                            .size(CENTER_BUTTON_SIZE)
+                                            .background(if (playBtnFocused) Color.White.copy(alpha = 0.2f) else Color.Transparent, CircleShape)
+                                            .focusRequester(playFocusRequester)
+                                            .focusProperties {
+                                                up = bookmarkFocusRequester;
+                                                down =
+                                                    if (activeSkipSegments.isNotEmpty()) skipFocusRequester else ccFocusRequester
+                                                if (showInfoSheet || menuOpen) {
+                                                    canFocus = false
                                                 }
-                                            } else false
-                                        }
-                                        .onFocusChanged { playBtnFocused = it.isFocused }
+                                            }
+                                            .onKeyEvent { keyEvent ->
+                                                if (keyEvent.type == KeyEventType.KeyDown) {
+                                                    when (keyEvent.nativeKeyEvent.keyCode) {
+                                                        android.view.KeyEvent.KEYCODE_DPAD_LEFT -> {
+                                                            player.seekTo(
+                                                                (player.currentPosition - 10_000).coerceAtLeast(
+                                                                    0
+                                                                )
+                                                            )
+                                                            true
+                                                        }
+
+                                                        android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                                                            player.seekTo(
+                                                                (player.currentPosition + 10_000).coerceAtMost(
+                                                                    durationMs
+                                                                )
+                                                            )
+                                                            true
+                                                        }
+
+                                                        else -> false
+                                                    }
+                                                } else false
+                                            }
+                                            .onFocusChanged { playBtnFocused = it.isFocused }
+                                    ) {
+                                        Icon(
+                                            painterResource(if (isPlaying) R.drawable.ic_player_pause else R.drawable.ic_player_play),
+                                            null, tint = theme.colors.type.emphasis,
+                                            modifier = Modifier
+                                                .height(CENTER_ICON_HEIGHT)
+                                                .wrapContentWidth()
+                                        )
+                                    }
+                                }
+                            } else {
+                                IconButton(
+                                    onClick = { if (player.isPlaying) player.pause() else player.play() },
+                                    modifier = Modifier.size(CENTER_BUTTON_SIZE)
                                 ) {
                                     Icon(
                                         painterResource(if (isPlaying) R.drawable.ic_player_pause else R.drawable.ic_player_play),
@@ -2213,42 +2310,29 @@ private fun PlayerControls(
                                     )
                                 }
                             }
-                        } else {
-                            IconButton(
-                                onClick = { if (player.isPlaying) player.pause() else player.play() },
-                                modifier = Modifier.size(CENTER_BUTTON_SIZE)
-                            ) {
-                                Icon(
-                                    painterResource(if (isPlaying) R.drawable.ic_player_pause else R.drawable.ic_player_play),
-                                    null, tint = theme.colors.type.emphasis,
-                                    modifier = Modifier
-                                        .height(CENTER_ICON_HEIGHT)
-                                        .wrapContentWidth()
-                                )
-                            }
-                        }
-                        if (!isTv) {
-                            IconButton(
-                                onClick = {
-                                    player.seekTo(
-                                        (player.currentPosition + 10_000).coerceAtMost(
-                                            durationMs
+                            if (!isTv) {
+                                IconButton(
+                                    onClick = {
+                                        player.seekTo(
+                                            (player.currentPosition + 10_000).coerceAtMost(
+                                                durationMs
+                                            )
                                         )
+                                    },
+                                    modifier = Modifier.size(CENTER_BUTTON_SIZE)
+                                ) {
+                                    Icon(
+                                        painterResource(R.drawable.ic_player_skip_fwd),
+                                        null,
+                                        tint = theme.colors.type.emphasis,
+                                        modifier = Modifier
+                                            .height(CENTER_ICON_HEIGHT)
+                                            .wrapContentWidth()
                                     )
-                                },
-                                modifier = Modifier.size(CENTER_BUTTON_SIZE)
-                            ) {
-                                Icon(
-                                    painterResource(R.drawable.ic_player_skip_fwd),
-                                    null,
-                                    tint = theme.colors.type.emphasis,
-                                    modifier = Modifier
-                                        .height(CENTER_ICON_HEIGHT)
-                                        .wrapContentWidth()
-                                )
+                                }
                             }
                         }
-                    }
+                }
 
                 SkipSegmentOverlay(
                     theme = theme,
@@ -5373,6 +5457,183 @@ private fun PlayerMenuHintText(text: String) {
         modifier = Modifier.padding(top = 18.dp)
     )
 }
+
+@Composable
+private fun PlaybackErrorOverlay(
+    failure: PlaybackFailure?,
+    sourceId: String?,
+    onTryNextSource: () -> Unit,
+    onOpenSources: () -> Unit,
+    onShowDetails: () -> Unit,
+    onReload: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val theme = LocalZStreamTheme.current
+    Box(
+        modifier = modifier
+            .clickable(
+                indication = null,
+                interactionSource = remember { MutableInteractionSource() },
+                onClick = {}
+            )
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        theme.colors.background.main,
+                        theme.colors.background.main.copy(alpha = 0.92f),
+                        theme.colors.background.secondary.copy(alpha = 0.96f),
+                    )
+                )
+            )
+            .padding(start = 24.dp, top = 52.dp, end = 24.dp, bottom = 62.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Surface(
+            color = theme.colors.modal.background.copy(alpha = 0.98f),
+            shape = RoundedCornerShape(24.dp),
+            border = BorderStroke(1.dp, theme.colors.type.emphasis.copy(alpha = 0.12f)),
+            modifier = Modifier
+                .widthIn(max = 560.dp)
+                .clickable(
+                    indication = null,
+                    interactionSource = remember { MutableInteractionSource() },
+                    onClick = {}
+                )
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = "Source error",
+                    color = theme.colors.type.emphasis,
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                )
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    text = failure?.message ?: "Playback failed.",
+                    color = theme.colors.type.secondary,
+                    fontSize = 14.sp,
+                    textAlign = TextAlign.Center,
+                )
+                sourceId?.let {
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        text = "Current source: ${sourceDisplayName(it)}",
+                        color = playerMenuMutedText(),
+                        fontSize = 12.sp,
+                    )
+                }
+                Spacer(Modifier.height(20.dp))
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Button(
+                        onClick = onTryNextSource,
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("Try next source")
+                    }
+                    OutlinedButton(
+                        onClick = onOpenSources,
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("Sources")
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    OutlinedButton(
+                        onClick = onShowDetails,
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("Show error details")
+                    }
+                    OutlinedButton(
+                        onClick = onReload,
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("Reload source")
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+            }
+        }
+    }
+}
+
+private fun buildPlaybackErrorDetails(
+    error: PlaybackException,
+    httpStatus: Int,
+    sourceId: String?,
+    title: String,
+    mediaType: String,
+    tmdbId: String,
+): String {
+    val stack = buildString {
+        appendLine("${error::class.java.simpleName}: ${error.message ?: error.errorCodeName}")
+        error.stackTrace.forEach { appendLine("    at $it") }
+        generateSequence(error.cause) { it.cause }.forEach { cause ->
+            appendLine()
+            appendLine("Caused by: ${cause::class.java.name}: ${cause.message.orEmpty()}")
+            cause.stackTrace.forEach { appendLine("    at $it") }
+        }
+    }.trim()
+    return buildGenericPlaybackErrorDetails(
+        message = error.message ?: error.errorCodeName,
+        sourceId = sourceId,
+        title = title,
+        mediaType = mediaType,
+        tmdbId = tmdbId,
+        extra = buildString {
+            appendLine("Error Code: ${error.errorCodeName} (${error.errorCode})")
+            if (httpStatus > 0) appendLine("HTTP Status: $httpStatus")
+            appendLine()
+            appendLine("Stack Trace:")
+            appendLine(stack)
+        }.trim(),
+    )
+}
+
+private fun buildGenericPlaybackErrorDetails(
+    message: String,
+    sourceId: String?,
+    title: String,
+    mediaType: String,
+    tmdbId: String,
+    extra: String? = null,
+): String = buildString {
+    val stack = Throwable(message).stackTraceToString().trim()
+    appendLine("=== ERROR DEBUG INFO ===")
+    appendLine("Timestamp: ${Instant.now()}")
+    appendLine()
+    appendLine("=== ERROR DETAILS ===")
+    appendLine("Message: $message")
+    appendLine()
+    appendLine("=== PLAYER STATE ===")
+    appendLine("Source ID: ${sourceId ?: "unknown"}")
+    appendLine("Media: $title ($mediaType)")
+    appendLine("TMDB ID: $tmdbId")
+    appendLine()
+    appendLine("Stack Trace:")
+    appendLine(stack)
+    if (!extra.isNullOrBlank()) {
+        appendLine()
+        appendLine(extra)
+    }
+}.trim()
 
 @Composable
 private fun PlayerInfoSheet(
