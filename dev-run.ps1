@@ -1,6 +1,6 @@
 # dev-run.ps1 - builds the plugin and pushes it to all connected devices/emulators
 # Run this before launching the app from Android Studio.
-$ErrorActionPreference = "Stop"
+# Note: UI symbols (✓, ✗, ▶, →) removed to avoid encoding issues on Windows.
 
 $PluginDir = Join-Path $PSScriptRoot "zstream-plugin"
 $PluginApk = Join-Path $PluginDir "plugin\build\outputs\apk\debug\plugin-debug.apk"
@@ -39,7 +39,7 @@ if (-not (Test-Path $LocalProps) -or -not (Select-String -Path $LocalProps -Patt
     Write-Host "  Created $LocalProps (sdk.dir=$SdkDirFwd)"
 }
 
-Write-Host ">> Building plugin..."
+Write-Host "Building plugin..."
 Push-Location $PluginDir
 & .\gradlew.bat assembleDebug -q
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -53,11 +53,19 @@ if (-not $Devices) {
 }
 
 $Count = @($Devices).Count
-Write-Host ">> Pushing plugin APK to $Count device(s)..."
+Write-Host "Pushing plugin APK to $Count device(s)..."
+$SuccessCount = 0
 foreach ($Serial in $Devices) {
     Write-Host "  -> $Serial"
-    adb -s $Serial push $PluginApk $Dest
-    if ($LASTEXITCODE -ne 0) { Write-Warning "Failed to push to $Serial" }
+    $Output = adb -s $Serial push $PluginApk $Dest 2>&1
+    if ($LASTEXITCODE -eq 0) {
+        $SuccessCount++
+    }
 }
 
-Write-Host "Done. Launch the app and tap 'Dev: Sideload plugin'."
+if ($SuccessCount -eq 0) {
+    Write-Host "No devices received the APK."
+    exit 1
+}
+
+Write-Host "Done. Pushed to $SuccessCount device(s). Launch the app and tap 'Dev: Sideload plugin'."
