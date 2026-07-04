@@ -4666,6 +4666,11 @@ private fun TvHomeScreenContent(
             }
         }
 
+        val tvLogoAlpha by animateFloatAsState(
+            targetValue = if (listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset < 80) 1f else 0f,
+            animationSpec = tween(durationMillis = 220),
+            label = "tvLogoAlpha",
+        )
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -4693,6 +4698,7 @@ private fun TvHomeScreenContent(
                 onMenu = onShowMenu,
                 onSearch = { nav.navigate("search") },
                 sandwichFocusRequester = sandwichFocusRequester,
+                logoAlpha = tvLogoAlpha,
             )
         }
         }
@@ -4827,6 +4833,7 @@ private fun TvTopBar(
     onMenu: () -> Unit,
     onSearch: () -> Unit,
     sandwichFocusRequester: FocusRequester,
+    logoAlpha: Float = 1f,
 ) {
     val theme = LocalZStreamTheme.current
     val hazeStyle = rememberTopNavHazeStyle()
@@ -4842,6 +4849,7 @@ private fun TvTopBar(
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(
                 modifier = Modifier
+                    .graphicsLayer { alpha = logoAlpha }
                     .clip(RoundedCornerShape(50))
                     .hazeEffect(hazeState, hazeStyle)
                     .background(theme.colors.background.secondary.copy(alpha = 0.48f))
