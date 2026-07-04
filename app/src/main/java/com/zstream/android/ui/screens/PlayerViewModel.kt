@@ -66,8 +66,7 @@ sealed class PlayerState {
     data class Scraping(val sources: List<SourceResult>) : PlayerState()
     data class ManualSourceSelection(
         val sources: List<SourceResult>,
-        val selectedSourceId: String? = null,
-        val candidate: Ready? = null,
+        val candidates: Map<String, Ready> = emptyMap(),
         val message: String? = null,
     ) : PlayerState()
     data class Ready(
@@ -710,24 +709,29 @@ class PlayerViewModel @Inject constructor(
         }
         sources.clear()
         sources.addAll(updated)
-        _state.value = PlayerState.ManualSourceSelection(updated, selectedSourceId = sourceId, candidate = null, message = null)
+        val current = _state.value as? PlayerState.ManualSourceSelection
+        _state.value = PlayerState.ManualSourceSelection(
+            updated,
+            candidates = current?.candidates.orEmpty() - sourceId,
+        )
 
         viewModelScope.launch {
             runCatching {
                 val media = buildPluginMediaRequest()
                 when (val result = pluginManager.resolve(media, sourceId)) {
                     is StreamResult.NotFound -> {
-                        val failed = updated.map { if (it.id == sourceId) it.copy(status = SourceStatus.FAILED) else it }
+                        val state = _state.value as? PlayerState.ManualSourceSelection ?: return@launch
+                        val failed = state.sources.map { if (it.id == sourceId) it.copy(status = SourceStatus.FAILED) else it }
                         sources.clear(); sources.addAll(failed)
-                        _state.value = PlayerState.ManualSourceSelection(failed, selectedSourceId = sourceId, candidate = null, message = "Not available")
+                        _state.value = state.copy(sources = failed, candidates = state.candidates - sourceId, message = "Not available")
                     }
                     is StreamResult.Error -> {
-                        val failed = updated.map { if (it.id == sourceId) it.copy(status = SourceStatus.FAILED) else it }
+                        val state = _state.value as? PlayerState.ManualSourceSelection ?: return@launch
+                        val failed = state.sources.map { if (it.id == sourceId) it.copy(status = SourceStatus.FAILED) else it }
                         sources.clear(); sources.addAll(failed)
-                        _state.value = PlayerState.ManualSourceSelection(failed, selectedSourceId = sourceId, candidate = null, message = result.message)
+                        _state.value = state.copy(sources = failed, candidates = state.candidates - sourceId, message = result.message)
                     }
                     is StreamResult.Success -> {
-                        val success = updated.map { if (it.id == sourceId) it.copy(status = SourceStatus.SUCCESS, codec = result.codec) else it }
                         val subtitles = result.captions.map { it.toSubtitleTrack() }.toMutableList()
                         fetchExternalSubtitles(subtitles)
                         val variants = result.variants.map { v ->
@@ -735,6 +739,8 @@ class PlayerViewModel @Inject constructor(
                         }
                         val initialUrl = preferredInitialVariantUrl(sourceId, result.streamUrl, variants)
                         logVariantSelection(result.streamUrl, initialUrl, variants)
+                        val state = _state.value as? PlayerState.ManualSourceSelection ?: return@launch
+                        val success = state.sources.map { if (it.id == sourceId) it.copy(status = SourceStatus.SUCCESS, codec = result.codec) else it }
                         val candidate = PlayerState.Ready(
                             streamUrl = initialUrl,
                             headers   = result.headers,
@@ -744,13 +750,14 @@ class PlayerViewModel @Inject constructor(
                             variants  = variants,
                         )
                         sources.clear(); sources.addAll(success)
-                        _state.value = PlayerState.ManualSourceSelection(success, selectedSourceId = sourceId, candidate = candidate, message = null)
+                        _state.value = state.copy(sources = success, candidates = state.candidates + (sourceId to candidate), message = null)
                     }
                 }
             }.onFailure {
-                val failed = updated.map { if (it.id == sourceId) it.copy(status = SourceStatus.FAILED) else it }
+                val state = _state.value as? PlayerState.ManualSourceSelection ?: return@onFailure
+                val failed = state.sources.map { if (it.id == sourceId) it.copy(status = SourceStatus.FAILED) else it }
                 sources.clear(); sources.addAll(failed)
-                _state.value = PlayerState.ManualSourceSelection(failed, selectedSourceId = sourceId, candidate = null, message = it.message ?: "Failed to probe source")
+                _state.value = state.copy(sources = failed, candidates = state.candidates - sourceId, message = it.message ?: "Failed to probe source")
             }
         }
     }
@@ -887,10 +894,10 @@ class PlayerViewModel @Inject constructor(
         _state.value = current.copy(subtitles = (current.subtitles.filterNot { it.external } + external).distinctBy { it.id })
     }
 
-    fun confirmManualSourceSelection() {
+    fun confirmManualSourceSelection(sourceId: String) {
         val current = _state.value as? PlayerState.ManualSourceSelection ?: return
-        val candidate = current.candidate ?: return
-        _state.value = candidate
+        val candidate = current.candidates[sourceId] ?: return
+        _state.value = candidate.copy(sources = current.sources)
         if (settings.value.subtitlesEnabled && candidate.subtitles.isNotEmpty()) {
             downloadAndParseSubtitles(candidate.subtitles)
         }
