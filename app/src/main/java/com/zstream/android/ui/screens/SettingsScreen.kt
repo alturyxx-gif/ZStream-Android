@@ -2853,7 +2853,7 @@ private fun ConnectionsSection(
                         )
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            "Your token is never stored on our servers — it is sent directly from your browser to Febbox.",
+                            "Your token is never stored on our servers — it is sent directly from your device to Febbox.",
                             color = theme.colors.type.dimmed, fontSize = 10.sp, lineHeight = 14.sp,
                         )
                     }
@@ -3318,7 +3318,7 @@ private fun ConnectionsSection(
                         )
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            "Your token is never stored on our servers — it is sent directly from your browser to Febbox.",
+                            "Your token is never stored on our servers — it is sent directly from your device to Febbox.",
                             color = theme.colors.type.dimmed, fontSize = 10.sp, lineHeight = 14.sp,
                         )
                     }

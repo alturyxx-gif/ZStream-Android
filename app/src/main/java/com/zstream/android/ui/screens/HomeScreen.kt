@@ -75,8 +75,10 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInParent
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
@@ -149,6 +151,15 @@ private object TvHomeMetrics {
     val menuWidth = 320.dp
     val railItemSpacing = 12.dp
     val railVerticalSpacing = 8.dp
+}
+
+private object PhoneHomeMetrics {
+    // Starts the sticky search handoff this many pixels before the in-flow search bar reaches the sticky header.
+    val heroSearchStickOffset = 0.dp
+
+    // Releases the sticky search handoff this many pixels before the in-flow search bar fully lines back up underneath the header.
+    // Increase this if the sticky search bar hangs around too long while scrolling back up.
+    val heroSearchReleaseOffset = 48.dp // DO NOT CHANGE FROM 48.dp
 }
 
 private fun normalizeGroupName(group: String): String {
@@ -885,20 +896,38 @@ fun HomeScreen(
                 }
                 val isSearching = isSearchFocused || state.searchQuery.isNotBlank()
                 val isFeaturedActive = state.enableFeatured && state.featuredMedia.isNotEmpty()
-                val shouldHeaderBeSticky = isSearching && isFeaturedActive
+                val shouldHeaderBeSticky = true
+                var stickyHeaderBottomPx by remember { mutableStateOf(0f) }
+                var heroSearchBarTopPx by remember { mutableStateOf(Float.MAX_VALUE) }
+                val density = LocalDensity.current
+                val heroSearchStickOffsetPx = remember(density) {
+                    with(density) { PhoneHomeMetrics.heroSearchStickOffset.toPx() }
+                }
+                val heroSearchReleaseOffsetPx = remember(density) {
+                    with(density) { PhoneHomeMetrics.heroSearchReleaseOffset.toPx() }
+                }
+                var shouldStickHeroSearchBar by remember { mutableStateOf(false) }
+                LaunchedEffect(
+                    isFeaturedActive,
+                    heroSearchBarTopPx,
+                    stickyHeaderBottomPx,
+                    heroSearchStickOffsetPx,
+                    heroSearchReleaseOffsetPx,
+                ) {
+                    shouldStickHeroSearchBar =
+                        if (isFeaturedActive) {
+                            false
+                        } else if (shouldStickHeroSearchBar) {
+                            heroSearchBarTopPx <= stickyHeaderBottomPx - heroSearchReleaseOffsetPx
+                        } else {
+                            heroSearchBarTopPx <= stickyHeaderBottomPx - heroSearchStickOffsetPx
+                        }
+                    }
 
                 val displayedSearchResults = if (state.searchQuery.isNotBlank()) searchResults else emptyList()
 
                 val bookmarksList = state.bookmarks.flatMap { it.items }
                 val progressList = state.continueWatching.flatMap { it.items }
-
-                val density = LocalDensity.current
-
-                val scrollOffset by remember { derivedStateOf {
-                    if (listState.firstVisibleItemIndex == 0) listState.firstVisibleItemScrollOffset else 2000
-                } }
-
-                val headerTranslation = if (shouldHeaderBeSticky) 0f else -scrollOffset.toFloat()
 
                 val stickyHeaderHazeStyle = remember(theme.colors.background.main) {
                     HazeStyle(
@@ -968,7 +997,18 @@ fun HomeScreen(
                         }
 
                         if (!state.enableFeatured || state.featuredMedia.isEmpty()) {
-                            item { HeroSection(state.searchQuery, vm::onSearchChange, nav, placeholder) }
+                            item {
+                                HeroSection(
+                                    searchQuery = state.searchQuery,
+                                    onSearch = vm::onSearchChange,
+                                    nav = nav,
+                                    placeholder = placeholder,
+                                    searchBarModifier = Modifier.onGloballyPositioned {
+                                        heroSearchBarTopPx = it.positionInRoot().y
+                                    },
+                                    hideSearchBar = shouldStickHeroSearchBar,
+                                )
+                            }
                             item { GenrePills(state.selectedGenreId, vm::setGenre) }
                             item { Spacer(Modifier.height(16.dp)) }
                         }
@@ -1174,10 +1214,9 @@ fun HomeScreen(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .graphicsLayer { translationY = headerTranslation }
                     ) {
                         // Blurred background layer (frosted glass)
-                        if (shouldHeaderBeSticky) {
+                        if (isSearching && shouldHeaderBeSticky) {
                             Box(
                                 modifier = Modifier
                                     .matchParentSize()
@@ -1196,6 +1235,9 @@ fun HomeScreen(
                                 .fillMaxWidth()
                                 .statusBarsPadding()
                                 .padding(bottom = 28.dp)
+                                .onGloballyPositioned {
+                                    stickyHeaderBottomPx = it.boundsInRoot().bottom
+                                }
                         ) {
                             TopNavBar(
                                 hazeState = hazeState,
@@ -1219,6 +1261,14 @@ fun HomeScreen(
                                     focusRequester = focusRequester,
                                     placeholder = placeholder,
                                     modifier = Modifier.padding(horizontal = 16.dp)
+                                )
+                            } else if (shouldStickHeroSearchBar) {
+                                HomeSearchBarRow(
+                                    searchQuery = state.searchQuery,
+                                    onSearch = vm::onSearchChange,
+                                    placeholder = placeholder,
+                                    focusRequester = focusRequester,
+                                    modifier = Modifier.padding(horizontal = 16.dp),
                                 )
                             }
                         }
@@ -1538,20 +1588,13 @@ private fun HeroSection(
     nav: NavController,
     placeholder: String,
     focusRequester: FocusRequester? = null,
+    searchBarModifier: Modifier = Modifier,
+    hideSearchBar: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val theme = LocalZStreamTheme.current
     var focusedMenu by remember { mutableStateOf(false) }
     val focusMenuWidth by animateDpAsState(if (focusedMenu) 3.dp else 0.dp)
-    // Animated gradient offset for discover button border
-    val infiniteTransition = rememberInfiniteTransition(label = "rainbow")
-    val gradientOffset by infiniteTransition.animateFloat(
-        initialValue = 0f, targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(3000, easing = LinearEasing)),
-        label = "rainbowOffset",
-    )
-
-    val isTv = LocalIsTv.current
 
     Column(
         modifier = modifier
@@ -1566,91 +1609,106 @@ private fun HeroSection(
             modifier = Modifier.padding(bottom = 20.dp, top = 4.dp),
         )
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = searchBarModifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            // Search field — no border, background only, cursor visible
-            var isSearchFocused by remember { mutableStateOf(false) }
-            val textFieldFocusRequester = remember { FocusRequester() }
-
-            ZsOutlinedWrapper(
-                visible = isSearchFocused && isTv,
-                shape = RoundedCornerShape(48.dp),
-                outlineColor = theme.colors.global.accentA.copy(alpha = 0.6f),
-                gap = 2.dp,
-                modifier = Modifier.weight(1f)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp)
-                        .clip(RoundedCornerShape(48.dp))
-                        .background(theme.colors.search.background)
-                        .border(
-                            1.dp,
-                            theme.colors.type.divider.copy(alpha = 0.3f),
-                            RoundedCornerShape(48.dp)
-                        )
-                        .onFocusChanged { isSearchFocused = it.isFocused }
-                        .then(
-                            if (isTv) {
-                                Modifier
-                                    .then(
-                                        if (focusRequester != null) Modifier.focusRequester(
-                                            focusRequester
-                                        ) else Modifier
-                                    )
-                                    .clickable { textFieldFocusRequester.requestFocus() }
-                            } else Modifier
-                        ),
-                    contentAlignment = Alignment.CenterStart,
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(horizontal = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        Icon(Icons.Default.Search, null, tint = theme.colors.search.icon, modifier = Modifier.size(18.dp))
-                        Box(modifier = Modifier.weight(1f)) {
-                            if (searchQuery.isEmpty()) {
-                                Text(placeholder, color = theme.colors.search.placeholder, fontSize = 13.sp)
-                            }
-                            BasicTextField(
-                                value = searchQuery,
-                                onValueChange = onSearch,
-                                singleLine = true,
-                                textStyle = TextStyle(color = theme.colors.search.text, fontSize = 13.sp),
-                                cursorBrush = SolidColor(theme.colors.global.accentA),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .focusRequester(textFieldFocusRequester)
-                                    .then(
-                                        if (!isTv && focusRequester != null) Modifier.focusRequester(
-                                            focusRequester
-                                        ) else Modifier
-                                    ),
-                            )
-                        }
-                        if (!isTv && searchQuery.isNotEmpty()) {
-                            ZsIconButton(
-                                onClick = { onSearch("") },
-                                icon = Icons.Default.Close,
-                                contentDescription = "Clear search",
-                                variant = ZsIconButtonVariant.Ghost,
-                                containerSize = 28.dp,
-                                iconSize = 16.dp,
-                            )
-                        }
-                    }
-                }
-            }
-
+            HomeSearchBarRow(
+                searchQuery = searchQuery,
+                onSearch = onSearch,
+                placeholder = placeholder,
+                focusRequester = focusRequester,
+                modifier = Modifier
+                    .weight(1f)
+                    .graphicsLayer { alpha = if (hideSearchBar) 0f else 1f },
+            )
         }
 
         Spacer(Modifier.height(16.dp))
+    }
+}
+
+@Composable
+private fun HomeSearchBarRow(
+    searchQuery: String,
+    onSearch: (String) -> Unit,
+    placeholder: String,
+    focusRequester: FocusRequester? = null,
+    modifier: Modifier = Modifier,
+) {
+    val theme = LocalZStreamTheme.current
+    val isTv = LocalIsTv.current
+    var isSearchFocused by remember { mutableStateOf(false) }
+    val textFieldFocusRequester = remember { FocusRequester() }
+
+    ZsOutlinedWrapper(
+        visible = isSearchFocused && isTv,
+        shape = RoundedCornerShape(48.dp),
+        outlineColor = theme.colors.global.accentA.copy(alpha = 0.6f),
+        gap = 2.dp,
+        modifier = modifier
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp)
+                .clip(RoundedCornerShape(48.dp))
+                .background(theme.colors.search.background)
+                .border(
+                    1.dp,
+                    theme.colors.type.divider.copy(alpha = 0.3f),
+                    RoundedCornerShape(48.dp)
+                )
+                .onFocusChanged { isSearchFocused = it.isFocused }
+                .then(
+                    if (isTv) {
+                        Modifier
+                            .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
+                            .clickable { textFieldFocusRequester.requestFocus() }
+                    } else {
+                        Modifier
+                    }
+                ),
+            contentAlignment = Alignment.CenterStart,
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Icon(Icons.Default.Search, null, tint = theme.colors.search.icon, modifier = Modifier.size(18.dp))
+                Box(modifier = Modifier.weight(1f)) {
+                    if (searchQuery.isEmpty()) {
+                        Text(placeholder, color = theme.colors.search.placeholder, fontSize = 13.sp)
+                    }
+                    BasicTextField(
+                        value = searchQuery,
+                        onValueChange = onSearch,
+                        singleLine = true,
+                        textStyle = TextStyle(color = theme.colors.search.text, fontSize = 13.sp),
+                        cursorBrush = SolidColor(theme.colors.global.accentA),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .focusRequester(textFieldFocusRequester)
+                            .then(
+                                if (!isTv && focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier
+                            ),
+                    )
+                }
+                if (!isTv && searchQuery.isNotEmpty()) {
+                    ZsIconButton(
+                        onClick = { onSearch("") },
+                        icon = Icons.Default.Close,
+                        contentDescription = "Clear search",
+                        variant = ZsIconButtonVariant.Ghost,
+                        containerSize = 28.dp,
+                        iconSize = 16.dp,
+                    )
+                }
+            }
+        }
     }
 }
 
