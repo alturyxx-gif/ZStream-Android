@@ -657,7 +657,7 @@ class PlayerViewModel @OptIn(UnstableApi::class)
                     when (result) {
                         is StreamResult.Success -> {
                             // For HLS streams, probe one segment to confirm the CDN URL is live.
-                            if (result.streamType == "hls") {
+                            if (result.streamType == "hls" && !result.skipProbe) {
                                 val probeOk = probeHlsSegment(result.streamUrl, result.headers)
                                 if (!probeOk) {
                                     val failed = sources.map {
@@ -1039,7 +1039,7 @@ class PlayerViewModel @OptIn(UnstableApi::class)
             is StreamResult.Error -> error(result.message.ifBlank { "Failed to probe source" })
             is StreamResult.Success -> {
                 // Probe HLS segment before accepting as valid.
-                if (result.streamType == "hls") {
+                if (result.streamType == "hls" && !result.skipProbe) {
                     val probeOk = probeHlsSegment(result.streamUrl, result.headers)
                     if (!probeOk) {
                         error("Source stream is not reachable")
