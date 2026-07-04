@@ -154,11 +154,17 @@ private object TvHomeMetrics {
 }
 
 private object PhoneHomeMetrics {
-    // Starts the sticky search handoff this many pixels before the in-flow search bar reaches the sticky header.
+    // Downward scroll threshold.
+    // When the in-flow search bar's top reaches the sticky header's bottom minus this value,
+    // the floating/sticky search bar takes over and follows the screen.
+    // Increase this to make the sticky search start earlier. Decrease it to start later.
     val heroSearchStickOffset = 0.dp
 
-    // Releases the sticky search handoff this many pixels before the in-flow search bar fully lines back up underneath the header.
-    // Increase this if the sticky search bar hangs around too long while scrolling back up.
+    // Upward scroll release threshold.
+    // When scrolling back up, once the in-flow search bar gets back to the sticky header's bottom
+    // minus this value, the floating/sticky search bar releases and the in-flow search bar stays
+    // in its original layout position again.
+    // Increase this to make it snap back sooner. Decrease it to make it hang around longer.
     val heroSearchReleaseOffset = 48.dp // DO NOT CHANGE FROM 48.dp
 }
 
