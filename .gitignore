@@ -34,3 +34,5 @@ p-stream/
 providers-bundle/
 pstream-extension/
 xp-turnstile/
+
+*.md
