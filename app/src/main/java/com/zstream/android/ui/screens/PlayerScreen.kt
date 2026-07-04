@@ -1408,7 +1408,8 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     onSetVideoScaleMode = { mode ->
                         vm.setVideoScaleMode(mode)
                     },
-                    onSelectSource = vm::selectSource,
+                    onSelectSource = vm::probeSourceWhileReady,
+                    onUseSource = vm::applyProbedSource,
                     onSwitchVariant = vm::switchVariant,
                     skipSegments = skipSegments,
                     canSubmitSkipSegments = LocalConfiguration.current.smallestScreenWidthDp < 600,
@@ -1726,6 +1727,7 @@ private fun PlayerControls(
     onSetVolumeBoost: (Int) -> Unit,
     onSetVideoScaleMode: (String) -> Unit,
     onSelectSource: (String) -> Unit,
+    onUseSource: (String) -> Unit,
     onSwitchVariant: (StreamVariant) -> Unit,
     skipSegments: List<SkipSegment>,
     canSubmitSkipSegments: Boolean,
@@ -2864,6 +2866,7 @@ private fun PlayerControls(
                                 .build()
                         },
                         onSelectSource = onSelectSource,
+                        onUseSource = onUseSource,
                         onSwitchVariant = onSwitchVariant,
                         onOpenSkipSubmission = {
                             skipSubmissionSeed = it ?: (skipSegments.firstOrNull() ?: SkipSegment("intro", null, null))
@@ -3442,6 +3445,7 @@ private fun PlayerMenuContent(
     onSelectAutoQuality: () -> Unit,
     onSelectAudio: (AudioOption) -> Unit,
     onSelectSource: (String) -> Unit,
+    onUseSource: (String) -> Unit,
     onSwitchVariant: (StreamVariant) -> Unit,
     onOpenSkipSubmission: (SkipSegment?) -> Unit,
     onSeekToMs: (Long) -> Unit,
@@ -3936,11 +3940,16 @@ private fun PlayerMenuContent(
                             PlayerMenuSelectableRow(
                                 title = sourceDisplayName(source.id, source.codec),
                                 selected = source.id == sourceId,
-                                onClick = {
-                                    onClose()
-                                    onSelectSource(source.id)
+                                onClick = { onSelectSource(source.id) },
+                                rightContent = {
+                                    if (source.id != sourceId) {
+                                        ManualSourceStatusContent(
+                                            source = source,
+                                            onUse = { onUseSource(source.id) }
+                                        )
+                                    }
                                 },
-                                focusRequester = if (index == 0) firstItemFocusRequester else null
+                                focusRequester = if (index == 0) firstItemFocusRequester else null,
                             )
                         }
                     }
