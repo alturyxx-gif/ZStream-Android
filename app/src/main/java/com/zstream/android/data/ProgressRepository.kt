@@ -361,6 +361,13 @@ class ProgressRepository @Inject constructor(
                 progressDao.insertAll(entities)
                 Log.d(TAG, "Successfully synced ${entities.size} progress entries from remote")
             }
+
+            // Delete local entries the remote no longer has (deleted on another device/web)
+            val remoteIds = entities.map { it.id }.toSet()
+            val localIds = progressDao.getAllSync().map { it.id }.toSet()
+            val stale = localIds - remoteIds
+            for (id in stale) progressDao.deleteById(id)
+            if (stale.isNotEmpty()) Log.d(TAG, "Removed ${stale.size} stale progress entries")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to sync progress from remote", e)
         }
