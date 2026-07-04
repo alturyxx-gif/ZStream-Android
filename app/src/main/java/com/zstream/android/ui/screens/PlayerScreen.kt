@@ -173,6 +173,7 @@ import com.zstream.android.ui.navigation.rememberSafeNavigateBack
 import com.zstream.android.data.WatchPartyAction
 import coil.compose.AsyncImage
 import java.time.Instant
+import java.util.Date
 
 //  Layout constants
 private val SCRUBBER_SIDE_PADDING = 36.dp      // horizontal padding on progress bar
@@ -5617,7 +5618,13 @@ private fun buildGenericPlaybackErrorDetails(
 ): String = buildString {
     val stack = Throwable(message).stackTraceToString().trim()
     appendLine("=== ERROR DEBUG INFO ===")
-    appendLine("Timestamp: ${Instant.now()}")
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        appendLine("Timestamp: ${Instant.now()}")
+    }
+    else {
+        appendLine("Timestamp: ${Date(System.currentTimeMillis()).toString()}")
+    }
+
     appendLine()
     appendLine("=== ERROR DETAILS ===")
     appendLine("Message: $message")
