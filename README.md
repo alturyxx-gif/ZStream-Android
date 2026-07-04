@@ -1,99 +1,77 @@
 # ZStream Android
 
-Unofficial Android client for ZStream. Built with Jetpack Compose, Hilt, Media3, and Coil.
+Official Android client for ZStream.
 
-## Prerequisites
+## Installation
 
-- **Android Studio** (Ladybug or newer)
-- **JDK 17** (bundled with Android Studio or via SDK Manager)
-- An active internet connection (streaming sources require network access)
+## Important Note: Plugin Required
 
-## Setup 
+This app plays streams from various sources. To work properly, it may require a **plugin APK** to access certain streaming services.
 
-* Download the release APK from the releases.
-* If you want to use your own TMDB API Key, you can either build with it hardcoded or set it in runtime in the settings under connections.
+- If you built from source, the plugin is included
+- If you downloaded the APK, check the [Releases](https://github.com/alturyxx-gif/ZStream-Android/releases) page for the plugin
+- Place the plugin APK in the device's app directory or follow instructions in your release notes
 
-## Building
+**Without the plugin, the app can still access some streams but with limited sources.**
 
-### 1. Clone the repo
+### Then download the latest release
 
-```bash
-git clone --recurse-submodules https://github.com/alturyxx-gif/ZStream-Android.git
-cd ZStream-Android
-```
+1. Go to [Releases](https://github.com/alturyxx-gif/ZStream-Android/releases)
+2. Download the latest `app-release.apk`
+3. Enable installation from unknown sources in Settings (Android 8+)
+4. Tap the APK to install
 
-### 2. Get a TMDB API Read Access Token (optional)
+---
 
-NOTE: The app comes with a TMDB API key hardcoded. If that key doesnt work for you or if you want to use your own, follow these steps.
+## Build from Source
 
-1. Go to [TMDB Settings -> API](https://www.themoviedb.org/settings/api)
-2. Create an account or sign in
-3. Request an API key
-4. Copy the **API Read Access Token** (a long JWT starting with `eyJ...`)
+If you want to compile it yourself:
 
-### 3. Set the TMDB API Key
+1. Install **Android Studio** (Ladybug or newer)
+2. Clone the repository:
+   ```bash
+   git clone --recurse-submodules https://github.com/alturyxx-gif/ZStream-Android.git
+   ```
+3. Open in Android Studio and click **Run**
 
-The app ships with a built-in TMDB API key — **it works out of the box**, no setup needed. Just build and run.
+The app will build and install automatically.
 
-If you want to use your own key, create `local.properties`:
+## First Time Setup
 
-```properties
-tmdb.api_key=your-v3-api-key-here
-```
+The app works out of the box. No account needed.
 
-You can also override the key at runtime from Settings -> **TMDB API Key**.
+### Optional: Add Your Own TMDB API Key
 
-### 4. Build & Run
+The app comes with a built-in TMDB API key. If it stops working or you prefer to use your own:
 
-```bash
-# Debug build (unsigned)
-./gradlew assembleDebug
+1. Go to [The Movie Database (TMDB)](https://www.themoviedb.org/settings/api)
+2. Create a free account and request an API key
+3. In the app, go to **Settings → Connections → TMDB API Key**
+4. Paste your key and tap **Save**
 
-# Install on connected device
-./gradlew installDebug
-```
+Searches will now use your personal key.
 
-Open in Android Studio -> select a device/emulator -> press Run.
+## FAQ
 
-## Optional In-App Services
+**Is this an official app?**  
+Yes, this is an official, open-source project.
 
-Configured from the Settings screen inside the app. None are required for basic streaming.
+**Is it safe?**  
+Yes, the source code is publicly available on GitHub. You can audit it yourself or build from source.
 
-| Service | Setting | Purpose |
-|---|---|---|
-| Febbox | `febboxKey` | Alternative cloud storage provider |
-| TiDB | `tidbKey` | Alternative subtitle provider |
+**Does it require an account?**  
+No account needed. The app works anonymously out of the box.
 
-## Hardcoded Endpoints (no setup needed)
+**Does it store my data?**  
+Watch history and preferences are stored locally on your device. The app doesn't send your data to external servers unless you enable optional features like syncing to the cloud.
 
-- **TMDB API Key** - used for fetching movies/shows. Can hardcode it during build or give a API key in runtime in settings under connections
-- **Backend API** - used for account sync, settings push (not required for local-only usage)
+**Can I export my watch history?**  
+Yes. Go to **Settings → Watch History → Export** to save your library as JSON.
 
-## Release Builds
+**Why do I get "unsupported environment" errors?**  
+The app disables some features on emulators or rooted devices. This is a security measure. Build a debug version from source to bypass this but you wont be able to watch anything.
 
-**⚠️ Warning:** The release signing config in `app/build.gradle.kts` contains hardcoded passwords pointing to `zstream.jks`. **You must generate your own keystore and update these values before publishing.**
+## Support & Feedback
 
-```kotlin
-signingConfigs {
-    create("release") {
-        storeFile = file("../my-keystore.jks")
-        storePassword = System.getenv("KEYSTORE_PASSWORD") ?: "your-password"
-        keyAlias = "your-alias"
-        keyPassword = System.getenv("KEY_PASSWORD") ?: "your-password"
-    }
-}
-```
-
-```bash
-# Release build
-./gradlew assembleRelease
-
-# Install on connected device
-./gradlew installRelease
-```
-
-Read passwords from environment variables or a separate secure file rather than hardcoding them.
-
-## License
-
-MIT
+- **Found a bug?** Report it on our [Discord server](https://discord.com/invite/wmbWfk4SGy)
+- **Have a suggestion?** Share it on our [Discord server](https://discord.com/invite/wmbWfk4SGy)
