@@ -664,8 +664,10 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                 var resumeDuration by remember { mutableLongStateOf(0L) }
                 var pendingResumeMs by remember { mutableLongStateOf(-1L) }
                 var showPlaybackErrorDetails by remember { mutableStateOf(false) }
+                var playbackErrorDetailsSnapshot by remember { mutableStateOf("") }
                 val playbackFailure = s.playbackFailure
                 val isPlaybackFailed = playbackFailure != null
+                val clipboardManager = LocalClipboardManager.current
 
                 val context = LocalContext.current
                 val player = remember {
@@ -769,6 +771,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                         player.pause()
                     } else {
                         showPlaybackErrorDetails = false
+                        playbackErrorDetailsSnapshot = ""
                     }
                 }
 
@@ -1279,7 +1282,10 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                                 onMenuPageChange(PlayerMenuPage.Sources)
                                 updateActivity()
                             },
-                            onShowDetails = { showPlaybackErrorDetails = true },
+                            onShowDetails = {
+                                playbackErrorDetailsSnapshot = playbackFailure?.details.orEmpty()
+                                showPlaybackErrorDetails = true
+                            },
                             onReload = vm::reloadCurrentSource,
                             modifier = Modifier.fillMaxSize()
                         )
@@ -1660,7 +1666,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     )
                 }
 
-                if (showPlaybackErrorDetails && playbackFailure != null) {
+                if (showPlaybackErrorDetails && playbackErrorDetailsSnapshot.isNotBlank()) {
                     val theme = LocalZStreamTheme.current
                     AlertDialog(
                         onDismissRequest = { showPlaybackErrorDetails = false },
@@ -1668,7 +1674,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                         title = { Text("Error details", color = theme.colors.type.emphasis) },
                         text = {
                             Text(
-                                text = playbackFailure.details,
+                                text = playbackErrorDetailsSnapshot,
                                 color = theme.colors.type.secondary,
                                 fontFamily = FontFamily.Monospace,
                                 fontSize = 12.sp,
@@ -1679,11 +1685,18 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                             )
                         },
                         confirmButton = {
-                            TextButton(
-                                onClick = { showPlaybackErrorDetails = false },
-                                border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.type.emphasis.copy(alpha = 0.15f)),
-                                shape = RoundedCornerShape(8.dp)
-                            ) { Text("Close", color = theme.colors.type.secondary) }
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                TextButton(
+                                    onClick = { clipboardManager.setText(AnnotatedString(playbackErrorDetailsSnapshot)) },
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.type.emphasis.copy(alpha = 0.15f)),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) { Text("Copy", color = theme.colors.type.secondary) }
+                                TextButton(
+                                    onClick = { showPlaybackErrorDetails = false },
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.type.emphasis.copy(alpha = 0.15f)),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) { Text("Close", color = theme.colors.type.secondary) }
+                            }
                         }
                     )
                 }

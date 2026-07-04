@@ -46,6 +46,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.Job
 
 enum class SourceStatus { IDLE, TRYING, SUCCESS, FAILED }
 data class SourceResult(val id: String, val status: SourceStatus, val codec: String = "")
@@ -62,6 +63,9 @@ data class PlaybackFailure(
 )
 
 private fun playbackFailureDetails(message: String): String = Throwable(message).stackTraceToString()
+
+private fun clearTryingStatuses(sources: List<SourceResult>): List<SourceResult> =
+    sources.map { if (it.status == SourceStatus.TRYING) it.copy(status = SourceStatus.IDLE) else it }
 
 data class SkipSegment(val type: String, val startMs: Long?, val endMs: Long?)
 data class SkipSegmentSubmission(
@@ -334,6 +338,7 @@ class PlayerViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     private val sources = mutableListOf<SourceResult>()
+    private val probeJobs = mutableMapOf<String, Job>()
     private val failedVariantUrls = mutableSetOf<String>()
     private val failedPlaybackSourceIds = mutableSetOf<String>()
     private var skipSegmentsCacheKey: String? = null
@@ -749,7 +754,8 @@ class PlayerViewModel @Inject constructor(
             candidates = current?.candidates.orEmpty() - sourceId,
         )
 
-        viewModelScope.launch {
+        probeJobs.remove(sourceId)?.cancel()
+        probeJobs[sourceId] = viewModelScope.launch {
             resolveSourceCandidate(sourceId).onSuccess { candidate ->
                 val state = _state.value as? PlayerState.ManualSourceSelection ?: return@launch
                 val success = state.sources.map {
@@ -762,6 +768,8 @@ class PlayerViewModel @Inject constructor(
                 val failed = state.sources.map { if (it.id == sourceId) it.copy(status = SourceStatus.FAILED) else it }
                 sources.clear(); sources.addAll(failed)
                 _state.value = state.copy(sources = failed, candidates = state.candidates - sourceId, message = it.message ?: "Failed to probe source")
+            }.also {
+                probeJobs.remove(sourceId)
             }
         }
     }
@@ -775,7 +783,8 @@ class PlayerViewModel @Inject constructor(
         sources.addAll(updated)
         _state.value = current.copy(sources = updated, candidates = current.candidates - sourceId)
 
-        viewModelScope.launch {
+        probeJobs.remove(sourceId)?.cancel()
+        probeJobs[sourceId] = viewModelScope.launch {
             resolveSourceCandidate(sourceId).onSuccess { candidate ->
                 val state = _state.value as? PlayerState.Ready ?: return@launch
                 val success = state.sources.map {
@@ -788,6 +797,8 @@ class PlayerViewModel @Inject constructor(
                 val failed = state.sources.map { if (it.id == sourceId) it.copy(status = SourceStatus.FAILED) else it }
                 sources.clear(); sources.addAll(failed)
                 _state.value = state.copy(sources = failed, candidates = state.candidates - sourceId)
+            }.also {
+                probeJobs.remove(sourceId)
             }
         }
     }
@@ -942,7 +953,11 @@ class PlayerViewModel @Inject constructor(
     fun confirmManualSourceSelection(sourceId: String) {
         val current = _state.value as? PlayerState.ManualSourceSelection ?: return
         val candidate = current.candidates[sourceId] ?: return
-        _state.value = readyStateFromCandidate(candidate, current.sources, current.candidates)
+        cancelOtherProbeJobs(sourceId)
+        val sourceStates = clearTryingStatuses(current.sources)
+        sources.clear()
+        sources.addAll(sourceStates)
+        _state.value = readyStateFromCandidate(candidate, sourceStates, current.candidates)
         if (settings.value.subtitlesEnabled && candidate.subtitles.isNotEmpty()) {
             downloadAndParseSubtitles(candidate.subtitles)
         }
@@ -951,10 +966,23 @@ class PlayerViewModel @Inject constructor(
     fun applyProbedSource(sourceId: String) {
         val current = _state.value as? PlayerState.Ready ?: return
         val candidate = current.candidates[sourceId] ?: return
-        _state.value = readyStateFromCandidate(candidate, current.sources, current.candidates)
+        cancelOtherProbeJobs(sourceId)
+        val sourceStates = clearTryingStatuses(current.sources)
+        sources.clear()
+        sources.addAll(sourceStates)
+        _state.value = readyStateFromCandidate(candidate, sourceStates, current.candidates)
         if (settings.value.subtitlesEnabled && candidate.subtitles.isNotEmpty()) {
             downloadAndParseSubtitles(candidate.subtitles)
         }
+    }
+
+    private fun cancelOtherProbeJobs(selectedSourceId: String) {
+        probeJobs
+            .filterKeys { it != selectedSourceId }
+            .forEach { (id, job) ->
+                job.cancel()
+                probeJobs.remove(id)
+            }
     }
 
     fun retryNextSourceAfterError() {
