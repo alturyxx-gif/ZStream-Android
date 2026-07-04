@@ -98,6 +98,9 @@ import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
@@ -214,7 +217,7 @@ private fun playerMenuCardFill(): Color = LocalZStreamTheme.current.colors.backg
 @Composable
 private fun playerMenuCardActiveFill(): Color = LocalZStreamTheme.current.colors.background.secondaryHover.copy(alpha = 0.7f)
 private val PLAYER_MENU_BOX_TILE_HEIGHT = 80.dp
-private val PLAYER_MENU_INNER_HORIZONTAL_PADDING = 24.dp
+private val PLAYER_MENU_INNER_HORIZONTAL_PADDING = 14.dp
 private val PLAYER_MENU_INNER_BOTTOM_PADDING = 18.dp
 
 private data class PlayerMenuTileItem(
@@ -243,6 +246,61 @@ private val SKIP_SEGMENT_BAR_COLORS = mapOf(
     "credits" to Color(0xBF22C55E),
     "preview" to Color(0xBFEC4899),
 )
+
+private fun languageToFlag(code: String?): String {
+    if (code == null) return ""
+    val c = code.lowercase()
+    return when (c) {
+        "pirate" -> "🏴‍☠️"
+        "cat" -> "🐱"
+        "uwu" -> "🌸"
+        "minion" -> "🍌"
+        "tok" -> "⚪"
+        "futhark" -> "ᚠ"
+        "en" -> "🇺🇸"
+        "es", "sp", "ea" -> "🇪🇸"
+        "fr" -> "🇫🇷"
+        "de" -> "🇩🇪"
+        "it" -> "🇮🇹"
+        "pt" -> "🇵🇹"
+        "br", "po", "pb" -> "🇧🇷"
+        "hi" -> "🇮🇳"
+        "ja" -> "🇯🇵"
+        "ko" -> "🇰🇷"
+        "zh" -> "🇨🇳"
+        "zt" -> "🇹🇼"
+        "ru" -> "🇷🇺"
+        "ar" -> "🇸🇦"
+        "tr" -> "🇹🇷"
+        "vi" -> "🇻🇳"
+        "th" -> "🇹🇭"
+        "id" -> "🇮🇩"
+        "nl" -> "🇳🇱"
+        "pl" -> "🇵🇱"
+        "sv" -> "🇸🇪"
+        "da" -> "🇩🇰"
+        "fi" -> "🇫🇮"
+        "no" -> "🇳🇴"
+        "el" -> "🇬🇷"
+        "he" -> "🇮🇱"
+        "cs" -> "🇨🇿"
+        "hu" -> "🇭🇺"
+        "ro" -> "🇷🇴"
+        "uk" -> "🇺🇦"
+        "sq" -> "🇦🇱"
+        "sr" -> "🇷🇸"
+        "si" -> "🇱🇰"
+        "sl" -> "🇸🇮"
+        "fa" -> "🇮🇷"
+        else -> {
+            if (c.length == 2) {
+                val firstChar = Character.codePointAt(c, 0) - 0x61 + 0x1F1E6
+                val secondChar = Character.codePointAt(c, 1) - 0x61 + 0x1F1E6
+                String(Character.toChars(firstChar)) + String(Character.toChars(secondChar))
+            } else ""
+        }
+    }
+}
 
 private fun sourceStatusColor(theme: ZStreamTheme, status: SourceStatus): Color = when (status) {
     SourceStatus.IDLE -> theme.colors.type.dimmed
@@ -274,9 +332,9 @@ private fun SubtitleTrackBadges(track: SubtitleTrack) {
                 Text(
                     label,
                     color = Color.White,
-                    fontSize = 9.sp,
+                    fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
-                    modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(color).padding(horizontal = 5.dp, vertical = 3.dp),
+                    modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(color).padding(horizontal = 5.dp),
                 )
             }
     }
@@ -1879,6 +1937,7 @@ private fun PlayerControls(
     val menuOpen = menuPage != null
     val playbackErrorActive = readyState.playbackFailure != null
     val theme = LocalZStreamTheme.current
+    val isTv = LocalIsTv.current
     val focusManager = LocalFocusManager.current
     val scope = rememberCoroutineScope()
     var isJoiningRoom by remember { mutableStateOf(false) }
@@ -1889,7 +1948,6 @@ private fun PlayerControls(
             onMenuPageChange(PlayerMenuPage.WatchParty)
         }
     }
-    val isTv = LocalIsTv.current
     var isPlaying by remember { mutableStateOf(player.isPlaying) }
     var playWhenReady by remember { mutableStateOf(player.playWhenReady) }
     var playbackState by remember { mutableIntStateOf(player.playbackState) }
@@ -3567,6 +3625,7 @@ private fun PlayerMenuContent(
     currentSeasonDetail: com.zstream.android.data.model.Season?,
 ) {
     val theme = LocalZStreamTheme.current
+    val isTv = LocalIsTv.current
     val focusManager = LocalFocusManager.current
     var isJoiningRoom by remember { mutableStateOf(false) }
     var joinRoomCode by remember { mutableStateOf("") }
@@ -3720,6 +3779,7 @@ private fun PlayerMenuContent(
                                 PlayerMenuChevronRow(
                                     title = subtitleLanguageName(language),
                                     value = tracks.size.toString(),
+                                    icon = languageToFlag(language),
                                     onClick = { onOpenCaptionLanguage(language) },
                                 )
                             }
@@ -3743,6 +3803,7 @@ private fun PlayerMenuContent(
                                 onClick = { onSelectSubtitle(track.id) },
                                 focusRequester = firstItemFocusRequester.takeIf { index == 0 },
                                 rightContent = { SubtitleTrackBadges(track) },
+                                icon = languageToFlag(track.language),
                             )
                         }
                     }
@@ -4404,40 +4465,60 @@ private fun PlayerMenuContent(
                                             horizontalArrangement = Arrangement.spacedBy(12.dp)
                                         ) {
                                             // Copy Code Tile
-                                            Surface(
-                                                modifier = Modifier
-                                                    .weight(1f)
-                                                    .clickable { clipboard.setText(AnnotatedString(roomCodeValue.text)) },
-                                                color = theme.colors.background.main.copy(alpha = 0.5f),
-                                                shape = RoundedCornerShape(14.dp),
-                                                border = BorderStroke(1.dp, theme.colors.type.divider.copy(alpha = 0.1f))
+                                            var isCopyCodeFocused by remember { mutableStateOf(false) }
+                                            ZsOutlinedWrapper(
+                                                visible = isCopyCodeFocused && isTv,
+                                                shape = RoundedCornerShape(8.dp),
+                                                outlineColor = Color.White,
+                                                outlineWidth = 2.dp,
+                                                horizontal = 4.dp,
+                                                vertical = 2.dp,
+                                                modifier = Modifier.weight(1f)
                                             ) {
-                                                Row(
-                                                    modifier = Modifier.padding(vertical = 10.dp),
-                                                    horizontalArrangement = Arrangement.Center,
-                                                    verticalAlignment = Alignment.CenterVertically
+                                                Surface(
+                                                    onClick = { clipboard.setText(AnnotatedString(roomCodeValue.text)) },
+                                                    color = theme.colors.background.main.copy(alpha = 0.5f),
+                                                    shape = RoundedCornerShape(8.dp),
+                                                    border = BorderStroke(1.dp, theme.colors.type.divider.copy(alpha = 0.1f)),
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .onFocusChanged { isCopyCodeFocused = it.isFocused }
                                                 ) {
-                                                    Icon(
-                                                        imageVector = Icons.Default.ContentCopy,
-                                                        contentDescription = null,
-                                                        tint = theme.colors.type.secondary,
-                                                        modifier = Modifier.size(14.dp)
-                                                    )
-                                                    Spacer(Modifier.width(8.dp))
-                                                    Text(
-                                                        text = "Copy Code",
-                                                        color = theme.colors.type.secondary,
-                                                        fontSize = 12.sp,
-                                                        fontWeight = FontWeight.Medium
-                                                    )
+                                                    Row(
+                                                        modifier = Modifier.padding(vertical = 10.dp),
+                                                        horizontalArrangement = Arrangement.Center,
+                                                        verticalAlignment = Alignment.CenterVertically
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.ContentCopy,
+                                                            contentDescription = null,
+                                                            tint = theme.colors.type.secondary,
+                                                            modifier = Modifier.size(14.dp)
+                                                        )
+                                                        Spacer(Modifier.width(8.dp))
+                                                        Text(
+                                                            text = "Copy Code",
+                                                            color = theme.colors.type.secondary,
+                                                            fontSize = 12.sp,
+                                                            fontWeight = FontWeight.Medium
+                                                        )
+                                                    }
                                                 }
                                             }
 
                                             // Copy Link Tile
-                                            Surface(
-                                                modifier = Modifier
-                                                    .weight(1f)
-                                                    .clickable { 
+                                            var isCopyLinkFocused by remember { mutableStateOf(false) }
+                                            ZsOutlinedWrapper(
+                                                visible = isCopyLinkFocused && isTv,
+                                                shape = RoundedCornerShape(8.dp),
+                                                outlineColor = Color.White,
+                                                outlineWidth = 2.dp,
+                                                horizontal = 4.dp,
+                                                vertical = 2.dp,
+                                                modifier = Modifier.weight(1f)
+                                            ) {
+                                                Surface(
+                                                    onClick = {
                                                         val baseUrl = "https://zstream.mov/media/"
                                                         val slug = title.slugify()
                                                         val typeKey = if (mediaType == "movie") "movie" else "tv"
@@ -4449,28 +4530,32 @@ private fun PlayerMenuContent(
                                                         val fullUrl = "$baseUrl$mediaPath?watchparty=${roomCode ?: ""}"
                                                         clipboard.setText(AnnotatedString(fullUrl))
                                                     },
-                                                color = theme.colors.background.main.copy(alpha = 0.5f),
-                                                shape = RoundedCornerShape(14.dp),
-                                                border = BorderStroke(1.dp, theme.colors.type.divider.copy(alpha = 0.1f))
-                                            ) {
-                                                Row(
-                                                    modifier = Modifier.padding(vertical = 10.dp),
-                                                    horizontalArrangement = Arrangement.Center,
-                                                    verticalAlignment = Alignment.CenterVertically
+                                                    color = theme.colors.background.main.copy(alpha = 0.5f),
+                                                    shape = RoundedCornerShape(8.dp),
+                                                    border = BorderStroke(1.dp, theme.colors.type.divider.copy(alpha = 0.1f)),
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .onFocusChanged { isCopyLinkFocused = it.isFocused }
                                                 ) {
-                                                    Icon(
-                                                        imageVector = Icons.Default.Link,
-                                                        contentDescription = null,
-                                                        tint = theme.colors.type.secondary,
-                                                        modifier = Modifier.size(14.dp)
-                                                    )
-                                                    Spacer(Modifier.width(8.dp))
-                                                    Text(
-                                                        text = "Copy Link",
-                                                        color = theme.colors.type.secondary,
-                                                        fontSize = 12.sp,
-                                                        fontWeight = FontWeight.Medium
-                                                    )
+                                                    Row(
+                                                        modifier = Modifier.padding(vertical = 10.dp),
+                                                        horizontalArrangement = Arrangement.Center,
+                                                        verticalAlignment = Alignment.CenterVertically
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.Link,
+                                                            contentDescription = null,
+                                                            tint = theme.colors.type.secondary,
+                                                            modifier = Modifier.size(14.dp)
+                                                        )
+                                                        Spacer(Modifier.width(8.dp))
+                                                        Text(
+                                                            text = "Copy Link",
+                                                            color = theme.colors.type.secondary,
+                                                            fontSize = 12.sp,
+                                                            fontWeight = FontWeight.Medium
+                                                        )
+                                                    }
                                                 }
                                             }
                                         }
@@ -4809,6 +4894,7 @@ private fun PlayerMenuBoxNavTile(
         gap = 2.dp,
     ) {
         Surface(
+            onClick = onClick,
             color = playerMenuCardFill(),
             shape = RoundedCornerShape(8.dp),
             modifier = Modifier
@@ -4822,7 +4908,6 @@ private fun PlayerMenuBoxNavTile(
                     }
                 }
                 .onFocusChanged { isFocused = it.isFocused }
-                .clickable(onClick = onClick)
         ) {
             Column(
                 modifier = Modifier
@@ -4966,31 +5051,51 @@ private fun PlayerMenuColorOptions(selected: String, onSelect: (String) -> Unit)
 }
 
 @Composable
-private fun PlayerMenuChevronRow(title: String, value: String? = null, onClick: () -> Unit) {
+private fun PlayerMenuChevronRow(title: String, value: String? = null, icon: String? = null, onClick: () -> Unit) {
     val theme = LocalZStreamTheme.current
     val isTv = LocalIsTv.current
     var isFocused by remember { mutableStateOf(false) }
     ZsOutlinedWrapper(
         visible = isFocused && isTv,
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(8.dp),
         outlineColor = Color.White,
-        gap = 2.dp,
+        outlineWidth = 2.dp,
+        horizontal = 4.dp,
+        vertical = 2.dp,
     ) {
-        TextButton(
+        Surface(
             onClick = onClick,
-            contentPadding = PaddingValues(horizontal = 0.dp, vertical = 10.dp),
+            color = Color.Transparent,
+            shape = RoundedCornerShape(8.dp),
             modifier = Modifier
                 .fillMaxWidth()
+                .onFocusChanged { isFocused = it.isFocused }
                 .focusProperties {
                     if (isTv) {
                         left = FocusRequester.Cancel
                         right = FocusRequester.Cancel
                     }
                 }
-                .onFocusChanged { isFocused = it.isFocused }
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                Text(title, color = theme.colors.type.emphasis, modifier = Modifier.weight(1f), textAlign = TextAlign.Start)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (!icon.isNullOrBlank()) {
+                    Text(
+                        text = icon,
+                        fontSize = 18.sp,
+                        modifier = Modifier.padding(end = 12.dp)
+                    )
+                }
+                Text(
+                    title,
+                    color = theme.colors.type.emphasis.copy(alpha = 0.96f),
+                    modifier = Modifier.weight(1f),
+                    textAlign = TextAlign.Start
+                )
                 if (!value.isNullOrBlank()) {
                     Text(
                         value,
@@ -5014,25 +5119,38 @@ private fun PlayerMenuLinkRow(title: String, rightIcon: androidx.compose.ui.grap
     var isFocused by remember { mutableStateOf(false) }
     ZsOutlinedWrapper(
         visible = isFocused && isTv,
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(8.dp),
         outlineColor = Color.White,
-        gap = 2.dp,
+        outlineWidth = 2.dp,
+        horizontal = 4.dp,
+        vertical = 2.dp,
     ) {
-        TextButton(
+        Surface(
             onClick = onClick,
-            contentPadding = PaddingValues(horizontal = 0.dp, vertical = 10.dp),
+            color = Color.Transparent,
+            shape = RoundedCornerShape(8.dp),
             modifier = Modifier
                 .fillMaxWidth()
+                .onFocusChanged { isFocused = it.isFocused }
                 .focusProperties {
                     if (isTv) {
                         left = FocusRequester.Cancel
                         right = FocusRequester.Cancel
                     }
                 }
-                .onFocusChanged { isFocused = it.isFocused }
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                Text(title, color = theme.colors.type.emphasis, modifier = Modifier.weight(1f), textAlign = TextAlign.Start)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    title,
+                    color = theme.colors.type.emphasis.copy(alpha = 0.96f),
+                    modifier = Modifier.weight(1f),
+                    textAlign = TextAlign.Start
+                )
                 Icon(rightIcon, null, tint = theme.colors.type.emphasis, modifier = Modifier.size(19.dp))
             }
         }
@@ -5046,36 +5164,49 @@ private fun PlayerMenuToggleRow(title: String, checked: Boolean, focusRequester:
     var isFocused by remember { mutableStateOf(false) }
     ZsOutlinedWrapper(
         visible = isFocused && isTv,
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(8.dp),
         outlineColor = Color.White,
-        gap = 2.dp,
+        outlineWidth = 2.dp,
+        horizontal = 4.dp,
+        vertical = 2.dp,
     ) {
-        Row(
+        Surface(
+            onClick = onToggle,
+            color = Color.Transparent,
+            shape = RoundedCornerShape(8.dp),
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 2.dp)
+                .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
                 .focusProperties {
                     if (isTv) {
                         left = FocusRequester.Cancel
                         right = FocusRequester.Cancel
                     }
                 }
-                .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
                 .onFocusChanged { isFocused = it.isFocused }
-                .clickable { onToggle() },
-            verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(title, color = theme.colors.type.emphasis, modifier = Modifier.weight(1f))
-            Switch(
-                checked = checked,
-                onCheckedChange = null,
-                colors = SwitchDefaults.colors(
-                    checkedThumbColor = theme.colors.type.emphasis,
-                    checkedTrackColor = theme.colors.global.accentA,
-                    uncheckedThumbColor = theme.colors.type.dimmed,
-                    uncheckedTrackColor = theme.colors.background.secondary,
-                ),
-            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 12.dp, top = 8.dp, bottom = 8.dp, end = 0.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    title,
+                    color = theme.colors.type.emphasis.copy(alpha = 0.96f),
+                    modifier = Modifier.weight(1f)
+                )
+                Switch(
+                    checked = checked,
+                    onCheckedChange = null,
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = theme.colors.type.emphasis,
+                        checkedTrackColor = theme.colors.global.accentA,
+                        uncheckedThumbColor = theme.colors.type.dimmed,
+                        uncheckedTrackColor = theme.colors.background.secondary,
+                    ),
+                )
+            }
         }
     }
 }
@@ -5241,6 +5372,7 @@ private fun PlayerMenuSelectableRow(
     onClick: () -> Unit,
     rightContent: (@Composable RowScope.() -> Unit)? = null,
     focusRequester: FocusRequester? = null,
+    icon: String? = null,
 ) {
     val theme = LocalZStreamTheme.current
     val isTv = LocalIsTv.current
@@ -5254,9 +5386,9 @@ private fun PlayerMenuSelectableRow(
         vertical = 2.dp,
     ) {
         Surface(
+            onClick = onClick,
             color = if (selected) playerMenuCardActiveFill() else Color.Transparent,
             shape = RoundedCornerShape(8.dp),
-            border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.type.emphasis.copy(alpha = 0.15f)),
             modifier = Modifier
                 .fillMaxWidth()
                 .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
@@ -5267,14 +5399,20 @@ private fun PlayerMenuSelectableRow(
                     }
                 }
                 .onFocusChanged { isFocused = it.isFocused }
-                .clickable(onClick = onClick)
         ) {
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 12.dp),
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                if (!icon.isNullOrBlank()) {
+                    Text(
+                        text = icon,
+                        fontSize = 18.sp,
+                        modifier = Modifier.padding(end = 12.dp)
+                    )
+                }
                 Column(Modifier.weight(1f)) {
                     Text(title, color = if (selected) theme.colors.type.emphasis else theme.colors.type.emphasis.copy(alpha = 0.96f))
                     if (subtitle != null) {
@@ -5287,7 +5425,7 @@ private fun PlayerMenuSelectableRow(
                 }
                 if (selected) {
                     Spacer(Modifier.width(6.dp))
-                    Icon(Icons.Filled.Check, null, tint = theme.colors.type.success, modifier = Modifier.size(18.dp))
+                    ZsCheckmark()
                 }
             }
         }
@@ -5383,7 +5521,7 @@ private fun ManualSourceStatusContent(source: SourceResult, onUse: () -> Unit) {
         }
         SourceStatus.SUCCESS -> {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Icon(Icons.Filled.Check, null, tint = statusColor, modifier = Modifier.size(18.dp))
+                ZsCheckmark()
                 TextButton(
                     onClick = onUse,
                     colors = ButtonDefaults.textButtonColors(contentColor = theme.colors.type.emphasis),
@@ -5394,6 +5532,34 @@ private fun ManualSourceStatusContent(source: SourceResult, onUse: () -> Unit) {
                     Text("Use", fontSize = 12.sp)
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun ZsCheckmark(modifier: Modifier = Modifier) {
+    val theme = LocalZStreamTheme.current
+    Box(
+        modifier = modifier
+            .size(22.dp)
+            .background(theme.colors.buttons.purple, CircleShape),
+        contentAlignment = Alignment.Center
+    ) {
+        androidx.compose.foundation.Canvas(modifier = Modifier.size(10.dp)) {
+            val path = androidx.compose.ui.graphics.Path().apply {
+                moveTo(size.width * 0.15f, size.height * 0.5f)
+                lineTo(size.width * 0.42f, size.height * 0.75f)
+                lineTo(size.width * 0.85f, size.height * 0.32f)
+            }
+            drawPath(
+                path = path,
+                color = Color.Black,
+                style = Stroke(
+                    width = 2.dp.toPx(),
+                    cap = StrokeCap.Round,
+                    join = StrokeJoin.Round
+                )
+            )
         }
     }
 }
