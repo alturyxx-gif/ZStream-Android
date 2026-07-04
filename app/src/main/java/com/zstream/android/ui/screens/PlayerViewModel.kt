@@ -49,6 +49,13 @@ import kotlinx.coroutines.coroutineScope
 
 enum class SourceStatus { IDLE, TRYING, SUCCESS, FAILED }
 data class SourceResult(val id: String, val status: SourceStatus, val codec: String = "")
+data class ResolvedSourceCandidate(
+    val streamUrl: String,
+    val headers: Map<String, String>,
+    val subtitles: List<SubtitleTrack>,
+    val sourceId: String,
+    val variants: List<StreamVariant> = emptyList(),
+)
 data class SkipSegment(val type: String, val startMs: Long?, val endMs: Long?)
 data class SkipSegmentSubmission(
     val tmdbId: Int,
@@ -66,7 +73,7 @@ sealed class PlayerState {
     data class Scraping(val sources: List<SourceResult>) : PlayerState()
     data class ManualSourceSelection(
         val sources: List<SourceResult>,
-        val candidates: Map<String, Ready> = emptyMap(),
+        val candidates: Map<String, ResolvedSourceCandidate> = emptyMap(),
         val message: String? = null,
     ) : PlayerState()
     data class Ready(
@@ -77,6 +84,7 @@ sealed class PlayerState {
         val sourceId: String? = null,
         val variants: List<StreamVariant> = emptyList(),
         val failedVariantUrls: Set<String> = emptySet(),
+        val candidates: Map<String, ResolvedSourceCandidate> = emptyMap(),
     ) : PlayerState()
     data class Error(val message: String, val sources: List<SourceResult>) : PlayerState()
 }
@@ -571,10 +579,10 @@ class PlayerViewModel @Inject constructor(
             runCatching {
                 val settingsValue = settingsPrefs.settings.first()
                 val pluginSources = pluginManager.availableSources()
+                val displaySources = sourceOrderStore.getOrderedSources(pluginSources)
 
                 if (selectedSourceId == null && settingsValue.manualSourceSelection && !automaticRecovery) {
-                    val orderedSources = sourceOrderStore.getOrderedSources(pluginSources)
-                    val availableSources = orderedSources.map { SourceResult(it.id, SourceStatus.IDLE) }
+                    val availableSources = displaySources.map { SourceResult(it.id, SourceStatus.IDLE) }
                     sources.clear()
                     sources.addAll(availableSources)
                     _state.value = PlayerState.ManualSourceSelection(availableSources)
@@ -582,9 +590,9 @@ class PlayerViewModel @Inject constructor(
                 }
 
                 val orderedSources = if (selectedSourceId != null) {
-                    pluginSources.filter { it.id == selectedSourceId }
+                    displaySources.filter { it.id == selectedSourceId }
                 } else {
-                    var ordered = sourceOrderStore.getOrderedSources(pluginSources)
+                    var ordered = displaySources
                     // Boost last successful source to front if setting enabled
                     if (settingsValue.enableLastSuccessfulSource) {
                         val lastId = settingsValue.lastSuccessfulSource
@@ -607,7 +615,7 @@ class PlayerViewModel @Inject constructor(
                     return@runCatching
                 }
 
-                val initialSources = orderedSources.map { SourceResult(it.id, SourceStatus.IDLE) }
+                val initialSources = displaySources.map { SourceResult(it.id, SourceStatus.IDLE) }
                 sources.clear()
                 sources.addAll(initialSources)
                 _state.value = PlayerState.Scraping(sources.toList())
@@ -716,48 +724,44 @@ class PlayerViewModel @Inject constructor(
         )
 
         viewModelScope.launch {
-            runCatching {
-                val media = buildPluginMediaRequest()
-                when (val result = pluginManager.resolve(media, sourceId)) {
-                    is StreamResult.NotFound -> {
-                        val state = _state.value as? PlayerState.ManualSourceSelection ?: return@launch
-                        val failed = state.sources.map { if (it.id == sourceId) it.copy(status = SourceStatus.FAILED) else it }
-                        sources.clear(); sources.addAll(failed)
-                        _state.value = state.copy(sources = failed, candidates = state.candidates - sourceId, message = "Not available")
-                    }
-                    is StreamResult.Error -> {
-                        val state = _state.value as? PlayerState.ManualSourceSelection ?: return@launch
-                        val failed = state.sources.map { if (it.id == sourceId) it.copy(status = SourceStatus.FAILED) else it }
-                        sources.clear(); sources.addAll(failed)
-                        _state.value = state.copy(sources = failed, candidates = state.candidates - sourceId, message = result.message)
-                    }
-                    is StreamResult.Success -> {
-                        val subtitles = result.captions.map { it.toSubtitleTrack() }.toMutableList()
-                        fetchExternalSubtitles(subtitles)
-                        val variants = result.variants.map { v ->
-                            StreamVariant(id = v.id, name = v.name, quality = v.quality, codec = v.codec, tag = v.tag, streamUrl = v.streamUrl, requiresRefreshOnSwitch = v.requiresRefreshOnSwitch)
-                        }
-                        val initialUrl = preferredInitialVariantUrl(sourceId, result.streamUrl, variants)
-                        logVariantSelection(result.streamUrl, initialUrl, variants)
-                        val state = _state.value as? PlayerState.ManualSourceSelection ?: return@launch
-                        val success = state.sources.map { if (it.id == sourceId) it.copy(status = SourceStatus.SUCCESS, codec = result.codec) else it }
-                        val candidate = PlayerState.Ready(
-                            streamUrl = initialUrl,
-                            headers   = result.headers,
-                            subtitles = subtitles,
-                            sources   = success,
-                            sourceId  = sourceId,
-                            variants  = variants,
-                        )
-                        sources.clear(); sources.addAll(success)
-                        _state.value = state.copy(sources = success, candidates = state.candidates + (sourceId to candidate), message = null)
-                    }
+            resolveSourceCandidate(sourceId).onSuccess { candidate ->
+                val state = _state.value as? PlayerState.ManualSourceSelection ?: return@launch
+                val success = state.sources.map {
+                    if (it.id == sourceId) it.copy(status = SourceStatus.SUCCESS, codec = candidate.variants.firstOrNull()?.codec.orEmpty()) else it
                 }
+                sources.clear(); sources.addAll(success)
+                _state.value = state.copy(sources = success, candidates = state.candidates + (sourceId to candidate), message = null)
             }.onFailure {
                 val state = _state.value as? PlayerState.ManualSourceSelection ?: return@onFailure
                 val failed = state.sources.map { if (it.id == sourceId) it.copy(status = SourceStatus.FAILED) else it }
                 sources.clear(); sources.addAll(failed)
                 _state.value = state.copy(sources = failed, candidates = state.candidates - sourceId, message = it.message ?: "Failed to probe source")
+            }
+        }
+    }
+
+    fun probeSourceWhileReady(sourceId: String) {
+        val current = _state.value as? PlayerState.Ready ?: return
+        val updated = current.sources.map {
+            if (it.id == sourceId) it.copy(status = SourceStatus.TRYING) else it
+        }
+        sources.clear()
+        sources.addAll(updated)
+        _state.value = current.copy(sources = updated, candidates = current.candidates - sourceId)
+
+        viewModelScope.launch {
+            resolveSourceCandidate(sourceId).onSuccess { candidate ->
+                val state = _state.value as? PlayerState.Ready ?: return@launch
+                val success = state.sources.map {
+                    if (it.id == sourceId) it.copy(status = SourceStatus.SUCCESS, codec = candidate.variants.firstOrNull()?.codec.orEmpty()) else it
+                }
+                sources.clear(); sources.addAll(success)
+                _state.value = state.copy(sources = success, candidates = state.candidates + (sourceId to candidate))
+            }.onFailure {
+                val state = _state.value as? PlayerState.Ready ?: return@onFailure
+                val failed = state.sources.map { if (it.id == sourceId) it.copy(status = SourceStatus.FAILED) else it }
+                sources.clear(); sources.addAll(failed)
+                _state.value = state.copy(sources = failed, candidates = state.candidates - sourceId)
             }
         }
     }
@@ -897,9 +901,56 @@ class PlayerViewModel @Inject constructor(
     fun confirmManualSourceSelection(sourceId: String) {
         val current = _state.value as? PlayerState.ManualSourceSelection ?: return
         val candidate = current.candidates[sourceId] ?: return
-        _state.value = candidate.copy(sources = current.sources)
+        _state.value = readyStateFromCandidate(candidate, current.sources, current.candidates)
         if (settings.value.subtitlesEnabled && candidate.subtitles.isNotEmpty()) {
             downloadAndParseSubtitles(candidate.subtitles)
+        }
+    }
+
+    fun applyProbedSource(sourceId: String) {
+        val current = _state.value as? PlayerState.Ready ?: return
+        val candidate = current.candidates[sourceId] ?: return
+        _state.value = readyStateFromCandidate(candidate, current.sources, current.candidates)
+        if (settings.value.subtitlesEnabled && candidate.subtitles.isNotEmpty()) {
+            downloadAndParseSubtitles(candidate.subtitles)
+        }
+    }
+
+    private fun readyStateFromCandidate(
+        candidate: ResolvedSourceCandidate,
+        sourceStates: List<SourceResult>,
+        candidates: Map<String, ResolvedSourceCandidate>,
+    ) = PlayerState.Ready(
+        streamUrl = candidate.streamUrl,
+        headers = candidate.headers,
+        subtitles = candidate.subtitles,
+        sources = sourceStates,
+        sourceId = candidate.sourceId,
+        variants = candidate.variants,
+        candidates = candidates,
+    )
+
+    private suspend fun resolveSourceCandidate(sourceId: String): Result<ResolvedSourceCandidate> = runCatching {
+        val media = buildPluginMediaRequest()
+        when (val result = pluginManager.resolve(media, sourceId)) {
+            is StreamResult.NotFound -> error("Not available")
+            is StreamResult.Error -> error(result.message.ifBlank { "Failed to probe source" })
+            is StreamResult.Success -> {
+                val subtitles = result.captions.map { it.toSubtitleTrack() }.toMutableList()
+                fetchExternalSubtitles(subtitles)
+                val variants = result.variants.map { v ->
+                    StreamVariant(id = v.id, name = v.name, quality = v.quality, codec = v.codec, tag = v.tag, streamUrl = v.streamUrl, requiresRefreshOnSwitch = v.requiresRefreshOnSwitch)
+                }
+                val initialUrl = preferredInitialVariantUrl(sourceId, result.streamUrl, variants)
+                logVariantSelection(result.streamUrl, initialUrl, variants)
+                ResolvedSourceCandidate(
+                    streamUrl = initialUrl,
+                    headers = result.headers,
+                    subtitles = subtitles,
+                    sourceId = sourceId,
+                    variants = variants,
+                )
+            }
         }
     }
 
