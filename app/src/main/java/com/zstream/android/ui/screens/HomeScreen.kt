@@ -1971,7 +1971,17 @@ private fun MediaCarouselSection(
         ) {
             items(section.items) { media ->
                 val progress = progressMap[media.id.toString()]
-                val progressInfo = progress?.let { getProgressInfo(it) }
+                val progressInfo = progress?.let { entry ->
+                    val watched = entry.watched.toFloat()
+                    val duration = entry.duration.toFloat()
+                    if (watched <= 0f || duration <= 0f) null
+                    else {
+                        val percentage = (watched / duration * 100f).coerceIn(0f, 100f)
+                        if (percentage >= 95f) null else percentage to if (entry.type == "show" && entry.seasonNumber != null && entry.episodeNumber != null) {
+                            "S${entry.seasonNumber} - E${entry.episodeNumber}"
+                        } else null
+                    }
+                }
                 Box(
                     modifier = if (isTv) Modifier.onFocusChanged { if (it.hasFocus) viewMoreWasLastFocused = false } else Modifier
                 ) {
@@ -2103,26 +2113,36 @@ private fun MediaGridRow(
     ) {
         rowItems.forEachIndexed { index, media ->
             val progress = progressMap[media.id.toString()]
-            val progressInfo = progress?.let { getProgressInfo(it) }
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .focusProperties {
-                            if (previousPageFocusRequester != null && index == 0) left = previousPageFocusRequester
-                            if (nextPageFocusRequester != null && index == rowItems.lastIndex) right = nextPageFocusRequester
-                        }
-                ) {
-                    MediaCard(
-                        media = media,
-                        onClick = {
-                            if (editable && isTv) tvEditMediaId = media.id
-                            else nav.navigate("detail/${media.type}/${media.id}")
-                        },
-                        percentage = progressInfo?.first,
-                        seriesLabel = progressInfo?.second
-                        , editOverlay = editable
-                    )
-                    if (editable && onRemoveItem != null && !isTv) {
+            val progressInfo = progress?.let { entry ->
+                val watched = entry.watched.toFloat()
+                val duration = entry.duration.toFloat()
+                if (watched <= 0f || duration <= 0f) null
+                else {
+                    val percentage = (watched / duration * 100f).coerceIn(0f, 100f)
+                    if (percentage >= 95f) null else percentage to if (entry.type == "show" && entry.seasonNumber != null && entry.episodeNumber != null) {
+                        "S${entry.seasonNumber} - E${entry.episodeNumber}"
+                    } else null
+                }
+            }
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .focusProperties {
+                        if (previousPageFocusRequester != null && index == 0) left = previousPageFocusRequester
+                        if (nextPageFocusRequester != null && index == rowItems.lastIndex) right = nextPageFocusRequester
+                    }
+            ) {
+                MediaCard(
+                    media = media,
+                    onClick = {
+                        if (editable && isTv) tvEditMediaId = media.id
+                        else nav.navigate("detail/${media.type}/${media.id}")
+                    },
+                    percentage = progressInfo?.first,
+                    seriesLabel = progressInfo?.second,
+                    editOverlay = editable
+                )
+                if (editable && onRemoveItem != null && !isTv) {
                         if (onEditItem != null) {
                             Box(
                             modifier = Modifier
@@ -2384,20 +2404,6 @@ private fun LazyListScope.MediaGridPages(
             }
         }
     }
-}
-
-/**
- * Compute progress bar percentage and optional SE label from a ProgressEntity.
- * Returns null if progress should not be shown (not started, completed >95%, no duration).
- */
-private fun getProgressInfo(p: ProgressEntity): Pair<Float, String?>? {
-    if (p.watched <= 0 || p.duration <= 0) return null
-    val percentage = ((p.watched.toFloat() / p.duration) * 100f).coerceIn(0f, 100f)
-    if (percentage >= 95f) return null
-    val seriesLabel = if (p.type == "show" && p.seasonNumber != null && p.episodeNumber != null) {
-        "S${p.seasonNumber} - E${p.episodeNumber}"
-    } else null
-    return percentage to seriesLabel
 }
 
 @Composable
