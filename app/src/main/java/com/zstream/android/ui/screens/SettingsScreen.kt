@@ -1679,7 +1679,8 @@ private fun SubtitlePreview(settings: SettingsEntity, theme: ZStreamTheme, vm: S
             Modifier
                 .fillMaxWidth()
                 .align(Alignment.BottomCenter)
-                .padding(bottom = (12 + settings.subtitleVerticalPosition * 4.5f).dp)
+                .padding(bottom = 12.dp)
+                .offset(y = (-settings.subtitleVerticalPosition * 4.5f).dp)
                 .padding(horizontal = 24.dp)
         ) {
             // Background blur layer (rendered behind text)
