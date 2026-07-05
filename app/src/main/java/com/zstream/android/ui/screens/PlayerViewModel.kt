@@ -54,6 +54,7 @@ enum class SourceStatus { IDLE, TRYING, SUCCESS, FAILED }
 data class SourceResult(val id: String, val status: SourceStatus, val codec: String = "")
 data class ResolvedSourceCandidate(
     val streamUrl: String,
+    val streamType: String,
     val headers: Map<String, String>,
     val subtitles: List<SubtitleTrack>,
     val sourceId: String,
@@ -91,6 +92,7 @@ sealed class PlayerState {
     ) : PlayerState()
     data class Ready(
         val streamUrl: String,
+        val streamType: String,
         val headers: Map<String, String>,
         val subtitles: List<SubtitleTrack>,
         val sources: List<SourceResult>,
@@ -121,6 +123,8 @@ data class StreamVariant(
     val codec: String,
     val tag: String,
     val streamUrl: String,
+    val streamType: String = "hls",
+    val headers: Map<String, String> = emptyMap(),
     val requiresRefreshOnSwitch: Boolean = false,
 ) {
     /** Label shown in the variant picker: e.g. "4K · HEVC · HDR", falls back to API name */
@@ -687,7 +691,7 @@ class PlayerViewModel @OptIn(UnstableApi::class)
                             fetchExternalSubtitles(subtitles)
 
                             val variants = result.variants.map { v ->
-                                StreamVariant(id = v.id, name = v.name, quality = v.quality, codec = v.codec, tag = v.tag, streamUrl = v.streamUrl, requiresRefreshOnSwitch = v.requiresRefreshOnSwitch)
+                                StreamVariant(id = v.id, name = v.name, quality = v.quality, codec = v.codec, tag = v.tag, streamUrl = v.streamUrl, streamType = v.streamType, headers = v.headers, requiresRefreshOnSwitch = v.requiresRefreshOnSwitch)
                             }
                             // If the user had requested a specific variant,
                             // pick it from the freshly-resolved URLs rather than defaulting to the first one.
@@ -697,10 +701,12 @@ class PlayerViewModel @OptIn(UnstableApi::class)
                             desiredVariantName = null
                             val initialUrl = wantedVariant?.streamUrl
                                 ?: preferredInitialVariantUrl(source.id, result.streamUrl, variants)
+                            val initialVariant = variants.firstOrNull { it.streamUrl == initialUrl }
                             logVariantSelection(result.streamUrl, initialUrl, variants)
                             _state.value = PlayerState.Ready(
                                 streamUrl  = initialUrl,
-                                headers    = result.headers,
+                                streamType = wantedVariant?.streamType ?: initialVariant?.streamType ?: result.streamType,
+                                headers    = wantedVariant?.headers?.takeIf { it.isNotEmpty() } ?: initialVariant?.headers?.takeIf { it.isNotEmpty() } ?: result.headers,
                                 subtitles  = subtitles,
                                 sources    = success,
                                 sourceId   = source.id,
@@ -837,6 +843,7 @@ class PlayerViewModel @OptIn(UnstableApi::class)
         }
         desiredVariantName = variant.name
         _state.value = current.copy(streamUrl = variant.streamUrl)
+            .copy(streamType = variant.streamType, headers = if (variant.headers.isNotEmpty()) variant.headers else current.headers)
     }
 
     fun onPlaybackError(
@@ -1024,6 +1031,7 @@ class PlayerViewModel @OptIn(UnstableApi::class)
         candidates: Map<String, ResolvedSourceCandidate>,
     ) = PlayerState.Ready(
         streamUrl = candidate.streamUrl,
+        streamType = candidate.streamType,
         headers = candidate.headers,
         subtitles = candidate.subtitles,
         sources = sourceStates,
@@ -1048,13 +1056,15 @@ class PlayerViewModel @OptIn(UnstableApi::class)
                 val subtitles = result.captions.map { it.toSubtitleTrack() }.toMutableList()
                 fetchExternalSubtitles(subtitles)
                 val variants = result.variants.map { v ->
-                    StreamVariant(id = v.id, name = v.name, quality = v.quality, codec = v.codec, tag = v.tag, streamUrl = v.streamUrl, requiresRefreshOnSwitch = v.requiresRefreshOnSwitch)
+                    StreamVariant(id = v.id, name = v.name, quality = v.quality, codec = v.codec, tag = v.tag, streamUrl = v.streamUrl, streamType = v.streamType, headers = v.headers, requiresRefreshOnSwitch = v.requiresRefreshOnSwitch)
                 }
                 val initialUrl = preferredInitialVariantUrl(sourceId, result.streamUrl, variants)
+                val initialVariant = variants.firstOrNull { it.streamUrl == initialUrl }
                 logVariantSelection(result.streamUrl, initialUrl, variants)
                 ResolvedSourceCandidate(
                     streamUrl = initialUrl,
-                    headers = result.headers,
+                    streamType = initialVariant?.streamType ?: result.streamType,
+                    headers = initialVariant?.headers?.takeIf { it.isNotEmpty() } ?: result.headers,
                     subtitles = subtitles,
                     sourceId = sourceId,
                     variants = variants,
