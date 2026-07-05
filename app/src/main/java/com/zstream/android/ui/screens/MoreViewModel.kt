@@ -7,6 +7,7 @@ import com.zstream.android.data.BookmarkRepository
 import com.zstream.android.data.ProgressRepository
 import com.zstream.android.data.TmdbRepository
 import com.zstream.android.data.local.entity.BookmarkEntity
+import com.zstream.android.data.local.entity.ProgressEntity
 import com.zstream.android.data.model.Media
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -24,6 +25,7 @@ data class MoreState(
     val canLoadMore: Boolean = false,
     val error: String? = null,
     val bookmarks: Map<String, BookmarkEntity> = emptyMap(),
+    val progressMap: Map<String, ProgressEntity> = emptyMap(),
     val editable: Boolean = false,
     val bookmarkSection: Boolean = false,
 )
@@ -56,18 +58,25 @@ class MoreViewModel @Inject constructor(
     private fun observeSource() {
         viewModelScope.launch {
             when (sourceName) {
-                MediaSectionSource.ContinueWatching.name -> progressRepo.observeAllProgress().collectLatest { progress ->
-                    fullItems = progress.toContinueWatchingResult().media
-                    refreshFromSource()
-                }
-                MediaSectionSource.Bookmarks.name -> bookmarkRepo.observeAllBookmarks().collectLatest { bookmarks ->
-                    fullItems = bookmarks.toBookmarkMedia()
-                    _state.value = _state.value.copy(bookmarks = bookmarks.associateBy { it.tmdbId })
-                    refreshFromSource()
-                }
-                MediaSectionSource.BookmarkGroup.name -> bookmarkRepo.observeAllBookmarks().collectLatest { bookmarks ->
-                    fullItems = bookmarks.filter { groupKey in it.groups.orEmpty() }.toBookmarkMedia()
-                    _state.value = _state.value.copy(bookmarks = bookmarks.associateBy { it.tmdbId })
+                MediaSectionSource.ContinueWatching.name,
+                MediaSectionSource.Bookmarks.name,
+                MediaSectionSource.BookmarkGroup.name,
+                -> kotlinx.coroutines.flow.combine(
+                    progressRepo.observeAllProgress(),
+                    bookmarkRepo.observeAllBookmarks(),
+                ) { progress, bookmarks ->
+                    progress to bookmarks
+                }.collectLatest { (progress, bookmarks) ->
+                    fullItems = when (sourceName) {
+                        MediaSectionSource.ContinueWatching.name -> progress.toContinueWatchingResult().media
+                        MediaSectionSource.Bookmarks.name -> bookmarks.toBookmarkMedia()
+                        MediaSectionSource.BookmarkGroup.name -> bookmarks.filter { groupKey in it.groups.orEmpty() }.toBookmarkMedia()
+                        else -> emptyList()
+                    }
+                    _state.value = _state.value.copy(
+                        progressMap = progress.toProgressMapByTmdbId(),
+                        bookmarks = bookmarks.associateBy { it.tmdbId },
+                    )
                     refreshFromSource()
                 }
                 else -> loadRemotePage(1)
@@ -223,6 +232,17 @@ class MoreViewModel @Inject constructor(
                 genreIds = null,
             )
         }
+
+    private fun List<ProgressEntity>.toProgressMapByTmdbId(): Map<String, ProgressEntity> =
+        groupBy { it.tmdbId }
+            .mapValues { (_, entries) ->
+                entries.maxWithOrNull(
+                    compareBy<ProgressEntity>(
+                        { if (it.duration > 0 && it.watched < it.duration * 0.95f) 1 else 0 },
+                        { it.updatedAt },
+                    )
+                ) ?: entries.first()
+            }
 
     companion object {
         private const val PAGE_SIZE = 24
