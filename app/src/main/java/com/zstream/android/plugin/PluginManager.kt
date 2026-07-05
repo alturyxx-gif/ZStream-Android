@@ -312,9 +312,9 @@ class PluginManager @Inject constructor(
         }
         return try {
             plugin.resolve(media, sourceId)
-        } catch (e: Exception) {
-            Log.e(TAG, "Plugin resolve threw unexpectedly: ${e.message}", e)
-            StreamResult.Error(e.message ?: "Plugin error")
+        } catch (t: Throwable) {
+            Log.e(TAG, "Plugin resolve threw unexpectedly: ${t.message}", t)
+            StreamResult.Error(t.message ?: "Plugin error")
         }
     }
 
