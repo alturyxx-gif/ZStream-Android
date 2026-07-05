@@ -685,6 +685,29 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                 val clipboardManager = LocalClipboardManager.current
 
                 val context = LocalContext.current
+                fun mimeTypeFor(streamType: String): String =
+                    if (streamType.equals("file", ignoreCase = true)) MimeTypes.VIDEO_MP4 else MimeTypes.APPLICATION_M3U8
+
+                fun mediaSourceFactory(headers: Map<String, String>) = DefaultMediaSourceFactory(
+                    CacheDataSource.Factory()
+                        .setCache(vm.playerCache)
+                        .setUpstreamDataSourceFactory(
+                            DefaultDataSource.Factory(
+                                context,
+                                DefaultHttpDataSource.Factory().setDefaultRequestProperties(headers),
+                            )
+                        )
+                        .setEventListener(object : EventListener {
+                            override fun onCachedBytesRead(cacheSizeBytes: Long, cachedBytesRead: Long) {
+                                Log.d("PlayerCache", "cachedBytesRead=$cachedBytesRead cacheSizeBytes=$cacheSizeBytes")
+                            }
+
+                            override fun onCacheIgnored(reason: Int) {
+                                Log.d("PlayerCache", "cacheIgnored reason=$reason")
+                            }
+                        })
+                )
+
                 val player = remember {
                     val subtitleConfigs = if (settings.enableNativeSubtitles) {
                         s.subtitles.mapNotNull { track ->
@@ -709,30 +732,12 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
 
                     val mediaItem = MediaItem.Builder()
                         .setUri(s.streamUrl)
-                        .setMimeType(MimeTypes.APPLICATION_M3U8)
+                        .setMimeType(mimeTypeFor(s.streamType))
                         .setSubtitleConfigurations(subtitleConfigs)
                         .build()
 
-                    val cacheDataSourceFactory = CacheDataSource.Factory()
-                        .setCache(vm.playerCache)
-                        .setUpstreamDataSourceFactory(
-                            DefaultDataSource.Factory(
-                                context,
-                                DefaultHttpDataSource.Factory().setDefaultRequestProperties(s.headers),
-                            )
-                        )
-                        .setEventListener(object : EventListener {
-                            override fun onCachedBytesRead(cacheSizeBytes: Long, cachedBytesRead: Long) {
-                                Log.d("PlayerCache", "cachedBytesRead=$cachedBytesRead cacheSizeBytes=$cacheSizeBytes")
-                            }
-
-                            override fun onCacheIgnored(reason: Int) {
-                                Log.d("PlayerCache", "cacheIgnored reason=$reason")
-                            }
-                        })
-
                     ExoPlayer.Builder(context).build().apply {
-                        setMediaSource(DefaultMediaSourceFactory(cacheDataSourceFactory).createMediaSource(mediaItem))
+                        setMediaSource(mediaSourceFactory(s.headers).createMediaSource(mediaItem))
                         videoScalingMode = androidx.media3.common.C.VIDEO_SCALING_MODE_SCALE_TO_FIT
                         addListener(object : androidx.media3.common.Player.Listener {
                             override fun onPlayerError(error: PlaybackException) {
@@ -796,7 +801,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                 }
 
                 // Re-load when the variant switches — streamUrl changes but player instance stays the same
-                LaunchedEffect(player, s.streamUrl) {
+                LaunchedEffect(player, s.streamUrl, s.streamType, s.headers) {
                     val current = player.currentMediaItem?.localConfiguration?.uri?.toString()
                     if (current == s.streamUrl) return@LaunchedEffect  // already playing this URL
                     val positionMs = player.currentPosition
@@ -804,12 +809,12 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     Log.d("PlaybackDebug", "switching stream variant/source")
                     val mediaItem = MediaItem.Builder()
                         .setUri(s.streamUrl)
-                        .setMimeType(MimeTypes.APPLICATION_M3U8)
+                        .setMimeType(mimeTypeFor(s.streamType))
                         .setSubtitleConfigurations(
                             player.currentMediaItem?.localConfiguration?.subtitleConfigurations.orEmpty()
                         )
                         .build()
-                    player.setMediaItem(mediaItem, positionMs)
+                    player.setMediaSource(mediaSourceFactory(s.headers).createMediaSource(mediaItem), positionMs)
                     player.prepare()
                     player.playWhenReady = shouldPlay
                 }
