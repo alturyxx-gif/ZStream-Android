@@ -502,12 +502,10 @@ fun ViewMoreCard(
     val isTv = LocalIsTv.current
     var isFocused by remember { mutableStateOf(false) }
 
-    // Matches MediaCardStandard's TV dimensions exactly
-    // 2 × cardWidth(120) + 1 × gap(12) = 252.dp
-    val cardWidth = 252.dp
     val chromeVm: AppChromeViewModel = androidx.hilt.navigation.compose.hiltViewModel()
     val useMinimalCards by chromeVm.useMinimalCards.collectAsState()
-    val cardHeight = if (useMinimalCards) 180.dp else 236.dp
+    val cardWidth = if (isTv) 240.dp else 220.dp
+    val cardHeight = if (useMinimalCards) 180.dp else if (isTv) 236.dp else 221.dp
 
     ZsOutlinedWrapper(
         visible = isFocused && isTv,
@@ -520,7 +518,7 @@ fun ViewMoreCard(
         modifier = modifier,
     ) {
         Box(
-            modifier = Modifier
+                modifier = Modifier
                 .width(cardWidth)
                 .focusRequester(focusRequester)
                 .onFocusChanged {

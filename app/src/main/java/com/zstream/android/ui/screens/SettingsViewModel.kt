@@ -154,6 +154,10 @@ class SettingsViewModel @Inject constructor(
         update { copy(enableMinimalCards = v) }
     }
 
+    fun setHomeSectionCarouselLimit(v: Int) {
+        update { copy(homeSectionCarouselLimit = v.coerceIn(1, 50)) }
+    }
+
     fun setForceCompactEpisodeView(v: Boolean) {
         update { copy(forceCompactEpisodeView = v) }
     }

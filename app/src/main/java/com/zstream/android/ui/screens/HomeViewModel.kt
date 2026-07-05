@@ -6,6 +6,7 @@ import com.zstream.android.data.TmdbRepository
 import com.zstream.android.data.BookmarkRepository
 import com.zstream.android.data.local.entity.BookmarkEntity
 import com.zstream.android.data.local.entity.ProgressEntity
+import com.zstream.android.data.local.entity.SettingsEntity
 import com.zstream.android.data.local.preferences.SettingsPreferences
 import com.zstream.android.data.local.preferences.UserPreferences
 import com.zstream.android.data.model.Media
@@ -45,7 +46,6 @@ enum class MediaSectionSource {
     EditorTv,
 }
 
-private const val CAROUSEL_SECTION_SIZE = 20
 private const val GRID_SECTION_SIZE = 24
 private const val DISCOVER_REPLACEMENT_RESERVE = 20
 
@@ -54,6 +54,7 @@ data class MediaSection(
     val items: List<Media>,
     val source: MediaSectionSource? = null,
     val groupKey: String? = null,
+    val totalItems: Int = items.size,
 )
 
 data class HomeState(
@@ -74,7 +75,10 @@ data class HomeState(
     val searchQuery: String = "",
     val loading: Boolean = true,
     val error: String? = null,
+    val continueWatchingLoading: Boolean = true,
+    val bookmarksLoading: Boolean = true,
     val enableCarouselView: Boolean = true,
+    val homeSectionCarouselLimit: Int = 20,
     val gridRows: Int = 2,
     val canLoadMore: Boolean = false,
     val initialFocusRequested: Boolean = false
@@ -93,12 +97,17 @@ data class HomeState(
             HomeTab.EDITOR -> editorSections
         }
         val seenIds = userSections.flatMap { it.items }.map { it.id }.toMutableSet()
-        val sectionSize = if (enableCarouselView) CAROUSEL_SECTION_SIZE else GRID_SECTION_SIZE
+        val sectionSize = if (enableCarouselView) homeSectionCarouselLimit else GRID_SECTION_SIZE
         return base.map { section ->
             val uniqueItems = section.items.filter { seenIds.add(it.id) }
             section.copy(items = uniqueItems.take(sectionSize))
         }.filter { it.items.isNotEmpty() }
     }
+}
+
+private fun MediaSection.limitForHomeCarousel(limit: Int): MediaSection {
+    if (items.size <= limit) return copy(totalItems = items.size)
+    return copy(items = items.take(limit), totalItems = items.size)
 }
 
 private fun normalizeGroupName(group: String): String {
@@ -110,6 +119,20 @@ private fun groupSortKey(group: String): String {
     val label = normalizeGroupName(group)
     return label.lowercase()
 }
+
+private data class Quadruple<A, B, C, D>(
+    val first: A,
+    val second: B,
+    val third: C,
+    val fourth: D,
+)
+
+private data class BookmarkStateInputs(
+    val bookmarks: List<BookmarkEntity>,
+    val settings: SettingsEntity,
+    val isSyncing: Boolean,
+    val traktSyncing: Boolean,
+)
 
 @HiltViewModel
 class HomeViewModel @Inject constructor(
@@ -198,6 +221,7 @@ class HomeViewModel @Inject constructor(
                     enableImageLogos = s.enableImageLogos,
                     enableLowPerformanceMode = s.enableLowPerformanceMode,
                     enableCarouselView = s.enableCarouselView,
+                    homeSectionCarouselLimit = s.homeSectionCarouselLimit,
                     gridRows = s.gridRows,
                 ) }
                 scheduleDiscoverReplenish()
@@ -207,20 +231,44 @@ class HomeViewModel @Inject constructor(
 
     private fun observeUserContent() {
         viewModelScope.launch {
-            progressRepo.observeAllProgress().collect { progress ->
+            combine(
+                progressRepo.observeAllProgress(),
+                settingsPrefs.settings,
+                progressRepo.isSyncing,
+                traktRepo.state,
+            ) { progress, settings, isSyncing, traktState ->
+                Quadruple(progress, settings, isSyncing, traktState.syncing)
+            }.collect { (progress, settings, isSyncing, traktSyncing) ->
                 val continueWatching = progress.toContinueWatchingResult()
+                val limitedSection = continueWatching.media
+                    .takeIf { it.isNotEmpty() }
+                    ?.let {
+                        MediaSection(
+                            "Continue Watching",
+                            it,
+                            MediaSectionSource.ContinueWatching,
+                        ).let { section ->
+                            if (settings.enableCarouselView) section.limitForHomeCarousel(settings.homeSectionCarouselLimit) else section
+                        }
+                    }
                 _state.update { it.copy(
                     progressMap = continueWatching.progressMap,
-                    continueWatching = if (continueWatching.media.isNotEmpty()) listOf(MediaSection("Continue Watching", continueWatching.media, MediaSectionSource.ContinueWatching)) else emptyList(),
+                    continueWatching = limitedSection?.let(::listOf) ?: emptyList(),
+                    continueWatchingLoading = continueWatching.media.isEmpty() && (isSyncing || traktSyncing),
                 ) }
                 scheduleDiscoverReplenish()
             }
         }
         
         viewModelScope.launch {
-            combine(bookmarkRepo.observeAllBookmarks(), settingsPrefs.settings) { bookmarks, settings ->
-                bookmarks to settings.groupOrder
-            }.collect { (bookmarkEntities, groupOrder) ->
+            combine(
+                bookmarkRepo.observeAllBookmarks(),
+                settingsPrefs.settings,
+                bookmarkRepo.isSyncing,
+                traktRepo.state,
+            ) { bookmarks, settings, isSyncing, traktState ->
+                BookmarkStateInputs(bookmarks, settings, isSyncing, traktState.syncing)
+            }.collect { (bookmarkEntities, settings, isSyncing, traktSyncing) ->
                 val bookmarks = bookmarkEntities
                 val bookmarkMedia = bookmarks.associateBy { it.tmdbId }.mapValues { (_, b) ->
                     Media(
@@ -256,26 +304,39 @@ class HomeViewModel @Inject constructor(
                     .flatMap { it.groups.orEmpty().asSequence() }
                     .distinct()
                     .toList()
-                val orderedGroups = groupOrder.filter { it in availableGroups } +
-                    availableGroups.filterNot { it in groupOrder }
+                val orderedGroups = settings.groupOrder.filter { it in availableGroups } +
+                    availableGroups.filterNot { it in settings.groupOrder }
 
                 val sectionsByGroup = buildMap<String, MediaSection> {
                     orderedGroups.forEach { group ->
                         grouped[group]?.takeIf { it.isNotEmpty() }?.let {
-                            put(group, MediaSection(group, it.sortedBy { media -> media.displayTitle.lowercase() }))
+                            val section = MediaSection(
+                                title = group,
+                                items = it.sortedBy { media -> media.displayTitle.lowercase() },
+                            )
+                            put(group, if (settings.enableCarouselView) section.limitForHomeCarousel(settings.homeSectionCarouselLimit) else section)
                         }
                     }
-                    if (regular.isNotEmpty()) put("bookmarks", MediaSection("My Bookmarks", regular, MediaSectionSource.Bookmarks))
+                    if (regular.isNotEmpty()) {
+                        val section = MediaSection("My Bookmarks", regular, MediaSectionSource.Bookmarks)
+                        put("bookmarks", if (settings.enableCarouselView) section.limitForHomeCarousel(settings.homeSectionCarouselLimit) else section)
+                    }
                 }
-                val sectionOrder = groupOrder.filter { it in sectionsByGroup } +
-                    sectionsByGroup.keys.filterNot { it in groupOrder }
+                val sectionOrder = settings.groupOrder.filter { it in sectionsByGroup } +
+                    sectionsByGroup.keys.filterNot { it in settings.groupOrder }
                 val sections = sectionOrder.mapNotNull { key ->
                     sectionsByGroup[key]?.let { section ->
                         if (key.startsWith("[")) section.copy(source = MediaSectionSource.BookmarkGroup, groupKey = key) else section
                     }
                 }
 
-                _state.update { it.copy(bookmarks = sections, bookmarkEntities = bookmarkEntities.associateBy { it.tmdbId }) }
+                _state.update {
+                    it.copy(
+                        bookmarks = sections,
+                        bookmarkEntities = bookmarkEntities.associateBy { entity -> entity.tmdbId },
+                        bookmarksLoading = sections.isEmpty() && (isSyncing || traktSyncing),
+                    )
+                }
                 scheduleDiscoverReplenish()
             }
         }
@@ -357,7 +418,7 @@ class HomeViewModel @Inject constructor(
         replenishDiscoverJob?.cancel()
         replenishDiscoverJob = viewModelScope.launch {
             val userIds = _state.value.userSections.flatMapTo(mutableSetOf()) { section -> section.items.map { it.id } }
-            val target = if (_state.value.enableCarouselView) CAROUSEL_SECTION_SIZE else GRID_SECTION_SIZE
+            val target = if (_state.value.enableCarouselView) _state.value.homeSectionCarouselLimit else GRID_SECTION_SIZE
             val (movies, tv, editor) = supervisorScope {
                 val movies = async { replenishSections(_state.value.movieSections, userIds, target) }
                 val tv = async { replenishSections(_state.value.tvSections, userIds, target) }

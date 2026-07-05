@@ -7,6 +7,8 @@ import com.zstream.android.data.local.entity.BookmarkEntity
 import com.zstream.android.data.remote.BackendApi
 import com.zstream.android.data.remote.BookmarkInput
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -22,6 +24,9 @@ class BookmarkRepository @Inject constructor(
     private val traktRepo: TraktRepository,
     private val settingsPrefs: com.zstream.android.data.local.preferences.SettingsPreferences,
 ) {
+    private val _isSyncing = MutableStateFlow(false)
+    val isSyncing: StateFlow<Boolean> = _isSyncing
+
     /**
      * Get bookmark from local cache
      */
@@ -331,6 +336,7 @@ class BookmarkRepository @Inject constructor(
      * Fetch all bookmarks from remote and update local cache
      */
     suspend fun syncFromRemote() {
+        _isSyncing.value = true
         try {
             val session = accountRepo.currentSession ?: run {
                 Log.w(TAG, "No active session for remote sync")
@@ -403,6 +409,8 @@ class BookmarkRepository @Inject constructor(
             Log.d(TAG, "Synced ${updatedEntities.size} bookmarks from remote, removed ${stale.size} stale")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to sync bookmarks from remote", e)
+        } finally {
+            _isSyncing.value = false
         }
     }
 }

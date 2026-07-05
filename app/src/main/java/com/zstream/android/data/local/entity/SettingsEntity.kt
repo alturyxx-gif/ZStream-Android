@@ -20,6 +20,7 @@ data class SettingsEntity(
     val enableCarouselView: Boolean = true,
     val gridRows: Int = 2,
     val enableMinimalCards: Boolean = false,
+    val homeSectionCarouselLimit: Int = 20,
     val enableLowPerformanceMode: Boolean = false,
     val enablePauseOverlay: Boolean = true,
 
