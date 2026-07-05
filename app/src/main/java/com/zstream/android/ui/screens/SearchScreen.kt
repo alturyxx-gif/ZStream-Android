@@ -133,7 +133,7 @@ fun SearchScreenTV(nav: NavController, vm: SearchViewModel) {
                 var isSearchBarFocused by remember { mutableStateOf(false) }
                 ZsOutlinedWrapper(
                     visible = isSearchBarFocused,
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(20.dp),
                     outlineColor = theme.colors.global.accentA.copy(alpha = 0.6f),
                     gap = 4.dp
                 ) {

@@ -31,6 +31,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import com.zstream.android.theme.LocalZStreamTheme
 import com.zstream.android.data.local.entity.BookmarkEntity
+import com.zstream.android.data.local.entity.ProgressEntity
 import com.zstream.android.ui.LocalIsTv
 import com.zstream.android.ui.components.themed.ZsButton
 import com.zstream.android.ui.components.themed.ZsButtonVariant
@@ -147,6 +148,8 @@ fun MoreScreen(
                         verticalArrangement = Arrangement.spacedBy(14.dp),
                     ) {
                         itemsIndexed(state.media, key = { index, media -> "$index-${media.type}-${media.id}" }) { _, media ->
+                            val progress = state.progressMap[media.id.toString()]
+                            val progressInfo = progress?.let { getProgressInfo(it) }
                             Box {
                                 MediaCard(
                                     media = media,
@@ -154,6 +157,8 @@ fun MoreScreen(
                                         if (editing && isTv) tvEditMediaId = media.id
                                         else nav.navigate("detail/${media.type}/${media.id}")
                                     },
+                                    percentage = progressInfo?.first,
+                                    seriesLabel = progressInfo?.second,
                                     editOverlay = editing,
                                 )
                                 if (editing && !isTv) {
@@ -230,6 +235,16 @@ fun MoreScreen(
             )
         }
     }
+}
+
+private fun getProgressInfo(p: ProgressEntity): Pair<Float, String?>? {
+    val duration = p.duration.takeIf { it > 0 } ?: return null
+    val percentage = (p.watched.toFloat() / duration.toFloat()) * 100f
+    if (percentage >= 95f) return null
+    val seriesLabel = if (p.type == "show" && p.seasonNumber != null && p.episodeNumber != null) {
+        "S${p.seasonNumber} - E${p.episodeNumber}"
+    } else null
+    return percentage to seriesLabel
 }
 
 @Composable
