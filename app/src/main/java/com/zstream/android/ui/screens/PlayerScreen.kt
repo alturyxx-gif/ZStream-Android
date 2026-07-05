@@ -69,6 +69,7 @@ import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.*
@@ -1925,6 +1926,14 @@ private fun PlayerControls(
     var doubleTapSeekDirection by remember { mutableStateOf<DoubleTapSeekDirection?>(null) }
     var doubleTapSeekAnimationId by remember { mutableIntStateOf(0) }
     var captionLanguage by remember { mutableStateOf<String?>(null) }
+    var showSpeedIndicator by remember { mutableStateOf(false) }
+    var isSpeedBoosted by remember { mutableStateOf(false) }
+    var boostedPreviousSpeed by remember { mutableFloatStateOf(1f) }
+    var speedIndicatorHideJob by remember { mutableStateOf<Job?>(null) }
+    val currentControlsVisible = rememberUpdatedState(controlsVisible)
+    val currentMenuOpen = rememberUpdatedState(menuOpen)
+    val currentShowInfoSheet = rememberUpdatedState(showInfoSheet)
+    val currentIsSpeedBoosted = rememberUpdatedState(isSpeedBoosted)
 
     DisposableEffect(player) {
         val listener = object : Player.Listener {
@@ -2008,7 +2017,34 @@ private fun PlayerControls(
     var hasPlaybackStarted by remember { mutableStateOf(false) }
     var pauseOverlayVisible by remember { mutableStateOf(false) }
 
-    LaunchedEffect(playWhenReady, playbackState, menuOpen, showInfoSheet) {
+    fun showSpeedOverlay(boosted: Boolean, autoHide: Boolean) {
+        speedIndicatorHideJob?.cancel()
+        isSpeedBoosted = boosted
+        showSpeedIndicator = true
+        if (autoHide) {
+            speedIndicatorHideJob = scope.launch {
+                delay(1500)
+                showSpeedIndicator = false
+            }
+        } else {
+            speedIndicatorHideJob = null
+        }
+    }
+
+    fun stopTemporarySpeedBoost() {
+        if (!isSpeedBoosted) return
+        player.playbackParameters = PlaybackParameters(boostedPreviousSpeed)
+        playbackSpeed = boostedPreviousSpeed
+        showSpeedOverlay(boosted = false, autoHide = true)
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            speedIndicatorHideJob?.cancel()
+        }
+    }
+
+    LaunchedEffect(playWhenReady, playbackState, menuOpen, showInfoSheet, playbackErrorActive) {
         if (playbackState == Player.STATE_READY && (playWhenReady || player.currentPosition > 0L)) {
             hasPlaybackStarted = true
         }
@@ -2019,7 +2055,8 @@ private fun PlayerControls(
                 playbackState == Player.STATE_READY &&
                 settings.enablePauseOverlay &&
                 !menuOpen &&
-                !showInfoSheet
+                !showInfoSheet &&
+                !playbackErrorActive
 
         pauseOverlayVisible = false
         if (shouldDelayOverlay) {
@@ -2030,7 +2067,8 @@ private fun PlayerControls(
                 playbackState == Player.STATE_READY &&
                 settings.enablePauseOverlay &&
                 !menuOpen &&
-                !showInfoSheet
+                !showInfoSheet &&
+                !playbackErrorActive
             ) {
                 pauseOverlayVisible = true
             }
@@ -2066,36 +2104,45 @@ private fun PlayerControls(
             } else {
                 Modifier.pointerInput(
                     menuOpen,
-                    controlsVisible,
                     durationMs,
                     roomCode,
-                    playbackSpeed,
                     settings.enableHoldToBoost,
                     enableDoubleTapToSeek,
                 ) {
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
+                        val canHoldToBoost =
+                            settings.enableHoldToBoost &&
+                                roomCode == null &&
+                                player.isPlaying &&
+                                !currentMenuOpen.value &&
+                                !currentShowInfoSheet.value
 
-                        val up = withTimeoutOrNull(300L) {
+                        var boostActivated = false
+                        val boostJob = if (canHoldToBoost) {
+                            scope.launch {
+                                delay(300L)
+                                boostedPreviousSpeed = player.playbackParameters.speed
+                                boostActivated = true
+                                onControlsVisibilityChanged(false)
+                                player.playbackParameters = PlaybackParameters(2f)
+                                playbackSpeed = 2f
+                                showSpeedOverlay(boosted = true, autoHide = false)
+                            }
+                        } else null
+
+                        val releaseChange = try {
                             waitForUpOrCancellation()
+                        } finally {
+                            boostJob?.cancel()
+                            if (boostActivated) stopTemporarySpeedBoost()
                         }
 
-                        if (
-                            up == null &&
-                            settings.enableHoldToBoost &&
-                            roomCode == null &&
-                            player.isPlaying
-                        ) {
-                            val previousSpeed = player.playbackParameters.speed
-                            player.playbackParameters = PlaybackParameters(2f)
-                            playbackSpeed = 2f
-                            waitForUpOrCancellation()
-                            player.playbackParameters = PlaybackParameters(previousSpeed)
-                            playbackSpeed = previousSpeed
+                        if (boostActivated) {
                             return@awaitEachGesture
                         }
 
-                        val release = up ?: return@awaitEachGesture
+                        val release = releaseChange ?: return@awaitEachGesture
                         val releaseTimeMs = release.uptimeMillis
                         val isDoubleTap = releaseTimeMs - lastTapTimeMs <= 250L
                         lastTapTimeMs = releaseTimeMs
@@ -2127,10 +2174,11 @@ private fun PlayerControls(
                                         doubleTapSeekAnimationId++
                                     }
 
-                                    !menuOpen -> onControlsVisibilityChanged(!controlsVisible)
+                                    !currentMenuOpen.value && !currentIsSpeedBoosted.value ->
+                                        onControlsVisibilityChanged(!currentControlsVisible.value)
                                 }
-                            } else if (!menuOpen) {
-                                onControlsVisibilityChanged(!controlsVisible)
+                            } else if (!currentMenuOpen.value && !currentIsSpeedBoosted.value) {
+                                onControlsVisibilityChanged(!currentControlsVisible.value)
                             }
 
                             return@awaitEachGesture
@@ -2139,8 +2187,8 @@ private fun PlayerControls(
                         pendingSingleTapJob?.cancel()
                         pendingSingleTapJob = scope.launch {
                             delay(250L)
-                            if (!menuOpen) {
-                                onControlsVisibilityChanged(!controlsVisible)
+                            if (!currentMenuOpen.value && !currentIsSpeedBoosted.value) {
+                                onControlsVisibilityChanged(!currentControlsVisible.value)
                             }
                         }
                     }
@@ -2167,6 +2215,12 @@ private fun PlayerControls(
                 },
             )
         }
+        SpeedIndicatorOverlay(
+            visible = showSpeedIndicator,
+            playbackSpeed = playbackSpeed,
+            isBoosted = isSpeedBoosted,
+            modifier = Modifier.align(Alignment.TopCenter)
+        )
         pauseMetadata?.let { metadata ->
             PauseOverlay(
                 metadata = metadata,
@@ -2267,7 +2321,7 @@ private fun PlayerControls(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(CENTER_ICON_SPACING)
                         ) {
-                            if (!isTv) {
+                            if (!isTv && !enableDoubleTapToSeek) {
                                 IconButton(onClick = {
                                     player.seekTo(
                                         (player.currentPosition - 10_000).coerceAtLeast(
@@ -2363,7 +2417,7 @@ private fun PlayerControls(
                                     )
                                 }
                             }
-                            if (!isTv) {
+                            if (!isTv && !enableDoubleTapToSeek) {
                                 IconButton(
                                     onClick = {
                                         player.seekTo(
@@ -2969,8 +3023,13 @@ private fun PlayerControls(
                         onSetVolumeBoost = onSetVolumeBoost,
                         onSetVideoScaleMode = onSetVideoScaleMode,
                         onSetPlaybackSpeed = { speed ->
+                            if (isSpeedBoosted) {
+                                speedIndicatorHideJob?.cancel()
+                                isSpeedBoosted = false
+                            }
                             player.playbackParameters = PlaybackParameters(speed)
                             playbackSpeed = speed
+                            showSpeedOverlay(boosted = false, autoHide = true)
                         },
                         onSelectQuality = { option ->
                             player.trackSelectionParameters = player.trackSelectionParameters
@@ -6412,6 +6471,59 @@ private fun PauseOverlay(
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SpeedIndicatorOverlay(
+    visible: Boolean,
+    playbackSpeed: Float,
+    isBoosted: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val theme = LocalZStreamTheme.current
+    val speedText = if (playbackSpeed % 1f == 0f) {
+        "${playbackSpeed.toInt()}x"
+    } else {
+        "${playbackSpeed}x"
+    }
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(animationSpec = tween(180)) + slideInVertically(
+            animationSpec = tween(180),
+            initialOffsetY = { -it / 2 }
+        ),
+        exit = fadeOut(animationSpec = tween(180)) + slideOutVertically(
+            animationSpec = tween(180),
+            targetOffsetY = { -it / 2 }
+        ),
+        modifier = modifier.padding(top = 16.dp)
+    ) {
+        Surface(
+            color = theme.colors.video.context.background.copy(alpha = 0.92f),
+            shape = RoundedCornerShape(8.dp),
+            border = BorderStroke(1.dp, theme.colors.video.context.background.copy(alpha = 0.92f)),
+            shadowElevation = 10.dp,
+        ) {
+            Row(
+                modifier = Modifier.padding(start = 16.dp, end = 24.dp, top = 12.dp, bottom = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Speed,
+                    contentDescription = null,
+                    tint = theme.colors.video.context.type.main,
+                    modifier = Modifier.size(24.dp)
+                )
+                Text(
+                    text = if (isBoosted) "2x" else speedText,
+                    color = theme.colors.video.context.type.main,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Normal,
+                )
             }
         }
     }
