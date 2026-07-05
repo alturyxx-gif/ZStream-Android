@@ -59,7 +59,7 @@ class DataSyncManager @Inject constructor(
      */
     suspend fun syncSettingsToRemote() {
         val session = accountRepo.currentSession ?: return
-        val settings = settingsPrefs.settings.first()
+        val settings = settingsPrefs.settings.first().let { it.copy(subtitleVerticalPosition = it.subtitleVerticalPosition.coerceAtLeast(0f)) }
         val body = settings.toSyncableJsonBody()
         Log.d(TAG, "Pushing settings to remote")
         val response = api.updateSettingsRaw(session.userId, "Bearer ${session.token}", body)

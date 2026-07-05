@@ -344,7 +344,7 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun setSubtitleVerticalPosition(pos: Float) {
-        update { copy(subtitleVerticalPosition = pos) }
+        update { copy(subtitleVerticalPosition = pos.coerceIn(-15f, 30f)) }
     }
 
     fun setSubtitleFontStyle(style: String) {

@@ -1528,14 +1528,6 @@ private fun AppearanceSection(
         }
 
         Spacer(Modifier.height(12.dp))
-        Text(
-            "Built-in themes imported from p-stream. Theme templates and screen migrations should consume these shared tokens instead of hardcoded colors.",
-            color = theme.colors.type.secondary,
-            fontSize = 12.sp,
-            lineHeight = 18.sp,
-            modifier = Modifier.padding(horizontal = 20.dp),
-        )
-        Spacer(Modifier.height(12.dp))
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1596,7 +1588,7 @@ private fun SubtitlePreview(settings: SettingsEntity, theme: ZStreamTheme, vm: S
                         change.consume()
                         val deltaDp = with(density) { dragAmount.y.toDp() }
                         val deltaVal = -deltaDp.value / 4.5f
-                        val newVal = (currentPosition.value + deltaVal).coerceIn(0f, 30f)
+                        val newVal = (currentPosition.value + deltaVal).coerceIn(-15f, 30f)
                         vm.setSubtitleVerticalPosition(newVal)
                     }
                 } else Modifier
@@ -1983,7 +1975,7 @@ private fun SubtitlesSettingsContent(
                         .clip(RoundedCornerShape(12.dp))
                         .background(theme.colors.settings.card.background)
                 ) {
-                    TvSliderRow("Vertical Position", settings.subtitleVerticalPosition, 0f, 30f, { "${it.toInt()}" }, { vm.setSubtitleVerticalPosition(it) }, theme)
+                    TvSliderRow("Vertical Position", settings.subtitleVerticalPosition, -15f, 30f, { "${it.toInt()}" }, { vm.setSubtitleVerticalPosition(it) }, theme)
                     HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                     TvSliderRow("Line Spacing", settings.subtitleLineHeight * 100, 100f, 250f, { "${it.toInt()}%" }, { vm.setSubtitleLineHeight(it / 100f) }, theme)
                 }
@@ -2170,7 +2162,7 @@ private fun SubtitlesSettingsContent(
                 Spacer(Modifier.height(8.dp))
                 SectionLabel("Layout", theme)
                 SettingsCard(theme) {
-                    SliderRow("Vertical Position", settings.subtitleVerticalPosition, 0f, 30f, { "${it.toInt()}" }, { vm.setSubtitleVerticalPosition(it) }, theme)
+                    SliderRow("Vertical Position", settings.subtitleVerticalPosition, -15f, 30f, { "${it.toInt()}" }, { vm.setSubtitleVerticalPosition(it) }, theme)
                     HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                     SliderRow("Line Spacing", settings.subtitleLineHeight * 100, 100f, 250f, { "${it.toInt()}%" }, { vm.setSubtitleLineHeight(it / 100f) }, theme)
                 }
