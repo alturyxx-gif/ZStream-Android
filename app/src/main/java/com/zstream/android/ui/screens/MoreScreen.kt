@@ -149,7 +149,17 @@ fun MoreScreen(
                     ) {
                         itemsIndexed(state.media, key = { index, media -> "$index-${media.type}-${media.id}" }) { _, media ->
                             val progress = state.progressMap[media.id.toString()]
-                            val progressInfo = progress?.let { getProgressInfo(it) }
+                            val progressInfo = progress?.let { entry ->
+                                val watched = entry.watched.toFloat()
+                                val duration = entry.duration.toFloat()
+                                if (watched <= 0f || duration <= 0f) null
+                                else {
+                                    val percentage = (watched / duration * 100f).coerceIn(0f, 100f)
+                                    if (percentage >= 95f) null else percentage to if (entry.type == "show" && entry.seasonNumber != null && entry.episodeNumber != null) {
+                                        "S${entry.seasonNumber} - E${entry.episodeNumber}"
+                                    } else null
+                                }
+                            }
                             Box {
                                 MediaCard(
                                     media = media,
@@ -235,16 +245,6 @@ fun MoreScreen(
             )
         }
     }
-}
-
-private fun getProgressInfo(p: ProgressEntity): Pair<Float, String?>? {
-    val duration = p.duration.takeIf { it > 0 } ?: return null
-    val percentage = (p.watched.toFloat() / duration.toFloat()) * 100f
-    if (percentage >= 95f) return null
-    val seriesLabel = if (p.type == "show" && p.seasonNumber != null && p.episodeNumber != null) {
-        "S${p.seasonNumber} - E${p.episodeNumber}"
-    } else null
-    return percentage to seriesLabel
 }
 
 @Composable
