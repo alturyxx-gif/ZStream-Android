@@ -126,6 +126,7 @@ import androidx.media3.common.C
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.datasource.cache.CacheDataSource
@@ -736,7 +737,10 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                         .setSubtitleConfigurations(subtitleConfigs)
                         .build()
 
-                    ExoPlayer.Builder(context).build().apply {
+                    ExoPlayer.Builder(
+                        context,
+                        DefaultRenderersFactory(context).setEnableDecoderFallback(true),
+                    ).build().apply {
                         setMediaSource(mediaSourceFactory(s.headers).createMediaSource(mediaItem))
                         videoScalingMode = androidx.media3.common.C.VIDEO_SCALING_MODE_SCALE_TO_FIT
                         addListener(object : androidx.media3.common.Player.Listener {
