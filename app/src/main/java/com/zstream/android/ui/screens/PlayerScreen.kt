@@ -216,8 +216,9 @@ private fun playerMenuCardFill(): Color = LocalZStreamTheme.current.colors.backg
 
 @Composable
 private fun playerMenuCardActiveFill(): Color = LocalZStreamTheme.current.colors.background.secondaryHover.copy(alpha = 0.7f)
-private val PLAYER_MENU_BOX_TILE_HEIGHT = 80.dp
+private val PLAYER_MENU_BOX_TILE_HEIGHT = 70.dp
 private val PLAYER_MENU_INNER_HORIZONTAL_PADDING = 14.dp
+private val PLAYER_MENU_INNER_TOP_PADDING = 0.dp
 private val PLAYER_MENU_INNER_BOTTOM_PADDING = 18.dp
 
 private data class PlayerMenuTileItem(
@@ -225,8 +226,8 @@ private data class PlayerMenuTileItem(
     val value: String,
     val onClick: () -> Unit,
 )
-private val MENU_PANEL_WIDTH = 343.dp
-private val MENU_PANEL_HEIGHT = 496.dp
+private val MENU_PANEL_WIDTH = 270.dp
+private val MENU_PANEL_HEIGHT = 470.dp
 private val OVERLAY_PANEL_SHAPE = RoundedCornerShape(16.dp)
 private val BOTTOM_BAR_MENU_BUTTON_SIZE = 42.dp
 private val BOTTOM_BAR_MENU_ICON_SIZE = 22.dp
@@ -247,61 +248,6 @@ private val SKIP_SEGMENT_BAR_COLORS = mapOf(
     "preview" to Color(0xBFEC4899),
 )
 
-private fun languageToFlag(code: String?): String {
-    if (code == null) return ""
-    val c = code.lowercase()
-    return when (c) {
-        "pirate" -> "🏴‍☠️"
-        "cat" -> "🐱"
-        "uwu" -> "🌸"
-        "minion" -> "🍌"
-        "tok" -> "⚪"
-        "futhark" -> "ᚠ"
-        "en" -> "🇺🇸"
-        "es", "sp", "ea" -> "🇪🇸"
-        "fr" -> "🇫🇷"
-        "de" -> "🇩🇪"
-        "it" -> "🇮🇹"
-        "pt" -> "🇵🇹"
-        "br", "po", "pb" -> "🇧🇷"
-        "hi" -> "🇮🇳"
-        "ja" -> "🇯🇵"
-        "ko" -> "🇰🇷"
-        "zh" -> "🇨🇳"
-        "zt" -> "🇹🇼"
-        "ru" -> "🇷🇺"
-        "ar" -> "🇸🇦"
-        "tr" -> "🇹🇷"
-        "vi" -> "🇻🇳"
-        "th" -> "🇹🇭"
-        "id" -> "🇮🇩"
-        "nl" -> "🇳🇱"
-        "pl" -> "🇵🇱"
-        "sv" -> "🇸🇪"
-        "da" -> "🇩🇰"
-        "fi" -> "🇫🇮"
-        "no" -> "🇳🇴"
-        "el" -> "🇬🇷"
-        "he" -> "🇮🇱"
-        "cs" -> "🇨🇿"
-        "hu" -> "🇭🇺"
-        "ro" -> "🇷🇴"
-        "uk" -> "🇺🇦"
-        "sq" -> "🇦🇱"
-        "sr" -> "🇷🇸"
-        "si" -> "🇱🇰"
-        "sl" -> "🇸🇮"
-        "fa" -> "🇮🇷"
-        else -> {
-            if (c.length == 2) {
-                val firstChar = Character.codePointAt(c, 0) - 0x61 + 0x1F1E6
-                val secondChar = Character.codePointAt(c, 1) - 0x61 + 0x1F1E6
-                String(Character.toChars(firstChar)) + String(Character.toChars(secondChar))
-            } else ""
-        }
-    }
-}
-
 private fun sourceStatusColor(theme: ZStreamTheme, status: SourceStatus): Color = when (status) {
     SourceStatus.IDLE -> theme.colors.type.dimmed
     SourceStatus.SUCCESS -> theme.colors.type.success
@@ -310,7 +256,9 @@ private fun sourceStatusColor(theme: ZStreamTheme, status: SourceStatus): Color 
 }
 
 private fun subtitleLanguageName(code: String): String =
-    java.util.Locale.forLanguageTag(code.replace('_', '-')).getDisplayLanguage(java.util.Locale.getDefault())
+    java.util.Locale.forLanguageTag(
+        normalizeSubtitleLanguageCode(code)?.replace('_', '-') ?: code.replace('_', '-')
+    ).getDisplayLanguage(java.util.Locale.getDefault())
         .takeIf { it.isNotBlank() && !it.equals(code, ignoreCase = true) }
         ?: code.ifBlank { "Unknown language" }
 
@@ -334,7 +282,10 @@ private fun SubtitleTrackBadges(track: SubtitleTrack) {
                     color = Color.White,
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
-                    modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(color).padding(horizontal = 5.dp),
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(color)
+                        .padding(horizontal = 5.dp),
                 )
             }
     }
@@ -541,7 +492,9 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
         }
     }
 
-    Box(Modifier.fillMaxSize().background(Color.Black)) {
+    Box(Modifier
+        .fillMaxSize()
+        .background(Color.Black)) {
         if (isInAppPip) {
             HomeScreen(
                 nav = nav,
@@ -558,13 +511,15 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                 .height(pipHeight)
                 .graphicsLayer {
                     translationX = pipExitProgress * screenWidthPx *
-                        if (settings.tvPipPosition.endsWith("start")) -1f else 1f
+                            if (settings.tvPipPosition.endsWith("start")) -1f else 1f
                     alpha = 1f - pipExitProgress
                 }
-                .then(if (compact) Modifier
+                .then(
+                    if (compact) Modifier
                     .clip(RoundedCornerShape(12.dp))
                     .clickable {
-                        if (settings.enableLowPerformanceMode) isInAppPip = false else isRestoringPip = true
+                        if (settings.enableLowPerformanceMode) isInAppPip =
+                            false else isRestoringPip = true
                     } else Modifier)
                 .background(Color.Black)
         ) {
@@ -1446,7 +1401,10 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                             .padding(
                                 start = if (isInPip) 20.dp else 48.dp,
                                 end = if (isInPip) 20.dp else 48.dp,
-                                bottom = if (isInPip) 18.dp else (48 + settings.subtitleVerticalPosition * 6f).dp + controlsBottom
+                                bottom = if (isInPip) 18.dp else 48.dp + controlsBottom
+                            )
+                            .offset(
+                                y = if (isInPip) (-8).dp else (settings.subtitleVerticalPosition * -6f).dp
                             ),
                         contentAlignment = Alignment.BottomCenter
                     ) {
@@ -2098,7 +2056,9 @@ private fun PlayerControls(
             if (playbackErrorActive) {
                 Modifier
             } else if (isTv) {
-                Modifier.clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) {
+                Modifier.clickable(
+                    indication = null,
+                    interactionSource = remember { MutableInteractionSource() }) {
                     if (!menuOpen) {
                         onControlsVisibilityChanged(!controlsVisible)
                     }
@@ -2148,13 +2108,21 @@ private fun PlayerControls(
                                 val oneThird = size.width / 3f
                                 when {
                                     release.position.x < oneThird -> {
-                                        player.seekTo((player.currentPosition - 10_000L).coerceAtLeast(0L))
+                                        player.seekTo(
+                                            (player.currentPosition - 10_000L).coerceAtLeast(
+                                                0L
+                                            )
+                                        )
                                         doubleTapSeekDirection = DoubleTapSeekDirection.Backward
                                         doubleTapSeekAnimationId++
                                     }
 
                                     release.position.x > oneThird * 2f -> {
-                                        player.seekTo((player.currentPosition + 10_000L).coerceAtMost(durationMs))
+                                        player.seekTo(
+                                            (player.currentPosition + 10_000L).coerceAtMost(
+                                                durationMs
+                                            )
+                                        )
                                         doubleTapSeekDirection = DoubleTapSeekDirection.Forward
                                         doubleTapSeekAnimationId++
                                     }
@@ -2332,7 +2300,10 @@ private fun PlayerControls(
                                     },
                                         modifier = Modifier
                                             .size(CENTER_BUTTON_SIZE)
-                                            .background(if (playBtnFocused) Color.White.copy(alpha = 0.2f) else Color.Transparent, CircleShape)
+                                            .background(
+                                                if (playBtnFocused) Color.White.copy(alpha = 0.2f) else Color.Transparent,
+                                                CircleShape
+                                            )
                                             .focusRequester(playFocusRequester)
                                             .focusProperties {
                                                 up = bookmarkFocusRequester;
@@ -2552,7 +2523,10 @@ private fun PlayerControls(
                                     onClick = { isMuted = !isMuted; player.volume = if (isMuted) 0f else 1f },
                                     modifier = Modifier
                                         .size(BOTTOM_BAR_BUTTON_SIZE)
-                                        .background(if (muteBtnFocused) Color.White.copy(alpha = 0.2f) else Color.Transparent, CircleShape)
+                                        .background(
+                                            if (muteBtnFocused) Color.White.copy(alpha = 0.2f) else Color.Transparent,
+                                            CircleShape
+                                        )
                                         .focusRequester(muteFocusRequester)
                                         .focusProperties {
                                             up =
@@ -2613,7 +2587,8 @@ private fun PlayerControls(
                                             .focusRequester(episodesFocusRequester)
                                             .onFocusChanged { episodesBtnFocused = it.isFocused }
                                             .focusProperties {
-                                                up = if (activeSkipSegments.isNotEmpty()) skipFocusRequester else playFocusRequester
+                                                up =
+                                                    if (activeSkipSegments.isNotEmpty()) skipFocusRequester else playFocusRequester
                                                 if (showInfoSheet || menuOpen) canFocus = false
                                             },
                                     )
@@ -2631,7 +2606,10 @@ private fun PlayerControls(
                                     menuSourceRequester = ccFocusRequester
                                 }, modifier = Modifier
                                     .size(BOTTOM_BAR_MENU_BUTTON_SIZE)
-                                    .background(if (ccBtnFocused) Color.White.copy(alpha = 0.2f) else Color.Transparent, CircleShape)
+                                    .background(
+                                        if (ccBtnFocused) Color.White.copy(alpha = 0.2f) else Color.Transparent,
+                                        CircleShape
+                                    )
                                     .focusRequester(ccFocusRequester)
                                     .focusProperties {
                                         up =
@@ -2663,7 +2641,10 @@ private fun PlayerControls(
                                     menuSourceRequester = settingsFocusRequester
                                 }, modifier = Modifier
                                     .size(BOTTOM_BAR_MENU_BUTTON_SIZE)
-                                    .background(if (settingsBtnFocused) Color.White.copy(alpha = 0.2f) else Color.Transparent, CircleShape)
+                                    .background(
+                                        if (settingsBtnFocused) Color.White.copy(alpha = 0.2f) else Color.Transparent,
+                                        CircleShape
+                                    )
                                     .focusRequester(settingsFocusRequester)
                                     .focusProperties {
                                         up =
@@ -2694,10 +2675,14 @@ private fun PlayerControls(
                                     },
                                     modifier = Modifier
                                         .size(BOTTOM_BAR_MENU_BUTTON_SIZE)
-                                        .background(if (pipBtnFocused) Color.White.copy(alpha = 0.2f) else Color.Transparent, CircleShape)
+                                        .background(
+                                            if (pipBtnFocused) Color.White.copy(alpha = 0.2f) else Color.Transparent,
+                                            CircleShape
+                                        )
                                         .focusRequester(pipFocusRequester)
                                         .focusProperties {
-                                            up = if (activeSkipSegments.isNotEmpty()) skipFocusRequester else playFocusRequester
+                                            up =
+                                                if (activeSkipSegments.isNotEmpty()) skipFocusRequester else playFocusRequester
                                             if (showInfoSheet || menuOpen) canFocus = false
                                         }
                                         .onFocusChanged { pipBtnFocused = it.isFocused }
@@ -2910,7 +2895,7 @@ private fun PlayerControls(
                     shadowElevation = 18.dp,
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
-                        .padding(end = 28.dp, bottom = 86.dp)
+                        .padding(top = 10.dp, end = 28.dp, bottom = 86.dp)
                         .widthIn(max = MENU_PANEL_WIDTH)
                         .heightIn(max = MENU_PANEL_HEIGHT)
                         .border(
@@ -3503,10 +3488,12 @@ private fun SkipSegmentOverlay(
                                             onSeekBack()
                                             true
                                         }
+
                                         android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> {
                                             onSeekFwd()
                                             true
                                         }
+
                                         else -> false
                                     }
                                 } else false
@@ -3679,7 +3666,7 @@ private fun PlayerMenuContent(
                             onClick = { onOpenPage(PlayerMenuPage.CaptionSettings) },
                             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
                         ) {
-                            Text("Customize", color = theme.colors.type.emphasis, fontSize = 14.sp)
+                            Text("Customize", color = theme.colors.type.text, fontSize = 14.sp)
                         }
                     }
                 } else null,
@@ -3690,7 +3677,7 @@ private fun PlayerMenuContent(
             transitionSpec = {
                 val forward = targetState.ordinal > initialState.ordinal
                 (slideInHorizontally { if (forward) it / 4 else -it / 4 } + fadeIn()) togetherWith
-                    (slideOutHorizontally { if (forward) -it / 4 else it / 4 } + fadeOut())
+                        (slideOutHorizontally { if (forward) -it / 4 else it / 4 } + fadeOut())
             },
             label = "playerMenuPage"
         ) { currentPage ->
@@ -3706,1034 +3693,1240 @@ private fun PlayerMenuContent(
                     .padding(
                         start = PLAYER_MENU_INNER_HORIZONTAL_PADDING,
                         end = PLAYER_MENU_INNER_HORIZONTAL_PADDING,
-                        top = 0.dp,
+                        top = PLAYER_MENU_INNER_TOP_PADDING,
                         bottom = PLAYER_MENU_INNER_BOTTOM_PADDING
                     )
+                    .offset(y = (-6).dp)
             ) {
-            when (currentPage) {
-                PlayerMenuPage.Root -> {
-                    PlayerMenuGridSection(
-                        firstItemFocusRequester = firstItemFocusRequester,
-                        items = listOf(
-                            PlayerMenuTileItem("Quality", selectedQualityLabel) { onOpenPage(PlayerMenuPage.Quality) },
-                            PlayerMenuTileItem("Source", sourceId?.replaceFirstChar { it.titlecase() }
-                                ?: "Auto") { onOpenPage(PlayerMenuPage.Sources) },
-                            PlayerMenuTileItem("Subtitles", selectedSubtitleLanguage?.let(::subtitleLanguageName) ?: "Off") { onOpenPage(PlayerMenuPage.Captions) },
-                            PlayerMenuTileItem("Audio", selectedAudioLabel) { onOpenPage(PlayerMenuPage.Audio) },
-                        )
-                    )
-                    PlayerMenuSection {
-                        PlayerMenuLinkRow("Download", rightIcon = Icons.Filled.Download) {
-                            onOpenPage(PlayerMenuPage.Download)
-                        }
-                        PlayerMenuLinkRow("Watch Party", rightIcon = Icons.Filled.Group) {
-                            onOpenPage(PlayerMenuPage.WatchParty)
-                        }
-                    }
-                    if (variants.size > 1) {
-                        PlayerMenuSection {
-                            val currentVariant = variants.find { it.streamUrl == streamUrl }
-                            PlayerMenuChevronRow(
-                                title = "Stream Variants",
-                                value = currentVariant?.displayLabel() ?: "${variants.size}",
-                            ) { onOpenPage(PlayerMenuPage.Variants) }
-                        }
-                    }
-                    PlayerMenuSection {
-                        PlayerMenuToggleRow("Enable subtitles", subtitlesEnabled, onToggle = onToggleSubtitles)
-                        PlayerMenuChevronRow("Playback") {
-                            onOpenPage(PlayerMenuPage.Playback)
-                        }
-                        PlayerMenuChevronRow("Skip Segments") {
-                            onOpenPage(PlayerMenuPage.SkipSegments)
-                        }
-                    }
-                }
-                PlayerMenuPage.Captions -> {
-                    PlayerMenuSection {
-                        PlayerMenuSelectableRow(
-                            title = "Off",
-                            selected = !subtitlesEnabled || selectedSubtitleLanguage == null,
-                            onClick = onDisableSubtitles,
-                            focusRequester = firstItemFocusRequester,
-                        )
-                        if (subtitleTracks.isNotEmpty()) {
-                            PlayerMenuSelectableRow(
-                                title = "Automatically select subtitles",
-                                subtitle = if (subtitlesEnabled) "Select a different subtitle" else null,
-                                selected = subtitlesEnabled && selectedSubtitleId != null,
-                                onClick = onAutoSelectSubtitle,
+                when (currentPage) {
+                    PlayerMenuPage.Root -> {
+                        PlayerMenuGridSection(
+                            firstItemFocusRequester = firstItemFocusRequester,
+                            items = listOf(
+                                PlayerMenuTileItem("Quality", selectedQualityLabel) {
+                                    onOpenPage(
+                                        PlayerMenuPage.Quality
+                                    )
+                                },
+                                PlayerMenuTileItem(
+                                    "Source",
+                                    sourceId?.replaceFirstChar { it.titlecase() }
+                                        ?: "Auto") { onOpenPage(PlayerMenuPage.Sources) },
+                                PlayerMenuTileItem(
+                                    "Subtitles",
+                                    selectedSubtitleLanguage?.let(::subtitleLanguageName) ?: "Off"
+                                ) { onOpenPage(PlayerMenuPage.Captions) },
+                                PlayerMenuTileItem("Audio", selectedAudioLabel) {
+                                    onOpenPage(
+                                        PlayerMenuPage.Audio
+                                    )
+                                },
                             )
-                        }
-                    }
-                    if (subtitleTracks.isEmpty()) {
-                        PlayerMenuStubCard("No subtitles were returned for this stream.")
-                    } else {
-                        val groups = subtitleTracks.groupBy { it.language }.entries.sortedWith(
-                            compareBy<Map.Entry<String, List<SubtitleTrack>>> {
-                                if (it.key == settings.applicationLanguage || it.key.startsWith("${settings.applicationLanguage}-")) 0 else 1
-                            }.thenBy { subtitleLanguageName(it.key) }
                         )
                         PlayerMenuSection {
-                            groups.forEach { (language, tracks) ->
+                            PlayerMenuLinkRow("Download", rightIcon = Icons.Filled.Download) {
+                                onOpenPage(PlayerMenuPage.Download)
+                            }
+                            PlayerMenuLinkRow("Watch Party", rightIcon = Icons.Filled.Group) {
+                                onOpenPage(PlayerMenuPage.WatchParty)
+                            }
+                        }
+                        if (variants.size > 1) {
+                            PlayerMenuSection {
+                                val currentVariant = variants.find { it.streamUrl == streamUrl }
                                 PlayerMenuChevronRow(
-                                    title = subtitleLanguageName(language),
-                                    value = tracks.size.toString(),
-                                    icon = languageToFlag(language),
-                                    onClick = { onOpenCaptionLanguage(language) },
+                                    title = "Stream Variants",
+                                    value = currentVariant?.displayLabel() ?: "${variants.size}",
+                                ) { onOpenPage(PlayerMenuPage.Variants) }
+                            }
+                        }
+                        PlayerMenuSection {
+                            PlayerMenuToggleRow(
+                                "Enable subtitles",
+                                subtitlesEnabled,
+                                onToggle = onToggleSubtitles
+                            )
+                            PlayerMenuChevronRow("Playback") {
+                                onOpenPage(PlayerMenuPage.Playback)
+                            }
+                            PlayerMenuChevronRow("Skip Segments") {
+                                onOpenPage(PlayerMenuPage.SkipSegments)
+                            }
+                        }
+                    }
+
+                    PlayerMenuPage.Captions -> {
+                        PlayerMenuSection {
+                            PlayerMenuSelectableRow(
+                                title = "Off",
+                                selected = !subtitlesEnabled || selectedSubtitleLanguage == null,
+                                onClick = onDisableSubtitles,
+                                focusRequester = firstItemFocusRequester,
+                            )
+                            if (subtitleTracks.isNotEmpty()) {
+                                PlayerMenuSelectableRow(
+                                    title = "Automatically select subtitles",
+                                    subtitle = if (subtitlesEnabled) "Select a different subtitle" else null,
+                                    selected = subtitlesEnabled && selectedSubtitleId != null,
+                                    onClick = onAutoSelectSubtitle,
+                                )
+                            }
+                        }
+                        if (subtitleTracks.isEmpty()) {
+                            PlayerMenuStubCard("No subtitles were returned for this stream.")
+                        } else {
+                            val groups = subtitleTracks.groupBy { it.language }.entries.sortedWith(
+                                compareBy<Map.Entry<String, List<SubtitleTrack>>> {
+                                    if (it.key == settings.applicationLanguage || it.key.startsWith(
+                                            "${settings.applicationLanguage}-"
+                                        )
+                                    ) 0 else 1
+                                }.thenBy { subtitleLanguageName(it.key) }
+                            )
+                            PlayerMenuSection {
+                                groups.forEach { (language, tracks) ->
+                                    PlayerMenuChevronRow(
+                                        title = subtitleLanguageName(language),
+                                        value = tracks.size.toString(),
+                                        icon = languageToFlag(language),
+                                        onClick = { onOpenCaptionLanguage(language) },
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    PlayerMenuPage.CaptionLanguage -> {
+                        val tracks =
+                            subtitleTracks.filter { it.language == captionLanguage }.sortedBy {
+                                when {
+                                    it.source?.contains("natsuki", true) == true -> 0
+                                    it.source?.contains("wyzie", true) == true -> 1
+                                    it.source?.contains("opensubs", true) == true -> 2
+                                    else -> 3
+                                }
+                            }
+                        PlayerMenuSection {
+                            tracks.forEachIndexed { index, track ->
+                                PlayerMenuSelectableRow(
+                                    title = track.label.ifBlank { "Subtitle ${index + 1}" },
+                                    selected = subtitlesEnabled && selectedSubtitleId == track.id,
+                                    onClick = { onSelectSubtitle(track.id) },
+                                    focusRequester = firstItemFocusRequester.takeIf { index == 0 },
+                                    rightContent = { SubtitleTrackBadges(track) },
+                                    icon = languageToFlag(track.language),
                                 )
                             }
                         }
                     }
-                }
-                PlayerMenuPage.CaptionLanguage -> {
-                    val tracks = subtitleTracks.filter { it.language == captionLanguage }.sortedBy {
-                        when {
-                            it.source?.contains("natsuki", true) == true -> 0
-                            it.source?.contains("wyzie", true) == true -> 1
-                            it.source?.contains("opensubs", true) == true -> 2
-                            else -> 3
-                        }
-                    }
-                    PlayerMenuSection {
-                        tracks.forEachIndexed { index, track ->
-                            PlayerMenuSelectableRow(
-                                title = track.label.ifBlank { "Subtitle ${index + 1}" },
-                                selected = subtitlesEnabled && selectedSubtitleId == track.id,
-                                onClick = { onSelectSubtitle(track.id) },
-                                focusRequester = firstItemFocusRequester.takeIf { index == 0 },
-                                rightContent = { SubtitleTrackBadges(track) },
-                                icon = languageToFlag(track.language),
-                            )
-                        }
-                    }
-                }
-                PlayerMenuPage.CaptionSettings -> {
-                    PlayerMenuSection {
-                        PlayerMenuToggleRow(
-                            title = "Use native video subtitles",
-                            checked = settings.enableNativeSubtitles,
-                            focusRequester = firstItemFocusRequester,
-                        ) { onUpdateSettings(settings.copy(enableNativeSubtitles = !settings.enableNativeSubtitles)) }
-                        PlayerMenuHintText("Uses the system subtitle renderer. Turn it off to customize subtitle appearance.")
-                    }
-                    if (!settings.enableNativeSubtitles) {
+
+                    PlayerMenuPage.CaptionSettings -> {
                         PlayerMenuSection {
-                            PlayerMenuSliderRow(
-                                label = "Subtitle delay",
-                                value = subtitleDelay,
-                                valueText = { "${if (it > 0f) "+" else ""}${"%.1f".format(it)}s" },
-                                range = -40f..40f,
-                                steps = 0,
-                                onValueChange = onSetSubtitleDelay,
-                                onReset = { onSetSubtitleDelay(0f) },
-                                isDefault = subtitleDelay == 0f,
-                                tickStep = 0.1f,
-                            )
-                            PlayerMenuToggleRow("Fix capitals", overrideCasing) {
-                                onSetOverrideCasing(!overrideCasing)
-                            }
-                            PlayerMenuSliderRow(
-                                label = "Background opacity",
-                                value = settings.subtitleBackgroundOpacity * 100f,
-                                valueText = { "${it.toInt()}%" },
-                                range = 0f..100f,
-                                steps = 0,
-                                onValueChange = { onUpdateSettings(settings.copy(subtitleBackgroundOpacity = it / 100f)) },
-                                onReset = { onUpdateSettings(settings.copy(subtitleBackgroundOpacity = .25f)) },
-                                isDefault = settings.subtitleBackgroundOpacity == .25f,
-                                tickStep = 5f,
-                            )
-                            PlayerMenuToggleRow("Background blur", settings.subtitleBackgroundBlurEnabled) {
-                                onUpdateSettings(settings.copy(subtitleBackgroundBlurEnabled = !settings.subtitleBackgroundBlurEnabled))
-                            }
-                            if (settings.subtitleBackgroundBlurEnabled) {
+                            PlayerMenuToggleRow(
+                                title = "Use native video subtitles",
+                                checked = settings.enableNativeSubtitles,
+                                focusRequester = firstItemFocusRequester,
+                            ) { onUpdateSettings(settings.copy(enableNativeSubtitles = !settings.enableNativeSubtitles)) }
+                        }
+                        if (!settings.enableNativeSubtitles) {
+                            PlayerMenuSection {
                                 PlayerMenuSliderRow(
-                                    label = "Blur amount",
-                                    value = settings.subtitleBackgroundBlur * 100f,
+                                    label = "Subtitle delay",
+                                    value = subtitleDelay,
+                                    valueText = { "${if (it > 0f) "+" else ""}${"%.1f".format(it)}s" },
+                                    range = -40f..40f,
+                                    steps = 0,
+                                    onValueChange = onSetSubtitleDelay,
+                                    onReset = { onSetSubtitleDelay(0f) },
+                                    isDefault = subtitleDelay == 0f,
+                                    tickStep = 0.1f,
+                                )
+                                PlayerMenuToggleRow("Fix capitals", overrideCasing) {
+                                    onSetOverrideCasing(!overrideCasing)
+                                }
+                                PlayerMenuSliderRow(
+                                    label = "Background opacity",
+                                    value = settings.subtitleBackgroundOpacity * 100f,
                                     valueText = { "${it.toInt()}%" },
                                     range = 0f..100f,
                                     steps = 0,
-                                    onValueChange = { onUpdateSettings(settings.copy(subtitleBackgroundBlur = it / 100f)) },
-                                    onReset = { onUpdateSettings(settings.copy(subtitleBackgroundBlur = .25f)) },
-                                    isDefault = settings.subtitleBackgroundBlur == .25f,
+                                    onValueChange = {
+                                        onUpdateSettings(
+                                            settings.copy(
+                                                subtitleBackgroundOpacity = it / 100f
+                                            )
+                                        )
+                                    },
+                                    onReset = {
+                                        onUpdateSettings(
+                                            settings.copy(
+                                                subtitleBackgroundOpacity = .25f
+                                            )
+                                        )
+                                    },
+                                    isDefault = settings.subtitleBackgroundOpacity == .25f,
                                     tickStep = 5f,
                                 )
-                            }
-                            PlayerMenuSliderRow(
-                                label = "Text size",
-                                value = settings.subtitleSize * 100f,
-                                valueText = { "${it.toInt()}%" },
-                                range = 1f..200f,
-                                steps = 0,
-                                onValueChange = { onUpdateSettings(settings.copy(subtitleSize = it / 100f)) },
-                                onReset = { onUpdateSettings(settings.copy(subtitleSize = .75f)) },
-                                isDefault = settings.subtitleSize == .75f,
-                                tickStep = 5f,
-                            )
-                            PlayerMenuFieldTitle("Font style")
-                            PlayerMenuSegmentedOptions(
-                                options = listOf("default" to "Default", "raised" to "Raised", "depressed" to "Inset"),
-                                selected = settings.subtitleFontStyle,
-                                onSelect = { onUpdateSettings(settings.copy(subtitleFontStyle = it)) },
-                            )
-                            PlayerMenuSegmentedOptions(
-                                options = listOf("Border" to "Border", "dropShadow" to "Shadow"),
-                                selected = settings.subtitleFontStyle,
-                                onSelect = { onUpdateSettings(settings.copy(subtitleFontStyle = it)) },
-                            )
-                            if (settings.subtitleFontStyle == "Border") {
-                                PlayerMenuSliderRow(
-                                    label = "Border thickness",
-                                    value = settings.subtitleBorderThickness,
-                                    valueText = { "${String.format("%.1f", it)}px" },
-                                    range = 0f..10f,
-                                    steps = 0,
-                                    onValueChange = { onUpdateSettings(settings.copy(subtitleBorderThickness = it)) },
-                                    onReset = { onUpdateSettings(settings.copy(subtitleBorderThickness = 1f)) },
-                                    isDefault = settings.subtitleBorderThickness == 1f,
-                                    tickStep = .5f,
-                                )
-                            }
-                            PlayerMenuToggleRow("Bold text", settings.subtitleBold) {
-                                onUpdateSettings(settings.copy(subtitleBold = !settings.subtitleBold))
-                            }
-                            PlayerMenuFieldTitle("Text color")
-                            PlayerMenuColorOptions(settings.subtitleColor) {
-                                onUpdateSettings(settings.copy(subtitleColor = it))
-                            }
-                            PlayerMenuSliderRow(
-                                label = "Vertical position",
-                                value = settings.subtitleVerticalPosition,
-                                valueText = { "${it.toInt()}rem" },
-                                range = 0f..30f,
-                                steps = 0,
-                                onValueChange = { onUpdateSettings(settings.copy(subtitleVerticalPosition = it)) },
-                                onReset = { onUpdateSettings(settings.copy(subtitleVerticalPosition = 0f)) },
-                                isDefault = settings.subtitleVerticalPosition == 0f,
-                                tickStep = 1f,
-                            )
-                            PlayerMenuSliderRow(
-                                label = "Line spacing",
-                                value = settings.subtitleLineHeight * 100f,
-                                valueText = { "${it.toInt()}%" },
-                                range = 100f..250f,
-                                steps = 0,
-                                onValueChange = { onUpdateSettings(settings.copy(subtitleLineHeight = it / 100f)) },
-                                onReset = { onUpdateSettings(settings.copy(subtitleLineHeight = 1.2f)) },
-                                isDefault = settings.subtitleLineHeight == 1.2f,
-                                tickStep = 5f,
-                            )
-                            ZsButton(
-                                text = "Reset",
-                                onClick = {
-                                    onUpdateSettings(settings.copy(
-                                        subtitleColor = "#ffffff",
-                                        subtitleSize = 1f,
-                                        subtitleBackgroundOpacity = 0f,
-                                        subtitleBackgroundBlur = 0f,
-                                        subtitleBackgroundBlurEnabled = false,
-                                        subtitleBold = false,
-                                        subtitleVerticalPosition = 0f,
-                                        subtitleFontStyle = "dropShadow",
-                                        subtitleBorderThickness = 1f,
-                                        subtitleLineHeight = 1.2f,
-                                        subtitleFont = "sans-serif-condensed",
-                                    ))
-                                },
-                                variant = ZsButtonVariant.Secondary,
-                                modifier = Modifier.fillMaxWidth(),
-                            )
-                        }
-                    }
-                }
-                PlayerMenuPage.Playback -> {
-                    PlayerMenuSection {
-                        PlayerMenuFieldTitle("Speed")
-                        Spacer(Modifier.height(12.dp))
-                        PlayerMenuSpeedOptions(
-                            playbackSpeed = playbackSpeed, 
-                            onSetPlaybackSpeed = onSetPlaybackSpeed,
-                            firstItemFocusRequester = firstItemFocusRequester
-                        )
-                    }
-                    PlayerMenuSection {
-                        PlayerMenuSliderRow(
-                            label = "Custom speed",
-                            value = playbackSpeed,
-                            valueText = { "${String.format("%.2f", it)}x" },
-                            range = PLAYBACK_SPEED_MIN..PLAYBACK_SPEED_MAX,
-                            steps = 0,
-                            onValueChange = { onSetPlaybackSpeed((it * 20).toInt() / 20f) },
-                            onReset = { onSetPlaybackSpeed(1f) },
-                            isDefault = playbackSpeed == 1f,
-                            tickStep = 0.05f,
-                        )
-                        PlayerMenuToggleRow("Autoplay next episode", settings.enableAutoplay) {
-                            onSetEnableAutoplay(!settings.enableAutoplay)
-                        }
-                        PlayerMenuSliderRow(
-                            label = "Brightness",
-                            value = settings.videoBrightness.toFloat(),
-                            valueText = { "${it.toInt()}%" },
-                            range = 10f..200f,
-                            steps = 0,
-                            onValueChange = { onSetVideoBrightness((it / 5).toInt() * 5) },
-                            onReset = { onSetVideoBrightness(100) },
-                            isDefault = settings.videoBrightness == 100
-                        )
-                        PlayerMenuToggleRow("Volume Boost", settings.volumeBoost > 100) {
-                            onSetVolumeBoost(if (settings.volumeBoost > 100) 100 else 150)
-                        }
-                        if (settings.volumeBoost > 100) {
-                            PlayerMenuSliderRow(
-                                label = "Boost level",
-                                value = settings.volumeBoost.toFloat(),
-                                valueText = { "${it.toInt()}%" },
-                                range = 100f..300f,
-                                steps = 0,
-                                onValueChange = { onSetVolumeBoost((it / 10).toInt() * 10) },
-                                onReset = { onSetVolumeBoost(100) },
-                                isDefault = settings.volumeBoost == 100
-                            )
-                        }
-                        PlayerMenuChevronRow("Advanced color", advancedColorSummary(settings)) {
-                            onOpenPage(PlayerMenuPage.AdvancedColor)
-                        }
-                        PlayerMenuFieldTitle("Video mode")
-                        Spacer(Modifier.height(12.dp))
-                        PlayerMenuSegmentedOptions(
-                            options = listOf("fit" to "Fit", "fill" to "Fill", "stretch" to "Stretch"),
-                            selected = settings.videoScaleMode,
-                            onSelect = onSetVideoScaleMode
-                        )
-                    }
-                }
-                PlayerMenuPage.AdvancedColor -> {
-                    PlayerMenuSection {
-                        PlayerMenuSliderRow(
-                            label = "Brightness",
-                            value = settings.videoBrightness.toFloat(),
-                            valueText = { "${it.toInt()}%" },
-                            range = 10f..200f,
-                            steps = 0,
-                            onValueChange = { onSetVideoBrightness((it / 5).toInt() * 5) },
-                            onReset = { onSetVideoBrightness(100) },
-                            isDefault = settings.videoBrightness == 100,
-                            focusRequester = firstItemFocusRequester
-                        )
-                        PlayerMenuSliderRow(
-                            label = "Contrast",
-                            value = settings.videoContrast.toFloat(),
-                            valueText = { "${it.toInt()}%" },
-                            range = 50f..200f,
-                            steps = 0,
-                            onValueChange = { onSetVideoContrast((it / 5).toInt() * 5) },
-                            onReset = { onSetVideoContrast(100) },
-                            isDefault = settings.videoContrast == 100
-                        )
-                        PlayerMenuSliderRow(
-                            label = "Saturation",
-                            value = settings.videoSaturation.toFloat(),
-                            valueText = { "${it.toInt()}%" },
-                            range = 0f..200f,
-                            steps = 0,
-                            onValueChange = { onSetVideoSaturation((it / 5).toInt() * 5) },
-                            onReset = { onSetVideoSaturation(100) },
-                            isDefault = settings.videoSaturation == 100
-                        )
-                        PlayerMenuSliderRow(
-                            label = "Hue",
-                            value = settings.videoHueRotate.toFloat(),
-                            valueText = { "${it.toInt()}°" },
-                            range = -180f..180f,
-                            steps = 0,
-                            onValueChange = { onSetVideoHueRotate((it / 5).toInt() * 5) },
-                            onReset = { onSetVideoHueRotate(0) },
-                            isDefault = settings.videoHueRotate == 0
-                        )
-                        
-                        val isTv = LocalIsTv.current
-                        var isResetFocused by remember { mutableStateOf(false) }
-                        ZsOutlinedWrapper(
-                            visible = isResetFocused && isTv,
-                            shape = RoundedCornerShape(12.dp),
-                            outlineColor = Color.White,
-                            gap = 2.dp,
-                        ) {
-                            TextButton(
-                                onClick = onResetAdvancedColor,
-                                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                                modifier = Modifier
-                                    .align(Alignment.CenterHorizontally)
-                                    .onFocusChanged { isResetFocused = it.isFocused }
-                                    .focusProperties {
-                                        if (isTv) {
-                                            left = FocusRequester.Cancel
-                                            right = FocusRequester.Cancel
-                                        }
-                                    }
-                            ) {
-                                Text("Reset all", color = playerMenuMutedText())
-                            }
-                        }
-                    }
-                }
-
-                PlayerMenuPage.Sources -> {
-                    PlayerMenuSection {
-                        sourceResults.forEachIndexed { index, source ->
-                            PlayerMenuSelectableRow(
-                                title = sourceDisplayName(source.id, source.codec),
-                                selected = source.id == sourceId,
-                                onClick = { onSelectSource(source.id) },
-                                rightContent = {
-                                    if (source.id != sourceId) {
-                                        ManualSourceStatusContent(
-                                            source = source,
-                                            onUse = { onUseSource(source.id) }
-                                        )
-                                    }
-                                },
-                                focusRequester = if (index == 0) firstItemFocusRequester else null,
-                            )
-                        }
-                    }
-
-                    if (sourceResults.isEmpty()) {
-                        PlayerMenuStubCard("No sources are available for manual selection yet.")
-                    }
-                }
-                PlayerMenuPage.Variants -> {
-                    PlayerMenuSection {
-                        // Deduplicate labels — if multiple variants share the same label, append " (1)", " (2)"
-                        val labelCounts = variants.groupBy { it.displayLabel() }.mapValues { it.value.size }
-                        val labelIndices = mutableMapOf<String, Int>()
-                        variants.forEachIndexed { index, variant ->
-                            val base = variant.displayLabel()
-                            val count = labelCounts[base] ?: 1
-                            val label = if (count > 1) {
-                                val idx = (labelIndices[base] ?: 0) + 1
-                                labelIndices[base] = idx
-                                "$base ($idx)"
-                            } else base
-                            val isFailed = variant.streamUrl in failedVariantUrls
-                            PlayerMenuSelectableRow(
-                                title = label,
-                                selected = variant.streamUrl == streamUrl,
-                                onClick = { if (!isFailed) onSwitchVariant(variant) },
-                                focusRequester = if (index == 0) firstItemFocusRequester else null,
-                                rightContent = if (isFailed) ({
-                                    Icon(
-                                        Icons.Default.Close,
-                                        contentDescription = "Failed",
-                                        tint = LocalZStreamTheme.current.colors.type.danger,
-                                        modifier = Modifier.size(16.dp),
-                                    )
-                                }) else null
-                            )
-                        }
-                    }
-                    if (variants.isEmpty()) {
-                        PlayerMenuStubCard("No stream variants available for this source.")
-                    }
-                }
-                PlayerMenuPage.Quality -> {
-                    PlayerMenuSection {
-                        PlayerMenuSelectableRow(
-                            title = "Auto",
-                            subtitle = "Adaptive streaming",
-                            selected = qualityOptions.none { it.selected },
-                            onClick = onSelectAutoQuality,
-                            focusRequester = firstItemFocusRequester
-                        )
-                        qualityOptions.forEach { option ->
-                            PlayerMenuSelectableRow(
-                                title = option.label,
-                                subtitle = "${option.height}p",
-                                selected = option.selected,
-                                onClick = { onSelectQuality(option) }
-                            )
-                        }
-                    }
-                    if (qualityOptions.isEmpty()) {
-                        PlayerMenuStubCard("No manual quality tracks exposed by Media3 for this stream.")
-                    }
-                }
-                PlayerMenuPage.Audio -> {
-                    PlayerMenuSection {
-                        audioOptions.forEachIndexed { index, option ->
-                            PlayerMenuSelectableRow(
-                                title = option.label,
-                                subtitle = option.language ?: "Unknown",
-                                selected = option.selected,
-                                onClick = { onSelectAudio(option) },
-                                focusRequester = if (index == 0) firstItemFocusRequester else null
-                            )
-                        }
-                    }
-                    if (audioOptions.isEmpty()) {
-                        PlayerMenuStubCard("No selectable audio tracks exposed by Media3 for this stream.")
-                    }
-                }
-                PlayerMenuPage.Download -> PlayerMenuStubCard("Download UI is prepared. Source-specific download API wiring is still stubbed.")
-                PlayerMenuPage.WatchParty -> {
-                    if (roomCode == null) {
-                        PlayerMenuSection {
-                            Column(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                ZsButton(
-                                    text = "Host a Watch Party",
-                                    onClick = {
-                                        isJoiningRoom = false
-                                        joinRoomCode = ""
-                                        focusManager.clearFocus()
-                                        onHostWatchParty()
-                                    },
-                                    variant = ZsButtonVariant.Purple,
-                                    modifier = Modifier.height(52.dp).padding(horizontal = 16.dp)
-                                )
-
-                                if (isOffline) {
-                                    ZsStatusBanner(
-                                        message = "Failed to connect to room",
-                                        variant = ZsStatusBannerVariant.Error,
-                                        modifier = Modifier.padding(top = 8.dp)
+                                PlayerMenuToggleRow(
+                                    "Background blur",
+                                    settings.subtitleBackgroundBlurEnabled
+                                ) {
+                                    onUpdateSettings(settings.copy(subtitleBackgroundBlurEnabled = !settings.subtitleBackgroundBlurEnabled))
+                                }
+                                if (settings.subtitleBackgroundBlurEnabled) {
+                                    PlayerMenuSliderRow(
+                                        label = "Blur amount",
+                                        value = settings.subtitleBackgroundBlur * 100f,
+                                        valueText = { "${it.toInt()}%" },
+                                        range = 0f..100f,
+                                        steps = 0,
+                                        onValueChange = {
+                                            onUpdateSettings(
+                                                settings.copy(
+                                                    subtitleBackgroundBlur = it / 100f
+                                                )
+                                            )
+                                        },
+                                        onReset = {
+                                            onUpdateSettings(
+                                                settings.copy(
+                                                    subtitleBackgroundBlur = .25f
+                                                )
+                                            )
+                                        },
+                                        isDefault = settings.subtitleBackgroundBlur == .25f,
+                                        tickStep = 5f,
                                     )
                                 }
-
-                                if (isJoiningRoom) {
-                                    BasicTextField(
-                                        value = joinRoomCode,
-                                        onValueChange = { input ->
-                                            val filtered = input.uppercase().filter { it.isLetterOrDigit() }
-                                            if (filtered.length <= 6) joinRoomCode = filtered
+                                PlayerMenuSliderRow(
+                                    label = "Text size",
+                                    value = settings.subtitleSize * 100f,
+                                    valueText = { "${it.toInt()}%" },
+                                    range = 1f..200f,
+                                    steps = 0,
+                                    onValueChange = { onUpdateSettings(settings.copy(subtitleSize = it / 100f)) },
+                                    onReset = { onUpdateSettings(settings.copy(subtitleSize = .75f)) },
+                                    isDefault = settings.subtitleSize == .75f,
+                                    tickStep = 5f,
+                                )
+                                PlayerMenuFieldTitle("Font style")
+                                PlayerMenuSegmentedOptions(
+                                    options = listOf(
+                                        "default" to "Default",
+                                        "raised" to "Raised",
+                                        "depressed" to "Inset",
+                                        "Border" to "Border",
+                                        "dropShadow" to "Shadow"
+                                    ),
+                                    selected = settings.subtitleFontStyle,
+                                    onSelect = { onUpdateSettings(settings.copy(subtitleFontStyle = it)) },
+                                )
+//                                PlayerMenuSegmentedOptions(
+//                                    options = listOf(
+//                                    ),
+//                                    selected = settings.subtitleFontStyle,
+//                                    onSelect = { onUpdateSettings(settings.copy(subtitleFontStyle = it)) },
+//                                )
+                                if (settings.subtitleFontStyle == "Border") {
+                                    PlayerMenuSliderRow(
+                                        label = "Border thickness",
+                                        value = settings.subtitleBorderThickness,
+                                        valueText = { "${String.format("%.1f", it)}px" },
+                                        range = 0f..10f,
+                                        steps = 0,
+                                        onValueChange = {
+                                            onUpdateSettings(
+                                                settings.copy(
+                                                    subtitleBorderThickness = it
+                                                )
+                                            )
                                         },
-                                        modifier = Modifier
-                                            .padding(top = 8.dp)
-                                            .width(160.dp)
-                                            .height(48.dp)
-                                            .background(theme.colors.modal.background, RoundedCornerShape(8.dp))
-                                            .border(1.dp, theme.colors.type.emphasis.copy(alpha = 0.1f), RoundedCornerShape(8.dp))
-                                            .focusRequester(joinFocusRequester),
-                                        textStyle = TextStyle(
-                                            color = theme.colors.type.emphasis,
-                                            fontSize = 20.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            textAlign = TextAlign.Center,
-                                            letterSpacing = 4.sp
-                                        ),
-                                        cursorBrush = SolidColor(theme.colors.buttons.purple),
-                                        keyboardOptions = KeyboardOptions(
-                                            keyboardType = KeyboardType.Text,
-                                            imeAction = ImeAction.Done
-                                        ),
-                                        keyboardActions = KeyboardActions(
-                                            onDone = {
-                                                if (joinRoomCode.length >= 4) {
-                                                    onJoinWatchParty(joinRoomCode)
-                                                }
-                                                isJoiningRoom = false
-                                                focusManager.clearFocus()
-                                            }
-                                        ),
-                                        decorationBox = { innerTextField ->
-                                            Box(contentAlignment = Alignment.Center) {
-                                                if (joinRoomCode.isEmpty()) {
-                                                    Text("CODE", color = playerMenuMutedText(), fontSize = 16.sp)
-                                                }
-                                                innerTextField()
+                                        onReset = {
+                                            onUpdateSettings(
+                                                settings.copy(
+                                                    subtitleBorderThickness = 1f
+                                                )
+                                            )
+                                        },
+                                        isDefault = settings.subtitleBorderThickness == 1f,
+                                        tickStep = .5f,
+                                    )
+                                }
+                                PlayerMenuToggleRow("Bold text", settings.subtitleBold) {
+                                    onUpdateSettings(settings.copy(subtitleBold = !settings.subtitleBold))
+                                }
+                                PlayerMenuFieldTitle("Text color")
+                                PlayerMenuColorOptions(settings.subtitleColor) {
+                                    onUpdateSettings(settings.copy(subtitleColor = it))
+                                }
+                                PlayerMenuSliderRow(
+                                    label = "Vertical position",
+                                    value = settings.subtitleVerticalPosition,
+                                    valueText = { "${it.toInt()}" },
+                                    range = -15f..30f,
+                                    steps = 0,
+                                    onValueChange = {
+                                        onUpdateSettings(
+                                            settings.copy(
+                                                subtitleVerticalPosition = it
+                                            )
+                                        )
+                                    },
+                                    onReset = {
+                                        onUpdateSettings(
+                                            settings.copy(
+                                                subtitleVerticalPosition = 0f
+                                            )
+                                        )
+                                    },
+                                    isDefault = settings.subtitleVerticalPosition == 0f,
+                                    tickStep = 1f,
+                                )
+                                PlayerMenuSliderRow(
+                                    label = "Line spacing",
+                                    value = settings.subtitleLineHeight * 100f,
+                                    valueText = { "${it.toInt()}%" },
+                                    range = 100f..250f,
+                                    steps = 0,
+                                    onValueChange = {
+                                        onUpdateSettings(
+                                            settings.copy(
+                                                subtitleLineHeight = it / 100f
+                                            )
+                                        )
+                                    },
+                                    onReset = { onUpdateSettings(settings.copy(subtitleLineHeight = 1.2f)) },
+                                    isDefault = settings.subtitleLineHeight == 1.2f,
+                                    tickStep = 5f,
+                                )
+                                ZsButton(
+                                    text = "Reset",
+                                    onClick = {
+                                        onUpdateSettings(
+                                            settings.copy(
+                                                subtitleColor = "#ffffff",
+                                                subtitleSize = 1f,
+                                                subtitleBackgroundOpacity = 0f,
+                                                subtitleBackgroundBlur = 0f,
+                                                subtitleBackgroundBlurEnabled = false,
+                                                subtitleBold = false,
+                                                subtitleVerticalPosition = 0f,
+                                                subtitleFontStyle = "dropShadow",
+                                                subtitleBorderThickness = 1f,
+                                                subtitleLineHeight = 1.2f,
+                                                subtitleFont = "sans-serif-condensed",
+                                            )
+                                        )
+                                    },
+                                    variant = ZsButtonVariant.Secondary,
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            }
+                        }
+                    }
+
+                    PlayerMenuPage.Playback -> {
+                        PlayerMenuSection {
+                            PlayerMenuFieldTitle("Speed")
+                            Spacer(Modifier.height(12.dp))
+                            PlayerMenuSpeedOptions(
+                                playbackSpeed = playbackSpeed,
+                                onSetPlaybackSpeed = onSetPlaybackSpeed,
+                                firstItemFocusRequester = firstItemFocusRequester
+                            )
+                        }
+                        PlayerMenuSection {
+                            PlayerMenuSliderRow(
+                                label = "Custom speed",
+                                value = playbackSpeed,
+                                valueText = { "${String.format("%.2f", it)}x" },
+                                range = PLAYBACK_SPEED_MIN..PLAYBACK_SPEED_MAX,
+                                steps = 0,
+                                onValueChange = { onSetPlaybackSpeed((it * 20).toInt() / 20f) },
+                                onReset = { onSetPlaybackSpeed(1f) },
+                                isDefault = playbackSpeed == 1f,
+                                tickStep = 0.05f,
+                            )
+                            PlayerMenuToggleRow("Autoplay next episode", settings.enableAutoplay) {
+                                onSetEnableAutoplay(!settings.enableAutoplay)
+                            }
+                            PlayerMenuSliderRow(
+                                label = "Brightness",
+                                value = settings.videoBrightness.toFloat(),
+                                valueText = { "${it.toInt()}%" },
+                                range = 10f..200f,
+                                steps = 0,
+                                onValueChange = { onSetVideoBrightness((it / 5).toInt() * 5) },
+                                onReset = { onSetVideoBrightness(100) },
+                                isDefault = settings.videoBrightness == 100
+                            )
+                            PlayerMenuToggleRow("Volume Boost", settings.volumeBoost > 100) {
+                                onSetVolumeBoost(if (settings.volumeBoost > 100) 100 else 150)
+                            }
+                            if (settings.volumeBoost > 100) {
+                                PlayerMenuSliderRow(
+                                    label = "Boost level",
+                                    value = settings.volumeBoost.toFloat(),
+                                    valueText = { "${it.toInt()}%" },
+                                    range = 100f..300f,
+                                    steps = 0,
+                                    onValueChange = { onSetVolumeBoost((it / 10).toInt() * 10) },
+                                    onReset = { onSetVolumeBoost(100) },
+                                    isDefault = settings.volumeBoost == 100
+                                )
+                            }
+                            PlayerMenuChevronRow("Advanced color", advancedColorSummary(settings)) {
+                                onOpenPage(PlayerMenuPage.AdvancedColor)
+                            }
+                            PlayerMenuFieldTitle("Video mode")
+                            Spacer(Modifier.height(12.dp))
+                            PlayerMenuSegmentedOptions(
+                                options = listOf(
+                                    "fit" to "Fit",
+                                    "fill" to "Fill",
+                                    "stretch" to "Stretch"
+                                ),
+                                selected = settings.videoScaleMode,
+                                onSelect = onSetVideoScaleMode
+                            )
+                        }
+                    }
+
+                    PlayerMenuPage.AdvancedColor -> {
+                        PlayerMenuSection {
+                            PlayerMenuSliderRow(
+                                label = "Brightness",
+                                value = settings.videoBrightness.toFloat(),
+                                valueText = { "${it.toInt()}%" },
+                                range = 10f..200f,
+                                steps = 0,
+                                onValueChange = { onSetVideoBrightness((it / 5).toInt() * 5) },
+                                onReset = { onSetVideoBrightness(100) },
+                                isDefault = settings.videoBrightness == 100,
+                                focusRequester = firstItemFocusRequester
+                            )
+                            PlayerMenuSliderRow(
+                                label = "Contrast",
+                                value = settings.videoContrast.toFloat(),
+                                valueText = { "${it.toInt()}%" },
+                                range = 50f..200f,
+                                steps = 0,
+                                onValueChange = { onSetVideoContrast((it / 5).toInt() * 5) },
+                                onReset = { onSetVideoContrast(100) },
+                                isDefault = settings.videoContrast == 100
+                            )
+                            PlayerMenuSliderRow(
+                                label = "Saturation",
+                                value = settings.videoSaturation.toFloat(),
+                                valueText = { "${it.toInt()}%" },
+                                range = 0f..200f,
+                                steps = 0,
+                                onValueChange = { onSetVideoSaturation((it / 5).toInt() * 5) },
+                                onReset = { onSetVideoSaturation(100) },
+                                isDefault = settings.videoSaturation == 100
+                            )
+                            PlayerMenuSliderRow(
+                                label = "Hue",
+                                value = settings.videoHueRotate.toFloat(),
+                                valueText = { "${it.toInt()}°" },
+                                range = -180f..180f,
+                                steps = 0,
+                                onValueChange = { onSetVideoHueRotate((it / 5).toInt() * 5) },
+                                onReset = { onSetVideoHueRotate(0) },
+                                isDefault = settings.videoHueRotate == 0
+                            )
+
+                            val isTv = LocalIsTv.current
+                            var isResetFocused by remember { mutableStateOf(false) }
+                            ZsOutlinedWrapper(
+                                visible = isResetFocused && isTv,
+                                shape = RoundedCornerShape(12.dp),
+                                outlineColor = Color.White,
+                                gap = 2.dp,
+                            ) {
+                                TextButton(
+                                    onClick = onResetAdvancedColor,
+                                    contentPadding = PaddingValues(
+                                        horizontal = 16.dp,
+                                        vertical = 8.dp
+                                    ),
+                                    modifier = Modifier
+                                        .align(Alignment.CenterHorizontally)
+                                        .onFocusChanged { isResetFocused = it.isFocused }
+                                        .focusProperties {
+                                            if (isTv) {
+                                                left = FocusRequester.Cancel
+                                                right = FocusRequester.Cancel
                                             }
                                         }
-                                    )
-                                    LaunchedEffect(Unit) { joinFocusRequester.requestFocus() }
+                                ) {
+                                    Text("Reset all", color = playerMenuMutedText())
+                                }
+                            }
+                        }
+                    }
 
-                                    Row(
-                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        TextButton(onClick = {
+                    PlayerMenuPage.Sources -> {
+                        PlayerMenuSection {
+                            sourceResults.forEachIndexed { index, source ->
+                                PlayerMenuSelectableRow(
+                                    title = sourceDisplayName(source.id, source.codec),
+                                    selected = source.id == sourceId,
+                                    onClick = { onSelectSource(source.id) },
+                                    rightContent = {
+                                        if (source.id != sourceId) {
+                                            ManualSourceStatusContent(
+                                                source = source,
+                                                onUse = { onUseSource(source.id) }
+                                            )
+                                        }
+                                    },
+                                    focusRequester = if (index == 0) firstItemFocusRequester else null,
+                                )
+                            }
+                        }
+
+                        if (sourceResults.isEmpty()) {
+                            PlayerMenuStubCard("No sources are available for manual selection yet.")
+                        }
+                    }
+
+                    PlayerMenuPage.Variants -> {
+                        PlayerMenuSection {
+                            // Deduplicate labels — if multiple variants share the same label, append " (1)", " (2)"
+                            val labelCounts =
+                                variants.groupBy { it.displayLabel() }.mapValues { it.value.size }
+                            val labelIndices = mutableMapOf<String, Int>()
+                            variants.forEachIndexed { index, variant ->
+                                val base = variant.displayLabel()
+                                val count = labelCounts[base] ?: 1
+                                val label = if (count > 1) {
+                                    val idx = (labelIndices[base] ?: 0) + 1
+                                    labelIndices[base] = idx
+                                    "$base ($idx)"
+                                } else base
+                                val isFailed = variant.streamUrl in failedVariantUrls
+                                PlayerMenuSelectableRow(
+                                    title = label,
+                                    selected = variant.streamUrl == streamUrl,
+                                    onClick = { if (!isFailed) onSwitchVariant(variant) },
+                                    focusRequester = if (index == 0) firstItemFocusRequester else null,
+                                    rightContent = if (isFailed) ({
+                                        Icon(
+                                            Icons.Default.Close,
+                                            contentDescription = "Failed",
+                                            tint = LocalZStreamTheme.current.colors.type.danger,
+                                            modifier = Modifier.size(16.dp),
+                                        )
+                                    }) else null
+                                )
+                            }
+                        }
+                        if (variants.isEmpty()) {
+                            PlayerMenuStubCard("No stream variants available for this source.")
+                        }
+                    }
+
+                    PlayerMenuPage.Quality -> {
+                        PlayerMenuSection {
+                            PlayerMenuSelectableRow(
+                                title = "Auto",
+                                subtitle = "Adaptive streaming",
+                                selected = qualityOptions.none { it.selected },
+                                onClick = onSelectAutoQuality,
+                                focusRequester = firstItemFocusRequester
+                            )
+                            qualityOptions.forEach { option ->
+                                PlayerMenuSelectableRow(
+                                    title = option.label,
+                                    subtitle = "${option.height}p",
+                                    selected = option.selected,
+                                    onClick = { onSelectQuality(option) }
+                                )
+                            }
+                        }
+                        if (qualityOptions.isEmpty()) {
+                            PlayerMenuStubCard("No manual quality tracks exposed by Media3 for this stream.")
+                        }
+                    }
+
+                    PlayerMenuPage.Audio -> {
+                        PlayerMenuSection {
+                            audioOptions.forEachIndexed { index, option ->
+                                PlayerMenuSelectableRow(
+                                    title = option.label,
+                                    subtitle = option.language ?: "Unknown",
+                                    selected = option.selected,
+                                    onClick = { onSelectAudio(option) },
+                                    focusRequester = if (index == 0) firstItemFocusRequester else null
+                                )
+                            }
+                        }
+                        if (audioOptions.isEmpty()) {
+                            PlayerMenuStubCard("No selectable audio tracks exposed by Media3 for this stream.")
+                        }
+                    }
+
+                    PlayerMenuPage.Download -> PlayerMenuStubCard("Download UI is prepared. Source-specific download API wiring is still stubbed.")
+                    PlayerMenuPage.WatchParty -> {
+                        if (roomCode == null) {
+                            PlayerMenuSection {
+                                Column(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    ZsButton(
+                                        text = "Host a Watch Party",
+                                        onClick = {
                                             isJoiningRoom = false
                                             joinRoomCode = ""
                                             focusManager.clearFocus()
-                                        }) {
-                                            Text("Cancel", color = theme.colors.type.secondary, fontSize = 12.sp)
-                                        }
+                                            onHostWatchParty()
+                                        },
+                                        variant = ZsButtonVariant.Purple,
+                                        modifier = Modifier
+                                            .height(52.dp)
+                                            .padding(horizontal = 16.dp)
+                                    )
 
-                                        ZsButton(
-                                            text = "Join",
-                                            onClick = {
-                                                if (joinRoomCode.length >= 4) {
-                                                    onJoinWatchParty(joinRoomCode)
-                                                }
-                                                isJoiningRoom = false
-                                                focusManager.clearFocus()
-                                            },
-                                            variant = ZsButtonVariant.Secondary,
-                                            modifier = Modifier.height(42.dp)
+                                    if (isOffline) {
+                                        ZsStatusBanner(
+                                            message = "Failed to connect to room",
+                                            variant = ZsStatusBannerVariant.Error,
+                                            modifier = Modifier.padding(top = 8.dp)
                                         )
                                     }
-                                } else {
-                                    ZsButton(
-                                        text = "Join Watch Party",
-                                        onClick = { isJoiningRoom = true },
-                                        variant = ZsButtonVariant.Secondary,
-                                        modifier = Modifier.height(52.dp).padding(horizontal = 16.dp)
-                                    )
-                                }
 
-                                ZsButton(
-                                    text = if (isLegacyCopied) "Link Copied!" else "Use Legacy Watch Party",
-                                    onClick = {
-                                        onLegacyWatchParty()
-                                        isLegacyCopied = true
-                                    },
-                                    variant = if (isLegacyCopied) ZsButtonVariant.Secondary else ZsButtonVariant.Secondary,
-                                    modifier = Modifier.height(52.dp).padding(horizontal = 16.dp)
-                                )
-                                LaunchedEffect(isLegacyCopied) {
-                                    if (isLegacyCopied) {
-                                        delay(2000)
-                                        isLegacyCopied = false
-                                    }
-                                }
-                                Text(
-                                    text = "Legacy Watch Party might not be available for some sources",
-                                    color = playerMenuMutedText(),
-                                    fontSize = 11.sp,
-                                    textAlign = TextAlign.Center,
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                            }
-                        }
-                    } else {
-                        val clipboard = LocalClipboardManager.current
-                        val focusManager = LocalFocusManager.current
-                        val focusRequester = remember { FocusRequester() }
-                        var isEditing by remember { mutableStateOf(false) }
-                        var roomCodeValue by remember { mutableStateOf(TextFieldValue(roomCode ?: "")) }
+                                    if (isJoiningRoom) {
+                                        BasicTextField(
+                                            value = joinRoomCode,
+                                            onValueChange = { input ->
+                                                val filtered = input.uppercase()
+                                                    .filter { it.isLetterOrDigit() }
+                                                if (filtered.length <= 6) joinRoomCode = filtered
+                                            },
+                                            modifier = Modifier
+                                                .padding(top = 8.dp)
+                                                .width(160.dp)
+                                                .height(48.dp)
+                                                .background(
+                                                    theme.colors.modal.background,
+                                                    RoundedCornerShape(8.dp)
+                                                )
+                                                .border(
+                                                    1.dp,
+                                                    theme.colors.type.emphasis.copy(alpha = 0.1f),
+                                                    RoundedCornerShape(8.dp)
+                                                )
+                                                .focusRequester(joinFocusRequester),
+                                            textStyle = TextStyle(
+                                                color = theme.colors.type.emphasis,
+                                                fontSize = 20.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                textAlign = TextAlign.Center,
+                                                letterSpacing = 4.sp
+                                            ),
+                                            cursorBrush = SolidColor(theme.colors.buttons.purple),
+                                            keyboardOptions = KeyboardOptions(
+                                                keyboardType = KeyboardType.Text,
+                                                imeAction = ImeAction.Done
+                                            ),
+                                            keyboardActions = KeyboardActions(
+                                                onDone = {
+                                                    if (joinRoomCode.length >= 4) {
+                                                        onJoinWatchParty(joinRoomCode)
+                                                    }
+                                                    isJoiningRoom = false
+                                                    focusManager.clearFocus()
+                                                }
+                                            ),
+                                            decorationBox = { innerTextField ->
+                                                Box(contentAlignment = Alignment.Center) {
+                                                    if (joinRoomCode.isEmpty()) {
+                                                        Text(
+                                                            "CODE",
+                                                            color = playerMenuMutedText(),
+                                                            fontSize = 16.sp
+                                                        )
+                                                    }
+                                                    innerTextField()
+                                                }
+                                            }
+                                        )
+                                        LaunchedEffect(Unit) { joinFocusRequester.requestFocus() }
 
-                        LaunchedEffect(isEditing) {
-                            if (isEditing) {
-                                focusRequester.requestFocus()
-                            }
-                        }
-                        LaunchedEffect(roomCode) {
-                            roomCodeValue = TextFieldValue(roomCode ?: "")
-                        }
-
-                        PlayerMenuSection {
-                            Column(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(16.dp)
-                            ) {
-                                // Main Action Card
-                                Surface(
-                                    color = theme.colors.background.secondary.copy(alpha = 0.35f),
-                                    shape = RoundedCornerShape(24.dp),
-                                    border = BorderStroke(1.dp, theme.colors.type.divider.copy(alpha = 0.12f)),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Column(
-                                        modifier = Modifier.padding(18.dp),
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                                    ) {
                                         Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            horizontalArrangement = Arrangement.spacedBy(12.dp),
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                                Box(
-                                                    modifier = Modifier
-                                                        .size(8.dp)
-                                                        .background(Color(0xFF22C55E), CircleShape)
-                                                )
-                                                Spacer(Modifier.width(8.dp))
+                                            TextButton(onClick = {
+                                                isJoiningRoom = false
+                                                joinRoomCode = ""
+                                                focusManager.clearFocus()
+                                            }) {
                                                 Text(
-                                                    text = if (isHost) "Hosting" else "Viewing",
-                                                    color = theme.colors.type.emphasis,
-                                                    fontSize = 12.sp,
-                                                    fontWeight = FontWeight.Medium
-                                                )
-                                            }
-
-                                            if (isHost) {
-                                                IconButton(
-                                                    onClick = {
-                                                        isEditing = !isEditing
-                                                        if (isEditing) {
-                                                            roomCodeValue = roomCodeValue.copy(
-                                                                selection = TextRange(0, roomCodeValue.text.length)
-                                                            )
-                                                        }
-                                                    },
-                                                    modifier = Modifier.size(32.dp)
-                                                ) {
-                                                    Icon(
-                                                        imageVector = Icons.Default.Edit,
-                                                        contentDescription = "Edit",
-                                                        tint = if (isEditing) theme.colors.buttons.purple else theme.colors.type.secondary,
-                                                        modifier = Modifier.size(18.dp)
-                                                    )
-                                                }
-                                            }
-                                        }
-
-                                        if (isEditing) {
-                                            BasicTextField(
-                                                value = roomCodeValue,
-                                                onValueChange = { input ->
-                                                    val filtered = input.text.uppercase().filter { it.isLetterOrDigit() }
-                                                    if (filtered.length <= 6) {
-                                                        roomCodeValue = input.copy(text = filtered)
-                                                    }
-                                                },
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .focusRequester(focusRequester),
-                                                textStyle = TextStyle(
-                                                    color = theme.colors.buttons.purple,
-                                                    fontSize = 38.sp,
-                                                    fontWeight = FontWeight.ExtraBold,
-                                                    textAlign = TextAlign.Center
-                                                ),
-                                                cursorBrush = SolidColor(theme.colors.type.emphasis),
-                                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                                                keyboardActions = KeyboardActions(onDone = {
-                                                    onUpdateRoomCode(roomCodeValue.text)
-                                                    isEditing = false
-                                                    focusManager.clearFocus()
-                                                }),
-                                                singleLine = true
-                                            )
-                                        } else if (isRegistering) {
-                                            Text(
-                                                text = "Registering Watch Party...",
-                                                color = theme.colors.buttons.secondary.copy(alpha = 0.7f),
-                                                fontSize = 24.sp,
-                                                fontWeight = FontWeight.ExtraBold,
-                                                textAlign = TextAlign.Center
-                                            )
-                                        } else {
-                                            Text(
-                                                text = roomCode ?: "",
-                                                color = theme.colors.buttons.purple,
-                                                fontSize = 38.sp,
-                                                fontWeight = FontWeight.ExtraBold,
-                                                textAlign = TextAlign.Center
-                                            )
-                                        }
-
-                                        if (hostGraceDeadlineMs != null) {
-                                            Column(
-                                                modifier = Modifier.fillMaxWidth(),
-                                                verticalArrangement = Arrangement.spacedBy(6.dp)
-                                            ) {
-                                                Text(
-                                                    text = "Host offline grace period",
+                                                    "Cancel",
                                                     color = theme.colors.type.secondary,
-                                                    fontSize = 11.sp,
-                                                    textAlign = TextAlign.Center,
-                                                    modifier = Modifier.fillMaxWidth()
-                                                )
-                                                LinearProgressIndicator(
-                                                    progress = { hostGraceProgress },
-                                                    modifier = Modifier.fillMaxWidth(),
-                                                    color = theme.colors.buttons.secondary,
-                                                    trackColor = theme.colors.background.main.copy(alpha = 0.4f)
+                                                    fontSize = 12.sp
                                                 )
                                             }
-                                        }
 
-                                        if (durationMismatch) {
-                                            Text(
-                                                text = "Duration mismatch detected. Drift sync is limited.",
-                                                color = theme.colors.type.secondary,
-                                                fontSize = 11.sp,
-                                                textAlign = TextAlign.Center
+                                            ZsButton(
+                                                text = "Join",
+                                                onClick = {
+                                                    if (joinRoomCode.length >= 4) {
+                                                        onJoinWatchParty(joinRoomCode)
+                                                    }
+                                                    isJoiningRoom = false
+                                                    focusManager.clearFocus()
+                                                },
+                                                variant = ZsButtonVariant.Secondary,
+                                                modifier = Modifier.height(42.dp)
                                             )
                                         }
+                                    } else {
+                                        ZsButton(
+                                            text = "Join Watch Party",
+                                            onClick = { isJoiningRoom = true },
+                                            variant = ZsButtonVariant.Secondary,
+                                            modifier = Modifier
+                                                .height(52.dp)
+                                                .padding(horizontal = 16.dp)
+                                        )
+                                    }
 
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                        ) {
-                                            // Copy Code Tile
-                                            var isCopyCodeFocused by remember { mutableStateOf(false) }
-                                            ZsOutlinedWrapper(
-                                                visible = isCopyCodeFocused && isTv,
-                                                shape = RoundedCornerShape(8.dp),
-                                                outlineColor = Color.White,
-                                                outlineWidth = 2.dp,
-                                                horizontal = 4.dp,
-                                                vertical = 2.dp,
-                                                modifier = Modifier.weight(1f)
-                                            ) {
-                                                Surface(
-                                                    onClick = { clipboard.setText(AnnotatedString(roomCodeValue.text)) },
-                                                    color = theme.colors.background.main.copy(alpha = 0.5f),
-                                                    shape = RoundedCornerShape(8.dp),
-                                                    border = BorderStroke(1.dp, theme.colors.type.divider.copy(alpha = 0.1f)),
-                                                    modifier = Modifier
-                                                        .fillMaxWidth()
-                                                        .onFocusChanged { isCopyCodeFocused = it.isFocused }
-                                                ) {
-                                                    Row(
-                                                        modifier = Modifier.padding(vertical = 10.dp),
-                                                        horizontalArrangement = Arrangement.Center,
-                                                        verticalAlignment = Alignment.CenterVertically
-                                                    ) {
-                                                        Icon(
-                                                            imageVector = Icons.Default.ContentCopy,
-                                                            contentDescription = null,
-                                                            tint = theme.colors.type.secondary,
-                                                            modifier = Modifier.size(14.dp)
-                                                        )
-                                                        Spacer(Modifier.width(8.dp))
-                                                        Text(
-                                                            text = "Copy Code",
-                                                            color = theme.colors.type.secondary,
-                                                            fontSize = 12.sp,
-                                                            fontWeight = FontWeight.Medium
-                                                        )
-                                                    }
-                                                }
-                                            }
-
-                                            // Copy Link Tile
-                                            var isCopyLinkFocused by remember { mutableStateOf(false) }
-                                            ZsOutlinedWrapper(
-                                                visible = isCopyLinkFocused && isTv,
-                                                shape = RoundedCornerShape(8.dp),
-                                                outlineColor = Color.White,
-                                                outlineWidth = 2.dp,
-                                                horizontal = 4.dp,
-                                                vertical = 2.dp,
-                                                modifier = Modifier.weight(1f)
-                                            ) {
-                                                Surface(
-                                                    onClick = {
-                                                        val baseUrl = "https://zstream.mov/media/"
-                                                        val slug = title.slugify()
-                                                        val typeKey = if (mediaType == "movie") "movie" else "tv"
-                                                        val mediaPath = if (mediaType == "movie") {
-                                                            "tmdb-$typeKey-$tmdbId-$slug"
-                                                        } else {
-                                                            "tmdb-$typeKey-$tmdbId-$slug/${seasonId ?: ""}/${episodeId ?: ""}"
-                                                        }
-                                                        val fullUrl = "$baseUrl$mediaPath?watchparty=${roomCode ?: ""}"
-                                                        clipboard.setText(AnnotatedString(fullUrl))
-                                                    },
-                                                    color = theme.colors.background.main.copy(alpha = 0.5f),
-                                                    shape = RoundedCornerShape(8.dp),
-                                                    border = BorderStroke(1.dp, theme.colors.type.divider.copy(alpha = 0.1f)),
-                                                    modifier = Modifier
-                                                        .fillMaxWidth()
-                                                        .onFocusChanged { isCopyLinkFocused = it.isFocused }
-                                                ) {
-                                                    Row(
-                                                        modifier = Modifier.padding(vertical = 10.dp),
-                                                        horizontalArrangement = Arrangement.Center,
-                                                        verticalAlignment = Alignment.CenterVertically
-                                                    ) {
-                                                        Icon(
-                                                            imageVector = Icons.Default.Link,
-                                                            contentDescription = null,
-                                                            tint = theme.colors.type.secondary,
-                                                            modifier = Modifier.size(14.dp)
-                                                        )
-                                                        Spacer(Modifier.width(8.dp))
-                                                        Text(
-                                                            text = "Copy Link",
-                                                            color = theme.colors.type.secondary,
-                                                            fontSize = 12.sp,
-                                                            fontWeight = FontWeight.Medium
-                                                        )
-                                                    }
-                                                }
-                                            }
+                                    ZsButton(
+                                        text = if (isLegacyCopied) "Link Copied!" else "Use Legacy Watch Party",
+                                        onClick = {
+                                            onLegacyWatchParty()
+                                            isLegacyCopied = true
+                                        },
+                                        variant = if (isLegacyCopied) ZsButtonVariant.Secondary else ZsButtonVariant.Secondary,
+                                        modifier = Modifier
+                                            .height(52.dp)
+                                            .padding(horizontal = 16.dp)
+                                    )
+                                    LaunchedEffect(isLegacyCopied) {
+                                        if (isLegacyCopied) {
+                                            delay(2000)
+                                            isLegacyCopied = false
                                         }
                                     }
+                                    Text(
+                                        text = "Legacy Watch Party might not be available for some sources",
+                                        color = playerMenuMutedText(),
+                                        fontSize = 11.sp,
+                                        textAlign = TextAlign.Center,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
                                 }
+                            }
+                        } else {
+                            val clipboard = LocalClipboardManager.current
+                            val focusManager = LocalFocusManager.current
+                            val focusRequester = remember { FocusRequester() }
+                            var isEditing by remember { mutableStateOf(false) }
+                            var roomCodeValue by remember {
+                                mutableStateOf(
+                                    TextFieldValue(
+                                        roomCode ?: ""
+                                    )
+                                )
+                            }
 
-                                PlayerMenuSectionTitle(if (participants.size <= 1) "ALONE" else "${participants.size} PARTICIPANTS")
+                            LaunchedEffect(isEditing) {
+                                if (isEditing) {
+                                    focusRequester.requestFocus()
+                                }
+                            }
+                            LaunchedEffect(roomCode) {
+                                roomCodeValue = TextFieldValue(roomCode ?: "")
+                            }
+
+                            PlayerMenuSection {
                                 Column(
                                     modifier = Modifier.fillMaxWidth(),
-                                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(16.dp)
                                 ) {
-                                    participants.forEach { participant ->
-                                        val isMe = participant.userId == myUserId
-                                        Box(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .clip(RoundedCornerShape(12.dp))
-                                                .background(theme.colors.background.secondary.copy(alpha = 0.3f))
-                                                .padding(16.dp)
+                                    // Main Action Card
+                                    Surface(
+                                        color = theme.colors.background.secondary.copy(alpha = 0.35f),
+                                        shape = RoundedCornerShape(24.dp),
+                                        border = BorderStroke(
+                                            1.dp,
+                                            theme.colors.type.divider.copy(alpha = 0.12f)
+                                        ),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Column(
+                                            modifier = Modifier.padding(18.dp),
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.spacedBy(12.dp)
                                         ) {
                                             Row(
                                                 modifier = Modifier.fillMaxWidth(),
                                                 horizontalArrangement = Arrangement.SpaceBetween,
                                                 verticalAlignment = Alignment.CenterVertically
                                             ) {
-                                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                                                    Icon(
-                                                        imageVector = Icons.Default.Group,
-                                                        contentDescription = null,
-                                                        tint = if (participant.isHost) Color(0xFFFFD700) else theme.colors.type.secondary,
-                                                        modifier = Modifier.size(16.dp)
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .size(8.dp)
+                                                            .background(
+                                                                Color(0xFF22C55E),
+                                                                CircleShape
+                                                            )
                                                     )
                                                     Spacer(Modifier.width(8.dp))
                                                     Text(
-                                                        text = buildString {
-                                                            if (isMe) append("You") else append(participant.userId.take(12))
-                                                            if (participant.isHost) append(" (Host)")
-                                                            if (participant.isStale) append(" - reconnecting")
-                                                        },
-                                                        color = if (participant.isHost) Color(0xFFFFD700) else theme.colors.type.emphasis,
-                                                        fontSize = 13.sp,
-                                                        fontWeight = if (participant.isHost || isMe) FontWeight.Bold else FontWeight.Normal,
-                                                        maxLines = 1,
-                                                        overflow = TextOverflow.Ellipsis
+                                                        text = if (isHost) "Hosting" else "Viewing",
+                                                        color = theme.colors.type.emphasis,
+                                                        fontSize = 12.sp,
+                                                        fontWeight = FontWeight.Medium
                                                     )
                                                 }
-                                                Text(
-                                                    text = if (participant.duration > 0) {
-                                                        "${((participant.time * 100) / participant.duration).toInt()}%"
-                                                    } else {
-                                                        "${participant.time.toInt()}s"
+
+                                                if (isHost) {
+                                                    IconButton(
+                                                        onClick = {
+                                                            isEditing = !isEditing
+                                                            if (isEditing) {
+                                                                roomCodeValue = roomCodeValue.copy(
+                                                                    selection = TextRange(
+                                                                        0,
+                                                                        roomCodeValue.text.length
+                                                                    )
+                                                                )
+                                                            }
+                                                        },
+                                                        modifier = Modifier.size(32.dp)
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.Edit,
+                                                            contentDescription = "Edit",
+                                                            tint = if (isEditing) theme.colors.buttons.purple else theme.colors.type.secondary,
+                                                            modifier = Modifier.size(18.dp)
+                                                        )
+                                                    }
+                                                }
+                                            }
+
+                                            if (isEditing) {
+                                                BasicTextField(
+                                                    value = roomCodeValue,
+                                                    onValueChange = { input ->
+                                                        val filtered = input.text.uppercase()
+                                                            .filter { it.isLetterOrDigit() }
+                                                        if (filtered.length <= 6) {
+                                                            roomCodeValue =
+                                                                input.copy(text = filtered)
+                                                        }
                                                     },
-                                                    color = playerMenuMutedText(),
-                                                    fontSize = 13.sp
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .focusRequester(focusRequester),
+                                                    textStyle = TextStyle(
+                                                        color = theme.colors.buttons.purple,
+                                                        fontSize = 38.sp,
+                                                        fontWeight = FontWeight.ExtraBold,
+                                                        textAlign = TextAlign.Center
+                                                    ),
+                                                    cursorBrush = SolidColor(theme.colors.type.emphasis),
+                                                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                                                    keyboardActions = KeyboardActions(onDone = {
+                                                        onUpdateRoomCode(roomCodeValue.text)
+                                                        isEditing = false
+                                                        focusManager.clearFocus()
+                                                    }),
+                                                    singleLine = true
                                                 )
+                                            } else if (isRegistering) {
+                                                Text(
+                                                    text = "Registering Watch Party...",
+                                                    color = theme.colors.buttons.secondary.copy(
+                                                        alpha = 0.7f
+                                                    ),
+                                                    fontSize = 24.sp,
+                                                    fontWeight = FontWeight.ExtraBold,
+                                                    textAlign = TextAlign.Center
+                                                )
+                                            } else {
+                                                Text(
+                                                    text = roomCode ?: "",
+                                                    color = theme.colors.buttons.purple,
+                                                    fontSize = 38.sp,
+                                                    fontWeight = FontWeight.ExtraBold,
+                                                    textAlign = TextAlign.Center
+                                                )
+                                            }
+
+                                            if (hostGraceDeadlineMs != null) {
+                                                Column(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                                ) {
+                                                    Text(
+                                                        text = "Host offline grace period",
+                                                        color = theme.colors.type.secondary,
+                                                        fontSize = 11.sp,
+                                                        textAlign = TextAlign.Center,
+                                                        modifier = Modifier.fillMaxWidth()
+                                                    )
+                                                    LinearProgressIndicator(
+                                                        progress = { hostGraceProgress },
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                        color = theme.colors.buttons.secondary,
+                                                        trackColor = theme.colors.background.main.copy(
+                                                            alpha = 0.4f
+                                                        )
+                                                    )
+                                                }
+                                            }
+
+                                            if (durationMismatch) {
+                                                Text(
+                                                    text = "Duration mismatch detected. Drift sync is limited.",
+                                                    color = theme.colors.type.secondary,
+                                                    fontSize = 11.sp,
+                                                    textAlign = TextAlign.Center
+                                                )
+                                            }
+
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                            ) {
+                                                // Copy Code Tile
+                                                var isCopyCodeFocused by remember {
+                                                    mutableStateOf(
+                                                        false
+                                                    )
+                                                }
+                                                ZsOutlinedWrapper(
+                                                    visible = isCopyCodeFocused && isTv,
+                                                    shape = RoundedCornerShape(8.dp),
+                                                    outlineColor = Color.White,
+                                                    outlineWidth = 2.dp,
+                                                    horizontal = 4.dp,
+                                                    vertical = 2.dp,
+                                                    modifier = Modifier.weight(1f)
+                                                ) {
+                                                    Surface(
+                                                        onClick = {
+                                                            clipboard.setText(
+                                                                AnnotatedString(roomCodeValue.text)
+                                                            )
+                                                        },
+                                                        color = theme.colors.background.main.copy(
+                                                            alpha = 0.5f
+                                                        ),
+                                                        shape = RoundedCornerShape(8.dp),
+                                                        border = BorderStroke(
+                                                            1.dp,
+                                                            theme.colors.type.divider.copy(alpha = 0.1f)
+                                                        ),
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .onFocusChanged {
+                                                                isCopyCodeFocused = it.isFocused
+                                                            }
+                                                    ) {
+                                                        Row(
+                                                            modifier = Modifier.padding(vertical = 10.dp),
+                                                            horizontalArrangement = Arrangement.Center,
+                                                            verticalAlignment = Alignment.CenterVertically
+                                                        ) {
+                                                            Icon(
+                                                                imageVector = Icons.Default.ContentCopy,
+                                                                contentDescription = null,
+                                                                tint = theme.colors.type.secondary,
+                                                                modifier = Modifier.size(14.dp)
+                                                            )
+                                                            Spacer(Modifier.width(8.dp))
+                                                            Text(
+                                                                text = "Copy Code",
+                                                                color = theme.colors.type.secondary,
+                                                                fontSize = 12.sp,
+                                                                fontWeight = FontWeight.Medium
+                                                            )
+                                                        }
+                                                    }
+                                                }
+
+                                                // Copy Link Tile
+                                                var isCopyLinkFocused by remember {
+                                                    mutableStateOf(
+                                                        false
+                                                    )
+                                                }
+                                                ZsOutlinedWrapper(
+                                                    visible = isCopyLinkFocused && isTv,
+                                                    shape = RoundedCornerShape(8.dp),
+                                                    outlineColor = Color.White,
+                                                    outlineWidth = 2.dp,
+                                                    horizontal = 4.dp,
+                                                    vertical = 2.dp,
+                                                    modifier = Modifier.weight(1f)
+                                                ) {
+                                                    Surface(
+                                                        onClick = {
+                                                            val baseUrl =
+                                                                "https://zstream.mov/media/"
+                                                            val slug = title.slugify()
+                                                            val typeKey =
+                                                                if (mediaType == "movie") "movie" else "tv"
+                                                            val mediaPath =
+                                                                if (mediaType == "movie") {
+                                                                    "tmdb-$typeKey-$tmdbId-$slug"
+                                                                } else {
+                                                                    "tmdb-$typeKey-$tmdbId-$slug/${seasonId ?: ""}/${episodeId ?: ""}"
+                                                                }
+                                                            val fullUrl =
+                                                                "$baseUrl$mediaPath?watchparty=${roomCode ?: ""}"
+                                                            clipboard.setText(
+                                                                AnnotatedString(
+                                                                    fullUrl
+                                                                )
+                                                            )
+                                                        },
+                                                        color = theme.colors.background.main.copy(
+                                                            alpha = 0.5f
+                                                        ),
+                                                        shape = RoundedCornerShape(8.dp),
+                                                        border = BorderStroke(
+                                                            1.dp,
+                                                            theme.colors.type.divider.copy(alpha = 0.1f)
+                                                        ),
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .onFocusChanged {
+                                                                isCopyLinkFocused = it.isFocused
+                                                            }
+                                                    ) {
+                                                        Row(
+                                                            modifier = Modifier.padding(vertical = 10.dp),
+                                                            horizontalArrangement = Arrangement.Center,
+                                                            verticalAlignment = Alignment.CenterVertically
+                                                        ) {
+                                                            Icon(
+                                                                imageVector = Icons.Default.Link,
+                                                                contentDescription = null,
+                                                                tint = theme.colors.type.secondary,
+                                                                modifier = Modifier.size(14.dp)
+                                                            )
+                                                            Spacer(Modifier.width(8.dp))
+                                                            Text(
+                                                                text = "Copy Link",
+                                                                color = theme.colors.type.secondary,
+                                                                fontSize = 12.sp,
+                                                                fontWeight = FontWeight.Medium
+                                                            )
+                                                        }
+                                                    }
+                                                }
                                             }
                                         }
                                     }
-                                }
-                                
-                                ZsButton(
-                                    text = "Leave Watch Party",
-                                    onClick = {
-                                        onLeaveWatchParty()
-                                        onBack()
-                                    },
-                                    variant = ZsButtonVariant.Danger,
-                                    modifier = Modifier.height(52.dp).padding(horizontal = 16.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-                PlayerMenuPage.Seasons -> {
-                    PlayerMenuSection {
-                        tvDetail?.seasons?.forEachIndexed { index, season ->
-                            PlayerMenuSelectableRow(
-                                title = if (season.seasonNumber == 0) "Specials" else "Season ${season.seasonNumber}",
-                                subtitle = "${season.episodeCount} Episodes",
-                                selected = season.seasonNumber == currentSeason,
-                                onClick = {
-                                    onLoadSeason(season.seasonNumber)
-                                    onOpenPage(PlayerMenuPage.Episodes)
-                                },
-                                focusRequester = if (index == 0) firstItemFocusRequester else null
-                            )
-                        }
-                    }
-                    if (tvDetail?.seasons.isNullOrEmpty()) {
-                        PlayerMenuStubCard("No seasons found.")
-                    }
-                }
-                PlayerMenuPage.Episodes -> {
-                    PlayerMenuSection {
-                        val episodes = currentSeasonDetail?.episodes.orEmpty()
-                        episodes.forEachIndexed { index, ep ->
-                            val progress = allProgress.firstOrNull { it.tmdbId == tmdbId.toString() && it.seasonNumber == ep.seasonNumber && it.episodeNumber == ep.episodeNumber }
-                            SharedEpisodeRow(
-                                ep = ep,
-                                showId = tmdbId,
-                                title = title,
-                                posterPath = poster,
-                                nav = nav,
-                                theme = theme,
-                                episodeProgress = progress,
-                                onEpisodeClick = {
-                                    onSwitchEpisode(ep.seasonNumber, ep.episodeNumber)
-                                },
-                                compact = true,
-                                horizontalPadding = 0.dp,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .then(if (index == 0 && firstItemFocusRequester != null) Modifier.focusRequester(firstItemFocusRequester) else Modifier)
-                                    .then(if (index == episodes.lastIndex) Modifier.focusProperties { down = FocusRequester.Cancel } else Modifier)
-                            )
-                        }
-                    }
-                    if (currentSeasonDetail?.episodes.isNullOrEmpty()) {
-                        PlayerMenuStubCard("No episodes found for this season.")
-                    }
-                }
-                PlayerMenuPage.SkipSegments -> {
-                    PlayerMenuSection {
-                        if (canSubmitSkipSegments) {
-                            if (hasTidbKey) {
-                                val isTv = LocalIsTv.current
-                                var isFocused by remember { mutableStateOf(false) }
-                                ZsOutlinedWrapper(
-                                    visible = isFocused && isTv,
-                                    shape = RoundedCornerShape(12.dp),
-                                    outlineColor = Color.White,
-                                    gap = 2.dp,
-                                ) {
-                                    ZsButton(
-                                        text = "Submit Segment",
-                                        onClick = { onOpenSkipSubmission(null) },
-                                        variant = ZsButtonVariant.Purple,
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .then(
-                                                if (firstItemFocusRequester != null) Modifier.focusRequester(
-                                                    firstItemFocusRequester
-                                                ) else Modifier
-                                            )
-                                            .onFocusChanged { isFocused = it.isFocused }
-                                            .focusProperties {
-                                                if (isTv) {
-                                                    left = FocusRequester.Cancel
-                                                    right = FocusRequester.Cancel
+
+                                    PlayerMenuSectionTitle(if (participants.size <= 1) "ALONE" else "${participants.size} PARTICIPANTS")
+                                    Column(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        participants.forEach { participant ->
+                                            val isMe = participant.userId == myUserId
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .clip(RoundedCornerShape(12.dp))
+                                                    .background(
+                                                        theme.colors.background.secondary.copy(
+                                                            alpha = 0.3f
+                                                        )
+                                                    )
+                                                    .padding(16.dp)
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Row(
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        modifier = Modifier.weight(1f)
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.Group,
+                                                            contentDescription = null,
+                                                            tint = if (participant.isHost) Color(
+                                                                0xFFFFD700
+                                                            ) else theme.colors.type.secondary,
+                                                            modifier = Modifier.size(16.dp)
+                                                        )
+                                                        Spacer(Modifier.width(8.dp))
+                                                        Text(
+                                                            text = buildString {
+                                                                if (isMe) append("You") else append(
+                                                                    participant.userId.take(12)
+                                                                )
+                                                                if (participant.isHost) append(" (Host)")
+                                                                if (participant.isStale) append(" - reconnecting")
+                                                            },
+                                                            color = if (participant.isHost) Color(
+                                                                0xFFFFD700
+                                                            ) else theme.colors.type.emphasis,
+                                                            fontSize = 13.sp,
+                                                            fontWeight = if (participant.isHost || isMe) FontWeight.Bold else FontWeight.Normal,
+                                                            maxLines = 1,
+                                                            overflow = TextOverflow.Ellipsis
+                                                        )
+                                                    }
+                                                    Text(
+                                                        text = if (participant.duration > 0) {
+                                                            "${((participant.time * 100) / participant.duration).toInt()}%"
+                                                        } else {
+                                                            "${participant.time.toInt()}s"
+                                                        },
+                                                        color = playerMenuMutedText(),
+                                                        fontSize = 13.sp
+                                                    )
                                                 }
-                                            },
+                                            }
+                                        }
+                                    }
+
+                                    ZsButton(
+                                        text = "Leave Watch Party",
+                                        onClick = {
+                                            onLeaveWatchParty()
+                                            onBack()
+                                        },
+                                        variant = ZsButtonVariant.Danger,
+                                        modifier = Modifier
+                                            .height(52.dp)
+                                            .padding(horizontal = 16.dp)
                                     )
                                 }
-                                Spacer(Modifier.height(8.dp))
-                            } else {
-                                PlayerMenuStubCard("To submit new segments, enter your TheIntroDB API key in the connections settings.")
                             }
                         }
-                        if (skipSegments.isEmpty()) {
-                            PlayerMenuStubCard("No skip segments available.")
-                        } else {
-                            skipSegments.forEachIndexed { index, segment ->
-                                PlayerMenuSkipSegmentRow(
-                                    segment = segment,
-                                    onSeek = { onSeekToMs(segment.startMs ?: 0L) },
-                                    onOpenSubmission = { onOpenSkipSubmission(segment) },
-                                    canSubmit = canSubmitSkipSegments && hasTidbKey,
-                                    focusRequester = if (index == 0 && !(canSubmitSkipSegments && hasTidbKey)) firstItemFocusRequester else null
+                    }
+
+                    PlayerMenuPage.Seasons -> {
+                        PlayerMenuSection {
+                            tvDetail?.seasons?.forEachIndexed { index, season ->
+                                PlayerMenuSelectableRow(
+                                    title = if (season.seasonNumber == 0) "Specials" else "Season ${season.seasonNumber}",
+                                    subtitle = "${season.episodeCount} Episodes",
+                                    selected = season.seasonNumber == currentSeason,
+                                    onClick = {
+                                        onLoadSeason(season.seasonNumber)
+                                        onOpenPage(PlayerMenuPage.Episodes)
+                                    },
+                                    focusRequester = if (index == 0) firstItemFocusRequester else null
                                 )
-                                if (index < skipSegments.size - 1) {
+                            }
+                        }
+                        if (tvDetail?.seasons.isNullOrEmpty()) {
+                            PlayerMenuStubCard("No seasons found.")
+                        }
+                    }
+
+                    PlayerMenuPage.Episodes -> {
+                        PlayerMenuSection {
+                            val episodes = currentSeasonDetail?.episodes.orEmpty()
+                            episodes.forEachIndexed { index, ep ->
+                                val progress =
+                                    allProgress.firstOrNull { it.tmdbId == tmdbId.toString() && it.seasonNumber == ep.seasonNumber && it.episodeNumber == ep.episodeNumber }
+                                SharedEpisodeRow(
+                                    ep = ep,
+                                    showId = tmdbId,
+                                    title = title,
+                                    posterPath = poster,
+                                    nav = nav,
+                                    theme = theme,
+                                    episodeProgress = progress,
+                                    onEpisodeClick = {
+                                        onSwitchEpisode(ep.seasonNumber, ep.episodeNumber)
+                                    },
+                                    compact = true,
+                                    horizontalPadding = 0.dp,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .then(
+                                            if (index == 0 && firstItemFocusRequester != null) Modifier.focusRequester(
+                                                firstItemFocusRequester
+                                            ) else Modifier
+                                        )
+                                        .then(if (index == episodes.lastIndex) Modifier.focusProperties {
+                                            down = FocusRequester.Cancel
+                                        } else Modifier)
+                                )
+                            }
+                        }
+                        if (currentSeasonDetail?.episodes.isNullOrEmpty()) {
+                            PlayerMenuStubCard("No episodes found for this season.")
+                        }
+                    }
+
+                    PlayerMenuPage.SkipSegments -> {
+                        PlayerMenuSection {
+                            if (canSubmitSkipSegments) {
+                                if (hasTidbKey) {
+                                    val isTv = LocalIsTv.current
+                                    var isFocused by remember { mutableStateOf(false) }
+                                    ZsOutlinedWrapper(
+                                        visible = isFocused && isTv,
+                                        shape = RoundedCornerShape(12.dp),
+                                        outlineColor = Color.White,
+                                        gap = 2.dp,
+                                    ) {
+                                        ZsButton(
+                                            text = "Submit Segment",
+                                            onClick = { onOpenSkipSubmission(null) },
+                                            variant = ZsButtonVariant.Purple,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .then(
+                                                    if (firstItemFocusRequester != null) Modifier.focusRequester(
+                                                        firstItemFocusRequester
+                                                    ) else Modifier
+                                                )
+                                                .onFocusChanged { isFocused = it.isFocused }
+                                                .focusProperties {
+                                                    if (isTv) {
+                                                        left = FocusRequester.Cancel
+                                                        right = FocusRequester.Cancel
+                                                    }
+                                                },
+                                        )
+                                    }
                                     Spacer(Modifier.height(8.dp))
+                                } else {
+                                    PlayerMenuStubCard("To submit new segments, enter your TheIntroDB API key in the connections settings.")
+                                }
+                            }
+                            if (skipSegments.isEmpty()) {
+                                PlayerMenuStubCard("No skip segments available.")
+                            } else {
+                                skipSegments.forEachIndexed { index, segment ->
+                                    PlayerMenuSkipSegmentRow(
+                                        segment = segment,
+                                        onSeek = { onSeekToMs(segment.startMs ?: 0L) },
+                                        onOpenSubmission = { onOpenSkipSubmission(segment) },
+                                        canSubmit = canSubmitSkipSegments && hasTidbKey,
+                                        focusRequester = if (index == 0 && !(canSubmitSkipSegments && hasTidbKey)) firstItemFocusRequester else null
+                                    )
+                                    if (index < skipSegments.size - 1) {
+                                        Spacer(Modifier.height(8.dp))
+                                    }
                                 }
                             }
                         }
                     }
                 }
             }
-        }
         }
     }
 }
@@ -4751,9 +4944,7 @@ private fun PlayerMenuHeader(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = PLAYER_MENU_INNER_HORIZONTAL_PADDING)
-            .padding(top = 20.dp, bottom = 14.dp)
-            .border(width = 1.dp, color = Color.Transparent)
-            .padding(bottom = 0.dp),
+            .padding(top = 10.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Row(
@@ -4775,20 +4966,20 @@ private fun PlayerMenuHeader(
                         icon = Icons.AutoMirrored.Filled.ArrowBack,
                         contentDescription = null,
                         variant = ZsIconButtonVariant.Ghost,
-                        containerSize = 32.dp,
-                        iconSize = 18.dp,
+                        containerSize = 28.dp,
+                        iconSize = 16.dp,
                         modifier = Modifier
                             .onFocusChanged { isFocused = it.isFocused }
                             .focusProperties { if (isTv) left = FocusRequester.Cancel }
                     )
                 }
-                Spacer(Modifier.width(4.dp))
+                Spacer(Modifier.width(2.dp))
             }
             Text(
                 text = title,
                 color = theme.colors.type.emphasis,
                 fontWeight = FontWeight.Bold,
-                fontSize = 18.sp,
+                fontSize = 16.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -4889,7 +5080,7 @@ private fun PlayerMenuBoxNavTile(
     var isFocused by remember { mutableStateOf(false) }
     ZsOutlinedWrapper(
         visible = isFocused && isTv,
-        shape = RoundedCornerShape(8.dp),
+        shape = RoundedCornerShape(10.dp),
         outlineColor = Color.White,
         gap = 2.dp,
     ) {
@@ -5039,7 +5230,11 @@ private fun PlayerMenuColorOptions(selected: String, onSelect: (String) -> Unit)
                         .background(color)
                         .border(
                             if (selected.equals(hex, true)) 3.dp else 1.dp,
-                            if (selected.equals(hex, true)) Color.White else Color.White.copy(alpha = .25f),
+                            if (selected.equals(
+                                    hex,
+                                    true
+                                )
+                            ) Color.White else Color.White.copy(alpha = .25f),
                             CircleShape,
                         )
                         .onFocusChanged { focused = it.isFocused }
@@ -5084,10 +5279,11 @@ private fun PlayerMenuChevronRow(title: String, value: String? = null, icon: Str
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 if (!icon.isNullOrBlank()) {
-                    Text(
-                        text = icon,
-                        fontSize = 18.sp,
-                        modifier = Modifier.padding(end = 12.dp)
+                    SubtitleMenuIcon(
+                        icon = icon,
+                        modifier = Modifier
+                            .padding(end = 12.dp)
+                            .size(28.dp, 20.dp),
                     )
                 }
                 Text(
@@ -5099,7 +5295,7 @@ private fun PlayerMenuChevronRow(title: String, value: String? = null, icon: Str
                 if (!value.isNullOrBlank()) {
                     Text(
                         value,
-                        color = playerMenuMutedText(),
+                        color = Color.White,
                         fontSize = 13.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -5407,10 +5603,11 @@ private fun PlayerMenuSelectableRow(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 if (!icon.isNullOrBlank()) {
-                    Text(
-                        text = icon,
-                        fontSize = 18.sp,
-                        modifier = Modifier.padding(end = 12.dp)
+                    SubtitleMenuIcon(
+                        icon = icon,
+                        modifier = Modifier
+                            .padding(end = 12.dp)
+                            .size(28.dp, 20.dp),
                     )
                 }
                 Column(Modifier.weight(1f)) {

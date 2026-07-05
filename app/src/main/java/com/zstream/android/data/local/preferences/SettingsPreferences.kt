@@ -163,7 +163,7 @@ class SettingsPreferences @Inject constructor(
             subtitleBackgroundBlur = prefs[KEY_SUBTITLE_BACKGROUND_BLUR]?.toFloatOrNull() ?: 0f,
             subtitleBackgroundBlurEnabled = prefs[KEY_SUBTITLE_BACKGROUND_BLUR_ENABLED] ?: false,
             subtitleBold = prefs[KEY_SUBTITLE_BOLD] ?: false,
-            subtitleVerticalPosition = prefs[KEY_SUBTITLE_VERTICAL_POSITION]?.toFloatOrNull() ?: 0f,
+            subtitleVerticalPosition = (prefs[KEY_SUBTITLE_VERTICAL_POSITION]?.toFloatOrNull() ?: 0f).coerceAtLeast(-15f),
             subtitleFontStyle = prefs[KEY_SUBTITLE_FONT_STYLE] ?: "dropShadow",
             subtitleBorderThickness = prefs[KEY_SUBTITLE_BORDER_THICKNESS]?.toFloatOrNull() ?: 1f,
             subtitleLineHeight = prefs[KEY_SUBTITLE_LINE_HEIGHT]?.toFloatOrNull() ?: 1.2f,
@@ -247,7 +247,7 @@ class SettingsPreferences @Inject constructor(
             prefs[KEY_SUBTITLE_BACKGROUND_BLUR] = entity.subtitleBackgroundBlur.toString()
             prefs[KEY_SUBTITLE_BACKGROUND_BLUR_ENABLED] = entity.subtitleBackgroundBlurEnabled
             prefs[KEY_SUBTITLE_BOLD] = entity.subtitleBold
-            prefs[KEY_SUBTITLE_VERTICAL_POSITION] = entity.subtitleVerticalPosition.toString()
+            prefs[KEY_SUBTITLE_VERTICAL_POSITION] = entity.subtitleVerticalPosition.coerceAtLeast(-15f).toString()
             prefs[KEY_SUBTITLE_FONT_STYLE] = entity.subtitleFontStyle
             prefs[KEY_SUBTITLE_BORDER_THICKNESS] = entity.subtitleBorderThickness.toString()
             prefs[KEY_SUBTITLE_LINE_HEIGHT] = entity.subtitleLineHeight.toString()
@@ -275,7 +275,7 @@ class SettingsPreferences @Inject constructor(
             val currentBgBlur = current[KEY_SUBTITLE_BACKGROUND_BLUR]?.toFloatOrNull() ?: 0.5f
             val currentBgBlurEnabled = current[KEY_SUBTITLE_BACKGROUND_BLUR_ENABLED] ?: true
             val currentBold = current[KEY_SUBTITLE_BOLD] ?: false
-            val currentVPos = current[KEY_SUBTITLE_VERTICAL_POSITION]?.toFloatOrNull() ?: 1f
+            val currentVPos = (current[KEY_SUBTITLE_VERTICAL_POSITION]?.toFloatOrNull() ?: 1f).coerceAtLeast(-15f)
             val currentFontStyle = current[KEY_SUBTITLE_FONT_STYLE] ?: "default"
             val currentBorderThickness = current[KEY_SUBTITLE_BORDER_THICKNESS]?.toFloatOrNull() ?: 1f
             val currentLineHeight = current[KEY_SUBTITLE_LINE_HEIGHT]?.toFloatOrNull() ?: 1.5f

@@ -3,6 +3,7 @@ package com.zstream.android.data
 import android.content.Context
 import coil.ImageLoader
 import coil.disk.DiskCache
+import coil.decode.SvgDecoder
 import coil.memory.MemoryCache
 import dagger.Module
 import dagger.Provides
@@ -19,6 +20,9 @@ object ImageCacheModule {
     @Provides
     fun provideImageLoader(@ApplicationContext context: Context): ImageLoader =
         ImageLoader.Builder(context)
+            .components {
+                add(SvgDecoder.Factory())
+            }
             .memoryCache {
                 MemoryCache.Builder(context)
                     .maxSizePercent(0.25)
