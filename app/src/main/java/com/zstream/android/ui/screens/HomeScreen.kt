@@ -1066,6 +1066,18 @@ fun HomeScreen(
                             }
 
                         } else {
+                            if (showContinueWatching && state.continueWatchingLoading && state.continueWatching.isEmpty()) {
+                                item("continue_watching_loading") {
+                                    HomeSectionLoading("Continue Watching")
+                                }
+                                item { Spacer(Modifier.height(20.dp)) }
+                            }
+                            if (showBookmarks && state.bookmarksLoading && state.bookmarks.isEmpty()) {
+                                item("bookmarks_loading") {
+                                    HomeSectionLoading("My Bookmarks")
+                                }
+                                item { Spacer(Modifier.height(20.dp)) }
+                            }
                             // User sections first
                             state.userSections
                                 .sortedBy { section ->
@@ -1909,7 +1921,7 @@ private fun MediaCarouselSection(
     // Track whether the ViewMoreCard was the last focused item in this row
     var viewMoreWasLastFocused by remember { mutableStateOf(false) }
     var rowHasFocus by remember { mutableStateOf(false) }
-    val hasViewMore = isTv && section.source != null
+    val hasViewMore = section.source != null && section.totalItems > section.items.size
     val viewMoreIndex = section.items.size // ViewMoreCard is appended after all media items
     // When focus re-enters the row and ViewMoreCard was last focused, scroll it back
     // into view (it may have been de-composed while scrolled off-screen) and then
@@ -1946,25 +1958,7 @@ private fun MediaCarouselSection(
                     trailingContent?.invoke(this)
                 }
             }
-            if (!isTv && section.source != null && section.items.isNotEmpty()) {
-                Row(
-                    modifier = Modifier.padding(
-                        start = 16.dp,
-                        end = 16.dp,
-                        top = 0.dp,
-                        bottom = 0.dp,
-                    ),
-                    horizontalArrangement = Arrangement.Start,
-                ) {
-                    ZsTextButton(
-                        text = "View more",
-                        onClick = { nav.navigate("more/${section.source.name}?group=${Uri.encode(section.groupKey.orEmpty())}") },
-                        modifier = Modifier.height(30.dp).offset(x = (-10).dp, y = (-15).dp),
-                    )
-                }
-            } else {
-                Spacer(Modifier.height(6.dp))
-            }
+            Spacer(Modifier.height(6.dp))
         }
 
         LazyRow(
@@ -2028,7 +2022,7 @@ private fun MediaCarouselSection(
                     }
                 }
             }
-            if (isTv && section.source != null) {
+            if (hasViewMore) {
                 item {
                     ViewMoreCard(
                         onClick = {
@@ -2039,6 +2033,28 @@ private fun MediaCarouselSection(
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun HomeSectionLoading(title: String, modifier: Modifier = Modifier) {
+    val theme = LocalZStreamTheme.current
+    val isTv = LocalIsTv.current
+    Column(modifier = modifier) {
+        SyncedSectionTitle(title)
+        Spacer(Modifier.height(12.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(if (isTv) 236.dp else 180.dp)
+                .padding(horizontal = if (isTv) TvHomeMetrics.screenPadding else 16.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            CircularProgressIndicator(
+                color = theme.colors.global.accentA,
+                strokeWidth = 3.dp,
+            )
         }
     }
 }
@@ -4406,6 +4422,8 @@ private fun TvHomeScreenContent(
             if (showBookmarks) addAll(state.bookmarks.filter { it.items.isNotEmpty() })
         }
     }
+    val showContinueWatchingLoading = showContinueWatching && state.continueWatchingLoading && state.continueWatching.isEmpty()
+    val showBookmarksLoading = showBookmarks && state.bookmarksLoading && state.bookmarks.isEmpty()
     val discoverSections = remember(state.activeTab, state.movieSections, state.tvSections, state.editorSections, userSections) {
         val seenIds = userSections.flatMapTo(mutableSetOf()) { section -> section.items.map { it.id } }
         buildList {
@@ -4649,8 +4667,34 @@ private fun TvHomeScreenContent(
                     }
                     item { Spacer(Modifier.height(24.dp)) }
                 } else {
+                    if (showContinueWatchingLoading) {
+                        item(key = "continue_watching_loading") {
+                            HomeSectionLoading(
+                                title = "Continue Watching",
+                                modifier = Modifier.onFocusChanged {
+                                    if (it.hasFocus) {
+                                        requestTvHomeScroll(
+                                            itemIndex = startIndexOffset,
+                                            scrollOffset = -topPaddingPx,
+                                            reason = "loading-focus:continue-watching",
+                                        )
+                                    }
+                                },
+                            )
+                        }
+                        item { Spacer(Modifier.height(TvHomeMetrics.sectionSpacing)) }
+                    }
+                    if (showBookmarksLoading) {
+                        item(key = "bookmarks_loading") {
+                            HomeSectionLoading(title = "My Bookmarks")
+                        }
+                        item { Spacer(Modifier.height(TvHomeMetrics.sectionSpacing)) }
+                    }
                     userSections.forEachIndexed { sectionIndex, section ->
-                        val sectionItemIndex = startIndexOffset + sectionIndex * 2
+                        val loadingOffset =
+                            (if (showContinueWatchingLoading) 2 else 0) +
+                                (if (showBookmarksLoading) 2 else 0)
+                        val sectionItemIndex = startIndexOffset + loadingOffset + sectionIndex * 2
                         if (state.enableCarouselView) {
                             item(key = section.title) {
                                 MediaCarouselSection(

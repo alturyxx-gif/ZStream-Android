@@ -191,6 +191,7 @@ class TraktRepository @Inject constructor(
         bookmarkDao.getAllSync().forEach { bookmark ->
             api("/sync/watchlist", "POST", mediaPayload(bookmark.type, bookmark.tmdbId))
         }
+        val updates = mutableListOf<BookmarkEntity>()
         api("/sync/watchlist?limit=100").asJsonArray.forEach { item ->
             val obj = item.asJsonObject
             val media = obj.getAsJsonObject("movie") ?: obj.getAsJsonObject("show") ?: return@forEach
@@ -199,7 +200,7 @@ class TraktRepository @Inject constructor(
             if (existing?.posterPath == null) {
                 val type = if (obj.has("movie")) "movie" else "show"
                 val metadata = tmdbMetadata(type, id)
-                bookmarkDao.insert(existing?.copy(
+                updates += existing?.copy(
                     title = metadata?.first ?: existing.title,
                     posterPath = metadata?.second,
                 ) ?: BookmarkEntity(
@@ -208,9 +209,10 @@ class TraktRepository @Inject constructor(
                     year = media.get("year")?.asInt,
                     type = type,
                     posterPath = metadata?.second,
-                ))
+                )
             }
         }
+        if (updates.isNotEmpty()) bookmarkDao.insertAll(updates)
     }
 
     suspend fun syncHistory() = sync("History sync failed") {

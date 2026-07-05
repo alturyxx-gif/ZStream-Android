@@ -1405,6 +1405,19 @@ private fun AppearanceSection(
                 TvSettingsRow(theme, onActivate = { vm.setEnableMinimalCards(!settings.enableMinimalCards) }) {
                     TvSwitchContent("Minimal Cards", "Compact card display", settings.enableMinimalCards)
                 }
+                if (settings.enableCarouselView) {
+                    HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
+                    TvSliderRow(
+                        label = "Carousel item limit",
+                        value = settings.homeSectionCarouselLimit.toFloat(),
+                        rangeStart = 1f,
+                        rangeEnd = 50f,
+                        steps = 48,
+                        display = { it.roundToInt().toString() },
+                        onValueChange = { vm.setHomeSectionCarouselLimit(it.roundToInt()) },
+                        theme = theme
+                    )
+                }
             }
         } else {
             SettingsCard(theme) {
@@ -1463,6 +1476,25 @@ private fun AppearanceSection(
                     onCheckedChange = vm::setEnableMinimalCards,
                     modifier = Modifier.padding(horizontal = 16.dp),
                 )
+                AnimatedVisibility(
+                    visible = settings.enableCarouselView,
+                    enter = expandVertically() + fadeIn(),
+                    exit = shrinkVertically() + fadeOut()
+                ) {
+                    Column {
+                        HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
+                        SliderRow(
+                            label = "Carousel item limit",
+                            value = settings.homeSectionCarouselLimit.toFloat(),
+                            rangeStart = 1f,
+                            rangeEnd = 50f,
+                            steps = 48,
+                            display = { it.roundToInt().toString() },
+                            onValueChange = { vm.setHomeSectionCarouselLimit(it.roundToInt()) },
+                            theme = theme
+                        )
+                    }
+                }
             }
         }
 
@@ -1752,7 +1784,6 @@ private fun SubtitlesSettingsContent(
     firstItemFocusRequester: FocusRequester? = null,
 ) {
     val currentPreset = remember(settings) {
-// ... (omitted for brevity, assume full function body matches)
         when {
             // Netflix: white, no background, drop shadow, not bold, condensed font
             settings.subtitleColor.equals("#ffffff", true) &&

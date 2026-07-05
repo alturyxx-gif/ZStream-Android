@@ -7,6 +7,8 @@ import com.zstream.android.data.local.entity.ProgressEntity
 import com.zstream.android.data.remote.BackendApi
 import com.zstream.android.data.remote.ProgressInput
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -20,6 +22,9 @@ class ProgressRepository @Inject constructor(
     private val api: BackendApi,
     private val tmdbRepo: TmdbRepository,
 ) {
+    private val _isSyncing = MutableStateFlow(false)
+    val isSyncing: StateFlow<Boolean> = _isSyncing
+
     /**
      * Get progress from local cache first, then sync with backend if available
      * Returns the latest episode's progress for shows, or the single entry for movies.
@@ -295,6 +300,7 @@ class ProgressRepository @Inject constructor(
      * Each episode gets its own local entry (per-episode progress tracking).
      */
     suspend fun syncFromRemote() {
+        _isSyncing.value = true
         try {
             val session = accountRepo.currentSession ?: run {
                 Log.w(TAG, "No active session for remote sync")
@@ -370,6 +376,8 @@ class ProgressRepository @Inject constructor(
             if (stale.isNotEmpty()) Log.d(TAG, "Removed ${stale.size} stale progress entries")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to sync progress from remote", e)
+        } finally {
+            _isSyncing.value = false
         }
     }
 }

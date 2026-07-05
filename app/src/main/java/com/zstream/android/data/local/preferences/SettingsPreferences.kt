@@ -42,6 +42,7 @@ class SettingsPreferences @Inject constructor(
     private val KEY_ENABLE_CAROUSEL_VIEW = booleanPreferencesKey("enable_carousel_view")
     private val KEY_GRID_ROWS = intPreferencesKey("grid_rows")
     private val KEY_ENABLE_MINIMAL_CARDS = booleanPreferencesKey("enable_minimal_cards")
+    private val KEY_HOME_SECTION_CAROUSEL_LIMIT = intPreferencesKey("home_section_carousel_limit")
     private val KEY_ENABLE_LOW_PERFORMANCE_MODE = booleanPreferencesKey("enable_low_performance_mode")
     private val KEY_ENABLE_PAUSE_OVERLAY = booleanPreferencesKey("enable_pause_overlay")
 
@@ -120,6 +121,7 @@ class SettingsPreferences @Inject constructor(
             enableCarouselView = prefs[KEY_ENABLE_CAROUSEL_VIEW] ?: true,
             gridRows = (prefs[KEY_GRID_ROWS] ?: 2).coerceIn(1, 8),
             enableMinimalCards = prefs[KEY_ENABLE_MINIMAL_CARDS] ?: false,
+            homeSectionCarouselLimit = (prefs[KEY_HOME_SECTION_CAROUSEL_LIMIT] ?: 20).coerceIn(1, 50),
             enableLowPerformanceMode = prefs[KEY_ENABLE_LOW_PERFORMANCE_MODE] ?: false,
             enablePauseOverlay = prefs[KEY_ENABLE_PAUSE_OVERLAY] ?: true,
             enableAutoplay = prefs[KEY_ENABLE_AUTOPLAY] ?: true,
@@ -194,6 +196,7 @@ class SettingsPreferences @Inject constructor(
             prefs[KEY_ENABLE_CAROUSEL_VIEW] = entity.enableCarouselView
             prefs[KEY_GRID_ROWS] = entity.gridRows
             prefs[KEY_ENABLE_MINIMAL_CARDS] = entity.enableMinimalCards
+            prefs[KEY_HOME_SECTION_CAROUSEL_LIMIT] = entity.homeSectionCarouselLimit.coerceIn(1, 50)
             prefs[KEY_ENABLE_LOW_PERFORMANCE_MODE] = entity.enableLowPerformanceMode
             prefs[KEY_ENABLE_PAUSE_OVERLAY] = entity.enablePauseOverlay
             prefs[KEY_ENABLE_AUTOPLAY] = entity.enableAutoplay
