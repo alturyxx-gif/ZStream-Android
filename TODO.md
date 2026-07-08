@@ -1,13 +1,11 @@
-waiting for real sources:
-1. wire up the real sources in the obfuscated plugin
-2. download page: UI exists, but it is only a placeholder card
+features to add:
+1. custom source order
+2. cast
+3. download page: UI exists, but it is only a placeholder card
 
 
 later features:
 1. countdown/upcoming movies/shows section
 2. nav bar for phone
 3. simkl
-
-bugs to fix:
-1. unicode problem in subtitles
 
