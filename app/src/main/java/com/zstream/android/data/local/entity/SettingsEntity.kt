@@ -41,6 +41,9 @@ data class SettingsEntity(
     val volumeBoost: Int = 100,
     val videoScaleMode: String = "fit",
     val tvPipPosition: String = "bottom_end",
+    // When leaving the app (home/recents) while a video is playing: false = pause playback,
+    // true = automatically enter system Picture-in-Picture instead. Local-only, not synced.
+    val autoPipEnabled: Boolean = false,
 
     // Discover/Home Settings
     val enableDiscover: Boolean = false, // Synced with backend, but the local UI no longer reads it.

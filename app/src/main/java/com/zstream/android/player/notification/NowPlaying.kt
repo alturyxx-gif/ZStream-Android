@@ -19,7 +19,7 @@ interface NowPlayingControls {
 }
 
 /**
- * Bridges the Compose player screen (which owns the MpvPlayer instance) and
+ * Bridges the Compose player screen (which owns the ExoPlayer instance) and
  * PlaybackNotificationService (which owns the MediaSession + notification), since
  * neither side can hold a direct reference to the other's lifecycle.
  */

@@ -188,7 +188,7 @@ private fun TvSettingsScreen(
         }
     }
 
-    val tabs = listOf("Account", "Preferences", "Appearance", "Subtitles", "Connections")
+    val tabs = listOf("Account", "Preferences", "Appearance", "Player", "Subtitles", "Connections")
     val tabFocusRequesters = remember { List(tabs.size) { FocusRequester() } }
     val contentFirstItemFocusRequester = remember { FocusRequester() }
     var isContentFocused by remember { mutableStateOf(false) }
@@ -291,7 +291,7 @@ private fun TvSettingsScreen(
             )
 
             // ── Right content area ─────────────────────────────────────────
-            val subtitlesSettingsTabIndex = 3
+            val subtitlesSettingsTabIndex = 4
             Box(
                 Modifier
                     .weight(1f)
@@ -330,7 +330,8 @@ private fun TvSettingsScreen(
                             )
                             1 -> PreferencesSection(settings, bookmarks, theme, vm, isTv = true, firstItemFocusRequester = contentFirstItemFocusRequester)
                             2 -> AppearanceSection(settings, theme, vm, isTv = true, firstItemFocusRequester = contentFirstItemFocusRequester)
-                            4 -> ConnectionsSection(settings, theme, vm, isTv = true, firstItemFocusRequester = contentFirstItemFocusRequester)
+                            3 -> PlayerSection(settings, theme, vm, isTv = true, firstItemFocusRequester = contentFirstItemFocusRequester)
+                            5 -> ConnectionsSection(settings, theme, vm, isTv = true, firstItemFocusRequester = contentFirstItemFocusRequester)
                         }
                     }
                 }
@@ -697,7 +698,7 @@ private fun PhoneSettingsScreen(
         }
     }
 
-    val tabs = listOf("Account", "Preferences", "Appearance", "Subtitles", "Connections")
+    val tabs = listOf("Account", "Preferences", "Appearance", "Player", "Subtitles", "Connections")
     val tabFocusRequesters = remember { List(tabs.size) { FocusRequester() } }
     val contentFirstItemFocusRequester = remember { FocusRequester() }
     var isContentFocused by remember { mutableStateOf(false) }
@@ -736,7 +737,7 @@ private fun PhoneSettingsScreen(
             TabBar(tabs, currentTab, theme) { vm.setTab(it) }
 
             // Content
-            val subtitlesSettingsTabIndex = 3
+            val subtitlesSettingsTabIndex = 4
             if (currentTab == subtitlesSettingsTabIndex) {
                 Column(Modifier.fillMaxSize()) {
                     SubtitlePreview(settings, theme, vm, isTv = false)
@@ -756,7 +757,8 @@ private fun PhoneSettingsScreen(
                         })
                         1 -> PreferencesSection(settings, bookmarks, theme, vm)
                         2 -> AppearanceSection(settings, theme, vm)
-                        4 -> ConnectionsSection(settings, theme, vm)
+                        3 -> PlayerSection(settings, theme, vm)
+                        5 -> ConnectionsSection(settings, theme, vm)
                     }
                 }
             }
@@ -1571,6 +1573,42 @@ private fun AppearanceSection(
                     themeOption = themeOption,
                     selected = themeOption.id == activeTheme.id,
                     onClick = { vm.setApplicationTheme(themeOption.id) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PlayerSection(
+    settings: SettingsEntity,
+    theme: ZStreamTheme,
+    vm: SettingsViewModel,
+    isTv: Boolean = false,
+    firstItemFocusRequester: FocusRequester? = null,
+) {
+    Column(Modifier
+        .padding(bottom = 32.dp)
+        .padding(top = if (isTv) 16.dp else 0.dp)) {
+        Spacer(Modifier.height(8.dp))
+        if (isTv) {
+            // TV uses its own dedicated in-app PiP mechanism (back button on the player), not
+            // the system auto-PiP-on-background behavior this setting controls.
+            Text(
+                "Nothing to configure here on TV yet.",
+                color = theme.colors.type.secondary,
+                fontSize = 13.sp,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
+        } else {
+            SectionLabel("Background Playback", theme)
+            SettingsCard(theme) {
+                ZsSwitchRow(
+                    title = "Auto Picture-in-Picture",
+                    subtitle = "When leaving the app while a video is playing: on = automatically enter Picture-in-Picture, off = pause playback.",
+                    checked = settings.autoPipEnabled,
+                    onCheckedChange = vm::setAutoPipEnabled,
+                    modifier = Modifier.padding(horizontal = 16.dp),
                 )
             }
         }

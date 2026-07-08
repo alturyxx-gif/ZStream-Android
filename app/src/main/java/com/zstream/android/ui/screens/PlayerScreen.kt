@@ -3,6 +3,7 @@ package com.zstream.android.ui.screens
 import androidx.compose.ui.layout.ContentScale
 import android.app.Activity
 import android.app.PictureInPictureParams
+import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.res.Resources
 import android.media.audiofx.LoudnessEnhancer
@@ -77,6 +78,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -136,6 +138,7 @@ import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.ui.PlayerView
 import androidx.navigation.NavController
 import com.zstream.android.R
+import com.zstream.android.player.PlayerBackgroundController
 import androidx.media3.common.MediaItem.SubtitleConfiguration
 import android.net.Uri
 import android.widget.Toast
@@ -399,6 +402,40 @@ private fun BoxScope.DoubleTapSeekIndicator(
     }
 }
 
+private fun publishNowPlaying(
+    vm: PlayerViewModel,
+    player: ExoPlayer,
+    currentSeasonDetail: com.zstream.android.data.model.Season?,
+    pauseMetadata: PauseMetadata?,
+) {
+    val subtitle = if (vm.mediaType == "tv") {
+        val season = vm.season
+        val episode = vm.episode
+        val episodeName = currentSeasonDetail
+            ?.takeIf { it.seasonNumber == season }
+            ?.episodes
+            ?.firstOrNull { it.episodeNumber == episode }
+            ?.name
+        buildList {
+            if (season != null && episode != null) add("S$season · E$episode")
+            episodeName?.let { add(it) }
+        }.joinToString(" · ").takeIf { it.isNotBlank() }
+    } else {
+        pauseMetadata?.year
+    }
+
+    com.zstream.android.player.notification.NowPlayingController.update(
+        com.zstream.android.player.notification.NowPlayingInfo(
+            title = pauseMetadata?.title ?: vm.title,
+            subtitle = subtitle,
+            artworkUrl = pauseMetadata?.posterUrl,
+            isPlaying = player.isPlaying,
+            positionMs = player.currentPosition,
+            durationMs = player.duration.coerceAtLeast(0L),
+        )
+    )
+}
+
 @OptIn(UnstableApi::class, ExperimentalComposeUiApi::class)
 @Composable
 fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
@@ -417,6 +454,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
     val watchPartyUserId by vm.watchPartyManager.selfUserId.collectAsState()
     val tvDetail by vm.tvDetail.collectAsState()
     val currentSeasonDetail by vm.currentSeasonDetail.collectAsState()
+    val pauseMetadataForNotification by vm.pauseMetadata.collectAsState()
     val context = LocalContext.current
     val activity = context as? Activity
     val playerScope = rememberCoroutineScope()
@@ -587,6 +625,13 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                                 .padding(top = 10.dp)
                         ) {
                             s.sources.forEach { source ->
+                                val showUseButton = source.status == SourceStatus.SUCCESS
+                                val useButtonFocusRequester = remember(source.id) { FocusRequester() }
+                                LaunchedEffect(showUseButton) {
+                                    if (showUseButton) {
+                                        runCatching { useButtonFocusRequester.requestFocus() }
+                                    }
+                                }
                                 PlayerMenuSelectableRow(
                                     title = sourceDisplayName(source.id, source.codec),
                                     selected = false,
@@ -594,9 +639,11 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                                     rightContent = {
                                         ManualSourceStatusContent(
                                             source = source,
-                                            onUse = { vm.confirmManualSourceSelection(source.id) }
+                                            onUse = { vm.confirmManualSourceSelection(source.id) },
+                                            useButtonFocusRequester = if (showUseButton) useButtonFocusRequester else null,
                                         )
-                                    }
+                                    },
+                                    rowFocusable = !showUseButton,
                                 )
                                 if (source != s.sources.last()) {
                                     Spacer(Modifier.height(2.dp))
@@ -899,6 +946,50 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
 
                 DisposableEffect(Unit) { onDispose { player.release() } }
 
+                // Android notification-center / lock-screen "now playing" controls.
+                DisposableEffect(player) {
+                    context.startService(Intent(context, com.zstream.android.player.notification.PlaybackNotificationService::class.java))
+                    com.zstream.android.player.notification.NowPlayingController.controls =
+                        object : com.zstream.android.player.notification.NowPlayingControls {
+                            override fun play() { player.play() }
+                            override fun pause() { player.pause() }
+                            override fun stop() { player.pause() }
+                        }
+                    val listener = object : Player.Listener {
+                        override fun onIsPlayingChanged(isPlaying: Boolean) {
+                            publishNowPlaying(
+                                vm = vm,
+                                player = player,
+                                currentSeasonDetail = currentSeasonDetail,
+                                pauseMetadata = pauseMetadataForNotification,
+                            )
+                        }
+                    }
+                    player.addListener(listener)
+                    onDispose {
+                        player.removeListener(listener)
+                        com.zstream.android.player.notification.NowPlayingController.clear()
+                        context.stopService(Intent(context, com.zstream.android.player.notification.PlaybackNotificationService::class.java))
+                    }
+                }
+
+                LaunchedEffect(
+                    player,
+                    currentPositionMs,
+                    vm.title,
+                    vm.season,
+                    vm.episode,
+                    currentSeasonDetail,
+                    pauseMetadataForNotification,
+                ) {
+                    publishNowPlaying(
+                        vm = vm,
+                        player = player,
+                        currentSeasonDetail = currentSeasonDetail,
+                        pauseMetadata = pauseMetadataForNotification,
+                    )
+                }
+
                 LaunchedEffect(
                     settings.enableAutoplay,
                     settings.enableSkipCredits,
@@ -1163,6 +1254,19 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                         false
                     }
                     isInPip = entered
+                }
+
+                DisposableEffect(player, isTv, settings.autoPipEnabled) {
+                    PlayerBackgroundController.onUserLeaveHint = {
+                        if (!isTv) {
+                            if (settings.autoPipEnabled) {
+                                enterPip()
+                            } else {
+                                player.pause()
+                            }
+                        }
+                    }
+                    onDispose { PlayerBackgroundController.onUserLeaveHint = null }
                 }
 
                 BackHandler(enabled = showInfoSheet || menuPage != null) {
@@ -4237,6 +4341,15 @@ private fun PlayerMenuContent(
                     PlayerMenuPage.Sources -> {
                         PlayerMenuSection {
                             sourceResults.forEachIndexed { index, source ->
+                                val showUseButton = source.id != sourceId && source.status == SourceStatus.SUCCESS
+                                val useButtonFocusRequester = remember(source.id) {
+                                    if (index == 0 && firstItemFocusRequester != null) firstItemFocusRequester else FocusRequester()
+                                }
+                                LaunchedEffect(showUseButton) {
+                                    if (showUseButton) {
+                                        runCatching { useButtonFocusRequester.requestFocus() }
+                                    }
+                                }
                                 PlayerMenuSelectableRow(
                                     title = sourceDisplayName(source.id, source.codec),
                                     selected = source.id == sourceId,
@@ -4245,11 +4358,13 @@ private fun PlayerMenuContent(
                                         if (source.id != sourceId) {
                                             ManualSourceStatusContent(
                                                 source = source,
-                                                onUse = { onUseSource(source.id) }
+                                                onUse = { onUseSource(source.id) },
+                                                useButtonFocusRequester = if (showUseButton) useButtonFocusRequester else null,
                                             )
                                         }
                                     },
-                                    focusRequester = if (index == 0) firstItemFocusRequester else null,
+                                    focusRequester = if (index == 0 && !showUseButton) firstItemFocusRequester else null,
+                                    rowFocusable = !showUseButton,
                                 )
                             }
                         }
@@ -5637,10 +5752,48 @@ private fun PlayerMenuSelectableRow(
     rightContent: (@Composable RowScope.() -> Unit)? = null,
     focusRequester: FocusRequester? = null,
     icon: String? = null,
+    disabled: Boolean = false,
+    // False once the row shouldn't be a D-pad target itself anymore (e.g. a Sources row after a
+    // focusable "Use" button appears in rightContent) — focus should land on that child instead.
+    rowFocusable: Boolean = true,
 ) {
     val theme = LocalZStreamTheme.current
     val isTv = LocalIsTv.current
     var isFocused by remember { mutableStateOf(false) }
+
+    val rowInnerContent: @Composable () -> Unit = {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 8.dp)
+                .alpha(if (disabled) 0.5f else 1f),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (!icon.isNullOrBlank()) {
+                SubtitleMenuIcon(
+                    icon = icon,
+                    modifier = Modifier
+                        .padding(end = 12.dp)
+                        .size(28.dp, 20.dp),
+                )
+            }
+            Column(Modifier.weight(1f)) {
+                Text(title, color = if (selected) theme.colors.type.emphasis else theme.colors.type.emphasis.copy(alpha = 0.96f))
+                if (subtitle != null) {
+                    Spacer(Modifier.height(2.dp))
+                    Text(subtitle, color = playerMenuDimText(), fontSize = 12.sp)
+                }
+            }
+            if (rightContent != null) {
+                Row(verticalAlignment = Alignment.CenterVertically, content = rightContent)
+            }
+            if (selected) {
+                Spacer(Modifier.width(6.dp))
+                ZsCheckmark()
+            }
+        }
+    }
+
     ZsOutlinedWrapper(
         visible = isFocused && isTv,
         shape = RoundedCornerShape(8.dp),
@@ -5649,49 +5802,33 @@ private fun PlayerMenuSelectableRow(
         horizontal = 4.dp,
         vertical = 2.dp,
     ) {
-        Surface(
-            onClick = onClick,
-            color = if (selected) playerMenuCardActiveFill() else Color.Transparent,
-            shape = RoundedCornerShape(8.dp),
-            modifier = Modifier
-                .fillMaxWidth()
-                .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
-                .focusProperties {
-                    if (isTv) {
-                        left = FocusRequester.Cancel
-                        right = FocusRequester.Cancel
-                    }
-                }
-                .onFocusChanged { isFocused = it.isFocused }
-        ) {
-            Row(
-                Modifier
+        if (rowFocusable) {
+            Surface(
+                onClick = onClick,
+                color = if (selected) playerMenuCardActiveFill() else Color.Transparent,
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                if (!icon.isNullOrBlank()) {
-                    SubtitleMenuIcon(
-                        icon = icon,
-                        modifier = Modifier
-                            .padding(end = 12.dp)
-                            .size(28.dp, 20.dp),
-                    )
-                }
-                Column(Modifier.weight(1f)) {
-                    Text(title, color = if (selected) theme.colors.type.emphasis else theme.colors.type.emphasis.copy(alpha = 0.96f))
-                    if (subtitle != null) {
-                        Spacer(Modifier.height(2.dp))
-                        Text(subtitle, color = playerMenuDimText(), fontSize = 12.sp)
+                    .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
+                    .focusProperties {
+                        if (isTv) {
+                            left = FocusRequester.Cancel
+                            right = FocusRequester.Cancel
+                        }
                     }
-                }
-                if (rightContent != null) {
-                    Row(verticalAlignment = Alignment.CenterVertically, content = rightContent)
-                }
-                if (selected) {
-                    Spacer(Modifier.width(6.dp))
-                    ZsCheckmark()
-                }
+                    .onFocusChanged { isFocused = it.isFocused }
+            ) {
+                rowInnerContent()
+            }
+        } else {
+            // Not focusable/clickable at all — the D-pad should land directly on whatever
+            // focusable child rightContent renders (e.g. a "Use" button), not this row.
+            Surface(
+                color = if (selected) playerMenuCardActiveFill() else Color.Transparent,
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                rowInnerContent()
             }
         }
     }
@@ -5757,7 +5894,11 @@ private fun PlayerMenuSkipSegmentRow(
 }
 
 @Composable
-private fun ManualSourceStatusContent(source: SourceResult, onUse: () -> Unit) {
+private fun ManualSourceStatusContent(
+    source: SourceResult,
+    onUse: () -> Unit,
+    useButtonFocusRequester: FocusRequester? = null,
+) {
     val theme = LocalZStreamTheme.current
     val statusColor = sourceStatusColor(theme, source.status)
     when (source.status) {
@@ -5792,7 +5933,9 @@ private fun ManualSourceStatusContent(source: SourceResult, onUse: () -> Unit) {
                     colors = ButtonDefaults.textButtonColors(contentColor = theme.colors.type.emphasis),
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
                     border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.type.emphasis.copy(alpha = 0.15f)),
-                    modifier = Modifier.height(28.dp)
+                    modifier = Modifier
+                        .height(28.dp)
+                        .then(if (useButtonFocusRequester != null) Modifier.focusRequester(useButtonFocusRequester) else Modifier)
                 ) {
                     Text("Use", fontSize = 12.sp)
                 }
