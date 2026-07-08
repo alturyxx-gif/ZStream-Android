@@ -627,8 +627,9 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                             s.sources.forEach { source ->
                                 val showUseButton = source.status == SourceStatus.SUCCESS
                                 val useButtonFocusRequester = remember(source.id) { FocusRequester() }
+                                var isRowFocused by remember(source.id) { mutableStateOf(false) }
                                 LaunchedEffect(showUseButton) {
-                                    if (showUseButton) {
+                                    if (showUseButton && isRowFocused) {
                                         runCatching { useButtonFocusRequester.requestFocus() }
                                     }
                                 }
@@ -644,6 +645,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                                         )
                                     },
                                     rowFocusable = !showUseButton,
+                                    onFocusedChanged = { isRowFocused = it },
                                 )
                                 if (source != s.sources.last()) {
                                     Spacer(Modifier.height(2.dp))
@@ -4345,8 +4347,9 @@ private fun PlayerMenuContent(
                                 val useButtonFocusRequester = remember(source.id) {
                                     if (index == 0 && firstItemFocusRequester != null) firstItemFocusRequester else FocusRequester()
                                 }
+                                var isRowFocused by remember(source.id) { mutableStateOf(false) }
                                 LaunchedEffect(showUseButton) {
-                                    if (showUseButton) {
+                                    if (showUseButton && isRowFocused) {
                                         runCatching { useButtonFocusRequester.requestFocus() }
                                     }
                                 }
@@ -4365,6 +4368,7 @@ private fun PlayerMenuContent(
                                     },
                                     focusRequester = if (index == 0 && !showUseButton) firstItemFocusRequester else null,
                                     rowFocusable = !showUseButton,
+                                    onFocusedChanged = { isRowFocused = it },
                                 )
                             }
                         }
@@ -5756,6 +5760,7 @@ private fun PlayerMenuSelectableRow(
     // False once the row shouldn't be a D-pad target itself anymore (e.g. a Sources row after a
     // focusable "Use" button appears in rightContent) — focus should land on that child instead.
     rowFocusable: Boolean = true,
+    onFocusedChanged: ((Boolean) -> Unit)? = null,
 ) {
     val theme = LocalZStreamTheme.current
     val isTv = LocalIsTv.current
@@ -5816,7 +5821,10 @@ private fun PlayerMenuSelectableRow(
                             right = FocusRequester.Cancel
                         }
                     }
-                    .onFocusChanged { isFocused = it.isFocused }
+                    .onFocusChanged {
+                        isFocused = it.isFocused
+                        onFocusedChanged?.invoke(it.isFocused)
+                    }
             ) {
                 rowInnerContent()
             }
