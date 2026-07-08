@@ -68,7 +68,6 @@ import com.zstream.android.data.model.Episode
 import com.zstream.android.data.model.Media
 import com.zstream.android.data.model.MovieDetail
 import com.zstream.android.data.model.Season
-import com.zstream.android.data.model.TrailerData
 import com.zstream.android.data.model.TvDetail
 import com.zstream.android.data.model.airedEpisodes
 import com.zstream.android.theme.ZStreamTheme
@@ -291,6 +290,9 @@ internal fun ColumnScope.SharedMovieDetailContent(
     nav: NavController,
     theme: ZStreamTheme,
     firstItemFocusRequester: FocusRequester? = null,
+    trailers: List<com.zstream.android.data.ImdbTrailer> = emptyList(),
+    openTrailersInApp: Boolean = true,
+    onTrailerWillPlay: () -> Unit = {},
     specActions: @Composable ColumnScope.() -> Unit = {},
     topActions: @Composable RowScope.(firstItemFocusRequester: FocusRequester?) -> Unit,
 ) {
@@ -348,7 +350,7 @@ internal fun ColumnScope.SharedMovieDetailContent(
     ZsBottomSheetSectionHeader("Cast")
     SharedCastRow(cast, theme, context)
     ZsBottomSheetSectionHeader("Trailers")
-    SharedTrailerGrid(detail.videos?.results?.filter { it.site == "YouTube" && it.type == "Trailer" }.orEmpty(), theme, context)
+    SharedTrailerGrid(trailers, theme, context, nav, openTrailersInApp, onTrailerWillPlay)
     ZsBottomSheetSectionHeader("Similar")
     SharedSimilarGrid(detail.similar?.results.orEmpty(), theme, nav)
 }
@@ -366,6 +368,9 @@ internal fun ColumnScope.SharedTvDetailContent(
     onMarkEpisodeWatched: (Episode) -> Unit = {},
     onClearEpisodeWatchHistory: (Episode) -> Unit = {},
     firstItemFocusRequester: FocusRequester? = null,
+    trailers: List<com.zstream.android.data.ImdbTrailer> = emptyList(),
+    openTrailersInApp: Boolean = true,
+    onTrailerWillPlay: () -> Unit = {},
     specActions: @Composable ColumnScope.() -> Unit = {},
     topActions: @Composable RowScope.(firstItemFocusRequester: FocusRequester?) -> Unit,
 ) {
@@ -489,7 +494,7 @@ internal fun ColumnScope.SharedTvDetailContent(
     ZsBottomSheetSectionHeader("Cast")
     SharedCastRow(detail.credits?.cast.orEmpty().take(8), theme, context)
     ZsBottomSheetSectionHeader("Trailers")
-    SharedTrailerGrid(detail.videos?.results?.filter { it.site == "YouTube" && it.type == "Trailer" }.orEmpty(), theme, context)
+    SharedTrailerGrid(trailers, theme, context, nav, openTrailersInApp, onTrailerWillPlay)
     ZsBottomSheetSectionHeader("Similar")
     SharedSimilarGrid(detail.similar?.results.orEmpty(), theme, nav)
 }
@@ -632,9 +637,12 @@ internal fun SharedCastRow(
 
 @Composable
 internal fun SharedTrailerGrid(
-    trailers: List<TrailerData>,
+    trailers: List<com.zstream.android.data.ImdbTrailer>,
     theme: ZStreamTheme,
     context: android.content.Context,
+    nav: NavController,
+    openTrailersInApp: Boolean = true,
+    onTrailerWillPlay: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     if (trailers.isEmpty()) {
@@ -647,6 +655,8 @@ internal fun SharedTrailerGrid(
     }
 
     val isTv = LocalIsTv.current
+    // Trailers always play in-app on TV — the phone-only setting only matters off-TV.
+    val playInApp = isTv || openTrailersInApp
     Column(modifier.padding(horizontal = 20.dp, vertical = 12.dp)) {
         LazyRow(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -668,13 +678,32 @@ internal fun SharedTrailerGrid(
                             .clip(RoundedCornerShape(8.dp))
                             .background(theme.colors.modal.background)
                             .onFocusChanged { isFocused = it.isFocused }
-                            .clickable { com.zstream.android.ui.screens.openYoutubeTrailer(context, trailer.key) }
+                            .clickable {
+                                if (playInApp) {
+                                    onTrailerWillPlay()
+                                    nav.navigate(
+                                        "trailer?url=${trailer.playbackUrl.encodeRouteParam()}&title=${trailer.name.encodeRouteParam()}"
+                                    )
+                                } else {
+                                    com.zstream.android.ui.screens.openExternalVideo(context, trailer.playbackUrl, trailer.mimeType)
+                                }
+                            }
                     ) {
                         AsyncImage(
-                            model = "https://img.youtube.com/vi/${trailer.key}/0.jpg",
+                            model = trailer.thumbnailUrl,
                             contentDescription = trailer.name,
                             contentScale = ContentScale.Crop,
                             modifier = Modifier.fillMaxSize()
+                        )
+                        Icon(
+                            Icons.Filled.PlayArrow,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier
+                                .align(Alignment.Center)
+                                .size(36.dp)
+                                .background(Color.Black.copy(alpha = 0.35f), CircleShape)
+                                .padding(4.dp)
                         )
                         Text(
                             trailer.name,

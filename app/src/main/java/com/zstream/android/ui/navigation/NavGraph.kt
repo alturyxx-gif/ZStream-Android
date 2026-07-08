@@ -44,6 +44,18 @@ fun NavGraph(nav: NavHostController) {
                 navArgument("autoplay") { type = NavType.BoolType; defaultValue = false },
             )
         ) { PlayerScreen(nav) }
+        dialog(
+            "trailer?url={url}&title={title}",
+            arguments = listOf(
+                navArgument("url") { type = NavType.StringType },
+                navArgument("title") { type = NavType.StringType; defaultValue = "" },
+            ),
+            dialogProperties = DialogProperties(
+                usePlatformDefaultWidth = false,
+                dismissOnBackPress = true,
+                dismissOnClickOutside = false
+            )
+        ) { TrailerPlayerScreen(nav) }
         composable("settings") { SettingsScreen(nav) }
         composable("login") { LoginScreen(nav) }
         composable("watchHistory") { WatchHistoryScreen(nav) }

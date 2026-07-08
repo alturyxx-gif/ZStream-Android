@@ -64,6 +64,7 @@ class SettingsPreferences @Inject constructor(
     private val KEY_VIDEO_SCALE_MODE = stringPreferencesKey("video_scale_mode")
     private val KEY_TV_PIP_POSITION = stringPreferencesKey("tv_pip_position")
     private val KEY_AUTO_PIP_ENABLED = booleanPreferencesKey("auto_pip_enabled")
+    private val KEY_TRAILERS_OPEN_IN_APP = booleanPreferencesKey("trailers_open_in_app")
 
     // Discover/Home Settings
     private val KEY_ENABLE_DISCOVER = booleanPreferencesKey("enable_discover")
@@ -141,6 +142,7 @@ class SettingsPreferences @Inject constructor(
             videoScaleMode = prefs[KEY_VIDEO_SCALE_MODE] ?: "fit",
             tvPipPosition = prefs[KEY_TV_PIP_POSITION] ?: "bottom_end",
             autoPipEnabled = prefs[KEY_AUTO_PIP_ENABLED] ?: false,
+            trailersOpenInApp = prefs[KEY_TRAILERS_OPEN_IN_APP] ?: true,
             enableDiscover = prefs[KEY_ENABLE_DISCOVER] ?: false,
             enableFeatured = prefs[KEY_ENABLE_FEATURED] ?: true,
             lastSuccessfulSource = prefs[KEY_LAST_SUCCESSFUL_SOURCE],
@@ -217,6 +219,7 @@ class SettingsPreferences @Inject constructor(
             prefs[KEY_VIDEO_SCALE_MODE] = entity.videoScaleMode
             prefs[KEY_TV_PIP_POSITION] = entity.tvPipPosition
             prefs[KEY_AUTO_PIP_ENABLED] = entity.autoPipEnabled
+            prefs[KEY_TRAILERS_OPEN_IN_APP] = entity.trailersOpenInApp
             prefs[KEY_ENABLE_DISCOVER] = entity.enableDiscover
             prefs[KEY_ENABLE_FEATURED] = entity.enableFeatured
             if (entity.lastSuccessfulSource != null) {
@@ -297,6 +300,7 @@ class SettingsPreferences @Inject constructor(
             val currentVideoScaleMode = current[KEY_VIDEO_SCALE_MODE] ?: "fit"
             val currentTvPipPosition = current[KEY_TV_PIP_POSITION] ?: "bottom_end"
             val currentAutoPipEnabled = current[KEY_AUTO_PIP_ENABLED] ?: false
+            val currentTrailersOpenInApp = current[KEY_TRAILERS_OPEN_IN_APP] ?: true
             val currentGridRows = (current[KEY_GRID_ROWS] ?: 2).coerceIn(1, 8)
 
             val mappedHomeSectionOrder = remote.homeSectionOrder?.map { section ->
@@ -334,6 +338,7 @@ class SettingsPreferences @Inject constructor(
                 videoScaleMode = currentVideoScaleMode,
                 tvPipPosition = currentTvPipPosition,
                 autoPipEnabled = currentAutoPipEnabled,
+                trailersOpenInApp = currentTrailersOpenInApp,
                 enableDiscover = remote.enableDiscover ?: false,
                 enableFeatured = remote.enableFeatured ?: true,
                 lastSuccessfulSource = remote.lastSuccessfulSource,
@@ -560,6 +565,12 @@ class SettingsPreferences @Inject constructor(
     suspend fun setAutoPipEnabled(value: Boolean) {
         context.settingsStore.edit { prefs ->
             prefs[KEY_AUTO_PIP_ENABLED] = value
+        }
+    }
+
+    suspend fun setTrailersOpenInApp(value: Boolean) {
+        context.settingsStore.edit { prefs ->
+            prefs[KEY_TRAILERS_OPEN_IN_APP] = value
         }
     }
 

@@ -3,6 +3,8 @@ package com.zstream.android.ui.screens
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.zstream.android.data.ImdbTrailer
+import com.zstream.android.data.ImdbTrailerRepository
 import com.zstream.android.data.TmdbRepository
 import com.zstream.android.data.local.entity.ProgressEntity
 import com.zstream.android.data.model.MovieDetail
@@ -40,6 +42,7 @@ class DetailViewModel @Inject constructor(
     private val repo: TmdbRepository,
     private val progressRepo: com.zstream.android.data.ProgressRepository,
     private val bookmarkRepo: com.zstream.android.data.BookmarkRepository,
+    private val imdbTrailerRepo: ImdbTrailerRepository,
     savedState: SavedStateHandle,
 ) : ViewModel() {
     private val id = savedState.get<Int>("id") ?: 0
@@ -49,6 +52,8 @@ class DetailViewModel @Inject constructor(
     val state = _state.asStateFlow()
     private val _collection = MutableStateFlow<CollectionState>(CollectionState.Closed)
     val collection = _collection.asStateFlow()
+    private val _trailers = MutableStateFlow<List<ImdbTrailer>>(emptyList())
+    val trailers = _trailers.asStateFlow()
     
     // Add flows for bookmark and progress
     val isBookmarked = bookmarkRepo.observeBookmark(id.toString())
@@ -170,9 +175,12 @@ class DetailViewModel @Inject constructor(
     fun load() {
         viewModelScope.launch {
             _state.value = DetailState.Loading
+            _trailers.value = emptyList()
             runCatching {
                 if (mediaType == "movie") {
-                    _state.value = DetailState.Movie(repo.movieDetail(id))
+                    val detail = repo.movieDetail(id)
+                    _state.value = DetailState.Movie(detail)
+                    loadImdbTrailers(detail.imdbId)
                 } else {
                     val detail = repo.tvDetail(id)
                     val preferredSeasonNumber = pendingInitialSeasonNumber ?: progress.value?.seasonNumber
@@ -183,8 +191,23 @@ class DetailViewModel @Inject constructor(
                         ?.let { repo.season(id, it.seasonNumber) }
                     _state.value = DetailState.Tv(detail, firstSeason)
                     applyPendingInitialSeason()
+                    loadImdbTrailers(detail.imdbId ?: detail.externalIds?.imdbId)
                 }
             }.onFailure { _state.value = DetailState.Error(it.message ?: "Failed to load") }
+        }
+    }
+
+    private fun loadImdbTrailers(imdbId: String?) {
+        if (imdbId.isNullOrBlank()) return
+        viewModelScope.launch {
+            runCatching { imdbTrailerRepo.getTrailers(imdbId) }
+                .onSuccess {
+                    android.util.Log.d("ImdbTrailers", "imdbId=$imdbId trailers=${it.size}")
+                    _trailers.value = it
+                }
+                .onFailure {
+                    android.util.Log.e("ImdbTrailers", "imdbId=$imdbId failed", it)
+                }
         }
     }
 

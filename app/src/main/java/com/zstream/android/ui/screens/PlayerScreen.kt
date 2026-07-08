@@ -302,8 +302,8 @@ private enum class PlayerMenuPage {
 
 private sealed class PlayerInfoState {
     object Loading : PlayerInfoState()
-    data class Movie(val detail: MovieDetail) : PlayerInfoState()
-    data class Tv(val detail: TvDetail, val selectedSeason: Season? = null) : PlayerInfoState()
+    data class Movie(val detail: MovieDetail, val trailers: List<com.zstream.android.data.ImdbTrailer> = emptyList()) : PlayerInfoState()
+    data class Tv(val detail: TvDetail, val selectedSeason: Season? = null, val trailers: List<com.zstream.android.data.ImdbTrailer> = emptyList()) : PlayerInfoState()
     data class Error(val message: String) : PlayerInfoState()
 }
 
@@ -709,6 +709,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     }
                 }
                 val tmdbRepo = appRepos.tmdbRepository()
+                val imdbTrailerRepo = appRepos.imdbTrailerRepository()
                 var showInfoSheet by remember { mutableStateOf(false) }
                 var infoState by remember { mutableStateOf<PlayerInfoState?>(null) }
 
@@ -1633,9 +1634,16 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                                     val initialSeason = initialSeasonNumber?.let {
                                         tmdbRepo.season(vm.tmdbId.toInt(), it)
                                     }
-                                    PlayerInfoState.Tv(detail, initialSeason)
+                                    val trailers = (detail.imdbId ?: detail.externalIds?.imdbId)
+                                        ?.let { id -> runCatching { imdbTrailerRepo.getTrailers(id) }.getOrDefault(emptyList()) }
+                                        .orEmpty()
+                                    PlayerInfoState.Tv(detail, initialSeason, trailers)
                                 } else {
-                                    PlayerInfoState.Movie(tmdbRepo.movieDetail(vm.tmdbId.toInt()))
+                                    val detail = tmdbRepo.movieDetail(vm.tmdbId.toInt())
+                                    val trailers = detail.imdbId
+                                        ?.let { id -> runCatching { imdbTrailerRepo.getTrailers(id) }.getOrDefault(emptyList()) }
+                                        .orEmpty()
+                                    PlayerInfoState.Movie(detail, trailers)
                                 }
                             }.getOrElse { PlayerInfoState.Error(it.message ?: "Failed to load details") }
                         }
@@ -1752,6 +1760,8 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                         nav = nav,
                         allProgress = progressList,
                         showImageLogos = settings.enableImageLogos,
+                        openTrailersInApp = settings.trailersOpenInApp,
+                        onTrailerWillPlay = { player.pause() },
                         isBookmarked = isBookmarked != null,
                         onToggleBookmark = vm::toggleBookmark,
                         onClose = { showInfoSheet = false },
@@ -6230,6 +6240,8 @@ private fun PlayerInfoSheet(
     nav: NavController,
     allProgress: List<com.zstream.android.data.local.entity.ProgressEntity>,
     showImageLogos: Boolean,
+    openTrailersInApp: Boolean = true,
+    onTrailerWillPlay: () -> Unit = {},
     isBookmarked: Boolean,
     onToggleBookmark: () -> Unit,
     onClose: () -> Unit,
@@ -6265,7 +6277,10 @@ private fun PlayerInfoSheet(
                 onClearMovieWatchHistory = {},
                 showImageLogos = showImageLogos,
                 showPlayButton = false,
-                firstItemFocusRequester = firstItemFocusRequester
+                firstItemFocusRequester = firstItemFocusRequester,
+                trailers = state.trailers,
+                openTrailersInApp = openTrailersInApp,
+                onTrailerWillPlay = onTrailerWillPlay,
             )
         }
         is PlayerInfoState.Tv -> {
@@ -6288,7 +6303,10 @@ private fun PlayerInfoSheet(
                 onClearSeasonWatchHistory = {},
                 showImageLogos = showImageLogos,
                 showPlayButton = false,
-                firstItemFocusRequester = firstItemFocusRequester
+                firstItemFocusRequester = firstItemFocusRequester,
+                trailers = state.trailers,
+                openTrailersInApp = openTrailersInApp,
+                onTrailerWillPlay = onTrailerWillPlay,
             )
         }
     }

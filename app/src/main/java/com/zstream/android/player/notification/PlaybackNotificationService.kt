@@ -214,14 +214,16 @@ class PlaybackNotificationService : Service() {
     }
 
     private fun createChannel() {
-        val manager = getSystemService(NotificationManager::class.java)
-        if (manager.getNotificationChannel(CHANNEL_ID) == null) {
-            manager.createNotificationChannel(
-                NotificationChannel(CHANNEL_ID, "Playback", NotificationManager.IMPORTANCE_LOW).apply {
-                    description = "Now playing controls"
-                    setShowBadge(false)
-                }
-            )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val manager = getSystemService(NotificationManager::class.java)
+            if (manager.getNotificationChannel(CHANNEL_ID) == null) {
+                manager.createNotificationChannel(
+                    NotificationChannel(CHANNEL_ID, "Playback", NotificationManager.IMPORTANCE_LOW).apply {
+                        description = "Now playing controls"
+                        setShowBadge(false)
+                    }
+                )
+            }
         }
     }
 }

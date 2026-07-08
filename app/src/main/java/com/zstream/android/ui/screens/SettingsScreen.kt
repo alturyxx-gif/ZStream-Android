@@ -1232,6 +1232,14 @@ private fun PreferencesSection(
                     onCheckedChange = vm::setEnableNativeSubtitles,
                     modifier = Modifier.padding(horizontal = 16.dp),
                 )
+                HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
+                ZsSwitchRow(
+                    title = "Play Trailers In App",
+                    subtitle = "Off opens trailers in an external video app instead",
+                    checked = settings.trailersOpenInApp,
+                    onCheckedChange = vm::setTrailersOpenInApp,
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                )
             }
         }
 

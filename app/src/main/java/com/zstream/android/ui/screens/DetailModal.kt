@@ -144,13 +144,16 @@ fun MovieDetailModal(
     currentGroups: List<String> = emptyList(),
     allGroups: List<String> = emptyList(),
     onUpdateGroups: (List<String>) -> Unit = {},
+    trailers: List<com.zstream.android.data.ImdbTrailer> = emptyList(),
+    openTrailersInApp: Boolean = true,
+    onTrailerWillPlay: () -> Unit = {},
 ) {
     var pendingBulkTarget by remember { mutableStateOf<WatchBulkTarget?>(null) }
     var pendingBulkAction by remember { mutableStateOf<WatchBulkAction?>(null) }
     var showGroupEditor by remember { mutableStateOf(false) }
     val isTv = LocalIsTv.current
     val scrollState = rememberScrollState()
-    
+
     var scrollRequestId by remember { mutableLongStateOf(0L) }
     LaunchedEffect(scrollRequestId) {
         if (scrollRequestId > 0) {
@@ -184,6 +187,9 @@ fun MovieDetailModal(
             nav = nav,
             theme = theme,
             firstItemFocusRequester = firstItemFocusRequester,
+            trailers = trailers,
+            openTrailersInApp = openTrailersInApp,
+            onTrailerWillPlay = onTrailerWillPlay,
             specActions = {
                 detail.belongsToCollection?.let { collection ->
                     Surface(
@@ -649,6 +655,9 @@ fun TvDetailModal(
     currentGroups: List<String> = emptyList(),
     allGroups: List<String> = emptyList(),
     onUpdateGroups: (List<String>) -> Unit = {},
+    trailers: List<com.zstream.android.data.ImdbTrailer> = emptyList(),
+    openTrailersInApp: Boolean = true,
+    onTrailerWillPlay: () -> Unit = {},
 ) {
     var pendingBulkTarget by remember { mutableStateOf<WatchBulkTarget?>(null) }
     var pendingBulkAction by remember { mutableStateOf<WatchBulkAction?>(null) }
@@ -690,6 +699,9 @@ fun TvDetailModal(
             context = context,
             nav = nav,
             theme = theme,
+            trailers = trailers,
+            openTrailersInApp = openTrailersInApp,
+            onTrailerWillPlay = onTrailerWillPlay,
             onSelectSeason = onSelectSeason,
             onMarkEpisodeWatched = onMarkEpisodeWatched,
             onClearEpisodeWatchHistory = onClearEpisodeWatchHistory,
@@ -912,6 +924,20 @@ internal fun openYoutubeTrailer(context: android.content.Context, youtubeKey: St
     val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse(url))
     context.startActivity(intent)
 }
+
+internal fun openExternalVideo(context: android.content.Context, url: String, mimeType: String?) {
+    val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
+        setDataAndType(Uri.parse(url), mimeType?.takeIf { it.isNotBlank() } ?: "video/*")
+        addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+    runCatching { context.startActivity(intent) }
+        .onFailure {
+            context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse(url)))
+        }
+}
+
+internal fun String.encodeRouteParam(): String =
+    java.net.URLEncoder.encode(this, "UTF-8").replace("+", "%20")
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
