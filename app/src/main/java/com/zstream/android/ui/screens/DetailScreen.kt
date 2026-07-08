@@ -33,6 +33,7 @@ fun DetailScreen(nav: NavController, vm: DetailViewModel = hiltViewModel()) {
     val bookmark by vm.bookmark.collectAsState()
     val collection by vm.collection.collectAsState()
     val allGroups by vm.allGroups.collectAsState()
+    val trailers by vm.trailers.collectAsState()
     val hasProgress = progress?.let { it.watched >= 20 } ?: false
 
     if (!LocalIsTv.current) {
@@ -78,6 +79,8 @@ fun DetailScreen(nav: NavController, vm: DetailViewModel = hiltViewModel()) {
                 currentGroups = bookmark?.groups.orEmpty(),
                 allGroups = allGroups,
                 onUpdateGroups = vm::updateBookmarkGroups,
+                trailers = trailers,
+                openTrailersInApp = settings.trailersOpenInApp,
             )
         }
         is DetailState.Tv -> {
@@ -106,6 +109,8 @@ fun DetailScreen(nav: NavController, vm: DetailViewModel = hiltViewModel()) {
                 currentGroups = bookmark?.groups.orEmpty(),
                 allGroups = allGroups,
                 onUpdateGroups = vm::updateBookmarkGroups,
+                trailers = trailers,
+                openTrailersInApp = settings.trailersOpenInApp,
             )
         }
     }

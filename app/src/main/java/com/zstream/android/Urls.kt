@@ -4,6 +4,7 @@ object Urls {
     const val BACKEND = "https://court.fontaine.lol/"
     const val TMDB_BASE = "https://api.themoviedb.org/3/"
     const val TMDB_IMAGE = "https://image.tmdb.org/t/p/"
+    const val IMDB_GRAPHQL = "https://api.graphql.imdb.com/"
     const val PLUGIN_MANIFEST = "" // INSERT PLUGIN MANIFEST URL HERE
     const val APP_GITHUB_REPO = "https://github.com/alturyxx-gif/ZStream-Android"
     const val DISCORD_LINK = "https://discord.com/invite/wmbWfk4SGy"

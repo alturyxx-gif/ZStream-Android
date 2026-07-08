@@ -4,6 +4,7 @@ import android.content.Context
 import com.zstream.android.BuildConfig
 import com.zstream.android.Urls
 import com.zstream.android.data.remote.BackendApi
+import com.zstream.android.data.remote.ImdbApi
 import com.zstream.android.data.remote.TmdbApi
 import dagger.Module
 import dagger.Provides
@@ -21,6 +22,7 @@ import java.util.concurrent.TimeUnit
 
 @Qualifier @Retention(AnnotationRetention.BINARY) annotation class TmdbRetrofit
 @Qualifier @Retention(AnnotationRetention.BINARY) annotation class BackendRetrofit
+@Qualifier @Retention(AnnotationRetention.BINARY) annotation class ImdbRetrofit
 
 @Module
 @InstallIn(SingletonComponent::class)
@@ -65,4 +67,24 @@ object NetworkModule {
 
     @Provides @Singleton
     fun backendApi(@BackendRetrofit retrofit: Retrofit): BackendApi = retrofit.create(BackendApi::class.java)
+
+    @Provides @Singleton @ImdbRetrofit
+    fun imdbRetrofit(client: OkHttpClient): Retrofit = Retrofit.Builder()
+        .baseUrl(Urls.IMDB_GRAPHQL)
+        .client(client.newBuilder()
+            .addInterceptor { chain ->
+                val req = chain.request().newBuilder()
+                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36")
+                    .header("Accept", "application/json")
+                    .header("Accept-Language", "en-US,en;q=0.9")
+                    .build()
+                chain.proceed(req)
+            }
+            .addInterceptor(HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.BODY })
+            .build())
+        .addConverterFactory(GsonConverterFactory.create())
+        .build()
+
+    @Provides @Singleton
+    fun imdbApi(@ImdbRetrofit retrofit: Retrofit): ImdbApi = retrofit.create(ImdbApi::class.java)
 }

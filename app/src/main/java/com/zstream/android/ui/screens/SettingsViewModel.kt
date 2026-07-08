@@ -154,6 +154,10 @@ class SettingsViewModel @Inject constructor(
         update { copy(autoPipEnabled = v) }
     }
 
+    fun setTrailersOpenInApp(v: Boolean) {
+        update { copy(trailersOpenInApp = v) }
+    }
+
     fun setEnableMinimalCards(v: Boolean) {
         update { copy(enableMinimalCards = v) }
     }
