@@ -152,12 +152,7 @@ internal fun preferredInitialVariantUrl(
     sourceId: String,
     defaultUrl: String,
     variants: List<StreamVariant>,
-): String = if (sourceId == "artemis") {
-    // Artemis lists its highest-quality stream second; prefer it when present.
-    variants.getOrNull(1)?.streamUrl ?: defaultUrl
-} else {
-    defaultUrl
-}
+): String = defaultUrl
 
 internal fun nextUnfailedVariantUrl(
     currentUrl: String,
@@ -936,9 +931,7 @@ class PlayerViewModel @OptIn(UnstableApi::class)
         val current = _state.value as? PlayerState.Ready ?: return
         awaitingRecoveryPlayback = false
         val source = current.sourceId.orEmpty().replaceFirstChar { it.uppercase() }
-        val variant = current.variants.find { it.streamUrl == current.streamUrl }
-            ?.displayLabel()
-            ?.takeIf { current.sourceId.equals("artemis", ignoreCase = true) }
+        val variant = current.variants.find { it.streamUrl == current.streamUrl }?.displayLabel()
         _recoveryNotice.tryEmit("Use source: $source${variant?.let { " · $it" }.orEmpty()}")
     }
 
