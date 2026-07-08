@@ -1,0 +1,27 @@
+-keep interface com.zstream.plugin.api.** { *; }
+-keep class com.zstream.plugin.api.** { *; }
+
+# Kotlin coroutines cross the plugin API boundary — must not be obfuscated
+-keep interface kotlin.coroutines.** { *; }
+-keep class kotlin.coroutines.** { *; }
+
+# Plugin-compiled bytecode calls Kotlin data class synthetic constructors
+# (e.g. StreamResult.Variant's default-args <init>) by referencing
+# kotlin.jvm.internal.DefaultConstructorMarker by name — must not be renamed.
+-keep class kotlin.jvm.internal.** { *; }
+
+# Gson model classes — keep fields so Gson can deserialize by name
+-keep class com.zstream.android.data.model.** { *; }
+-keep class com.zstream.android.data.remote.** { *; }
+-keepclassmembers,allowobfuscation class * {
+    @com.google.gson.annotations.SerializedName <fields>;
+}
+
+# Retrofit — keep service interfaces
+-keep,allowobfuscation interface * {
+    @retrofit2.http.* <methods>;
+}
+
+# Gson TypeToken subclasses
+-keep class com.google.gson.reflect.TypeToken { *; }
+-keep class * extends com.google.gson.reflect.TypeToken

@@ -36,3 +36,5 @@ pstream-extension/
 xp-turnstile/
 
 *.md
+*.apk
+*.aar
