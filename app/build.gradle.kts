@@ -111,7 +111,6 @@ dependencies {
     implementation(libs.haze)
     implementation("org.bouncycastle:bcpkix-jdk15to18:1.81")
     implementation(project(":libadb"))
-    implementation(project(":plugin-api"))
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

@@ -5,7 +5,6 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.util.Log
 import com.zstream.android.BuildConfig
-import com.zstream.plugin.api.StreamPlugin
 import dagger.hilt.android.qualifiers.ApplicationContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -190,12 +189,14 @@ class PluginLoader @Inject constructor(
     // -------------------------------------------------------------------------
 
     /**
-     * Loads the plugin APK via DexClassLoader and returns a [StreamPlugin] instance.
+     * Loads the plugin APK via DexClassLoader and returns the raw Entry instance.
      * Marks [file] read-only before loading.
      * Extracts native libraries from the APK into a private dir so DexClassLoader can find them.
-     * Throws if the entry class is missing or does not implement [StreamPlugin].
+     *
+     * The plugin has no compiled contract with the app — PluginManager talks to it entirely via
+     * reflection (availableSourcesJson()/resolveJson()), so there is nothing to cast to here.
      */
-    fun load(file: File): StreamPlugin {
+    fun load(file: File): Any {
         file.setReadOnly()
 
         // Extract native libs from the APK into a private dir keyed by APK name.
@@ -209,12 +210,7 @@ class PluginLoader @Inject constructor(
             PluginLoader::class.java.classLoader,
         )
         val clazz = classLoader.loadClass(PluginConstants.ENTRY_CLASS)
-        val instance = clazz.getDeclaredConstructor().newInstance()
-        return instance as? StreamPlugin
-            ?: throw ClassCastException(
-                "${PluginConstants.ENTRY_CLASS} does not implement StreamPlugin. " +
-                    "Ensure the plugin was compiled against a compatible plugin-api version."
-            )
+        return clazz.getDeclaredConstructor().newInstance()
     }
 
     /**
