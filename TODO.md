@@ -7,3 +7,7 @@ later features:
 1. countdown/upcoming movies/shows section
 2. nav bar for phone
 3. simkl
+
+bugs to fix:
+1. unicode problem in subtitles
+
