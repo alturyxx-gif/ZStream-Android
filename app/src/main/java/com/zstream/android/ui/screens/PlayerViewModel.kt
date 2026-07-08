@@ -11,9 +11,9 @@ import com.zstream.android.data.BookmarkRepository
 import com.zstream.android.data.TmdbRepository
 import com.zstream.android.plugin.PluginManager
 import com.zstream.android.plugin.SourceOrderStore
-import com.zstream.plugin.api.Caption
-import com.zstream.plugin.api.MediaRequest as PluginMediaRequest
-import com.zstream.plugin.api.StreamResult
+import com.zstream.android.plugin.Caption
+import com.zstream.android.plugin.MediaRequest as PluginMediaRequest
+import com.zstream.android.plugin.StreamResult
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
