@@ -30,6 +30,7 @@ import com.zstream.android.data.adb.OPEN_TV_INSTALLER_EXTRA
 import com.zstream.android.data.adb.RELEASE_UPDATE_EXTRA
 import com.zstream.android.data.adb.ReleaseUpdateNavigation
 import com.zstream.android.data.adb.ReleaseUpdateManager
+import com.zstream.android.player.PlayerBackgroundController
 import com.zstream.android.plugin.PluginGateViewModel
 import com.zstream.android.plugin.PluginManager
 import com.zstream.android.plugin.PluginState
@@ -118,6 +119,11 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        PlayerBackgroundController.onUserLeaveHint?.invoke()
     }
 
     override fun onNewIntent(intent: Intent) {

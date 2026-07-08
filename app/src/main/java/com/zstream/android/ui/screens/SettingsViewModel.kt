@@ -150,6 +150,10 @@ class SettingsViewModel @Inject constructor(
         update { copy(gridRows = v.coerceIn(1, 8)) }
     }
 
+    fun setAutoPipEnabled(v: Boolean) {
+        update { copy(autoPipEnabled = v) }
+    }
+
     fun setEnableMinimalCards(v: Boolean) {
         update { copy(enableMinimalCards = v) }
     }
