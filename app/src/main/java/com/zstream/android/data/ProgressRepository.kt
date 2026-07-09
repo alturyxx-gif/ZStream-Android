@@ -30,6 +30,8 @@ class ProgressRepository @Inject constructor(
      * Returns the latest episode's progress for shows, or the single entry for movies.
      * "Latest" = highest (seasonNumber, episodeNumber), preferring non-completed entries.
      */
+    suspend fun getProgressById(id: String): ProgressEntity? = progressDao.getById(id)
+
     fun observeProgress(tmdbId: String): Flow<ProgressEntity?> {
         return progressDao.observeAllByTmdbId(tmdbId).map { entries ->
             if (entries.isEmpty()) null

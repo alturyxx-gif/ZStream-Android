@@ -149,7 +149,12 @@ data class StreamVariant(
 }
 
 /** One resolution choice discovered inside an HLS master playlist, for the download quality picker. */
-data class DownloadQualityOption(val label: String, val streamUrl: String, val bandwidth: Long, val audioUrl: String? = null)
+data class DownloadQualityOption(
+    val label: String,
+    val streamUrl: String,
+    val bandwidth: Long,
+    val audioOptions: List<com.zstream.android.download.HlsAudioRendition> = emptyList(),
+)
 
 internal fun preferredInitialVariantUrl(
     sourceId: String,
@@ -252,6 +257,7 @@ class PlayerViewModel @OptIn(UnstableApi::class)
     val playerCache: SimpleCache,
     val watchPartyManager: WatchPartyManager,
     private val downloadRepository: com.zstream.android.download.DownloadRepository,
+    private val skipSegmentRepository: com.zstream.android.data.SkipSegmentRepository,
     @dagger.hilt.android.qualifiers.ApplicationContext private val appContext: android.content.Context,
     savedState: SavedStateHandle,
 ) : ViewModel() {
@@ -368,6 +374,10 @@ class PlayerViewModel @OptIn(UnstableApi::class)
     val downloadQualityOptions = _downloadQualityOptions.asStateFlow()
     private val _downloadQualityLoading = MutableStateFlow(false)
     val downloadQualityLoading = _downloadQualityLoading.asStateFlow()
+
+    private var pendingDownloadQuality: DownloadQualityOption? = null
+    private val _downloadAudioOptions = MutableStateFlow<List<com.zstream.android.download.HlsAudioRendition>>(emptyList())
+    val downloadAudioOptions = _downloadAudioOptions.asStateFlow()
 
     init {
         load()
@@ -545,9 +555,15 @@ class PlayerViewModel @OptIn(UnstableApi::class)
 
         viewModelScope.launch {
             val settingsValue = settingsPrefs.settings.first()
-            val resolvedSegments = fetchTheIntroDbSegments(durationMs, settingsValue.tidbKey)
-                ?: fetchFallbackSkipSegments(settingsValue)
-                ?: emptyList()
+            val resolvedSegments = skipSegmentRepository.getSegments(
+                tmdbId = tmdbId,
+                mediaType = mediaType,
+                season = season,
+                episode = episode,
+                durationMs = durationMs,
+                tidbKey = settingsValue.tidbKey,
+                febboxKey = settingsValue.febboxKey,
+            )
             skipSegmentsCacheKey = cacheKey
             _skipSegments.value = resolvedSegments
         }
@@ -587,6 +603,19 @@ class PlayerViewModel @OptIn(UnstableApi::class)
                     throw IllegalStateException(message.ifBlank { "Failed to submit segment" })
                 }
             }
+        }.onSuccess {
+            val settingsValue = settingsPrefs.settings.first()
+            skipSegmentsCacheKey = null
+            _skipSegments.value = skipSegmentRepository.refreshAfterSubmit(
+                tmdbId = tmdbId,
+                mediaType = mediaType,
+                season = season,
+                episode = episode,
+                durationMs = submission.videoDurationMs ?: 0L,
+                tidbKey = tidbKey,
+                febboxKey = settingsValue.febboxKey,
+            )
+            skipSegmentsCacheKey = buildSkipSegmentsCacheKey()
         }
     }
 
@@ -852,16 +881,10 @@ class PlayerViewModel @OptIn(UnstableApi::class)
             .copy(streamType = variant.streamType, headers = if (variant.headers.isNotEmpty()) variant.headers else current.headers)
     }
 
-    /**
-     * Entry point from the Download page. For "file" sources there's only ever one quality, so
-     * this downloads immediately. For "hls" sources, the stream URL is often a master playlist
-     * with several resolutions inside it (1080p/720p/480p/...) — this probes for those first and,
-     * if more than one exists, surfaces them via downloadQualityOptions instead of guessing.
-     */
     fun beginDownload(variant: StreamVariant) {
         val ready = _state.value as? PlayerState.Ready ?: return
         if (variant.streamType != "hls") {
-            enqueueDownload(variant, variant.streamUrl, variant.displayLabel(), audioStreamUrl = null)
+            enqueueDownload(variant, variant.streamUrl, variant.displayLabel(), audioStreamUrl = null, audioLanguage = null)
             return
         }
         pendingDownloadVariant = variant
@@ -875,37 +898,70 @@ class PlayerViewModel @OptIn(UnstableApi::class)
             }.getOrDefault(emptyList())
             _downloadQualityLoading.value = false
             if (options.size <= 1) {
-                // Nothing to actually choose between — just download at the only available quality.
                 val single = options.firstOrNull()
-                enqueueDownload(variant, single?.uri ?: variant.streamUrl, single?.height?.let { "${it}p" } ?: variant.displayLabel(), single?.audioUrl)
+                proceedWithQuality(
+                    variant,
+                    DownloadQualityOption(
+                        label = single?.height?.let { "${it}p" } ?: variant.displayLabel(),
+                        streamUrl = single?.uri ?: variant.streamUrl,
+                        bandwidth = single?.bandwidth ?: 0L,
+                        audioOptions = single?.audioOptions.orEmpty(),
+                    ),
+                )
             } else {
                 _downloadQualityOptions.value = options.map { opt ->
                     DownloadQualityOption(
                         label = opt.height?.let { "${it}p" } ?: "${opt.bandwidth / 1000} kbps",
                         streamUrl = opt.uri,
                         bandwidth = opt.bandwidth,
-                        audioUrl = opt.audioUrl,
+                        audioOptions = opt.audioOptions,
                     )
                 }
             }
         }
     }
 
-    /** Called when the user picks a specific resolution from downloadQualityOptions. */
     fun downloadAtQuality(option: DownloadQualityOption) {
         val variant = pendingDownloadVariant ?: return
-        enqueueDownload(variant, option.streamUrl, option.label, option.audioUrl)
-        pendingDownloadVariant = null
         _downloadQualityOptions.value = emptyList()
+        proceedWithQuality(variant, option)
+    }
+
+    private fun proceedWithQuality(variant: StreamVariant, option: DownloadQualityOption) {
+        if (option.audioOptions.size > 1) {
+            pendingDownloadQuality = option
+            _downloadAudioOptions.value = option.audioOptions
+        } else {
+            pendingDownloadVariant = null
+            val audio = option.audioOptions.firstOrNull()
+            enqueueDownload(variant, option.streamUrl, option.label, audio?.uri, audio?.language?.ifBlank { null })
+        }
+    }
+
+    fun downloadWithAudio(rendition: com.zstream.android.download.HlsAudioRendition) {
+        val variant = pendingDownloadVariant ?: return
+        val option = pendingDownloadQuality ?: return
+        pendingDownloadVariant = null
+        pendingDownloadQuality = null
+        _downloadAudioOptions.value = emptyList()
+        enqueueDownload(variant, option.streamUrl, option.label, rendition.uri, rendition.language.ifBlank { null })
+    }
+
+    fun cancelDownloadAudioPicker() {
+        pendingDownloadVariant = null
+        pendingDownloadQuality = null
+        _downloadAudioOptions.value = emptyList()
     }
 
     fun cancelDownloadQualityPicker() {
         pendingDownloadVariant = null
+        pendingDownloadQuality = null
         _downloadQualityOptions.value = emptyList()
         _downloadQualityLoading.value = false
+        _downloadAudioOptions.value = emptyList()
     }
 
-    private fun enqueueDownload(variant: StreamVariant, streamUrl: String, qualityLabel: String, audioStreamUrl: String? = null) {
+    private fun enqueueDownload(variant: StreamVariant, streamUrl: String, qualityLabel: String, audioStreamUrl: String? = null, audioLanguage: String? = null) {
         val ready = _state.value as? PlayerState.Ready ?: return
         viewModelScope.launch {
             val target = if (mediaType == "tv") {
@@ -954,6 +1010,7 @@ class PlayerViewModel @OptIn(UnstableApi::class)
                 headers = variant.headers.ifEmpty { ready.headers },
                 captions = captions,
                 audioStreamUrl = audioStreamUrl,
+                audioLanguage = audioLanguage,
                 posterPath = poster,
             )
             val downloadId = downloadRepository.enqueue(request)
@@ -1489,114 +1546,12 @@ class PlayerViewModel @OptIn(UnstableApi::class)
         return h.toLong() * 3600000 + m.toLong() * 60000 + s.toLong() * 1000 + ms.toLong()
     }
 
-    private suspend fun fetchTheIntroDbSegments(durationMs: Long, tidbKey: String?): List<SkipSegment>? = withContext(Dispatchers.IO) {
-        val apiUrl = buildString {
-            append("https://api.theintrodb.org/v3/media?tmdb_id=$tmdbId")
-            if (mediaType == "tv" && season != null && episode != null) {
-                append("&season=$season&episode=$episode")
-            }
-            if (durationMs > 0) {
-                append("&duration_ms=$durationMs")
-            }
-        }
-
-        val request = Request.Builder()
-            .url(apiUrl)
-            .apply {
-                if (!tidbKey.isNullOrBlank()) {
-                    header("Authorization", "Bearer $tidbKey")
-                }
-            }
-            .build()
-
-        runCatching {
-            httpClient.newCall(request).execute().use { response ->
-                if (response.code == 404) return@withContext null
-                if (!response.isSuccessful) {
-                    Log.w("PlayerVM", "TIDB skip segments failed with ${response.code}")
-                    return@withContext emptyList()
-                }
-                parseSkipSegmentsFromTidb(JSONObject(response.body?.string().orEmpty()))
-            }
-        }.getOrElse {
-            Log.e("PlayerVM", "Failed to fetch TIDB skip segments", it)
-            emptyList()
-        }
-    }
-
-    private suspend fun fetchFallbackSkipSegments(settings: SettingsEntity): List<SkipSegment>? {
-        if (mediaType != "tv" || season == null || episode == null) return null
-
-        val imdbId = runCatching { tmdbRepo.tvDetail(id).imdbId }.getOrNull()
-        if (imdbId.isNullOrBlank()) return null
-
-        fetchIntroDbTime(imdbId)?.let { introEndMs ->
-            return listOf(SkipSegment(type = "intro", startMs = 0L, endMs = introEndMs))
-        }
-
-        if (!settings.febboxKey.isNullOrBlank()) {
-            fetchFedSkipsTime(imdbId)?.let { introEndMs ->
-                return listOf(SkipSegment(type = "intro", startMs = 0L, endMs = introEndMs))
-            }
-        }
-
-        return null
-    }
-
-    private suspend fun fetchIntroDbTime(imdbId: String): Long? = withContext(Dispatchers.IO) {
-        val request = Request.Builder()
-            .url("https://api.introdb.app/intro?imdb_id=$imdbId&season=$season&episode=$episode")
-            .build()
-        runCatching {
-            httpClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return@withContext null
-                JSONObject(response.body?.string().orEmpty()).optLong("end_ms").takeIf { it > 0 }
-            }
-        }.getOrNull()
-    }
-
-    private suspend fun fetchFedSkipsTime(imdbId: String): Long? = withContext(Dispatchers.IO) {
-        val request = Request.Builder()
-            .url("https://fed-skips.pstream.mov/$imdbId/$season/$episode")
-            .build()
-        runCatching {
-            httpClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return@withContext null
-                val raw = JSONObject(response.body?.string().orEmpty()).optString("introSkipTime")
-                raw.removeSuffix("s").toLongOrNull()?.times(1000)
-            }
-        }.getOrNull()
-    }
-
-    private fun parseSkipSegmentsFromTidb(json: JSONObject): List<SkipSegment> {
-        val types = listOf("intro", "recap", "credits", "preview")
-        return buildList {
-            types.forEach { type ->
-                val items = json.optJSONArray(type) ?: JSONArray()
-                for (i in 0 until items.length()) {
-                    val item = items.optJSONObject(i) ?: continue
-                    add(
-                        SkipSegment(
-                            type = type,
-                            startMs = item.optNullableLong("start_ms"),
-                            endMs = item.optNullableLong("end_ms"),
-                        )
-                    )
-                }
-            }
-        }
-    }
-
     private fun buildSkipSegmentsCacheKey(): String? {
         return when {
             mediaType == "movie" -> "skip-movie-$tmdbId"
             mediaType == "tv" && season != null && episode != null -> "skip-tv-$tmdbId-$season-$episode"
             else -> null
         }
-    }
-
-    private fun JSONObject.optNullableLong(key: String): Long? {
-        return if (isNull(key)) null else optLong(key)
     }
 
     private fun String.decodeRouteParam(): String {

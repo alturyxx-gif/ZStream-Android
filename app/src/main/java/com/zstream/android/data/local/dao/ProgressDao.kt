@@ -32,6 +32,9 @@ interface ProgressDao {
     @Query("SELECT * FROM progress WHERE tmdbId = :tmdbId")
     suspend fun getAllByTmdbId(tmdbId: String): List<ProgressEntity>
 
+    @Query("SELECT * FROM progress WHERE id = :id")
+    suspend fun getById(id: String): ProgressEntity?
+
     @Query("SELECT * FROM progress WHERE tmdbId = :tmdbId ORDER BY updatedAt DESC")
     fun observeAllByTmdbId(tmdbId: String): Flow<List<ProgressEntity>>
 
