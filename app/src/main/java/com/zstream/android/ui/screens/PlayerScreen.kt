@@ -4289,10 +4289,9 @@ private fun PlayerMenuContent(
                         }
                         if (localFileInfo == null && variants.size > 1) {
                             PlayerMenuSection {
-                                val currentVariant = variants.find { it.streamUrl == streamUrl }
                                 PlayerMenuChevronRow(
                                     title = "Stream Variants",
-                                    value = currentVariant?.displayLabel() ?: "${variants.size}",
+                                    value = "${variants.size}",
                                 ) { onOpenPage(PlayerMenuPage.Variants) }
                             }
                         }
@@ -5680,11 +5679,11 @@ private fun PlayerMenuGridSection(items: List<PlayerMenuTileItem>, firstItemFocu
     ) {
         items.chunked(2).forEachIndexed { rowIndex, rowItems ->
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().height(androidx.compose.ui.unit.IntrinsicSize.Max),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 rowItems.forEachIndexed { colIndex, item ->
-                    Box(modifier = Modifier.weight(1f)) {
+                    Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
                         PlayerMenuBoxNavTile(
                             title = item.title,
                             value = item.value,
@@ -5754,7 +5753,8 @@ private fun PlayerMenuBoxNavTile(
             shape = RoundedCornerShape(8.dp),
             modifier = Modifier
                 .fillMaxWidth()
-                .height(PLAYER_MENU_BOX_TILE_HEIGHT)
+                .fillMaxHeight()
+                .heightIn(min = PLAYER_MENU_BOX_TILE_HEIGHT)
                 .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
                 .focusProperties {
                     if (isTv) {
@@ -5771,7 +5771,7 @@ private fun PlayerMenuBoxNavTile(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
-                Text(title, color = theme.colors.type.emphasis, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center)
+                Text(title, color = theme.colors.type.emphasis, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Spacer(Modifier.height(4.dp))
                 Text(
                     value,
@@ -5954,7 +5954,9 @@ private fun PlayerMenuChevronRow(title: String, value: String? = null, icon: Str
                     title,
                     color = theme.colors.type.emphasis.copy(alpha = 0.96f),
                     modifier = Modifier.weight(1f),
-                    textAlign = TextAlign.Start
+                    textAlign = TextAlign.Start,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
                 if (!value.isNullOrBlank()) {
                     Text(
@@ -5962,7 +5964,8 @@ private fun PlayerMenuChevronRow(title: String, value: String? = null, icon: Str
                         color = Color.White,
                         fontSize = 13.sp,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.widthIn(max = 120.dp),
                     )
                     Spacer(Modifier.width(4.dp))
                 }
