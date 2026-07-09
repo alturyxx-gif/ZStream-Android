@@ -23,7 +23,13 @@ import javax.crypto.spec.SecretKeySpec
 private const val TAG = "HlsDownloadEngine"
 private const val SEGMENT_WORKERS = 3
 
-data class HlsDownloadProgress(val segmentsDone: Int, val segmentsTotal: Int, val bytesReceived: Long)
+data class HlsDownloadProgress(
+    val segmentsDone: Int,
+    val segmentsTotal: Int,
+    val bytesReceived: Long,
+    /** bytesReceived/segmentsDone extrapolated across segmentsTotal — an estimate, not exact, since HLS segments vary in size. */
+    val estimatedTotalBytes: Long?,
+)
 
 /**
  * Downloads an HLS video (+ optional separate audio) stream to local segment files, decrypting
@@ -40,6 +46,7 @@ class HlsDownloadEngine(private val client: OkHttpClient) {
         workDir: File,
         outputFd: FileDescriptor,
         onProgress: suspend (HlsDownloadProgress) -> Unit,
+        onRemuxProgress: suspend (done: Int, total: Int) -> Unit,
     ) = coroutineScope {
         workDir.mkdirs()
 
@@ -69,6 +76,7 @@ class HlsDownloadEngine(private val client: OkHttpClient) {
         val total = videoFiles.size + audioFiles.size
         var done = 0
         var bytes = 0L
+        var lastReportedPct = -1
         val progressLock = Any()
 
         val semaphore = Semaphore(SEGMENT_WORKERS)
@@ -79,15 +87,23 @@ class HlsDownloadEngine(private val client: OkHttpClient) {
                         val size = downloadSegment(segment.uri, headers, dest, key, videoKeys + audioKeys)
                         synchronized(progressLock) { bytes += size }
                     }
-                    val snapshot = synchronized(progressLock) {
+                    val (snapshot, shouldReport) = synchronized(progressLock) {
                         done++
-                        HlsDownloadProgress(done, total, bytes)
+                        val pct = if (total > 0) done * 100 / total else 0
+                        val report = pct > lastReportedPct || done == total
+                        if (report) lastReportedPct = pct
+                        val estimatedTotal = if (done > 0) bytes * total / done else null
+                        HlsDownloadProgress(done, total, bytes, estimatedTotal) to report
                     }
                     if (snapshot.segmentsDone % 10 == 0 || snapshot.segmentsDone == total) {
                         Log.i(TAG, "segments ${snapshot.segmentsDone}/${snapshot.segmentsTotal}, " +
                             "downloaded ${snapshot.bytesReceived / 1024}KB so far")
                     }
-                    onProgress(snapshot)
+                    // Gated to one call per percentage point rather than per segment — with hundreds
+                    // of segments finishing in a couple seconds, per-segment notification/DB updates
+                    // get silently dropped by Android's own update-rate throttling, making progress
+                    // look stuck; this keeps updates bounded to ~100 regardless of segment count.
+                    if (shouldReport) onProgress(snapshot)
                 }
             }
         }
@@ -100,6 +116,7 @@ class HlsDownloadEngine(private val client: OkHttpClient) {
             audioInitFile = audioSet?.initFile,
             audioSegmentFiles = audioFiles.map { it.second },
             outputFd = outputFd,
+            onRemuxProgress = onRemuxProgress,
         )
         Log.i(TAG, "remux complete")
     }
@@ -211,12 +228,13 @@ class HlsDownloadEngine(private val client: OkHttpClient) {
      * MediaMuxer output — the Android-native equivalent of `ffmpeg -c copy`. Presentation
      * timestamps are offset per track so segments play back-to-back without resetting to zero.
      */
-    private fun remux(
+    private suspend fun remux(
         videoInitFile: File?,
         videoSegmentFiles: List<File>,
         audioInitFile: File?,
         audioSegmentFiles: List<File>,
         outputFd: FileDescriptor,
+        onRemuxProgress: suspend (done: Int, total: Int) -> Unit,
     ) {
         val muxer = MediaMuxer(outputFd, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
         try {
@@ -242,8 +260,9 @@ class HlsDownloadEngine(private val client: OkHttpClient) {
             muxer.start()
 
             Log.i(TAG, "muxer tracks registered: videoTrackIndex=$videoTrackIndex audioTrackIndex=$audioTrackIndex")
-            writeTrack(muxer, videoInitBytes, videoSegmentFiles, "video/", videoTrackIndex)
-            writeTrack(muxer, audioInitBytes, audioSegmentFiles, "audio/", audioTrackIndex)
+            val totalFiles = videoSegmentFiles.size + audioSegmentFiles.size
+            writeTrack(muxer, videoInitBytes, videoSegmentFiles, "video/", videoTrackIndex, baseDone = 0, totalFiles, onRemuxProgress)
+            writeTrack(muxer, audioInitBytes, audioSegmentFiles, "audio/", audioTrackIndex, baseDone = videoSegmentFiles.size, totalFiles, onRemuxProgress)
         } finally {
             runCatching { muxer.stop() }
                 .onFailure { Log.e(TAG, "MediaMuxer stop failed: ${it.message}", it) }
@@ -293,9 +312,19 @@ class HlsDownloadEngine(private val client: OkHttpClient) {
     }
 
     /** Writes every segment's samples for one track type into the muxer, keeping PTS monotonic across segment boundaries. */
-    private fun writeTrack(muxer: MediaMuxer, initBytes: ByteArray?, files: List<File>, mimePrefix: String, trackIndex: Int): Long {
+    private suspend fun writeTrack(
+        muxer: MediaMuxer,
+        initBytes: ByteArray?,
+        files: List<File>,
+        mimePrefix: String,
+        trackIndex: Int,
+        baseDone: Int,
+        totalFiles: Int,
+        onRemuxProgress: suspend (done: Int, total: Int) -> Unit,
+    ): Long {
         if (trackIndex == -1 || files.isEmpty()) return 0L
         var timeOffsetUs = 0L
+        var lastReportedPct = -1
         val bufferInfo = MediaCodec.BufferInfo()
         val buffer = java.nio.ByteBuffer.allocate(1 shl 20) // 1MB, grown below if a sample is bigger
 
@@ -324,6 +353,12 @@ class HlsDownloadEngine(private val client: OkHttpClient) {
                     extractor.advance()
                 }
                 timeOffsetUs = maxPtsInSegment
+            }
+            val done = baseDone + index + 1
+            val pct = if (totalFiles > 0) done * 100 / totalFiles else 0
+            if (pct > lastReportedPct || done == totalFiles) {
+                lastReportedPct = pct
+                onRemuxProgress(done, totalFiles)
             }
             if (index % 20 == 0 || index == files.lastIndex) {
                 Log.i(TAG, "remux $mimePrefix: segment ${index + 1}/${files.size}, timeOffsetUs=$timeOffsetUs")

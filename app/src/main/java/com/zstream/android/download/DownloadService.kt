@@ -78,7 +78,7 @@ class DownloadService : Service() {
         // stopForeground call), and onCreate() never runs again for an already-running instance.
         // Skipping this on a subsequent startForegroundService() call is exactly what throws
         // ForegroundServiceDidNotStartInTimeException after Android's 5-second grace period.
-        startForeground(NOTIFICATION_ID, buildNotification("Preparing download…", 0))
+        startForeground(NOTIFICATION_ID, buildNotification("ZStream Download", "Preparing download…", 0))
         val downloadId = intent?.getLongExtra(EXTRA_DOWNLOAD_ID, -1L) ?: -1L
         if (downloadId >= 0) {
             scope.launch { queue.send(downloadId) }
@@ -88,27 +88,45 @@ class DownloadService : Service() {
 
     private suspend fun runOne(downloadId: Long) {
         val request = DownloadQueue.take(downloadId) ?: return
-        updateNotification("Downloading ${request.qualityLabel}…", 0)
-        repository.run(downloadId, request) { percent ->
-            updateNotification("Downloading ${request.qualityLabel}…", percent)
+        val title = titleFor(request.target)
+        updateNotification(title, "Starting download…", 0)
+        repository.run(downloadId, request) { progress ->
+            val text = when (progress.status) {
+                DownloadStatus.REMUXING -> "Remuxing… ${progress.percent}%"
+                else -> {
+                    val sizeInfo = progress.bytesDownloaded?.let { downloaded ->
+                        val downloadedMb = downloaded / (1024 * 1024)
+                        val estimatedMb = progress.estimatedTotalBytes?.let { it / (1024 * 1024) }
+                        if (estimatedMb != null) "$downloadedMb MB / ~$estimatedMb MB" else "$downloadedMb MB"
+                    }
+                    "${request.qualityLabel} via ${request.sourceId} — ${progress.percent}%" +
+                        (sizeInfo?.let { " ($it)" } ?: "")
+                }
+            }
+            updateNotification(title, text, progress.percent)
         }
         val entity = downloadDao.getById(downloadId)
         if (entity?.status == DownloadStatus.DONE) {
-            updateNotification("Download complete: ${entity.title}", 100, ongoing = false)
+            updateNotification(title, "Download complete", 100, ongoing = false)
         } else {
-            updateNotification("Download failed: ${entity?.errorMessage ?: "Unknown error"}", 0, ongoing = false)
+            updateNotification(title, "Download failed: ${entity?.errorMessage ?: "Unknown error"}", 0, ongoing = false)
         }
     }
 
-    private fun updateNotification(text: String, percent: Int, ongoing: Boolean = true) {
+    private fun titleFor(target: DownloadTarget): String = when (target) {
+        is DownloadTarget.Movie -> target.title
+        is DownloadTarget.Episode -> "${target.showTitle} S${target.season.toString().padStart(2, '0')}E${target.episode.toString().padStart(2, '0')}"
+    }
+
+    private fun updateNotification(title: String, text: String, percent: Int, ongoing: Boolean = true) {
         val manager = getSystemService(NotificationManager::class.java)
-        manager.notify(NOTIFICATION_ID, buildNotification(text, percent, ongoing))
+        manager.notify(NOTIFICATION_ID, buildNotification(title, text, percent, ongoing))
         if (!ongoing) ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_DETACH)
     }
 
-    private fun buildNotification(text: String, percent: Int, ongoing: Boolean = true) =
+    private fun buildNotification(title: String, text: String, percent: Int, ongoing: Boolean = true) =
         NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("ZStream Download")
+            .setContentTitle(title)
             .setContentText(text)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setOngoing(ongoing)

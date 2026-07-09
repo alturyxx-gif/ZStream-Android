@@ -115,6 +115,26 @@ class DownloadStorage @Inject constructor(
         }
     }
 
+    /**
+     * Deletes a file by the `displayPath` stored on a DownloadEntity (relative path like
+     * "ZStream/Title (Year)/Title (Year).mp4"), for cases where only that string survives (e.g.
+     * after process death) rather than the original DownloadFile/Uri handle.
+     */
+    fun deleteByDisplayPath(displayPath: String) {
+        if (!isScopedStorage) {
+            @Suppress("DEPRECATION")
+            val root = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            File(root, displayPath).delete()
+            return
+        }
+        val relativeFolder = displayPath.substringBeforeLast('/', "")
+        val displayName = displayPath.substringAfterLast('/')
+        val collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+        val selection = "${MediaStore.MediaColumns.DISPLAY_NAME}=? AND ${MediaStore.MediaColumns.RELATIVE_PATH}=?"
+        val args = arrayOf(displayName, "${Environment.DIRECTORY_DOWNLOADS}/$relativeFolder/")
+        context.contentResolver.delete(collection, selection, args)
+    }
+
     private fun mimeTypeForVideo(extension: String) = when (extension.lowercase()) {
         "mkv" -> "video/x-matroska"
         else -> "video/mp4"
