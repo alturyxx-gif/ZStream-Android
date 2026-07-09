@@ -18,7 +18,7 @@ import com.zstream.android.data.local.entity.ProgressEntity
         BookmarkEntity::class,
         DownloadEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 @TypeConverters(Converters::class)

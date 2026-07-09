@@ -60,6 +60,10 @@ fun NavGraph(nav: NavHostController) {
         composable("login") { LoginScreen(nav) }
         composable("watchHistory") { WatchHistoryScreen(nav) }
         composable("downloads") { DownloadsScreen(nav) }
+        composable(
+            "localPlayer/{downloadId}",
+            arguments = listOf(navArgument("downloadId") { type = NavType.StringType }),
+        ) { LocalPlayerScreen(nav) }
         composable("tvSync") { TvSyncScreen(nav) }
     }
 }

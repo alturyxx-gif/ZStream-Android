@@ -1,7 +1,9 @@
 package com.zstream.android.download
 
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
@@ -9,6 +11,7 @@ import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
+import com.zstream.android.MainActivity
 import com.zstream.android.R
 import com.zstream.android.data.local.dao.DownloadDao
 import com.zstream.android.data.local.entity.DownloadStatus
@@ -18,14 +21,21 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 
 private const val CHANNEL_ID = "downloads"
 private const val NOTIFICATION_ID = 4301
 private const val EXTRA_DOWNLOAD_ID = "download_id"
+const val OPEN_DOWNLOADS_EXTRA = "open_downloads"
+
+private const val ACTION_PAUSE = "com.zstream.android.download.action.PAUSE"
+private const val ACTION_RESUME = "com.zstream.android.download.action.RESUME"
+private const val ACTION_CANCEL = "com.zstream.android.download.action.CANCEL"
 
 /**
  * Foreground service that runs one download at a time, in the order requests arrive. Each
@@ -42,6 +52,9 @@ class DownloadService : Service() {
     private val queue = Channel<Long>(Channel.UNLIMITED)
     private var workerJob: Job? = null
 
+    /** Each in-flight download runs as its own child Job so pausing/cancelling one doesn't kill the worker loop or other queued downloads. */
+    private val activeJobs = ConcurrentHashMap<Long, Job>()
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
@@ -53,7 +66,10 @@ class DownloadService : Service() {
         scope.launch { cleanupFromPreviousProcess() }
         workerJob = scope.launch {
             for (downloadId in queue) {
-                runOne(downloadId)
+                val job = launch { runOne(downloadId) }
+                activeJobs[downloadId] = job
+                job.join()
+                activeJobs.remove(downloadId)
             }
         }
     }
@@ -64,7 +80,9 @@ class DownloadService : Service() {
      * (app force-stopped, OOM-killed), that cleanup never ran and the segments just sit there.
      * DownloadService starting fresh means nothing is legitimately using that directory yet, so
      * it's always safe to wipe it here, and to mark any rows still claiming to be in-flight as
-     * failed (they can't have survived the process dying).
+     * failed (they can't have survived the process dying). Rows left PAUSED are left alone —
+     * those are a deliberate user action, not an interrupted process, and resuming them still
+     * works (their segment cache survives a process death same as any other file on disk).
      */
     private suspend fun cleanupFromPreviousProcess() {
         File(cacheDir, "downloads").deleteRecursively()
@@ -81,18 +99,70 @@ class DownloadService : Service() {
         // stopForeground call), and onCreate() never runs again for an already-running instance.
         // Skipping this on a subsequent startForegroundService() call is exactly what throws
         // ForegroundServiceDidNotStartInTimeException after Android's 5-second grace period.
-        startForeground(NOTIFICATION_ID, buildNotification("ZStream Download", "Preparing download…", 0))
+        startForeground(NOTIFICATION_ID, buildNotification("ZStream Download", "Preparing download…", 0, downloadId = -1, status = DownloadStatus.QUEUED))
         val downloadId = intent?.getLongExtra(EXTRA_DOWNLOAD_ID, -1L) ?: -1L
         if (downloadId >= 0) {
-            scope.launch { queue.send(downloadId) }
+            when (intent?.action) {
+                ACTION_PAUSE -> scope.launch { handlePause(downloadId) }
+                ACTION_CANCEL -> scope.launch { handleCancel(downloadId) }
+                ACTION_RESUME -> scope.launch { handleResume(downloadId) }
+                else -> scope.launch { queue.send(downloadId) }
+            }
         }
         return START_NOT_STICKY
     }
 
+    private suspend fun handlePause(downloadId: Long) {
+        val job = activeJobs[downloadId]
+        if (job != null) {
+            DownloadControl.markPauseRequested(downloadId)
+            // cancelAndJoin (not cancel) — runOne() is itself cancelled by this, so it never
+            // reaches its own post-download notification update; we must push the paused
+            // notification ourselves once the repository's catch block has persisted the row.
+            job.cancelAndJoin()
+            val entity = downloadDao.getById(downloadId) ?: return
+            val title = DownloadQueue.get(downloadId)?.let { titleFor(it.target) } ?: entity.title
+            updateNotification(title, "Paused at ${entity.progressPercent}%", entity.progressPercent, downloadId, DownloadStatus.PAUSED)
+        } else {
+            val entity = downloadDao.getById(downloadId) ?: return
+            if (entity.status == DownloadStatus.QUEUED) {
+                downloadDao.update(entity.copy(status = DownloadStatus.PAUSED))
+                updateNotification(entity.title, "Paused at ${entity.progressPercent}%", entity.progressPercent, downloadId, DownloadStatus.PAUSED)
+            }
+        }
+    }
+
+    private suspend fun handleCancel(downloadId: Long) {
+        val job = activeJobs[downloadId]
+        if (job != null) {
+            // Not flagging DownloadControl here means the repository's catch block will treat
+            // this cancellation as a real cancel (clean up files, delete the row) rather than a pause.
+            job.cancelAndJoin()
+        } else {
+            val entity = downloadDao.getById(downloadId) ?: return
+            entity.filePath?.let { runCatching { storage.deleteByDisplayPath(it); storage.deleteEmptyFolder(it) } }
+            entity.subtitlePaths?.forEach { path -> runCatching { storage.deleteByDisplayPath(path) } }
+            DownloadQueue.remove(downloadId)
+            downloadDao.delete(entity)
+        }
+        getSystemService(NotificationManager::class.java).cancel(NOTIFICATION_ID)
+        ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
+    }
+
+    private suspend fun handleResume(downloadId: Long) {
+        val entity = downloadDao.getById(downloadId) ?: return
+        if (entity.status != DownloadStatus.PAUSED) return
+        downloadDao.update(entity.copy(status = DownloadStatus.QUEUED))
+        queue.send(downloadId)
+    }
+
     private suspend fun runOne(downloadId: Long) {
-        val request = DownloadQueue.take(downloadId) ?: return
+        val request = DownloadQueue.get(downloadId) ?: return
+        val entity = downloadDao.getById(downloadId) ?: return
+        if (entity.status == DownloadStatus.PAUSED || entity.status == DownloadStatus.CANCELLED) return
+
         val title = titleFor(request.target)
-        updateNotification(title, "Starting download…", 0)
+        updateNotification(title, "Starting download…", 0, downloadId, DownloadStatus.DOWNLOADING)
         repository.run(downloadId, request) { progress ->
             val text = when (progress.status) {
                 DownloadStatus.REMUXING -> "Remuxing… ${progress.percent}%"
@@ -102,17 +172,29 @@ class DownloadService : Service() {
                         val estimatedMb = progress.estimatedTotalBytes?.let { it / (1024 * 1024) }
                         if (estimatedMb != null) "$downloadedMb MB / ~$estimatedMb MB" else "$downloadedMb MB"
                     }
-                    "${request.qualityLabel} via ${request.sourceId} — ${progress.percent}%" +
+                    "${request.qualityLabel} via ${request.sourceDisplayName} — ${progress.percent}%" +
                         (sizeInfo?.let { " ($it)" } ?: "")
                 }
             }
-            updateNotification(title, text, progress.percent)
+            updateNotification(title, text, progress.percent, downloadId, progress.status)
         }
-        val entity = downloadDao.getById(downloadId)
-        if (entity?.status == DownloadStatus.DONE) {
-            updateNotification(title, "Download complete", 100, ongoing = false)
-        } else {
-            updateNotification(title, "Download failed: ${entity?.errorMessage ?: "Unknown error"}", 0, ongoing = false)
+        val finalEntity = downloadDao.getById(downloadId)
+        when (finalEntity?.status) {
+            DownloadStatus.DONE -> {
+                DownloadQueue.remove(downloadId)
+                updateNotification(title, "Download complete", 100, downloadId, DownloadStatus.DONE, ongoing = false)
+            }
+            DownloadStatus.PAUSED -> {
+                updateNotification(title, "Paused", finalEntity.progressPercent, downloadId, DownloadStatus.PAUSED)
+            }
+            null -> {
+                // Row was deleted — a true cancel already cleaned everything up.
+                DownloadQueue.remove(downloadId)
+            }
+            else -> {
+                DownloadQueue.remove(downloadId)
+                updateNotification(title, "Download failed: ${finalEntity?.errorMessage ?: "Unknown error"}", 0, downloadId, DownloadStatus.FAILED, ongoing = false)
+            }
         }
     }
 
@@ -121,21 +203,54 @@ class DownloadService : Service() {
         is DownloadTarget.Episode -> "${target.showTitle} S${target.season.toString().padStart(2, '0')}E${target.episode.toString().padStart(2, '0')}"
     }
 
-    private fun updateNotification(title: String, text: String, percent: Int, ongoing: Boolean = true) {
+    private fun updateNotification(title: String, text: String, percent: Int, downloadId: Long, status: DownloadStatus, ongoing: Boolean = true) {
         val manager = getSystemService(NotificationManager::class.java)
-        manager.notify(NOTIFICATION_ID, buildNotification(title, text, percent, ongoing))
+        manager.notify(NOTIFICATION_ID, buildNotification(title, text, percent, downloadId, status, ongoing))
         if (!ongoing) ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_DETACH)
     }
 
-    private fun buildNotification(title: String, text: String, percent: Int, ongoing: Boolean = true) =
-        NotificationCompat.Builder(this, CHANNEL_ID)
+    private fun buildNotification(
+        title: String,
+        text: String,
+        percent: Int,
+        downloadId: Long,
+        status: DownloadStatus,
+        ongoing: Boolean = true,
+    ): Notification {
+        val contentIntent = PendingIntent.getActivity(
+            this, 0,
+            Intent(this, MainActivity::class.java)
+                .setFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                .putExtra(OPEN_DOWNLOADS_EXTRA, true),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(title)
             .setContentText(text)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setOngoing(ongoing)
             .setProgress(100, percent, false)
             .setOnlyAlertOnce(true)
-            .build()
+            .setContentIntent(contentIntent)
+
+        if (ongoing && downloadId >= 0 && status != DownloadStatus.REMUXING) {
+            // Pausing mid-remux would require restarting the mux from scratch anyway (MediaMuxer
+            // can't be paused/resumed) — simplest to just let remux finish rather than offer pause
+            // during that short final phase.
+            val isPaused = status == DownloadStatus.PAUSED
+            builder.addAction(0, if (isPaused) "Resume" else "Pause", actionPendingIntent(if (isPaused) ACTION_RESUME else ACTION_PAUSE, downloadId))
+            builder.addAction(0, "Cancel", actionPendingIntent(ACTION_CANCEL, downloadId))
+        }
+        return builder.build()
+    }
+
+    private fun actionPendingIntent(action: String, downloadId: Long): PendingIntent {
+        val intent = Intent(this, DownloadService::class.java).setAction(action).putExtra(EXTRA_DOWNLOAD_ID, downloadId)
+        return PendingIntent.getService(
+            this, "$action$downloadId".hashCode(), intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+    }
 
     private fun createChannel() {
         val manager = getSystemService(NotificationManager::class.java)
@@ -156,6 +271,27 @@ class DownloadService : Service() {
         fun enqueue(context: Context, downloadId: Long, request: DownloadRequest) {
             DownloadQueue.put(downloadId, request)
             val intent = Intent(context, DownloadService::class.java)
+                .putExtra(EXTRA_DOWNLOAD_ID, downloadId)
+            ContextCompat.startForegroundService(context, intent)
+        }
+
+        fun pause(context: Context, downloadId: Long) {
+            val intent = Intent(context, DownloadService::class.java)
+                .setAction(ACTION_PAUSE)
+                .putExtra(EXTRA_DOWNLOAD_ID, downloadId)
+            ContextCompat.startForegroundService(context, intent)
+        }
+
+        fun resume(context: Context, downloadId: Long) {
+            val intent = Intent(context, DownloadService::class.java)
+                .setAction(ACTION_RESUME)
+                .putExtra(EXTRA_DOWNLOAD_ID, downloadId)
+            ContextCompat.startForegroundService(context, intent)
+        }
+
+        fun cancel(context: Context, downloadId: Long) {
+            val intent = Intent(context, DownloadService::class.java)
+                .setAction(ACTION_CANCEL)
                 .putExtra(EXTRA_DOWNLOAD_ID, downloadId)
             ContextCompat.startForegroundService(context, intent)
         }

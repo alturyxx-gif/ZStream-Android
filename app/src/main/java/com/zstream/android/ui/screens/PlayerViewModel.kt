@@ -940,10 +940,13 @@ class PlayerViewModel @OptIn(UnstableApi::class)
                 .map { sub ->
                     com.zstream.android.plugin.Caption(url = sub.url, language = sub.language, langIso = sub.language, type = sub.type, source = sub.source ?: "plugin")
                 }
+            val sourceId = ready.sourceId ?: "unknown"
+            val sourceDisplayName = pluginManager.availableSources().firstOrNull { it.id == sourceId }?.displayName ?: sourceId
             val request = com.zstream.android.download.DownloadRequest(
                 tmdbId = tmdbId,
                 target = target,
-                sourceId = ready.sourceId ?: "unknown",
+                sourceId = sourceId,
+                sourceDisplayName = sourceDisplayName,
                 variantId = variant.id,
                 qualityLabel = qualityLabel,
                 streamUrl = streamUrl,
@@ -951,6 +954,7 @@ class PlayerViewModel @OptIn(UnstableApi::class)
                 headers = variant.headers.ifEmpty { ready.headers },
                 captions = captions,
                 audioStreamUrl = audioStreamUrl,
+                posterPath = poster,
             )
             val downloadId = downloadRepository.enqueue(request)
             com.zstream.android.download.DownloadService.enqueue(appContext, downloadId, request)
