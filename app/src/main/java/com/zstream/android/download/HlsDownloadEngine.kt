@@ -50,11 +50,17 @@ class HlsDownloadEngine(private val client: OkHttpClient) {
     ) = coroutineScope {
         workDir.mkdirs()
 
-        val videoPlaylist = fetchAndParseHlsPlaylist(client, videoPlaylistUrl, headers)
+        val videoFetch = fetchAndParseHlsPlaylist(client, videoPlaylistUrl, headers)
+        val videoPlaylist = videoFetch.playlist
         check(videoPlaylist.segments.isNotEmpty()) { "Video playlist has no segments" }
-        val audioPlaylist = audioPlaylistUrl?.let { fetchAndParseHlsPlaylist(client, it, headers) }
+        // A caller-supplied audioPlaylistUrl (resolved when the user picked a quality, from the
+        // master playlist's #EXT-X-MEDIA audio group) takes priority; fall back to whatever
+        // fetchAndParseHlsPlaylist itself discovered in case videoPlaylistUrl was a master too.
+        val resolvedAudioUrl = audioPlaylistUrl ?: videoFetch.audioPlaylistUrl
+        val audioPlaylist = resolvedAudioUrl?.let { fetchAndParseHlsPlaylist(client, it, headers).playlist }
         Log.i(TAG, "playlists parsed: video segments=${videoPlaylist.segments.size} fmp4=${videoPlaylist.initUri != null} " +
-            "audio segments=${audioPlaylist?.segments?.size ?: 0} fmp4=${audioPlaylist?.initUri != null}")
+            "audio segments=${audioPlaylist?.segments?.size ?: 0} fmp4=${audioPlaylist?.initUri != null} " +
+            "audioUrl=${resolvedAudioUrl != null}")
 
         val videoKeys = downloadKeys(videoPlaylist.keys, headers, workDir)
         val audioKeys = audioPlaylist?.let { downloadKeys(it.keys, headers, workDir) } ?: emptyMap()
@@ -238,36 +244,46 @@ class HlsDownloadEngine(private val client: OkHttpClient) {
     ) {
         val muxer = MediaMuxer(outputFd, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
         try {
-            var videoTrackIndex = -1
-            var audioTrackIndex = -1
+            var videoMuxIndex = -1
+            var audioMuxIndex = -1
             val videoInitBytes = videoInitFile?.takeIf { it.exists() && it.length() > 0 }?.readBytes()
             val audioInitBytes = audioInitFile?.takeIf { it.exists() && it.length() > 0 }?.readBytes()
 
-            fun registerTrack(sampleExtractor: MediaExtractor, mimePrefix: String, isVideo: Boolean) {
-                val (_, format) = firstTrackOfType(sampleExtractor, mimePrefix) ?: return
-                val index = muxer.addTrack(format)
-                if (isVideo) videoTrackIndex = index else audioTrackIndex = index
+            // The primary "video" segments are usually a single HLS variant with audio muxed into
+            // the same container (no separate #EXT-X-MEDIA audio rendition, which this parser
+            // doesn't even extract) — probe for BOTH track types here rather than assuming
+            // video-only, or the downloaded audio silently gets dropped during remux.
+            fun probeTracks(initBytes: ByteArray?, file: File?) {
+                file ?: return
+                withExtractor(initBytes, file) { ex ->
+                    for (i in 0 until ex.trackCount) {
+                        val mime = ex.getTrackFormat(i).getString(MediaFormat.KEY_MIME) ?: continue
+                        when {
+                            mime.startsWith("video/") && videoMuxIndex == -1 -> videoMuxIndex = muxer.addTrack(ex.getTrackFormat(i))
+                            mime.startsWith("audio/") && audioMuxIndex == -1 -> audioMuxIndex = muxer.addTrack(ex.getTrackFormat(i))
+                        }
+                    }
+                }
             }
-
-            // First pass: inspect the first segment of each stream to register muxer tracks
-            // (MediaMuxer requires all tracks added before start()).
-            videoSegmentFiles.firstOrNull()?.let { f ->
-                withExtractor(videoInitBytes, f) { ex -> registerTrack(ex, "video/", true) }
-            }
-            audioSegmentFiles.firstOrNull()?.let { f ->
-                withExtractor(audioInitBytes, f) { ex -> registerTrack(ex, "audio/", false) }
-            }
+            probeTracks(videoInitBytes, videoSegmentFiles.firstOrNull())
+            probeTracks(audioInitBytes, audioSegmentFiles.firstOrNull())
             muxer.start()
 
-            Log.i(TAG, "muxer tracks registered: videoTrackIndex=$videoTrackIndex audioTrackIndex=$audioTrackIndex")
+            Log.i(TAG, "muxer tracks registered: videoMuxIndex=$videoMuxIndex audioMuxIndex=$audioMuxIndex")
             val totalFiles = videoSegmentFiles.size + audioSegmentFiles.size
-            writeTrack(muxer, videoInitBytes, videoSegmentFiles, "video/", videoTrackIndex, baseDone = 0, totalFiles, onRemuxProgress)
-            writeTrack(muxer, audioInitBytes, audioSegmentFiles, "audio/", audioTrackIndex, baseDone = videoSegmentFiles.size, totalFiles, onRemuxProgress)
+            val offsets = TrackOffsets()
+            writeSegments(muxer, videoInitBytes, videoSegmentFiles, videoMuxIndex, audioMuxIndex, offsets, baseDone = 0, totalFiles, onRemuxProgress)
+            writeSegments(muxer, audioInitBytes, audioSegmentFiles, videoMuxIndex, audioMuxIndex, offsets, baseDone = videoSegmentFiles.size, totalFiles, onRemuxProgress)
         } finally {
             runCatching { muxer.stop() }
                 .onFailure { Log.e(TAG, "MediaMuxer stop failed: ${it.message}", it) }
             muxer.release()
         }
+    }
+
+    private class TrackOffsets {
+        var videoTimeOffsetUs = 0L
+        var audioTimeOffsetUs = 0L
     }
 
     /**
@@ -302,57 +318,72 @@ class HlsDownloadEngine(private val client: OkHttpClient) {
         }
     }
 
-    private fun firstTrackOfType(extractor: MediaExtractor, mimePrefix: String): Pair<Int, MediaFormat>? {
-        for (i in 0 until extractor.trackCount) {
-            val format = extractor.getTrackFormat(i)
-            val mime = format.getString(MediaFormat.KEY_MIME) ?: continue
-            if (mime.startsWith(mimePrefix)) return i to format
-        }
-        return null
-    }
-
-    /** Writes every segment's samples for one track type into the muxer, keeping PTS monotonic across segment boundaries. */
-    private suspend fun writeTrack(
+    /**
+     * Writes every segment file's samples into the muxer, selecting whichever of video/audio
+     * tracks are actually present and registered (a segment file may contain both, one, or —
+     * for a genuinely separate audio-only playlist — just audio). PTS is offset per track type
+     * independently so video and audio each stay monotonic across segment boundaries even though
+     * they share one file-iteration loop.
+     */
+    private suspend fun writeSegments(
         muxer: MediaMuxer,
         initBytes: ByteArray?,
         files: List<File>,
-        mimePrefix: String,
-        trackIndex: Int,
+        videoMuxIndex: Int,
+        audioMuxIndex: Int,
+        offsets: TrackOffsets,
         baseDone: Int,
         totalFiles: Int,
         onRemuxProgress: suspend (done: Int, total: Int) -> Unit,
-    ): Long {
-        if (trackIndex == -1 || files.isEmpty()) return 0L
-        var timeOffsetUs = 0L
+    ) {
+        if (files.isEmpty() || (videoMuxIndex == -1 && audioMuxIndex == -1)) return
         var lastReportedPct = -1
         val bufferInfo = MediaCodec.BufferInfo()
         val buffer = java.nio.ByteBuffer.allocate(1 shl 20) // 1MB, grown below if a sample is bigger
 
         for ((index, file) in files.withIndex()) {
             withExtractor(initBytes, file) { extractor ->
-                val trackAndFormat = firstTrackOfType(extractor, mimePrefix)
-                if (trackAndFormat == null) return@withExtractor
-                extractor.selectTrack(trackAndFormat.first)
+                // extractor's own track index -> (muxer track index, isVideo)
+                val tracks = mutableMapOf<Int, Pair<Int, Boolean>>()
+                for (i in 0 until extractor.trackCount) {
+                    val mime = extractor.getTrackFormat(i).getString(MediaFormat.KEY_MIME) ?: continue
+                    when {
+                        mime.startsWith("video/") && videoMuxIndex != -1 -> { tracks[i] = videoMuxIndex to true; extractor.selectTrack(i) }
+                        mime.startsWith("audio/") && audioMuxIndex != -1 -> { tracks[i] = audioMuxIndex to false; extractor.selectTrack(i) }
+                    }
+                }
+                if (tracks.isEmpty()) return@withExtractor
 
-                var maxPtsInSegment = 0L
-                var firstPtsInSegment = -1L
+                val firstPtsPerTrack = mutableMapOf<Int, Long>()
+                val maxPtsPerTrack = mutableMapOf<Int, Long>()
                 while (true) {
                     val sampleSize = extractor.readSampleData(buffer, 0)
                     if (sampleSize < 0) break
+                    val extractorTrack = extractor.sampleTrackIndex
+                    val mapped = tracks[extractorTrack]
+                    if (mapped == null) {
+                        extractor.advance()
+                        continue
+                    }
+                    val (muxIndex, isVideo) = mapped
                     val pts = extractor.sampleTime
-                    if (firstPtsInSegment < 0) firstPtsInSegment = pts
+                    val firstPts = firstPtsPerTrack.getOrPut(extractorTrack) { pts }
+                    val baseOffset = if (isVideo) offsets.videoTimeOffsetUs else offsets.audioTimeOffsetUs
 
                     bufferInfo.apply {
                         size = sampleSize
                         offset = 0
                         flags = extractor.sampleFlags
-                        presentationTimeUs = timeOffsetUs + (pts - firstPtsInSegment)
+                        presentationTimeUs = baseOffset + (pts - firstPts)
                     }
-                    muxer.writeSampleData(trackIndex, buffer, bufferInfo)
-                    maxPtsInSegment = maxOf(maxPtsInSegment, bufferInfo.presentationTimeUs)
+                    muxer.writeSampleData(muxIndex, buffer, bufferInfo)
+                    maxPtsPerTrack[extractorTrack] = maxOf(maxPtsPerTrack[extractorTrack] ?: 0L, bufferInfo.presentationTimeUs)
                     extractor.advance()
                 }
-                timeOffsetUs = maxPtsInSegment
+                for ((trackIdx, mapping) in tracks) {
+                    val maxPts = maxPtsPerTrack[trackIdx] ?: continue
+                    if (mapping.second) offsets.videoTimeOffsetUs = maxPts else offsets.audioTimeOffsetUs = maxPts
+                }
             }
             val done = baseDone + index + 1
             val pct = if (totalFiles > 0) done * 100 / totalFiles else 0
@@ -361,9 +392,8 @@ class HlsDownloadEngine(private val client: OkHttpClient) {
                 onRemuxProgress(done, totalFiles)
             }
             if (index % 20 == 0 || index == files.lastIndex) {
-                Log.i(TAG, "remux $mimePrefix: segment ${index + 1}/${files.size}, timeOffsetUs=$timeOffsetUs")
+                Log.i(TAG, "remux: segment ${index + 1}/${files.size}")
             }
         }
-        return timeOffsetUs
     }
 }

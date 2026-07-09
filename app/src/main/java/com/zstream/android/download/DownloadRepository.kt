@@ -64,13 +64,16 @@ class DownloadRepository @Inject constructor(
     suspend fun run(downloadId: Long, request: DownloadRequest, onProgress: suspend (DownloadProgressInfo) -> Unit) = withContext(Dispatchers.IO) {
         val entity = downloadDao.getById(downloadId) ?: error("Download $downloadId not found")
         Log.i(TAG, "Download $downloadId starting: source=${request.sourceId} quality=${request.qualityLabel} streamType=${request.streamType}")
+        var videoFile: DownloadFile? = null
+        var subtitleFiles: List<Pair<com.zstream.android.plugin.Caption, DownloadFile>> = emptyList()
         try {
             update(entity.copy(status = DownloadStatus.DOWNLOADING))
 
             val extension = fileExtensionFor(request.streamUrl, request.streamType)
-            val videoFile = storage.createVideoFile(request.target, extension)
-            val subtitleFiles = request.captions.map { caption ->
-                caption to storage.createSubtitleFile(request.target, caption.langIso.ifBlank { "und" }, captionExtension(caption))
+            videoFile = storage.createVideoFile(request.target, extension)
+            subtitleFiles = request.captions.map { caption ->
+                val providerLabel = if (caption.source.contains("wyzie", ignoreCase = true)) "Wyzie" else null
+                caption to storage.createSubtitleFile(request.target, caption.langIso.ifBlank { "und" }, captionExtension(caption), providerLabel)
             }
 
             when (request.streamType) {
@@ -90,7 +93,7 @@ class DownloadRepository @Inject constructor(
                     try {
                         HlsDownloadEngine(client).download(
                             videoPlaylistUrl = request.streamUrl,
-                            audioPlaylistUrl = null,
+                            audioPlaylistUrl = request.audioStreamUrl,
                             headers = request.headers,
                             workDir = workDir,
                             outputFd = pfd.fileDescriptor,
@@ -139,6 +142,11 @@ class DownloadRepository @Inject constructor(
             )
         } catch (t: Throwable) {
             Log.e(TAG, "Download $downloadId failed: ${t.message}", t)
+            // A failed/partial download otherwise leaves a MediaStore row stuck IS_PENDING=1 (or a
+            // half-written legacy file) — visible in the Downloads folder as a raw ".pending-..."
+            // stub forever, since nothing else ever calls finalize()/delete() for it.
+            videoFile?.let { runCatching { storage.delete(it) } }
+            subtitleFiles.forEach { (_, dest) -> runCatching { storage.delete(dest) } }
             update(entity.copy(status = DownloadStatus.FAILED, errorMessage = t.message ?: "Download failed"))
         }
     }
