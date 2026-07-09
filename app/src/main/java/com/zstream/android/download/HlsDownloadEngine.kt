@@ -118,9 +118,9 @@ class HlsDownloadEngine(private val client: OkHttpClient) {
 
         remux(
             videoInitFile = videoSet.initFile,
-            videoSegmentFiles = videoFiles.map { it.second },
+            videoSegments = videoFiles.map { it.first to it.second },
             audioInitFile = audioSet?.initFile,
-            audioSegmentFiles = audioFiles.map { it.second },
+            audioSegments = audioFiles.map { it.first to it.second },
             outputFd = outputFd,
             onRemuxProgress = onRemuxProgress,
         )
@@ -236,9 +236,9 @@ class HlsDownloadEngine(private val client: OkHttpClient) {
      */
     private suspend fun remux(
         videoInitFile: File?,
-        videoSegmentFiles: List<File>,
+        videoSegments: List<Pair<HlsSegment, File>>,
         audioInitFile: File?,
-        audioSegmentFiles: List<File>,
+        audioSegments: List<Pair<HlsSegment, File>>,
         outputFd: FileDescriptor,
         onRemuxProgress: suspend (done: Int, total: Int) -> Unit,
     ) {
@@ -265,15 +265,15 @@ class HlsDownloadEngine(private val client: OkHttpClient) {
                     }
                 }
             }
-            probeTracks(videoInitBytes, videoSegmentFiles.firstOrNull())
-            probeTracks(audioInitBytes, audioSegmentFiles.firstOrNull())
+            probeTracks(videoInitBytes, videoSegments.firstOrNull()?.second)
+            probeTracks(audioInitBytes, audioSegments.firstOrNull()?.second)
             muxer.start()
 
             Log.i(TAG, "muxer tracks registered: videoMuxIndex=$videoMuxIndex audioMuxIndex=$audioMuxIndex")
-            val totalFiles = videoSegmentFiles.size + audioSegmentFiles.size
+            val totalFiles = videoSegments.size + audioSegments.size
             val offsets = TrackOffsets()
-            writeSegments(muxer, videoInitBytes, videoSegmentFiles, videoMuxIndex, audioMuxIndex, offsets, baseDone = 0, totalFiles, onRemuxProgress)
-            writeSegments(muxer, audioInitBytes, audioSegmentFiles, videoMuxIndex, audioMuxIndex, offsets, baseDone = videoSegmentFiles.size, totalFiles, onRemuxProgress)
+            writeSegments(muxer, videoInitBytes, videoSegments, videoMuxIndex, audioMuxIndex, offsets, baseDone = 0, totalFiles, onRemuxProgress)
+            writeSegments(muxer, audioInitBytes, audioSegments, videoMuxIndex, audioMuxIndex, offsets, baseDone = videoSegments.size, totalFiles, onRemuxProgress)
         } finally {
             runCatching { muxer.stop() }
                 .onFailure { Log.e(TAG, "MediaMuxer stop failed: ${it.message}", it) }
@@ -321,14 +321,22 @@ class HlsDownloadEngine(private val client: OkHttpClient) {
     /**
      * Writes every segment file's samples into the muxer, selecting whichever of video/audio
      * tracks are actually present and registered (a segment file may contain both, one, or —
-     * for a genuinely separate audio-only playlist — just audio). PTS is offset per track type
-     * independently so video and audio each stay monotonic across segment boundaries even though
-     * they share one file-iteration loop.
+     * for a genuinely separate audio-only playlist — just audio).
+     *
+     * Each segment's start position is anchored to the playlist's own declared EXTINF duration
+     * rather than the extractor's decoded max-PTS from the previous segment. Video and audio are
+     * independent HLS renditions here and can have completely different segment counts/boundaries
+     * for the same runtime (e.g. 974 video segments vs 1565 audio segments) — chaining off decoded
+     * timestamps means any small rounding difference between a segment's real duration and what
+     * the extractor reports compounds every segment, and compounds *differently* for video vs
+     * audio since they have different segment counts, so the two tracks drift apart over a long
+     * file even though each individually looks fine. Anchoring to EXTINF keeps both tracks tied to
+     * the same real timeline regardless of how each was segmented.
      */
     private suspend fun writeSegments(
         muxer: MediaMuxer,
         initBytes: ByteArray?,
-        files: List<File>,
+        segments: List<Pair<HlsSegment, File>>,
         videoMuxIndex: Int,
         audioMuxIndex: Int,
         offsets: TrackOffsets,
@@ -336,26 +344,28 @@ class HlsDownloadEngine(private val client: OkHttpClient) {
         totalFiles: Int,
         onRemuxProgress: suspend (done: Int, total: Int) -> Unit,
     ) {
-        if (files.isEmpty() || (videoMuxIndex == -1 && audioMuxIndex == -1)) return
+        if (segments.isEmpty() || (videoMuxIndex == -1 && audioMuxIndex == -1)) return
         var lastReportedPct = -1
         val bufferInfo = MediaCodec.BufferInfo()
         val buffer = java.nio.ByteBuffer.allocate(1 shl 20) // 1MB, grown below if a sample is bigger
 
-        for ((index, file) in files.withIndex()) {
+        for ((index, entry) in segments.withIndex()) {
+            val (segment, file) = entry
+            var sawVideo = false
+            var sawAudio = false
             withExtractor(initBytes, file) { extractor ->
                 // extractor's own track index -> (muxer track index, isVideo)
                 val tracks = mutableMapOf<Int, Pair<Int, Boolean>>()
                 for (i in 0 until extractor.trackCount) {
                     val mime = extractor.getTrackFormat(i).getString(MediaFormat.KEY_MIME) ?: continue
                     when {
-                        mime.startsWith("video/") && videoMuxIndex != -1 -> { tracks[i] = videoMuxIndex to true; extractor.selectTrack(i) }
-                        mime.startsWith("audio/") && audioMuxIndex != -1 -> { tracks[i] = audioMuxIndex to false; extractor.selectTrack(i) }
+                        mime.startsWith("video/") && videoMuxIndex != -1 -> { tracks[i] = videoMuxIndex to true; extractor.selectTrack(i); sawVideo = true }
+                        mime.startsWith("audio/") && audioMuxIndex != -1 -> { tracks[i] = audioMuxIndex to false; extractor.selectTrack(i); sawAudio = true }
                     }
                 }
                 if (tracks.isEmpty()) return@withExtractor
 
                 val firstPtsPerTrack = mutableMapOf<Int, Long>()
-                val maxPtsPerTrack = mutableMapOf<Int, Long>()
                 while (true) {
                     val sampleSize = extractor.readSampleData(buffer, 0)
                     if (sampleSize < 0) break
@@ -377,22 +387,27 @@ class HlsDownloadEngine(private val client: OkHttpClient) {
                         presentationTimeUs = baseOffset + (pts - firstPts)
                     }
                     muxer.writeSampleData(muxIndex, buffer, bufferInfo)
-                    maxPtsPerTrack[extractorTrack] = maxOf(maxPtsPerTrack[extractorTrack] ?: 0L, bufferInfo.presentationTimeUs)
                     extractor.advance()
                 }
-                for ((trackIdx, mapping) in tracks) {
-                    val maxPts = maxPtsPerTrack[trackIdx] ?: continue
-                    if (mapping.second) offsets.videoTimeOffsetUs = maxPts else offsets.audioTimeOffsetUs = maxPts
-                }
             }
+            // Anchor to this segment's own declared duration rather than the previous segment's
+            // decoded max-PTS (see class-level doc comment). Advance whichever track type(s) this
+            // particular segment file actually contained — covers both a single muxed stream
+            // (advances both, since one duration spans both tracks for that segment) and separate
+            // video-only/audio-only renditions with independently different segmentation (advances
+            // only the one that applies).
+            val durationUs = (segment.duration * 1_000_000).toLong()
+            if (sawVideo) offsets.videoTimeOffsetUs += durationUs
+            if (sawAudio) offsets.audioTimeOffsetUs += durationUs
+
             val done = baseDone + index + 1
             val pct = if (totalFiles > 0) done * 100 / totalFiles else 0
             if (pct > lastReportedPct || done == totalFiles) {
                 lastReportedPct = pct
                 onRemuxProgress(done, totalFiles)
             }
-            if (index % 20 == 0 || index == files.lastIndex) {
-                Log.i(TAG, "remux: segment ${index + 1}/${files.size}")
+            if (index % 20 == 0 || index == segments.lastIndex) {
+                Log.i(TAG, "remux: segment ${index + 1}/${segments.size}")
             }
         }
     }
