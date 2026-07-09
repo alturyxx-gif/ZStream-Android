@@ -60,6 +60,7 @@ class PluginManager @Inject constructor(
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val gson = Gson()
+    private val initStarted = java.util.concurrent.atomic.AtomicBoolean(false)
 
     // -------------------------------------------------------------------------
     // Public state
@@ -73,10 +74,16 @@ class PluginManager @Inject constructor(
     // -------------------------------------------------------------------------
 
     /**
-     * Must be called once at app startup (from ZStreamApp.onCreate).
-     * Runs the full startup sequence described in the class doc.
+     * Must be called once at app startup. Actually invoked from MainActivity.onCreate(), which
+     * can re-run within the same process (backgrounding, PiP transitions, some multi-window
+     * resizes) — the guard below makes repeat calls a no-op so we never load a second
+     * DexClassLoader for the same plugin file while the first one (and its native libs) is still
+     * alive in this process. A second DexClassLoader loading the same .so throws
+     * UnsatisfiedLinkError ("already opened by ClassLoader ...") the first time anything touches
+     * that native code, since a shared library can only be owned by one ClassLoader at a time.
      */
     fun initialize() {
+        if (!initStarted.compareAndSet(false, true)) return
         scope.launch {
             _pluginState.value = PluginState.Loading
             try {

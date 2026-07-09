@@ -297,7 +297,7 @@ private fun SubtitleTrackBadges(track: SubtitleTrack) {
 }
 
 private enum class PlayerMenuPage {
-    Root, Captions, CaptionLanguage, CaptionSettings, Playback, AdvancedColor, Sources, Quality, Audio, Download, WatchParty, SkipSegments, Seasons, Episodes, Variants
+    Root, Captions, CaptionLanguage, CaptionSettings, Playback, AdvancedColor, Sources, Quality, Audio, Download, DownloadQuality, WatchParty, SkipSegments, Seasons, Episodes, Variants
 }
 
 private sealed class PlayerInfoState {
@@ -1611,6 +1611,10 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     onSelectSource = vm::probeSourceWhileReady,
                     onUseSource = vm::applyProbedSource,
                     onSwitchVariant = vm::switchVariant,
+                    onDownloadVariant = vm::beginDownload,
+                    onSelectDownloadQuality = vm::downloadAtQuality,
+                    downloadQualityOptions = vm.downloadQualityOptions.collectAsState().value,
+                    downloadQualityLoading = vm.downloadQualityLoading.collectAsState().value,
                     skipSegments = skipSegments,
                     canSubmitSkipSegments = LocalConfiguration.current.smallestScreenWidthDp < 600,
                     hasTidbKey = !settings.tidbKey.isNullOrBlank(),
@@ -1974,6 +1978,10 @@ private fun PlayerControls(
     onSelectSource: (String) -> Unit,
     onUseSource: (String) -> Unit,
     onSwitchVariant: (StreamVariant) -> Unit,
+    onDownloadVariant: (StreamVariant) -> Unit = {},
+    onSelectDownloadQuality: (DownloadQualityOption) -> Unit = {},
+    downloadQualityOptions: List<DownloadQualityOption> = emptyList(),
+    downloadQualityLoading: Boolean = false,
     skipSegments: List<SkipSegment>,
     canSubmitSkipSegments: Boolean,
     hasTidbKey: Boolean,
@@ -3107,6 +3115,22 @@ private fun PlayerControls(
                         sourceId = readyState.sourceId,
                         sourceResults = readyState.sources,
                         variants = readyState.variants,
+                        downloadableVariants = readyState.variants.ifEmpty {
+                            listOf(
+                                StreamVariant(
+                                    id = "current",
+                                    name = "Current Stream",
+                                    quality = "",
+                                    codec = "",
+                                    tag = "",
+                                    streamUrl = readyState.streamUrl,
+                                    streamType = readyState.streamType,
+                                    headers = readyState.headers,
+                                )
+                            )
+                        },
+                        downloadQualityOptions = downloadQualityOptions,
+                        downloadQualityLoading = downloadQualityLoading,
                         failedVariantUrls = readyState.failedVariantUrls,
                         manualSourceSelection = settings.manualSourceSelection,
                         selectedSubtitleLanguage = selectedSubtitleLanguage,
@@ -3180,6 +3204,8 @@ private fun PlayerControls(
                         onSelectSource = onSelectSource,
                         onUseSource = onUseSource,
                         onSwitchVariant = onSwitchVariant,
+                        onDownloadVariant = onDownloadVariant,
+                        onSelectDownloadQuality = onSelectDownloadQuality,
                         onOpenSkipSubmission = {
                             skipSubmissionSeed = it ?: (skipSegments.firstOrNull() ?: SkipSegment("intro", null, null))
                             showSkipSubmissionDialog = true
@@ -3716,6 +3742,9 @@ private fun PlayerMenuContent(
     sourceId: String?,
     sourceResults: List<SourceResult>,
     variants: List<StreamVariant>,
+    downloadableVariants: List<StreamVariant> = emptyList(),
+    downloadQualityOptions: List<DownloadQualityOption> = emptyList(),
+    downloadQualityLoading: Boolean = false,
     failedVariantUrls: Set<String> = emptySet(),
     manualSourceSelection: Boolean,
     selectedSubtitleLanguage: String?,
@@ -3761,6 +3790,8 @@ private fun PlayerMenuContent(
     onSelectSource: (String) -> Unit,
     onUseSource: (String) -> Unit,
     onSwitchVariant: (StreamVariant) -> Unit,
+    onDownloadVariant: (StreamVariant) -> Unit = {},
+    onSelectDownloadQuality: (DownloadQualityOption) -> Unit = {},
     onOpenSkipSubmission: (SkipSegment?) -> Unit,
     onSeekToMs: (Long) -> Unit,
     onPip: () -> Unit,
@@ -3836,6 +3867,7 @@ private fun PlayerMenuContent(
                     PlayerMenuPage.Quality -> "Quality"
                     PlayerMenuPage.Audio -> "Audio"
                     PlayerMenuPage.Download -> "Download"
+                    PlayerMenuPage.DownloadQuality -> "Choose Quality"
                     PlayerMenuPage.WatchParty -> "Watch Party"
                     PlayerMenuPage.SkipSegments -> "Skip Segments"
                     PlayerMenuPage.Seasons -> "Seasons"
@@ -4464,7 +4496,47 @@ private fun PlayerMenuContent(
                         }
                     }
 
-                    PlayerMenuPage.Download -> PlayerMenuStubCard("Download UI is prepared. Source-specific download API wiring is still stubbed.")
+                    PlayerMenuPage.Download -> {
+                        PlayerMenuSection {
+                            downloadableVariants.forEachIndexed { index, variant ->
+                                PlayerMenuSelectableRow(
+                                    title = variant.displayLabel(),
+                                    subtitle = if (variant.streamType == "hls") "Tap to choose a quality" else "Tap to download",
+                                    selected = false,
+                                    onClick = {
+                                        onDownloadVariant(variant)
+                                        if (variant.streamType == "hls") onOpenPage(PlayerMenuPage.DownloadQuality)
+                                    },
+                                    focusRequester = if (index == 0) firstItemFocusRequester else null,
+                                )
+                            }
+                        }
+                        if (downloadableVariants.isEmpty()) {
+                            PlayerMenuStubCard("No downloadable quality found for this source.")
+                        }
+                    }
+                    PlayerMenuPage.DownloadQuality -> {
+                        if (downloadQualityLoading) {
+                            PlayerMenuStubCard("Checking available qualities…")
+                        } else {
+                            PlayerMenuSection {
+                                downloadQualityOptions.forEachIndexed { index, option ->
+                                    PlayerMenuSelectableRow(
+                                        title = option.label,
+                                        selected = false,
+                                        onClick = {
+                                            onSelectDownloadQuality(option)
+                                            onBack()
+                                        },
+                                        focusRequester = if (index == 0) firstItemFocusRequester else null,
+                                    )
+                                }
+                            }
+                            if (downloadQualityOptions.isEmpty()) {
+                                PlayerMenuStubCard("No quality options found for this source.")
+                            }
+                        }
+                    }
                     PlayerMenuPage.WatchParty -> {
                         if (roomCode == null) {
                             PlayerMenuSection {

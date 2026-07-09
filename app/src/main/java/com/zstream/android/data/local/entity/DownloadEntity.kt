@@ -1,0 +1,33 @@
+package com.zstream.android.data.local.entity
+
+import androidx.room.Entity
+import androidx.room.PrimaryKey
+
+enum class DownloadStatus { QUEUED, DOWNLOADING, REMUXING, DONE, FAILED, CANCELLED }
+
+/**
+ * Represents one download of a movie or a single episode. Downloads are always a finished,
+ * standalone file under Downloads/ZStream/... (see com.zstream.android.download.DownloadStorage)
+ * — there is no separate "cache then export" state, the file is written directly.
+ */
+@Entity(tableName = "downloads")
+data class DownloadEntity(
+    @PrimaryKey(autoGenerate = true)
+    val id: Long = 0,
+    val tmdbId: String,
+    val type: String, // "movie" or "show"
+    val title: String, // movie title, or show title for an episode
+    val season: Int? = null,
+    val episode: Int? = null,
+    val episodeTitle: String? = null,
+    val sourceId: String,
+    val variantId: String,
+    val qualityLabel: String, // e.g. "1080p HEVC", for display
+    val status: DownloadStatus = DownloadStatus.QUEUED,
+    val progressPercent: Int = 0,
+    val filePath: String? = null, // display path once known (MediaStore relative path or absolute legacy path)
+    val subtitlePaths: List<String>? = null,
+    val errorMessage: String? = null,
+    val createdAt: Long = System.currentTimeMillis(),
+    val finishedAt: Long? = null,
+)
