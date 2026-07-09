@@ -88,7 +88,7 @@ fun DownloadsScreen(nav: NavController) {
     var pendingDelete by remember { mutableStateOf<DownloadEntity?>(null) }
     var pendingFolderDelete by remember { mutableStateOf<LocalLibraryFolderEntity?>(null) }
     var pendingFolderPickAgain by remember { mutableStateOf<LocalLibraryFolderEntity?>(null) }
-    var selected by remember { mutableStateOf<LibraryItem?>(null) }
+    var selectedKey by remember { mutableStateOf<String?>(null) }
     val backFocusRequester = remember { FocusRequester() }
     val firstItemFocusRequester = remember { FocusRequester() }
     val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
@@ -99,11 +99,16 @@ fun DownloadsScreen(nav: NavController) {
         pendingFolderPickAgain = null
     }
 
-    BackHandler(enabled = selected != null) { selected = null }
+    // Re-derived from uiState.items every recomposition (not a frozen snapshot captured at
+    // navigation time) so live progress updates (Room Flow emissions) actually reach the
+    // episode list instead of only showing up after backing out and re-entering.
+    val current = selectedKey?.let { key -> uiState.items.firstOrNull { itemKey(it) == key } }
 
-    LaunchedEffect(isTv, uiState.items.size, selected) {
+    BackHandler(enabled = selectedKey != null) { selectedKey = null }
+
+    LaunchedEffect(isTv, uiState.items.size, selectedKey) {
         if (isTv) {
-            if (uiState.items.isNotEmpty() && selected == null) runCatching { firstItemFocusRequester.requestFocus() }
+            if (uiState.items.isNotEmpty() && selectedKey == null) runCatching { firstItemFocusRequester.requestFocus() }
             else runCatching { backFocusRequester.requestFocus() }
         }
     }
@@ -113,15 +118,15 @@ fun DownloadsScreen(nav: NavController) {
             Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 48.dp, bottom = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = { if (selected == null) onBack() else selected = null }, modifier = Modifier.focusRequester(backFocusRequester)) {
+            IconButton(onClick = { if (selectedKey == null) onBack() else selectedKey = null }, modifier = Modifier.focusRequester(backFocusRequester)) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = Color.White)
             }
             Spacer(Modifier.width(8.dp))
             Column(Modifier.weight(1f)) {
-                Text(selectedTitle(selected), color = theme.colors.type.emphasis, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                Text(selectedTitle(current), color = theme.colors.type.emphasis, fontSize = 20.sp, fontWeight = FontWeight.Bold)
                 Text(headerStatus(freeSpace, uiState), color = theme.colors.type.secondary, fontSize = 12.sp)
             }
-            if (selected == null) {
+            if (selectedKey == null) {
                 IconButton(onClick = { folderPicker.launch(null) }) {
                     Icon(Icons.Filled.Folder, contentDescription = "Add Folder", tint = theme.colors.type.secondary)
                 }
@@ -131,7 +136,6 @@ fun DownloadsScreen(nav: NavController) {
             }
         }
 
-        val current = selected
         if (current == null) {
             LibraryContent(
                 items = uiState.items,
@@ -143,10 +147,10 @@ fun DownloadsScreen(nav: NavController) {
                 onOpen = { item ->
                     when (item) {
                         is LibraryItem.DownloadMovie -> if (item.entity.status == DownloadStatus.DONE) nav.navigate("localPlayer/${item.entity.id}")
-                        is LibraryItem.DownloadShow -> selected = item
+                        is LibraryItem.DownloadShow -> selectedKey = itemKey(item)
                         is LibraryItem.LocalGroup -> {
                             if (item.items.size == 1 && item.mediaKind != "show") nav.navigate("localFilePlayer/${item.items.first().id}")
-                            else selected = item
+                            else selectedKey = itemKey(item)
                         }
                     }
                 },
