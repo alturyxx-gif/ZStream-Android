@@ -149,7 +149,8 @@ class DownloadsViewModel @Inject constructor(
     }
 
     private fun groupLocalMedia(media: List<LocalMediaEntity>): List<LibraryItem.LocalGroup> =
-        media.groupBy { it.groupKey.ifBlank { "${it.mediaKind}:${it.groupTitle}" } }
+        media.filterNot { it.matchSource == "database" }
+            .groupBy { it.groupKey.ifBlank { "${it.mediaKind}:${it.groupTitle}" } }
             .map { (key, items) ->
                 LibraryItem.LocalGroup(
                     key = "local:$key",

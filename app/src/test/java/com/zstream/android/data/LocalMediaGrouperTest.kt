@@ -48,6 +48,17 @@ class LocalMediaGrouperTest {
     }
 
     @Test
+    fun nestedEpisodeFolderGroupsUnderShowFolder() {
+        val guess = LocalMediaGrouper.infer("ZStream/X-Men '97/Season 01/S01E01/S01E01.mp4")
+
+        assertEquals("show", guess.mediaKind)
+        assertEquals("X Men '97", guess.groupTitle)
+        assertEquals("show:x men '97", guess.groupKey)
+        assertEquals(1, guess.season)
+        assertEquals(1, guess.episode)
+    }
+
+    @Test
     fun differentShowFoldersDoNotCollapseTogether() {
         val first = LocalMediaGrouper.infer("Show A/s1/e1.mkv")
         val second = LocalMediaGrouper.infer("Show B/s1/e1.mkv")

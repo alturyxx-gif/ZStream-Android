@@ -26,11 +26,19 @@ object LocalMediaGrouper {
 
         val parent = parts.dropLast(1).lastOrNull()
         val grandParent = parts.dropLast(2).lastOrNull()
+        val greatGrandParent = parts.dropLast(3).lastOrNull()
         val season = parent?.let { seasonFolder.matchEntire(it)?.groupValues?.get(1)?.toIntOrNull() }
         if (season != null && grandParent != null) {
             episodeNumber(name)?.let { episode ->
                 val title = cleanTitle(grandParent)
                 return LocalMediaGuess(title, "show", season, episode, groupKey("show", title), "folder")
+            }
+        }
+        val nestedSeason = grandParent?.let { seasonFolder.matchEntire(it)?.groupValues?.get(1)?.toIntOrNull() }
+        if (nestedSeason != null && greatGrandParent != null) {
+            episodeNumber(parent.orEmpty())?.let { episode ->
+                val title = cleanTitle(greatGrandParent)
+                return LocalMediaGuess(title, "show", nestedSeason, episode, groupKey("show", title), "folder")
             }
         }
 
