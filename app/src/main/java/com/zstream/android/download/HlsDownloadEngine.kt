@@ -1,0 +1,334 @@
+package com.zstream.android.download
+
+import android.media.MediaCodec
+import android.media.MediaExtractor
+import android.media.MediaFormat
+import android.media.MediaMuxer
+import android.util.Log
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import java.io.File
+import java.io.FileDescriptor
+import java.security.MessageDigest
+import javax.crypto.Cipher
+import javax.crypto.spec.IvParameterSpec
+import javax.crypto.spec.SecretKeySpec
+
+private const val TAG = "HlsDownloadEngine"
+private const val SEGMENT_WORKERS = 3
+
+data class HlsDownloadProgress(val segmentsDone: Int, val segmentsTotal: Int, val bytesReceived: Long)
+
+/**
+ * Downloads an HLS video (+ optional separate audio) stream to local segment files, decrypting
+ * AES-128 segments as needed, then remuxes them into a single output file via MediaMuxer —
+ * no re-encode, no ffmpeg, matching the desktop app's ffmpeg "-c copy" step but using Android's
+ * own demux/mux APIs (MediaExtractor to read each segment's samples, MediaMuxer to write them).
+ */
+class HlsDownloadEngine(private val client: OkHttpClient) {
+
+    suspend fun download(
+        videoPlaylistUrl: String,
+        audioPlaylistUrl: String?,
+        headers: Map<String, String>,
+        workDir: File,
+        outputFd: FileDescriptor,
+        onProgress: suspend (HlsDownloadProgress) -> Unit,
+    ) = coroutineScope {
+        workDir.mkdirs()
+
+        val videoPlaylist = fetchAndParseHlsPlaylist(client, videoPlaylistUrl, headers)
+        check(videoPlaylist.segments.isNotEmpty()) { "Video playlist has no segments" }
+        val audioPlaylist = audioPlaylistUrl?.let { fetchAndParseHlsPlaylist(client, it, headers) }
+        Log.i(TAG, "playlists parsed: video segments=${videoPlaylist.segments.size} fmp4=${videoPlaylist.initUri != null} " +
+            "audio segments=${audioPlaylist?.segments?.size ?: 0} fmp4=${audioPlaylist?.initUri != null}")
+
+        val videoKeys = downloadKeys(videoPlaylist.keys, headers, workDir)
+        val audioKeys = audioPlaylist?.let { downloadKeys(it.keys, headers, workDir) } ?: emptyMap()
+
+        val videoSet = segmentFiles(videoPlaylist, workDir, "v_")
+        val audioSet = audioPlaylist?.let { segmentFiles(it, workDir, "a_") }
+
+        videoSet.initUrl?.let { url ->
+            downloadPlain(url, headers, videoSet.initFile!!)
+            Log.i(TAG, "video init segment downloaded: ${videoSet.initFile.length()} bytes")
+        }
+        audioSet?.initUrl?.let { url ->
+            downloadPlain(url, headers, audioSet.initFile!!)
+            Log.i(TAG, "audio init segment downloaded: ${audioSet.initFile.length()} bytes")
+        }
+
+        val videoFiles = videoSet.segments
+        val audioFiles = audioSet?.segments ?: emptyList()
+        val total = videoFiles.size + audioFiles.size
+        var done = 0
+        var bytes = 0L
+        val progressLock = Any()
+
+        val semaphore = Semaphore(SEGMENT_WORKERS)
+        val jobs = (videoFiles + audioFiles).map { (segment, dest, key) ->
+            async(Dispatchers.IO) {
+                semaphore.withPermit {
+                    if (!(dest.exists() && dest.length() > 0)) {
+                        val size = downloadSegment(segment.uri, headers, dest, key, videoKeys + audioKeys)
+                        synchronized(progressLock) { bytes += size }
+                    }
+                    val snapshot = synchronized(progressLock) {
+                        done++
+                        HlsDownloadProgress(done, total, bytes)
+                    }
+                    if (snapshot.segmentsDone % 10 == 0 || snapshot.segmentsDone == total) {
+                        Log.i(TAG, "segments ${snapshot.segmentsDone}/${snapshot.segmentsTotal}, " +
+                            "downloaded ${snapshot.bytesReceived / 1024}KB so far")
+                    }
+                    onProgress(snapshot)
+                }
+            }
+        }
+        jobs.awaitAll()
+        Log.i(TAG, "all segments downloaded: total ${bytes / 1024}KB across $total segments, starting remux")
+
+        remux(
+            videoInitFile = videoSet.initFile,
+            videoSegmentFiles = videoFiles.map { it.second },
+            audioInitFile = audioSet?.initFile,
+            audioSegmentFiles = audioFiles.map { it.second },
+            outputFd = outputFd,
+        )
+        Log.i(TAG, "remux complete")
+    }
+
+    private fun downloadKeys(keys: List<HlsKey>, headers: Map<String, String>, workDir: File): Map<String, ByteArray> {
+        val out = mutableMapOf<String, ByteArray>()
+        for (key in keys) {
+            if (key.method.equals("NONE", true)) continue
+            val request = Request.Builder().url(key.uri).headers(downloadHeaders(headers)).build()
+            val bytes = client.newCall(request).execute().use { resp ->
+                if (!resp.isSuccessful) error("HLS key fetch failed: HTTP ${resp.code}")
+                resp.body?.bytes() ?: error("Empty key response")
+            }
+            out["${key.uri}|${key.iv}"] = bytes
+        }
+        return out
+    }
+
+    /**
+     * [initUrl]/[initFile] are kept separate from [segments] (rather than treated as just another
+     * segment) because a fragmented-MP4 (CMAF) init segment is only a bare ftyp+moov box — it has
+     * no samples of its own, and each subsequent media segment is only a moof+mdat fragment that
+     * MediaExtractor cannot open standalone. The init bytes get prepended to each fragment's bytes
+     * at extraction time instead (see writeTrack/registerTrack).
+     */
+    private data class SegmentFileSet(
+        val initUrl: String?,
+        val initFile: File?,
+        val segments: List<Triple<HlsSegment, File, HlsKey?>>,
+    )
+
+    private fun segmentFiles(
+        playlist: HlsPlaylist,
+        workDir: File,
+        prefix: String,
+    ): SegmentFileSet {
+        val segments = playlist.segments.map { seg ->
+            Triple(seg, File(workDir, "$prefix${"seg-%06d".format(seg.seq - playlist.mediaSeq)}"), seg.key)
+        }
+        return SegmentFileSet(
+            initUrl = playlist.initUri,
+            initFile = playlist.initUri?.let { File(workDir, "${prefix}init") },
+            segments = segments,
+        )
+    }
+
+    private suspend fun downloadPlain(url: String, headers: Map<String, String>, dest: File) {
+        if (dest.exists() && dest.length() > 0) return
+        dest.writeBytes(fetchWithRetry(url, headers))
+    }
+
+    private suspend fun downloadSegment(
+        url: String,
+        headers: Map<String, String>,
+        dest: File,
+        key: HlsKey?,
+        keyMaterial: Map<String, ByteArray>,
+    ): Long {
+        val raw = fetchWithRetry(url, headers)
+        val plain = if (key != null) decryptAes128(raw, keyMaterial["${key.uri}|${key.iv}"] ?: error("Missing key for segment"), key.iv) else raw
+        dest.writeBytes(plain)
+        return plain.size.toLong()
+    }
+
+    /**
+     * Segment CDNs commonly rate-limit (HTTP 429) under our parallel-worker load — retry with
+     * backoff instead of failing the whole download the first time one segment gets throttled.
+     */
+    private suspend fun fetchWithRetry(url: String, headers: Map<String, String>, maxAttempts: Int = 5): ByteArray {
+        var lastError: Exception? = null
+        for (attempt in 0 until maxAttempts) {
+            if (attempt > 0) kotlinx.coroutines.delay(500L * (1L shl (attempt - 1))) // 500ms, 1s, 2s, 4s
+            val request = Request.Builder().url(url).headers(downloadHeaders(headers)).build()
+            try {
+                client.newCall(request).execute().use { resp ->
+                    if (resp.code == 429 || resp.code in 500..599) {
+                        lastError = IllegalStateException("Segment fetch failed: HTTP ${resp.code}")
+                        return@use
+                    }
+                    if (!resp.isSuccessful) error("Segment fetch failed: HTTP ${resp.code}")
+                    return resp.body?.bytes() ?: error("Empty segment response")
+                }
+            } catch (t: Exception) {
+                lastError = t
+            }
+        }
+        throw lastError ?: IllegalStateException("Segment fetch failed after $maxAttempts attempts")
+    }
+
+    private fun decryptAes128(data: ByteArray, keyBytes: ByteArray, ivHex: String): ByteArray {
+        val iv = if (ivHex.isNotEmpty()) {
+            hexToBytes(ivHex.removePrefix("0x").removePrefix("0X")).copyOf(16)
+        } else {
+            ByteArray(16) // Sequence-number-derived IV is rare in practice; zero IV covers most sources.
+        }
+        val cipher = Cipher.getInstance("AES/CBC/NoPadding")
+        cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(keyBytes, "AES"), IvParameterSpec(iv))
+        val decrypted = cipher.doFinal(data)
+        // Strip PKCS7 padding manually since segments are fetched as one full ciphertext blob.
+        val padLen = decrypted.lastOrNull()?.toInt()?.and(0xFF) ?: 0
+        return if (padLen in 1..16 && padLen <= decrypted.size) decrypted.copyOf(decrypted.size - padLen) else decrypted
+    }
+
+    private fun hexToBytes(hex: String): ByteArray =
+        ByteArray(hex.length / 2) { i -> ((Character.digit(hex[i * 2], 16) shl 4) + Character.digit(hex[i * 2 + 1], 16)).toByte() }
+
+    /**
+     * Demuxes each segment file with MediaExtractor and re-writes its samples into a single
+     * MediaMuxer output — the Android-native equivalent of `ffmpeg -c copy`. Presentation
+     * timestamps are offset per track so segments play back-to-back without resetting to zero.
+     */
+    private fun remux(
+        videoInitFile: File?,
+        videoSegmentFiles: List<File>,
+        audioInitFile: File?,
+        audioSegmentFiles: List<File>,
+        outputFd: FileDescriptor,
+    ) {
+        val muxer = MediaMuxer(outputFd, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+        try {
+            var videoTrackIndex = -1
+            var audioTrackIndex = -1
+            val videoInitBytes = videoInitFile?.takeIf { it.exists() && it.length() > 0 }?.readBytes()
+            val audioInitBytes = audioInitFile?.takeIf { it.exists() && it.length() > 0 }?.readBytes()
+
+            fun registerTrack(sampleExtractor: MediaExtractor, mimePrefix: String, isVideo: Boolean) {
+                val (_, format) = firstTrackOfType(sampleExtractor, mimePrefix) ?: return
+                val index = muxer.addTrack(format)
+                if (isVideo) videoTrackIndex = index else audioTrackIndex = index
+            }
+
+            // First pass: inspect the first segment of each stream to register muxer tracks
+            // (MediaMuxer requires all tracks added before start()).
+            videoSegmentFiles.firstOrNull()?.let { f ->
+                withExtractor(videoInitBytes, f) { ex -> registerTrack(ex, "video/", true) }
+            }
+            audioSegmentFiles.firstOrNull()?.let { f ->
+                withExtractor(audioInitBytes, f) { ex -> registerTrack(ex, "audio/", false) }
+            }
+            muxer.start()
+
+            Log.i(TAG, "muxer tracks registered: videoTrackIndex=$videoTrackIndex audioTrackIndex=$audioTrackIndex")
+            writeTrack(muxer, videoInitBytes, videoSegmentFiles, "video/", videoTrackIndex)
+            writeTrack(muxer, audioInitBytes, audioSegmentFiles, "audio/", audioTrackIndex)
+        } finally {
+            runCatching { muxer.stop() }
+                .onFailure { Log.e(TAG, "MediaMuxer stop failed: ${it.message}", it) }
+            muxer.release()
+        }
+    }
+
+    /**
+     * Opens [file] with MediaExtractor, prepending [initBytes] first if this track uses a
+     * fragmented-MP4 init segment (see SegmentFileSet doc comment) — writes a small combined temp
+     * file next to [file] since MediaExtractor only accepts a file path/descriptor, not a stream.
+     */
+    private fun withExtractor(initBytes: ByteArray?, file: File, block: (MediaExtractor) -> Unit) {
+        val source = if (initBytes != null) {
+            val combined = File(file.parentFile, file.name + ".combined")
+            combined.outputStream().use { out ->
+                out.write(initBytes)
+                file.inputStream().use { it.copyTo(out) }
+            }
+            combined
+        } else {
+            file
+        }
+        val extractor = MediaExtractor()
+        try {
+            extractor.setDataSource(source.absolutePath)
+        } catch (t: Throwable) {
+            Log.e(TAG, "MediaExtractor.setDataSource failed for ${file.name} " +
+                "(size=${file.length()}, combinedWithInit=${initBytes != null})", t)
+            throw t
+        }
+        try {
+            block(extractor)
+        } finally {
+            extractor.release()
+            if (source !== file) source.delete()
+        }
+    }
+
+    private fun firstTrackOfType(extractor: MediaExtractor, mimePrefix: String): Pair<Int, MediaFormat>? {
+        for (i in 0 until extractor.trackCount) {
+            val format = extractor.getTrackFormat(i)
+            val mime = format.getString(MediaFormat.KEY_MIME) ?: continue
+            if (mime.startsWith(mimePrefix)) return i to format
+        }
+        return null
+    }
+
+    /** Writes every segment's samples for one track type into the muxer, keeping PTS monotonic across segment boundaries. */
+    private fun writeTrack(muxer: MediaMuxer, initBytes: ByteArray?, files: List<File>, mimePrefix: String, trackIndex: Int): Long {
+        if (trackIndex == -1 || files.isEmpty()) return 0L
+        var timeOffsetUs = 0L
+        val bufferInfo = MediaCodec.BufferInfo()
+        val buffer = java.nio.ByteBuffer.allocate(1 shl 20) // 1MB, grown below if a sample is bigger
+
+        for ((index, file) in files.withIndex()) {
+            withExtractor(initBytes, file) { extractor ->
+                val trackAndFormat = firstTrackOfType(extractor, mimePrefix)
+                if (trackAndFormat == null) return@withExtractor
+                extractor.selectTrack(trackAndFormat.first)
+
+                var maxPtsInSegment = 0L
+                var firstPtsInSegment = -1L
+                while (true) {
+                    val sampleSize = extractor.readSampleData(buffer, 0)
+                    if (sampleSize < 0) break
+                    val pts = extractor.sampleTime
+                    if (firstPtsInSegment < 0) firstPtsInSegment = pts
+
+                    bufferInfo.apply {
+                        size = sampleSize
+                        offset = 0
+                        flags = extractor.sampleFlags
+                        presentationTimeUs = timeOffsetUs + (pts - firstPtsInSegment)
+                    }
+                    muxer.writeSampleData(trackIndex, buffer, bufferInfo)
+                    maxPtsInSegment = maxOf(maxPtsInSegment, bufferInfo.presentationTimeUs)
+                    extractor.advance()
+                }
+                timeOffsetUs = maxPtsInSegment
+            }
+            if (index % 20 == 0 || index == files.lastIndex) {
+                Log.i(TAG, "remux $mimePrefix: segment ${index + 1}/${files.size}, timeOffsetUs=$timeOffsetUs")
+            }
+        }
+        return timeOffsetUs
+    }
+}

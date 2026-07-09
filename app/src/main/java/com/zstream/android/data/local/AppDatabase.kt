@@ -6,22 +6,26 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 import com.zstream.android.data.local.dao.BookmarkDao
+import com.zstream.android.data.local.dao.DownloadDao
 import com.zstream.android.data.local.dao.ProgressDao
 import com.zstream.android.data.local.entity.BookmarkEntity
+import com.zstream.android.data.local.entity.DownloadEntity
 import com.zstream.android.data.local.entity.ProgressEntity
 
 @Database(
     entities = [
         ProgressEntity::class,
         BookmarkEntity::class,
+        DownloadEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun progressDao(): ProgressDao
     abstract fun bookmarkDao(): BookmarkDao
+    abstract fun downloadDao(): DownloadDao
 
     companion object {
         @Volatile

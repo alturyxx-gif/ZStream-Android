@@ -3,6 +3,7 @@ package com.zstream.android.di
 import android.content.Context
 import com.zstream.android.data.local.AppDatabase
 import com.zstream.android.data.local.dao.BookmarkDao
+import com.zstream.android.data.local.dao.DownloadDao
 import com.zstream.android.data.local.dao.ProgressDao
 import dagger.Module
 import dagger.Provides
@@ -29,5 +30,10 @@ object DatabaseModule {
     @Provides
     fun provideBookmarkDao(database: AppDatabase): BookmarkDao {
         return database.bookmarkDao()
+    }
+
+    @Provides
+    fun provideDownloadDao(database: AppDatabase): DownloadDao {
+        return database.downloadDao()
     }
 }

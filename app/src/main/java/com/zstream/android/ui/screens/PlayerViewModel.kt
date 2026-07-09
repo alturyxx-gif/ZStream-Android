@@ -148,6 +148,9 @@ data class StreamVariant(
     }
 }
 
+/** One resolution choice discovered inside an HLS master playlist, for the download quality picker. */
+data class DownloadQualityOption(val label: String, val streamUrl: String, val bandwidth: Long)
+
 internal fun preferredInitialVariantUrl(
     sourceId: String,
     defaultUrl: String,
@@ -248,6 +251,8 @@ class PlayerViewModel @OptIn(UnstableApi::class)
     private val httpClient: OkHttpClient,
     val playerCache: SimpleCache,
     val watchPartyManager: WatchPartyManager,
+    private val downloadRepository: com.zstream.android.download.DownloadRepository,
+    @dagger.hilt.android.qualifiers.ApplicationContext private val appContext: android.content.Context,
     savedState: SavedStateHandle,
 ) : ViewModel() {
     val settings = settingsPrefs.settings
@@ -357,6 +362,12 @@ class PlayerViewModel @OptIn(UnstableApi::class)
     private var lastPlaybackPosition = 0L
     private var lastPlaybackDuration = 0L
     private var subtitleSearchLanguage = "en"
+
+    private var pendingDownloadVariant: StreamVariant? = null
+    private val _downloadQualityOptions = MutableStateFlow<List<DownloadQualityOption>>(emptyList())
+    val downloadQualityOptions = _downloadQualityOptions.asStateFlow()
+    private val _downloadQualityLoading = MutableStateFlow(false)
+    val downloadQualityLoading = _downloadQualityLoading.asStateFlow()
 
     init {
         load()
@@ -839,6 +850,93 @@ class PlayerViewModel @OptIn(UnstableApi::class)
         desiredVariantName = variant.name
         _state.value = current.copy(streamUrl = variant.streamUrl)
             .copy(streamType = variant.streamType, headers = if (variant.headers.isNotEmpty()) variant.headers else current.headers)
+    }
+
+    /**
+     * Entry point from the Download page. For "file" sources there's only ever one quality, so
+     * this downloads immediately. For "hls" sources, the stream URL is often a master playlist
+     * with several resolutions inside it (1080p/720p/480p/...) — this probes for those first and,
+     * if more than one exists, surfaces them via downloadQualityOptions instead of guessing.
+     */
+    fun beginDownload(variant: StreamVariant) {
+        val ready = _state.value as? PlayerState.Ready ?: return
+        if (variant.streamType != "hls") {
+            enqueueDownload(variant, variant.streamUrl, variant.displayLabel())
+            return
+        }
+        pendingDownloadVariant = variant
+        _downloadQualityLoading.value = true
+        viewModelScope.launch {
+            val headers = variant.headers.ifEmpty { ready.headers }
+            val options = runCatching {
+                withContext(Dispatchers.IO) {
+                    com.zstream.android.download.fetchHlsQualityOptions(httpClient, variant.streamUrl, headers)
+                }
+            }.getOrDefault(emptyList())
+            _downloadQualityLoading.value = false
+            if (options.size <= 1) {
+                // Nothing to actually choose between — just download at the only available quality.
+                val single = options.firstOrNull()
+                enqueueDownload(variant, single?.uri ?: variant.streamUrl, single?.height?.let { "${it}p" } ?: variant.displayLabel())
+            } else {
+                _downloadQualityOptions.value = options.map { opt ->
+                    DownloadQualityOption(
+                        label = opt.height?.let { "${it}p" } ?: "${opt.bandwidth / 1000} kbps",
+                        streamUrl = opt.uri,
+                        bandwidth = opt.bandwidth,
+                    )
+                }
+            }
+        }
+    }
+
+    /** Called when the user picks a specific resolution from downloadQualityOptions. */
+    fun downloadAtQuality(option: DownloadQualityOption) {
+        val variant = pendingDownloadVariant ?: return
+        enqueueDownload(variant, option.streamUrl, option.label)
+        pendingDownloadVariant = null
+        _downloadQualityOptions.value = emptyList()
+    }
+
+    fun cancelDownloadQualityPicker() {
+        pendingDownloadVariant = null
+        _downloadQualityOptions.value = emptyList()
+        _downloadQualityLoading.value = false
+    }
+
+    private fun enqueueDownload(variant: StreamVariant, streamUrl: String, qualityLabel: String) {
+        val ready = _state.value as? PlayerState.Ready ?: return
+        viewModelScope.launch {
+            val target = if (mediaType == "tv") {
+                com.zstream.android.download.DownloadTarget.Episode(
+                    showTitle = title,
+                    season = season ?: 1,
+                    episode = episode ?: 1,
+                )
+            } else {
+                com.zstream.android.download.DownloadTarget.Movie(
+                    title = title,
+                    year = year.takeIf { it > 0 },
+                )
+            }
+            val captions = ready.subtitles.map { sub ->
+                com.zstream.android.plugin.Caption(url = sub.url, language = sub.language, langIso = sub.language, type = sub.type)
+            }
+            val request = com.zstream.android.download.DownloadRequest(
+                tmdbId = tmdbId,
+                target = target,
+                sourceId = ready.sourceId ?: "unknown",
+                variantId = variant.id,
+                qualityLabel = qualityLabel,
+                streamUrl = streamUrl,
+                streamType = variant.streamType,
+                headers = variant.headers.ifEmpty { ready.headers },
+                captions = captions,
+            )
+            val downloadId = downloadRepository.enqueue(request)
+            com.zstream.android.download.DownloadService.enqueue(appContext, downloadId, request)
+            _recoveryNotice.tryEmit("Download started: $qualityLabel")
+        }
     }
 
     fun onPlaybackError(

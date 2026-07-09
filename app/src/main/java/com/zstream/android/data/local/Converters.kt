@@ -3,6 +3,7 @@ package com.zstream.android.data.local
 import androidx.room.TypeConverter
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import com.zstream.android.data.local.entity.DownloadStatus
 
 class Converters {
     private val gson = Gson()
@@ -19,4 +20,11 @@ class Converters {
             null
         }
     }
+
+    @TypeConverter
+    fun fromDownloadStatus(value: DownloadStatus): String = value.name
+
+    @TypeConverter
+    fun toDownloadStatus(value: String): DownloadStatus =
+        runCatching { DownloadStatus.valueOf(value) }.getOrDefault(DownloadStatus.FAILED)
 }
