@@ -1,6 +1,13 @@
 package com.zstream.android.plugin
 
 /**
+ * Formats a plugin displayVersion (e.g. "1.2.3" or already "v1.2.3") for UI display, without
+ * ever producing a double "v" prefix.
+ */
+fun pluginVersionLabel(displayVersion: String): String =
+    if (displayVersion.startsWith("v", ignoreCase = true)) displayVersion else "v$displayVersion"
+
+/**
  * App-side data shapes for the plugin boundary. These are NOT shared with the plugin as
  * compiled classes — they exist purely so the rest of the app has typed values to work with
  * after PluginManager parses the plugin's JSON responses. See PluginJson.kt for the wire format.

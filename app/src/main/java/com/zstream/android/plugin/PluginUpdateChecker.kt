@@ -23,6 +23,7 @@ class PluginUpdateChecker @Inject constructor(
         val minAppVersion: Int,
         val downloadUrl: String,
         val hash: String, // "sha256:<hex>"
+        val displayVersion: String,
     )
 
     /**
@@ -44,11 +45,13 @@ class PluginUpdateChecker @Inject constructor(
 
         return try {
             val json = JSONObject(body)
+            val latestVersion = json.getInt("latestVersion")
             PluginManifest(
-                latestVersion  = json.getInt("latestVersion"),
+                latestVersion  = latestVersion,
                 minAppVersion  = json.optInt("minAppVersion", 1),
                 downloadUrl    = json.getString("downloadUrl"),
                 hash           = json.getString("hash"),
+                displayVersion = json.optString("displayVersion", latestVersion.toString()),
             )
         } catch (e: Exception) {
             Log.e(TAG, "Manifest parse failed: ${e.message}")

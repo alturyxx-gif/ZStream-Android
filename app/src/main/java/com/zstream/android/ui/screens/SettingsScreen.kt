@@ -828,10 +828,10 @@ private fun PluginVersionSection(vm: SettingsViewModel, theme: ZStreamTheme, isT
 
     val versionLabel = when (pluginState) {
         is com.zstream.android.plugin.PluginState.Ready ->
-            "v${(pluginState as com.zstream.android.plugin.PluginState.Ready).version}"
+            com.zstream.android.plugin.pluginVersionLabel((pluginState as com.zstream.android.plugin.PluginState.Ready).displayVersion)
         is com.zstream.android.plugin.PluginState.UpdateAvailable -> {
             val s = pluginState as com.zstream.android.plugin.PluginState.UpdateAvailable
-            "v${s.currentVersion} (v${s.stagedVersion} ready)"
+            "${com.zstream.android.plugin.pluginVersionLabel(s.currentDisplayVersion)} (${com.zstream.android.plugin.pluginVersionLabel(s.stagedDisplayVersion)} ready)"
         }
         else -> "Not installed"
     }
