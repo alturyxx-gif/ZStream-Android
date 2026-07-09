@@ -1140,8 +1140,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                             if (!player.isPlaying) continue
                             val watchedSec = player.currentPosition / 1000
                             val durationSec = player.duration.let { if (it > 0) it / 1000 else 0L }
-                            if (!vm.isAutoplay && watchedSec < 20) continue
-                            if (!vm.isAutoplay && durationSec > 0 && (durationSec - watchedSec) < 120) continue
+                            if (!vm.isAutoplay && !shouldPersistProgress(watchedSec, durationSec)) continue
                             // Network call can run on IO via accountVm's viewModelScope
                             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                                 runCatching {
@@ -1161,7 +1160,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                         job.cancel()
                         val watchedSec = player.currentPosition / 1000
                         val durationSec = player.duration.let { if (it > 0) it / 1000 else 0L }
-                        if (vm.isAutoplay || watchedSec >= 20 && (durationSec <= 0 || (durationSec - watchedSec) >= 120)) {
+                        if (vm.isAutoplay || shouldPersistProgress(watchedSec, durationSec)) {
                             scope.launch {
                                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                                     runCatching {
@@ -1907,6 +1906,8 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
 @Composable
 fun LocalPlayerScreen(nav: NavController, vm: LocalPlayerViewModel = hiltViewModel()) {
     val source by vm.source.collectAsState()
+    val resumeWatchedSec by vm.resumeWatchedSec.collectAsState()
+    val skipSegments by vm.skipSegments.collectAsState()
     val settings by vm.settings.collectAsState(initial = com.zstream.android.data.local.entity.SettingsEntity())
     val context = LocalContext.current
     val activity = LocalActivity.current
@@ -1978,12 +1979,37 @@ fun LocalPlayerScreen(nav: NavController, vm: LocalPlayerViewModel = hiltViewMod
                     .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, !settings.subtitlesEnabled)
                     .build()
                 playWhenReady = true
+                resumeWatchedSec?.let { seekTo(it * 1000) }
                 prepare()
             }
         }
     }
     DisposableEffect(player) {
         onDispose { player?.release() }
+    }
+
+    // Progress sync for local/downloaded playback — same cadence/guards as online PlayerScreen.
+    DisposableEffect(player, ready) {
+        if (player == null || ready == null) return@DisposableEffect onDispose {}
+        val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main)
+        val job = scope.launch {
+            while (true) {
+                kotlinx.coroutines.delay(PROGRESS_SAVE_INTERVAL_MS)
+                if (!player.isPlaying) continue
+                val watchedSec = player.currentPosition / 1000
+                val durationSec = player.duration.let { if (it > 0) it / 1000 else 0L }
+                if (!shouldPersistProgress(watchedSec, durationSec)) continue
+                vm.saveProgress(ready, watchedSec, durationSec)
+            }
+        }
+        onDispose {
+            job.cancel()
+            val watchedSec = player.currentPosition / 1000
+            val durationSec = player.duration.let { if (it > 0) it / 1000 else 0L }
+            if (shouldPersistProgress(watchedSec, durationSec)) {
+                vm.saveProgress(ready, watchedSec, durationSec)
+            }
+        }
     }
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
@@ -2010,6 +2036,12 @@ fun LocalPlayerScreen(nav: NavController, vm: LocalPlayerViewModel = hiltViewMod
                     },
                     modifier = Modifier.fillMaxSize(),
                 )
+                LaunchedEffect(ready.tmdbId, ready.season, ready.episode, player.duration) {
+                    val duration = player.duration.coerceAtLeast(0L)
+                    if (duration > 0) {
+                        vm.loadSkipSegments(ready, duration)
+                    }
+                }
                 val readyState = PlayerState.Ready(
                     streamUrl = ready.videoUri.toString(),
                     streamType = "file",
@@ -2090,14 +2122,14 @@ fun LocalPlayerScreen(nav: NavController, vm: LocalPlayerViewModel = hiltViewMod
                     onSelectSource = {},
                     onUseSource = {},
                     onSwitchVariant = {},
-                    skipSegments = emptyList(),
+                    skipSegments = skipSegments,
                     canSubmitSkipSegments = false,
-                    hasTidbKey = false,
+                    hasTidbKey = !settings.tidbKey.isNullOrBlank(),
                     onSubmitSkipSegment = { Result.success(Unit) },
-                    tmdbId = 0,
-                    mediaType = "movie",
-                    seasonNumber = null,
-                    episodeNumber = null,
+                    tmdbId = ready.tmdbId?.toIntOrNull() ?: 0,
+                    mediaType = if (ready.tmdbType == "show") "tv" else ready.tmdbType ?: "movie",
+                    seasonNumber = ready.season,
+                    episodeNumber = ready.episode,
                     seasonId = null,
                     episodeId = null,
                     onInfo = {},

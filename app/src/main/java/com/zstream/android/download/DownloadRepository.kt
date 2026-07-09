@@ -2,14 +2,20 @@ package com.zstream.android.download
 
 import android.util.Log
 import android.net.Uri
+import com.zstream.android.data.SkipSegmentRepository
 import com.zstream.android.data.VideoFingerprint
 import com.zstream.android.data.local.dao.DownloadDao
 import com.zstream.android.data.local.entity.DownloadEntity
 import com.zstream.android.data.local.entity.DownloadStatus
+import com.zstream.android.data.local.preferences.SettingsPreferences
 import com.zstream.android.plugin.Caption
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -44,6 +50,8 @@ class DownloadRepository @Inject constructor(
     private val client: OkHttpClient,
     private val storage: DownloadStorage,
     private val downloadDao: DownloadDao,
+    private val skipSegmentRepository: SkipSegmentRepository,
+    private val settingsPrefs: SettingsPreferences,
 ) {
     /**
      * Destination file(s), once created, are cached here so a paused-then-resumed download keeps
@@ -51,6 +59,9 @@ class DownloadRepository @Inject constructor(
      * each time run() is re-entered. Cleared on any terminal outcome (done/cancelled/failed).
      */
     private val fileCache = ConcurrentHashMap<Long, Pair<DownloadFile, List<Pair<Caption, DownloadFile>>>>()
+
+    /** Detached from run()'s coroutine so a fire-and-forget skip-segment cache warm can't be cancelled by download completion. */
+    private val skipCacheScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     /** Creates the DB row up front (status QUEUED) so the UI can show it immediately. */
     suspend fun enqueue(request: DownloadRequest): Long {
@@ -177,6 +188,21 @@ class DownloadRepository @Inject constructor(
                     finishedAt = System.currentTimeMillis(),
                 )
             )
+
+            skipCacheScope.launch {
+                // Let the connection pool/radio settle right after a large download finishes before firing another request.
+                kotlinx.coroutines.delay(3000)
+                val settingsValue = settingsPrefs.settings.first()
+                skipSegmentRepository.warmCache(
+                    tmdbId = entity.tmdbId,
+                    mediaType = if (entity.type == "show") "tv" else entity.type,
+                    season = entity.season,
+                    episode = entity.episode,
+                    durationMs = 0L,
+                    tidbKey = settingsValue.tidbKey,
+                    febboxKey = settingsValue.febboxKey,
+                )
+            }
         } catch (ce: CancellationException) {
             if (DownloadControl.consumePauseRequested(downloadId)) {
                 Log.i(TAG, "Download $downloadId paused at ${latest.progressPercent}% — segment cache and destination file kept for resume")
