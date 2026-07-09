@@ -31,4 +31,11 @@ data class LocalMediaEntity(
     val mediaKind: String,
     val season: Int? = null,
     val episode: Int? = null,
+    val groupKey: String = "$mediaKind:${groupTitle.lowercase()}",
+    val matchSource: String = "filename",
+    val tmdbId: String? = null,
+    val tmdbType: String? = null,
+    val posterPath: String? = null,
+    val thumbnailPath: String? = null,
+    val metadataTitle: String? = null,
 )

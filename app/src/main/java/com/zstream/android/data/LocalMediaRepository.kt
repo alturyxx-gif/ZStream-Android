@@ -2,13 +2,19 @@ package com.zstream.android.data
 
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.provider.DocumentsContract
+import com.zstream.android.data.local.dao.DownloadDao
 import com.zstream.android.data.local.dao.LocalLibraryDao
+import com.zstream.android.data.local.entity.DownloadEntity
+import com.zstream.android.data.local.entity.DownloadStatus
 import com.zstream.android.data.local.entity.LocalLibraryFolderEntity
 import com.zstream.android.data.local.entity.LocalMediaEntity
 import dagger.hilt.android.qualifiers.ApplicationContext
+import java.io.File
+import java.security.MessageDigest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -22,6 +28,8 @@ import javax.inject.Singleton
 class LocalMediaRepository @Inject constructor(
     @ApplicationContext private val context: Context,
     private val dao: LocalLibraryDao,
+    private val downloadDao: DownloadDao,
+    private val tmdbRepository: TmdbRepository,
 ) {
     val folders: Flow<List<LocalLibraryFolderEntity>> = dao.observeFolders()
     val media: Flow<List<LocalMediaEntity>> = dao.observeMedia()
@@ -88,20 +96,22 @@ class LocalMediaRepository @Inject constructor(
         }
     }
 
-    private fun scan(treeUri: Uri, folderId: Long): List<LocalMediaEntity> {
+    private suspend fun scan(treeUri: Uri, folderId: Long): List<LocalMediaEntity> {
         val rootId = DocumentsContract.getTreeDocumentId(treeUri)
         val rootName = displayName(treeUri)
-        val out = mutableListOf<LocalMediaEntity>()
-        scanChildren(treeUri, rootId, rootName, folderId, out)
-        return out
+        val candidates = mutableListOf<ScanCandidate>()
+        val previous = dao.getMediaForFolder(folderId)
+            .associateBy { "${it.documentUri}:${it.size}:${it.modifiedAt}" }
+        val downloads = downloadDao.getAllSync().filter { it.status == DownloadStatus.DONE }
+        scanChildren(treeUri, rootId, rootName, candidates)
+        return candidates.map { candidate -> candidate.toEntity(folderId, previous[candidate.previousKey], downloads) }
     }
 
     private fun scanChildren(
         treeUri: Uri,
         parentDocumentId: String,
         relativeParent: String,
-        folderId: Long,
-        out: MutableList<LocalMediaEntity>,
+        out: MutableList<ScanCandidate>,
     ) {
         val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, parentDocumentId)
         val projection = arrayOf(
@@ -123,28 +133,117 @@ class LocalMediaRepository @Inject constructor(
                 val mime = cursor.getString(mimeCol)
                 val relativePath = "$relativeParent/$name"
                 if (mime == DocumentsContract.Document.MIME_TYPE_DIR) {
-                    scanChildren(treeUri, documentId, relativePath, folderId, out)
+                    scanChildren(treeUri, documentId, relativePath, out)
                 } else if (isVideo(name, mime)) {
                     val uri = DocumentsContract.buildDocumentUriUsingTree(treeUri, documentId)
                     val metadata = metadata(uri)
-                    val guess = LocalMediaGrouper.infer(relativePath, metadata.title)
-                    out += LocalMediaEntity(
-                        folderId = folderId,
-                        documentUri = uri.toString(),
-                        displayName = name,
-                        relativePath = relativePath,
-                        size = if (cursor.isNull(sizeCol)) null else cursor.getLong(sizeCol),
-                        durationMs = metadata.durationMs,
-                        modifiedAt = if (cursor.isNull(modifiedCol)) null else cursor.getLong(modifiedCol),
-                        groupTitle = guess.groupTitle,
-                        mediaKind = guess.mediaKind,
-                        season = guess.season,
-                        episode = guess.episode,
-                    )
+                    val size = if (cursor.isNull(sizeCol)) null else cursor.getLong(sizeCol)
+                    val modifiedAt = if (cursor.isNull(modifiedCol)) null else cursor.getLong(modifiedCol)
+                    out += ScanCandidate(uri, name, relativePath, size, metadata.durationMs, modifiedAt, metadata.title)
                 }
             }
         }
     }
+
+    private suspend fun ScanCandidate.toEntity(
+        folderId: Long,
+        previous: LocalMediaEntity?,
+        downloads: List<DownloadEntity>,
+    ): LocalMediaEntity {
+        val guess = LocalMediaGrouper.infer(relativePath, metadataTitle)
+        val download = matchDownload(this, guess, downloads)
+        val base = when {
+            download != null -> MatchedMedia(
+                groupTitle = download.title,
+                mediaKind = download.type,
+                season = download.season,
+                episode = download.episode,
+                groupKey = "tmdb:${download.type}:${download.tmdbId}",
+                matchSource = "database",
+                tmdbId = download.tmdbId,
+                tmdbType = download.type,
+                posterPath = download.posterPath,
+            )
+            previous != null && previous.matchSource != "uncategorized" -> MatchedMedia.from(previous)
+            else -> MatchedMedia.from(guess)
+        }.withTmdbMatch()
+        val thumbnail = base.posterPath?.let { null } ?: previous?.thumbnailPath ?: thumbnailFor(uri, durationMs, size, modifiedAt)
+        return LocalMediaEntity(
+            folderId = folderId,
+            documentUri = uri.toString(),
+            displayName = displayName,
+            relativePath = relativePath,
+            size = size,
+            durationMs = durationMs,
+            modifiedAt = modifiedAt,
+            groupTitle = base.groupTitle,
+            mediaKind = base.mediaKind,
+            season = base.season,
+            episode = base.episode,
+            groupKey = base.groupKey,
+            matchSource = base.matchSource,
+            tmdbId = base.tmdbId,
+            tmdbType = base.tmdbType,
+            posterPath = base.posterPath,
+            thumbnailPath = thumbnail,
+            metadataTitle = metadataTitle,
+        )
+    }
+
+    private suspend fun MatchedMedia.withTmdbMatch(): MatchedMedia {
+        if (tmdbId != null || groupTitle == LocalMediaGrouper.UNCATEGORIZED) return this
+        val expected = if (mediaKind == "show" || season != null || episode != null) "tv" else "movie"
+        val media = runCatching { tmdbRepository.search(groupTitle).let { LocalTmdbMatcher.best(groupTitle, expected, it) } }.getOrNull()
+            ?: return this
+        val type = if (media.type == "tv") "show" else "movie"
+        return copy(
+            groupTitle = media.displayTitle.ifBlank { groupTitle },
+            mediaKind = type,
+            groupKey = "tmdb:${media.type}:${media.id}",
+            matchSource = if (matchSource == "uncategorized") "tmdb" else "$matchSource+tmdb",
+            tmdbId = media.id.toString(),
+            tmdbType = media.type,
+            posterPath = media.posterPath,
+        )
+    }
+
+    private fun matchDownload(candidate: ScanCandidate, guess: LocalMediaGuess, downloads: List<DownloadEntity>): DownloadEntity? {
+        val fileName = candidate.displayName.lowercase()
+        val relativePath = candidate.relativePath.lowercase()
+        return downloads.firstOrNull { download ->
+            val storedPath = download.filePath?.lowercase().orEmpty()
+            if (storedPath.isBlank()) return@firstOrNull false
+            val fileMatches = storedPath.substringAfterLast('/') == fileName || relativePath.endsWith(storedPath)
+            if (!fileMatches) return@firstOrNull false
+            if (download.type != "show") true else {
+                (guess.season == null || download.season == guess.season) &&
+                    (guess.episode == null || download.episode == guess.episode)
+            }
+        }
+    }
+
+    private fun thumbnailFor(uri: Uri, durationMs: Long?, size: Long?, modifiedAt: Long?): String? {
+        val key = sha256("${uri}|$size|$modifiedAt")
+        val file = File(context.cacheDir, "local_thumbs/$key.jpg")
+        if (file.exists()) return file.absolutePath
+        file.parentFile?.mkdirs()
+        val retriever = MediaMetadataRetriever()
+        return try {
+            retriever.setDataSource(context, uri)
+            val atUs = durationMs?.let { (it / 2).coerceAtLeast(1) * 1000 } ?: -1
+            val bitmap = retriever.getFrameAtTime(atUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC) ?: return null
+            file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, 80, it) }
+            file.absolutePath
+        } catch (_: Throwable) {
+            null
+        } finally {
+            runCatching { retriever.release() }
+        }
+    }
+
+    private fun sha256(value: String): String = MessageDigest.getInstance("SHA-256")
+        .digest(value.toByteArray())
+        .joinToString("") { "%02x".format(it) }
 
     private fun displayName(uri: Uri): String {
         val documentUri = DocumentsContract.buildDocumentUriUsingTree(uri, DocumentsContract.getTreeDocumentId(uri))
@@ -181,4 +280,51 @@ class LocalMediaRepository @Inject constructor(
     }
 
     private data class Metadata(val title: String? = null, val durationMs: Long? = null)
+
+    private data class ScanCandidate(
+        val uri: Uri,
+        val displayName: String,
+        val relativePath: String,
+        val size: Long?,
+        val durationMs: Long?,
+        val modifiedAt: Long?,
+        val metadataTitle: String?,
+    ) {
+        val previousKey: String get() = "${uri}:${size}:${modifiedAt}"
+    }
+
+    private data class MatchedMedia(
+        val groupTitle: String,
+        val mediaKind: String,
+        val season: Int?,
+        val episode: Int?,
+        val groupKey: String,
+        val matchSource: String,
+        val tmdbId: String? = null,
+        val tmdbType: String? = null,
+        val posterPath: String? = null,
+    ) {
+        companion object {
+            fun from(guess: LocalMediaGuess) = MatchedMedia(
+                groupTitle = guess.groupTitle,
+                mediaKind = guess.mediaKind,
+                season = guess.season,
+                episode = guess.episode,
+                groupKey = guess.groupKey,
+                matchSource = guess.matchSource,
+            )
+
+            fun from(media: LocalMediaEntity) = MatchedMedia(
+                groupTitle = media.groupTitle,
+                mediaKind = media.mediaKind,
+                season = media.season,
+                episode = media.episode,
+                groupKey = media.groupKey,
+                matchSource = media.matchSource,
+                tmdbId = media.tmdbId,
+                tmdbType = media.tmdbType,
+                posterPath = media.posterPath,
+            )
+        }
+    }
 }
