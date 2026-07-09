@@ -1,6 +1,8 @@
 package com.zstream.android.download
 
 import android.util.Log
+import android.net.Uri
+import com.zstream.android.data.VideoFingerprint
 import com.zstream.android.data.local.dao.DownloadDao
 import com.zstream.android.data.local.entity.DownloadEntity
 import com.zstream.android.data.local.entity.DownloadStatus
@@ -160,6 +162,7 @@ class DownloadRepository @Inject constructor(
 
             storage.finalize(videoFile)
             val finalSize = storage.fileSize(videoFile)
+            val fingerprint = VideoFingerprint.compute(appContext, videoFile.playableUri(), finalSize, null)
             Log.i(TAG, "Download $downloadId finished: file=${videoFile.displayPath} size=${finalSize?.let { "${it / 1024}KB" } ?: "unknown"}")
             fileCache.remove(downloadId)
             workDir.deleteRecursively()
@@ -169,6 +172,7 @@ class DownloadRepository @Inject constructor(
                     status = DownloadStatus.DONE,
                     progressPercent = 100,
                     filePath = videoFile.displayPath,
+                    contentFingerprint = fingerprint,
                     subtitlePaths = subtitleFiles.map { it.second.displayPath },
                     finishedAt = System.currentTimeMillis(),
                 )
@@ -201,5 +205,10 @@ class DownloadRepository @Inject constructor(
 
     private suspend fun update(entity: DownloadEntity) {
         downloadDao.update(entity)
+    }
+
+    private fun DownloadFile.playableUri(): Uri = when (this) {
+        is DownloadFile.MediaStoreFile -> uri
+        is DownloadFile.LegacyFile -> Uri.fromFile(file)
     }
 }
