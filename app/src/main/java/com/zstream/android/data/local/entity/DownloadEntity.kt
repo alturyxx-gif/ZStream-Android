@@ -27,6 +27,7 @@ data class DownloadEntity(
     val status: DownloadStatus = DownloadStatus.QUEUED,
     val progressPercent: Int = 0,
     val filePath: String? = null, // display path once known (MediaStore relative path or absolute legacy path)
+    val contentFingerprint: String? = null,
     val subtitlePaths: List<String>? = null,
     val errorMessage: String? = null,
     val createdAt: Long = System.currentTimeMillis(),

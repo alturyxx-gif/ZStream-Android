@@ -12,6 +12,7 @@ import com.zstream.android.data.local.entity.DownloadEntity
 import com.zstream.android.data.local.entity.DownloadStatus
 import com.zstream.android.data.local.entity.LocalLibraryFolderEntity
 import com.zstream.android.data.local.entity.LocalMediaEntity
+import com.zstream.android.download.DownloadStorage
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import java.security.MessageDigest
@@ -30,6 +31,7 @@ class LocalMediaRepository @Inject constructor(
     private val dao: LocalLibraryDao,
     private val downloadDao: DownloadDao,
     private val tmdbRepository: TmdbRepository,
+    private val downloadStorage: DownloadStorage,
 ) {
     val folders: Flow<List<LocalLibraryFolderEntity>> = dao.observeFolders()
     val media: Flow<List<LocalMediaEntity>> = dao.observeMedia()
@@ -102,9 +104,10 @@ class LocalMediaRepository @Inject constructor(
         val candidates = mutableListOf<ScanCandidate>()
         val previous = dao.getMediaForFolder(folderId)
             .associateBy { "${it.documentUri}:${it.size}:${it.modifiedAt}" }
-        val downloads = downloadDao.getAllSync().filter { it.status == DownloadStatus.DONE }
+        val downloads = downloadDao.getAllSync().filter { it.status == DownloadStatus.DONE }.map { it.withFingerprint() }
+        val downloadFingerprints = downloads.mapNotNull { it.contentFingerprint }.toSet()
         scanChildren(treeUri, rootId, rootName, candidates)
-        return candidates.mapNotNull { candidate -> candidate.toEntity(folderId, previous[candidate.previousKey], downloads) }
+        return candidates.mapNotNull { candidate -> candidate.toEntity(folderId, previous[candidate.previousKey], downloads, downloadFingerprints) }
     }
 
     private fun scanChildren(
@@ -149,10 +152,13 @@ class LocalMediaRepository @Inject constructor(
         folderId: Long,
         previous: LocalMediaEntity?,
         downloads: List<DownloadEntity>,
+        downloadFingerprints: Set<String>,
     ): LocalMediaEntity? {
         val guess = LocalMediaGrouper.infer(relativePath, metadataTitle)
         val download = matchDownload(this, guess, downloads)
         if (download != null) return null
+        val fingerprint = VideoFingerprint.compute(context, uri, size, durationMs)
+        if (fingerprint != null && fingerprint in downloadFingerprints) return null
         val base = when {
             previous != null && previous.matchSource != "uncategorized" -> MatchedMedia.from(previous)
             else -> MatchedMedia.from(guess)
@@ -179,6 +185,19 @@ class LocalMediaRepository @Inject constructor(
             metadataTitle = metadataTitle,
         )
     }
+
+    private suspend fun DownloadEntity.withFingerprint(): DownloadEntity {
+        if (contentFingerprint != null) return this
+        val path = filePath ?: return this
+        val uri = downloadStorage.resolvePlayableUri(path) ?: return this
+        val fingerprint = VideoFingerprint.compute(context, uri, fileSize(uri), null) ?: return this
+        val updated = copy(contentFingerprint = fingerprint)
+        downloadDao.update(updated)
+        return updated
+    }
+
+    private fun fileSize(uri: Uri): Long? =
+        context.contentResolver.openFileDescriptor(uri, "r")?.use { it.statSize.takeIf { size -> size > 0 } }
 
     private suspend fun MatchedMedia.withTmdbMatch(): MatchedMedia {
         if (tmdbId != null || groupTitle == LocalMediaGrouper.UNCATEGORIZED) return this
