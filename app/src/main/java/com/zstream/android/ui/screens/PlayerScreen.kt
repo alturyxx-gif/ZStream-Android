@@ -5679,7 +5679,7 @@ private fun PlayerMenuGridSection(items: List<PlayerMenuTileItem>, firstItemFocu
     ) {
         items.chunked(2).forEachIndexed { rowIndex, rowItems ->
             Row(
-                modifier = Modifier.fillMaxWidth().height(androidx.compose.ui.unit.IntrinsicSize.Max),
+                modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Max),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 rowItems.forEachIndexed { colIndex, item ->
