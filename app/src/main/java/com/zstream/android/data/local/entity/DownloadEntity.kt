@@ -3,7 +3,7 @@ package com.zstream.android.data.local.entity
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 
-enum class DownloadStatus { QUEUED, DOWNLOADING, REMUXING, DONE, FAILED, CANCELLED }
+enum class DownloadStatus { QUEUED, DOWNLOADING, REMUXING, PAUSED, DONE, FAILED, CANCELLED }
 
 /**
  * Represents one download of a movie or a single episode. Downloads are always a finished,
@@ -23,6 +23,7 @@ data class DownloadEntity(
     val sourceId: String,
     val variantId: String,
     val qualityLabel: String, // e.g. "1080p HEVC", for display
+    val posterPath: String? = null, // raw TMDB poster path, e.g. "/abc123.jpg"
     val status: DownloadStatus = DownloadStatus.QUEUED,
     val progressPercent: Int = 0,
     val filePath: String? = null, // display path once known (MediaStore relative path or absolute legacy path)

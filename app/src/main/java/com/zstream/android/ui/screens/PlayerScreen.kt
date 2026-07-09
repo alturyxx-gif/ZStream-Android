@@ -4497,6 +4497,18 @@ private fun PlayerMenuContent(
                     }
 
                     PlayerMenuPage.Download -> {
+                        val freeSpaceText = remember {
+                            @Suppress("DEPRECATION")
+                            val root = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
+                            val stat = android.os.StatFs(root.absolutePath)
+                            formatFreeSpace(stat.availableBytes, stat.totalBytes)
+                        }
+                        Text(
+                            freeSpaceText,
+                            color = com.zstream.android.theme.LocalZStreamTheme.current.colors.type.secondary,
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                        )
                         PlayerMenuSection {
                             downloadableVariants.forEachIndexed { index, variant ->
                                 PlayerMenuSelectableRow(

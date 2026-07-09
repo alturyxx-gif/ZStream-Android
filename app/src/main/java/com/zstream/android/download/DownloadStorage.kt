@@ -156,6 +156,63 @@ class DownloadStorage @Inject constructor(
         context.contentResolver.delete(collection, selection, args)
     }
 
+    /**
+     * Resolves a stored `displayPath` (relative path like "ZStream/Title (Year)/Title (Year).mp4")
+     * back to a URI ExoPlayer can actually open — a plain relative path string isn't playable on
+     * its own since scoped storage requires going back through MediaStore to get a content:// Uri.
+     */
+    fun resolvePlayableUri(displayPath: String): Uri? {
+        if (!isScopedStorage) {
+            @Suppress("DEPRECATION")
+            val root = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            val file = File(root, displayPath)
+            return if (file.exists()) Uri.fromFile(file) else null
+        }
+        val relativeFolder = displayPath.substringBeforeLast('/', "")
+        val displayName = displayPath.substringAfterLast('/')
+        val collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+        val projection = arrayOf(MediaStore.MediaColumns._ID)
+        val selection = "${MediaStore.MediaColumns.DISPLAY_NAME}=? AND ${MediaStore.MediaColumns.RELATIVE_PATH}=?"
+        val args = arrayOf(displayName, "${Environment.DIRECTORY_DOWNLOADS}/$relativeFolder/")
+        return context.contentResolver.query(collection, projection, selection, args, null)?.use { cursor ->
+            if (!cursor.moveToFirst()) return@use null
+            val id = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID))
+            android.content.ContentUris.withAppendedId(collection, id)
+        }
+    }
+
+    /**
+     * Deletes a destination's containing folder (and any now-empty parent folders up to but not
+     * including "ZStream/") once its file(s) are gone — MediaStore only removes the row/file it
+     * knows about, never the on-disk directory that held it, so a cancelled/deleted download would
+     * otherwise leave an empty "Title (Year)/" folder behind forever.
+     */
+    fun deleteEmptyFolder(displayPath: String) {
+        val relativeFolder = displayPath.substringBeforeLast('/', "")
+        if (relativeFolder.isBlank()) return
+        @Suppress("DEPRECATION")
+        val root = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+        val zstreamRoot = File(root, "ZStream")
+        var dir: File? = File(root, relativeFolder)
+        while (dir != null && dir != zstreamRoot && dir.path.startsWith(zstreamRoot.path)) {
+            val entries = dir.listFiles()
+            if (entries != null && entries.isNotEmpty()) break
+            val parent = dir.parentFile
+            dir.delete()
+            dir = parent
+        }
+    }
+
+    /** Bytes free / bytes total on the volume backing the Downloads folder. */
+    fun freeSpaceInfo(): Pair<Long, Long> {
+        @Suppress("DEPRECATION")
+        val root = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+        val stat = android.os.StatFs(root.absolutePath)
+        val free = stat.availableBytes
+        val total = stat.totalBytes
+        return free to total
+    }
+
     private fun mimeTypeForVideo(extension: String) = when (extension.lowercase()) {
         "mkv" -> "video/x-matroska"
         else -> "video/mp4"

@@ -30,6 +30,7 @@ import com.zstream.android.data.adb.OPEN_TV_INSTALLER_EXTRA
 import com.zstream.android.data.adb.RELEASE_UPDATE_EXTRA
 import com.zstream.android.data.adb.ReleaseUpdateNavigation
 import com.zstream.android.data.adb.ReleaseUpdateManager
+import com.zstream.android.download.OpenDownloadsNavigation
 import com.zstream.android.player.PlayerBackgroundController
 import com.zstream.android.plugin.PluginGateViewModel
 import com.zstream.android.plugin.PluginManager
@@ -68,6 +69,7 @@ class MainActivity : ComponentActivity() {
         // Kick off plugin load + background update check
         pluginManager.initialize()
         handleReleaseUpdateIntent(intent)
+        handleOpenDownloadsIntent(intent)
         val uiModeManager = getSystemService(UI_MODE_SERVICE) as UiModeManager
         val isTv = uiModeManager.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
         if (
@@ -108,6 +110,7 @@ class MainActivity : ComponentActivity() {
 
                         AppBehaviorEffect(navController, isTv)
                         WatchPartyGlobalEffect(navController, watchPartyManager)
+                        OpenDownloadsGlobalEffect(navController)
 
                         CompositionLocalProvider(
                             LocalMediaCard provides mediaCard,
@@ -130,6 +133,7 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         handleReleaseUpdateIntent(intent)
+        handleOpenDownloadsIntent(intent)
     }
 
     private fun handleReleaseUpdateIntent(intent: Intent?) {
@@ -137,6 +141,13 @@ class MainActivity : ComponentActivity() {
             ReleaseUpdateNavigation.dispatch(intent.getBooleanExtra(OPEN_TV_INSTALLER_EXTRA, false))
             intent.removeExtra(RELEASE_UPDATE_EXTRA)
             intent.removeExtra(OPEN_TV_INSTALLER_EXTRA)
+        }
+    }
+
+    private fun handleOpenDownloadsIntent(intent: Intent?) {
+        if (intent?.getBooleanExtra(com.zstream.android.download.OPEN_DOWNLOADS_EXTRA, false) == true) {
+            OpenDownloadsNavigation.dispatch()
+            intent.removeExtra(com.zstream.android.download.OPEN_DOWNLOADS_EXTRA)
         }
     }
 
@@ -192,6 +203,17 @@ fun WatchPartyGlobalEffect(navController: NavController, manager: WatchPartyMana
     }
 }
 
+
+@Composable
+fun OpenDownloadsGlobalEffect(navController: NavController) {
+    val shouldOpen by OpenDownloadsNavigation.open.collectAsStateWithLifecycle()
+    LaunchedEffect(shouldOpen) {
+        if (shouldOpen) {
+            navController.navigate("downloads")
+            OpenDownloadsNavigation.consume()
+        }
+    }
+}
 
 @HiltViewModel
 class AppChromeViewModel @Inject constructor(

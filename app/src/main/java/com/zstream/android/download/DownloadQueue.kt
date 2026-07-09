@@ -15,5 +15,14 @@ object DownloadQueue {
         pending[downloadId] = request
     }
 
-    fun take(downloadId: Long): DownloadRequest? = pending.remove(downloadId)
+    /**
+     * Non-removing lookup — a paused download's request must stay available so tapping "resume"
+     * can restart it without re-resolving the source. Call [remove] explicitly once a download
+     * reaches a terminal state (done/cancelled) so it doesn't leak forever.
+     */
+    fun get(downloadId: Long): DownloadRequest? = pending[downloadId]
+
+    fun remove(downloadId: Long) {
+        pending.remove(downloadId)
+    }
 }
