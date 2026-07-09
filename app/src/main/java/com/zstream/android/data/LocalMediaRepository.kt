@@ -104,7 +104,7 @@ class LocalMediaRepository @Inject constructor(
             .associateBy { "${it.documentUri}:${it.size}:${it.modifiedAt}" }
         val downloads = downloadDao.getAllSync().filter { it.status == DownloadStatus.DONE }
         scanChildren(treeUri, rootId, rootName, candidates)
-        return candidates.map { candidate -> candidate.toEntity(folderId, previous[candidate.previousKey], downloads) }
+        return candidates.mapNotNull { candidate -> candidate.toEntity(folderId, previous[candidate.previousKey], downloads) }
     }
 
     private fun scanChildren(
@@ -149,21 +149,11 @@ class LocalMediaRepository @Inject constructor(
         folderId: Long,
         previous: LocalMediaEntity?,
         downloads: List<DownloadEntity>,
-    ): LocalMediaEntity {
+    ): LocalMediaEntity? {
         val guess = LocalMediaGrouper.infer(relativePath, metadataTitle)
         val download = matchDownload(this, guess, downloads)
+        if (download != null) return null
         val base = when {
-            download != null -> MatchedMedia(
-                groupTitle = download.title,
-                mediaKind = download.type,
-                season = download.season,
-                episode = download.episode,
-                groupKey = "tmdb:${download.type}:${download.tmdbId}",
-                matchSource = "database",
-                tmdbId = download.tmdbId,
-                tmdbType = download.type,
-                posterPath = download.posterPath,
-            )
             previous != null && previous.matchSource != "uncategorized" -> MatchedMedia.from(previous)
             else -> MatchedMedia.from(guess)
         }.withTmdbMatch()
@@ -209,18 +199,25 @@ class LocalMediaRepository @Inject constructor(
 
     private fun matchDownload(candidate: ScanCandidate, guess: LocalMediaGuess, downloads: List<DownloadEntity>): DownloadEntity? {
         val fileName = candidate.displayName.lowercase()
-        val relativePath = candidate.relativePath.lowercase()
+        val relativePath = candidate.relativePath.normalizedPath()
         return downloads.firstOrNull { download ->
-            val storedPath = download.filePath?.lowercase().orEmpty()
+            val storedPath = download.filePath?.normalizedPath().orEmpty()
             if (storedPath.isBlank()) return@firstOrNull false
-            val fileMatches = storedPath.substringAfterLast('/') == fileName || relativePath.endsWith(storedPath)
+            val storedTail = storedPath.substringAfter("download/", storedPath).removePrefix("/")
+            val exactPathMatch = relativePath.endsWith(storedTail)
+            val sameNamedEpisodeInExpectedShow = storedPath.substringAfterLast('/') == fileName &&
+                relativePath.contains(download.title.normalizedPath()) &&
+                (download.type != "show" || ((guess.season == null || download.season == guess.season) &&
+                    (guess.episode == null || download.episode == guess.episode)))
+            val fileMatches = exactPathMatch || sameNamedEpisodeInExpectedShow
             if (!fileMatches) return@firstOrNull false
-            if (download.type != "show") true else {
-                (guess.season == null || download.season == guess.season) &&
-                    (guess.episode == null || download.episode == guess.episode)
-            }
+            true
         }
     }
+
+    private fun String.normalizedPath(): String = lowercase()
+        .replace('\\', '/')
+        .replace(Regex("""\s+"""), " ")
 
     private fun thumbnailFor(uri: Uri, durationMs: Long?, size: Long?, modifiedAt: Long?): String? {
         val key = sha256("${uri}|$size|$modifiedAt")
@@ -275,6 +272,7 @@ class LocalMediaRepository @Inject constructor(
     }
 
     private fun isVideo(name: String, mime: String?): Boolean {
+        if (name.startsWith(".") || name.contains(".pending-", ignoreCase = true)) return false
         if (mime?.startsWith("video/") == true) return true
         return name.substringAfterLast('.', "").lowercase() in setOf("mp4", "mkv", "webm", "avi", "mov", "m4v")
     }

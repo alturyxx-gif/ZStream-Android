@@ -162,7 +162,7 @@ fun AppBehaviorEffect(navController: NavController, isTv: Boolean) {
         val listener = NavController.OnDestinationChangedListener { _, destination, _ ->
             val activity = context as? Activity ?: return@OnDestinationChangedListener
             val route = destination.route ?: ""
-            if (route.startsWith("player")) {
+            if (route.startsWith("player") || route.startsWith("localPlayer") || route.startsWith("localFilePlayer")) {
                 activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
                 activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             } else if (route.startsWith("trailer")) {
