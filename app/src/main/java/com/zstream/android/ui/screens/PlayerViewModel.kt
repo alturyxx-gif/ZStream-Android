@@ -149,7 +149,7 @@ data class StreamVariant(
 }
 
 /** One resolution choice discovered inside an HLS master playlist, for the download quality picker. */
-data class DownloadQualityOption(val label: String, val streamUrl: String, val bandwidth: Long)
+data class DownloadQualityOption(val label: String, val streamUrl: String, val bandwidth: Long, val audioUrl: String? = null)
 
 internal fun preferredInitialVariantUrl(
     sourceId: String,
@@ -861,7 +861,7 @@ class PlayerViewModel @OptIn(UnstableApi::class)
     fun beginDownload(variant: StreamVariant) {
         val ready = _state.value as? PlayerState.Ready ?: return
         if (variant.streamType != "hls") {
-            enqueueDownload(variant, variant.streamUrl, variant.displayLabel())
+            enqueueDownload(variant, variant.streamUrl, variant.displayLabel(), audioStreamUrl = null)
             return
         }
         pendingDownloadVariant = variant
@@ -877,13 +877,14 @@ class PlayerViewModel @OptIn(UnstableApi::class)
             if (options.size <= 1) {
                 // Nothing to actually choose between — just download at the only available quality.
                 val single = options.firstOrNull()
-                enqueueDownload(variant, single?.uri ?: variant.streamUrl, single?.height?.let { "${it}p" } ?: variant.displayLabel())
+                enqueueDownload(variant, single?.uri ?: variant.streamUrl, single?.height?.let { "${it}p" } ?: variant.displayLabel(), single?.audioUrl)
             } else {
                 _downloadQualityOptions.value = options.map { opt ->
                     DownloadQualityOption(
                         label = opt.height?.let { "${it}p" } ?: "${opt.bandwidth / 1000} kbps",
                         streamUrl = opt.uri,
                         bandwidth = opt.bandwidth,
+                        audioUrl = opt.audioUrl,
                     )
                 }
             }
@@ -893,7 +894,7 @@ class PlayerViewModel @OptIn(UnstableApi::class)
     /** Called when the user picks a specific resolution from downloadQualityOptions. */
     fun downloadAtQuality(option: DownloadQualityOption) {
         val variant = pendingDownloadVariant ?: return
-        enqueueDownload(variant, option.streamUrl, option.label)
+        enqueueDownload(variant, option.streamUrl, option.label, option.audioUrl)
         pendingDownloadVariant = null
         _downloadQualityOptions.value = emptyList()
     }
@@ -904,7 +905,7 @@ class PlayerViewModel @OptIn(UnstableApi::class)
         _downloadQualityLoading.value = false
     }
 
-    private fun enqueueDownload(variant: StreamVariant, streamUrl: String, qualityLabel: String) {
+    private fun enqueueDownload(variant: StreamVariant, streamUrl: String, qualityLabel: String, audioStreamUrl: String? = null) {
         val ready = _state.value as? PlayerState.Ready ?: return
         viewModelScope.launch {
             val target = if (mediaType == "tv") {
@@ -919,9 +920,26 @@ class PlayerViewModel @OptIn(UnstableApi::class)
                     year = year.takeIf { it > 0 },
                 )
             }
-            val captions = ready.subtitles.map { sub ->
-                com.zstream.android.plugin.Caption(url = sub.url, language = sub.language, langIso = sub.language, type = sub.type)
+            // Multiple providers can offer the same language (source/plugin, Wyzie, OpenSubtitles,
+            // Granite). Keep both source-provided and Wyzie captions for a language when either is
+            // available; only fall back to a lower-priority provider (OpenSubtitles/Granite) if
+            // neither of those two exist for that language, so the folder isn't cluttered with
+            // near-duplicate captions from every provider at once.
+            fun subtitlePriority(source: String?): Int = when {
+                source.equals("plugin", ignoreCase = true) -> 0
+                source?.contains("wyzie", ignoreCase = true) == true -> 0
+                else -> 1
             }
+            val captions = ready.subtitles
+                .groupBy { it.language }
+                .values
+                .flatMap { group ->
+                    val preferred = group.filter { subtitlePriority(it.source) == 0 }
+                    preferred.ifEmpty { listOfNotNull(group.minByOrNull { subtitlePriority(it.source) }) }
+                }
+                .map { sub ->
+                    com.zstream.android.plugin.Caption(url = sub.url, language = sub.language, langIso = sub.language, type = sub.type, source = sub.source ?: "plugin")
+                }
             val request = com.zstream.android.download.DownloadRequest(
                 tmdbId = tmdbId,
                 target = target,
@@ -932,6 +950,7 @@ class PlayerViewModel @OptIn(UnstableApi::class)
                 streamType = variant.streamType,
                 headers = variant.headers.ifEmpty { ready.headers },
                 captions = captions,
+                audioStreamUrl = audioStreamUrl,
             )
             val downloadId = downloadRepository.enqueue(request)
             com.zstream.android.download.DownloadService.enqueue(appContext, downloadId, request)

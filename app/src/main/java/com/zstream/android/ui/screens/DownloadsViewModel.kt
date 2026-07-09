@@ -6,10 +6,12 @@ import com.zstream.android.data.local.dao.DownloadDao
 import com.zstream.android.data.local.entity.DownloadEntity
 import com.zstream.android.download.DownloadStorage
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 @HiltViewModel
@@ -25,9 +27,11 @@ class DownloadsViewModel @Inject constructor(
      * own coroutine isn't cancelled and may still briefly touch the (now-deleted) destination. */
     fun delete(entity: DownloadEntity) {
         viewModelScope.launch {
-            entity.filePath?.let { runCatching { storage.deleteByDisplayPath(it) } }
-            entity.subtitlePaths?.forEach { path -> runCatching { storage.deleteByDisplayPath(path) } }
-            downloadDao.delete(entity)
+            withContext(Dispatchers.IO) {
+                entity.filePath?.let { runCatching { storage.deleteByDisplayPath(it) } }
+                entity.subtitlePaths?.forEach { path -> runCatching { storage.deleteByDisplayPath(path) } }
+                downloadDao.delete(entity)
+            }
         }
     }
 }

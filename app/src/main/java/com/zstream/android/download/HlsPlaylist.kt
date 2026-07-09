@@ -17,7 +17,7 @@ data class HlsSegment(
     val seq: Long,
 )
 
-data class HlsVariant(val uri: String, val bandwidth: Long, val height: Int? = null)
+data class HlsVariant(val uri: String, val bandwidth: Long, val height: Int? = null, val audioGroupId: String? = null)
 
 data class HlsPlaylist(
     val isMaster: Boolean,
@@ -26,6 +26,8 @@ data class HlsPlaylist(
     val initUri: String? = null,
     val keys: List<HlsKey> = emptyList(),
     val mediaSeq: Long = 0,
+    /** GROUP-ID -> resolved playlist URI, from #EXT-X-MEDIA:TYPE=AUDIO lines on a master playlist. */
+    val audioRenditions: Map<String, String> = emptyMap(),
 )
 
 /**
@@ -67,9 +69,11 @@ fun parseHlsPlaylist(body: String, baseUrl: String): HlsPlaylist {
     var curKey: HlsKey? = null
     var pendingBandwidth: Long? = null
     var pendingHeight: Int? = null
+    var pendingAudioGroupId: String? = null
     var extinfDur = 0.0
     var haveExtinf = false
     var mediaSeq = 0L
+    val audioRenditions = LinkedHashMap<String, String>()
 
     fun upsertKey(k: HlsKey?): HlsKey? {
         if (k == null || k.method.equals("NONE", true)) return null
@@ -87,6 +91,19 @@ fun parseHlsPlaylist(body: String, baseUrl: String): HlsPlaylist {
                 val attrs = parseAttrs(line)
                 pendingBandwidth = attrs["BANDWIDTH"]?.toLongOrNull()
                 pendingHeight = attrs["RESOLUTION"]?.substringAfter('x', "")?.toIntOrNull()
+                pendingAudioGroupId = attrs["AUDIO"]
+            }
+            line.startsWith("#EXT-X-MEDIA:") -> {
+                // A separate audio-only rendition (common when audio isn't muxed into the video
+                // segments) — referenced from #EXT-X-STREAM-INF via its AUDIO="..." group id.
+                val attrs = parseAttrs(line)
+                if (attrs["TYPE"] == "AUDIO") {
+                    val groupId = attrs["GROUP-ID"]
+                    val uri = attrs["URI"]
+                    if (groupId != null && !uri.isNullOrEmpty()) {
+                        audioRenditions[groupId] = resolveAgainst(uri, baseUrl)
+                    }
+                }
             }
             line.startsWith("#EXT-X-KEY:") -> {
                 val attrs = parseAttrs(line)
@@ -120,9 +137,10 @@ fun parseHlsPlaylist(body: String, baseUrl: String): HlsPlaylist {
             else -> {
                 val abs = resolveAgainst(line, baseUrl)
                 if (pendingBandwidth != null) {
-                    variants.add(HlsVariant(abs, pendingBandwidth, pendingHeight))
+                    variants.add(HlsVariant(abs, pendingBandwidth, pendingHeight, pendingAudioGroupId))
                     pendingBandwidth = null
                     pendingHeight = null
+                    pendingAudioGroupId = null
                 } else if (haveExtinf) {
                     segments.add(HlsSegment(abs, extinfDur, curKey, mediaSeq + segments.size))
                     haveExtinf = false
@@ -131,30 +149,40 @@ fun parseHlsPlaylist(body: String, baseUrl: String): HlsPlaylist {
         }
     }
 
-    return HlsPlaylist(isMaster, variants, segments, initUri, keySet.values.toList(), mediaSeq)
+    return HlsPlaylist(isMaster, variants, segments, initUri, keySet.values.toList(), mediaSeq, audioRenditions)
 }
+
+/** One selectable quality, with its associated audio-only rendition URL if the stream keeps audio separate. */
+data class HlsQualityOption(val uri: String, val bandwidth: Long, val height: Int? = null, val audioUrl: String? = null)
 
 /**
  * Fetches [playlistUrl] and returns every quality option available, without auto-picking one —
  * used by the download quality picker. Returns an empty list if the URL isn't a master playlist
  * (i.e. there's only one quality, so there's nothing to choose between).
  */
-fun fetchHlsQualityOptions(client: OkHttpClient, playlistUrl: String, headers: Map<String, String>): List<HlsVariant> {
+fun fetchHlsQualityOptions(client: OkHttpClient, playlistUrl: String, headers: Map<String, String>): List<HlsQualityOption> {
     val request = Request.Builder().url(playlistUrl).headers(downloadHeaders(headers)).build()
     val body = client.newCall(request).execute().use { resp ->
         if (!resp.isSuccessful) error("HLS playlist fetch failed: HTTP ${resp.code}")
         resp.body?.string() ?: error("Empty playlist response")
     }
     val playlist = parseHlsPlaylist(body, playlistUrl)
-    return if (playlist.isMaster) playlist.variants.sortedByDescending { it.bandwidth } else emptyList()
+    if (!playlist.isMaster) return emptyList()
+    return playlist.variants.sortedByDescending { it.bandwidth }.map { v ->
+        HlsQualityOption(v.uri, v.bandwidth, v.height, v.audioGroupId?.let { playlist.audioRenditions[it] })
+    }
 }
+
+/** [playlist] is the leaf (media) playlist ultimately selected; [audioPlaylistUrl] is its separate audio rendition, if any. */
+data class HlsFetchResult(val playlist: HlsPlaylist, val audioPlaylistUrl: String?)
 
 /**
  * Fetches [playlistUrl], and if it's a master playlist, recurses into the highest-bandwidth
  * variant (matching the desktop app's pickBestVariant behavior) up to 3 levels deep.
  */
-fun fetchAndParseHlsPlaylist(client: OkHttpClient, playlistUrl: String, headers: Map<String, String>): HlsPlaylist {
+fun fetchAndParseHlsPlaylist(client: OkHttpClient, playlistUrl: String, headers: Map<String, String>): HlsFetchResult {
     var url = playlistUrl
+    var audioUrl: String? = null
     repeat(3) {
         val request = Request.Builder().url(url).headers(downloadHeaders(headers)).build()
         val body = client.newCall(request).execute().use { resp ->
@@ -164,9 +192,10 @@ fun fetchAndParseHlsPlaylist(client: OkHttpClient, playlistUrl: String, headers:
         val playlist = parseHlsPlaylist(body, url)
         if (playlist.isMaster) {
             val best = playlist.variants.maxByOrNull { it.bandwidth } ?: error("Master playlist has no variants")
+            audioUrl = best.audioGroupId?.let { playlist.audioRenditions[it] }
             url = best.uri
         } else {
-            return playlist
+            return HlsFetchResult(playlist, audioUrl)
         }
     }
     error("HLS playlist recursion too deep")

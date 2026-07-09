@@ -32,6 +32,8 @@ data class Caption(
     val language: String,
     val langIso: String,
     val type: String,
+    /** e.g. "plugin" (source-provided), "wyzie ...", "opensubs", "granite" — used to prioritize/dedupe and label downloads. */
+    val source: String = "plugin",
 )
 
 sealed class StreamResult {

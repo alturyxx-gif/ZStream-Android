@@ -42,9 +42,15 @@ class DownloadStorage @Inject constructor(
     fun createVideoFile(target: DownloadTarget, extension: String): DownloadFile =
         createFile(target, target.baseFileName(), extension, mimeTypeForVideo(extension))
 
-    /** [langTag] e.g. "en", used to disambiguate multiple subtitle tracks in the same folder. */
-    fun createSubtitleFile(target: DownloadTarget, langTag: String, extension: String): DownloadFile =
-        createFile(target, "${target.baseFileName()}.$langTag", extension, mimeTypeForSubtitle(extension))
+    /**
+     * [langTag] e.g. "en", used to disambiguate multiple subtitle tracks in the same folder.
+     * [providerLabel] e.g. "Wyzie" — prefixed onto the filename so the origin is visible at a
+     * glance in a file browser, for tracks not sourced directly from the stream provider.
+     */
+    fun createSubtitleFile(target: DownloadTarget, langTag: String, extension: String, providerLabel: String? = null): DownloadFile {
+        val prefix = providerLabel?.let { "[$it] " }.orEmpty()
+        return createFile(target, "$prefix${target.baseFileName()}.$langTag", extension, mimeTypeForSubtitle(extension))
+    }
 
     private fun createFile(target: DownloadTarget, baseName: String, extension: String, mimeType: String): DownloadFile {
         val relativeFolder = (listOf("ZStream") + target.folderSegments()).joinToString("/")
@@ -97,6 +103,21 @@ class DownloadStorage @Inject constructor(
             val values = ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) }
             context.contentResolver.update(file.uri, values, null, null)
         }
+    }
+
+    /**
+     * Deletes any MediaStore row under Downloads/ZStream still stuck IS_PENDING=1 — orphaned
+     * ".pending-<timestamp>-name" stubs left behind by a download that crashed/errored before
+     * this app's own cleanup ran (older code paths didn't clean up on failure at all). Scoped
+     * strictly to our own ZStream subfolder so it can never touch the user's other downloads.
+     * No-op on legacy storage (no IS_PENDING concept there). Returns the number of rows deleted.
+     */
+    fun sweepOrphanedPendingFiles(): Int {
+        if (!isScopedStorage) return 0
+        val collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+        val selection = "${MediaStore.MediaColumns.IS_PENDING}=1 AND ${MediaStore.MediaColumns.RELATIVE_PATH} LIKE ?"
+        val args = arrayOf("${Environment.DIRECTORY_DOWNLOADS}/ZStream/%")
+        return context.contentResolver.delete(collection, selection, args)
     }
 
     /** Final file size in bytes, once writing/finalize is done. Null if it can't be determined. */

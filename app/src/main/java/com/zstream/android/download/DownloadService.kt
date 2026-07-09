@@ -36,6 +36,7 @@ private const val EXTRA_DOWNLOAD_ID = "download_id"
 class DownloadService : Service() {
     @Inject lateinit var repository: DownloadRepository
     @Inject lateinit var downloadDao: DownloadDao
+    @Inject lateinit var storage: DownloadStorage
 
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private val queue = Channel<Long>(Channel.UNLIMITED)
@@ -70,6 +71,8 @@ class DownloadService : Service() {
         downloadDao.getInFlight().forEach { stale ->
             downloadDao.update(stale.copy(status = DownloadStatus.FAILED, errorMessage = "Interrupted"))
         }
+        val swept = storage.sweepOrphanedPendingFiles()
+        if (swept > 0) android.util.Log.i("DownloadService", "swept $swept orphaned pending file(s) from a previous crashed download")
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
