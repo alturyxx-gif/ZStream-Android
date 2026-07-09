@@ -59,6 +59,7 @@ fun NavGraph(nav: NavHostController) {
         composable("settings") { SettingsScreen(nav) }
         composable("login") { LoginScreen(nav) }
         composable("watchHistory") { WatchHistoryScreen(nav) }
+        composable("downloads") { DownloadsScreen(nav) }
         composable("tvSync") { TvSyncScreen(nav) }
     }
 }

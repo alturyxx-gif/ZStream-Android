@@ -25,6 +25,14 @@ private fun fileExtensionFor(streamUrl: String, streamType: String): String {
 private fun captionExtension(caption: com.zstream.android.plugin.Caption): String =
     caption.type.ifBlank { "srt" }.lowercase().removePrefix(".")
 
+/** [bytesDownloaded]/[estimatedTotalBytes] are null during the REMUXING phase (no bytes to report there). */
+data class DownloadProgressInfo(
+    val status: DownloadStatus,
+    val percent: Int,
+    val bytesDownloaded: Long?,
+    val estimatedTotalBytes: Long?,
+)
+
 @Singleton
 class DownloadRepository @Inject constructor(
     @ApplicationContext private val appContext: android.content.Context,
@@ -53,7 +61,7 @@ class DownloadRepository @Inject constructor(
     }
 
     /** Runs the actual download for a previously-enqueued row. Safe to call from a foreground service. */
-    suspend fun run(downloadId: Long, request: DownloadRequest, onProgress: suspend (Int) -> Unit) = withContext(Dispatchers.IO) {
+    suspend fun run(downloadId: Long, request: DownloadRequest, onProgress: suspend (DownloadProgressInfo) -> Unit) = withContext(Dispatchers.IO) {
         val entity = downloadDao.getById(downloadId) ?: error("Download $downloadId not found")
         Log.i(TAG, "Download $downloadId starting: source=${request.sourceId} quality=${request.qualityLabel} streamType=${request.streamType}")
         try {
@@ -70,7 +78,8 @@ class DownloadRepository @Inject constructor(
                     storage.openOutputStream(videoFile).use { out ->
                         DirectFileDownloader.download(client, request.streamUrl, request.headers, out) { received, total ->
                             val pct = if (total != null && total > 0) ((received * 100) / total).toInt() else 0
-                            onProgress(pct)
+                            update(entity.copy(status = DownloadStatus.DOWNLOADING, progressPercent = pct))
+                            onProgress(DownloadProgressInfo(DownloadStatus.DOWNLOADING, pct, received, total))
                         }
                     }
                 }
@@ -85,18 +94,21 @@ class DownloadRepository @Inject constructor(
                             headers = request.headers,
                             workDir = workDir,
                             outputFd = pfd.fileDescriptor,
-                        ) { progress ->
-                            val pct = if (progress.segmentsTotal > 0) (progress.segmentsDone * 90 / progress.segmentsTotal) else 0
-                            // Reserve the last 10% for the remux step's own duration; segment progress
-                            // dominates the total time so this keeps the bar from looking stuck at 100%.
-                            onProgress(pct)
-                        }
+                            onProgress = { progress ->
+                                val pct = if (progress.segmentsTotal > 0) (progress.segmentsDone * 100 / progress.segmentsTotal) else 0
+                                update(entity.copy(status = DownloadStatus.DOWNLOADING, progressPercent = pct))
+                                onProgress(DownloadProgressInfo(DownloadStatus.DOWNLOADING, pct, progress.bytesReceived, progress.estimatedTotalBytes))
+                            },
+                            onRemuxProgress = { done, remuxTotal ->
+                                val pct = if (remuxTotal > 0) done * 100 / remuxTotal else 0
+                                update(entity.copy(status = DownloadStatus.REMUXING, progressPercent = pct))
+                                onProgress(DownloadProgressInfo(DownloadStatus.REMUXING, pct, null, null))
+                            },
+                        )
                     } finally {
                         pfd.close()
                         workDir.deleteRecursively()
                     }
-                    update(entity.copy(status = DownloadStatus.REMUXING))
-                    onProgress(100)
                 }
             }
 

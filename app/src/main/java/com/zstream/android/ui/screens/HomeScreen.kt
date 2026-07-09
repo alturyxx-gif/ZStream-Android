@@ -2851,6 +2851,7 @@ private fun SandwichMenuDialog(
                     val settingsModifier = if (session != null) Modifier.focusRequester(firstItemFocusRequester) else Modifier
                     SandwichItem(Icons.Default.Settings, "Settings", theme = theme, modifier = settingsModifier) { nav.navigate("settings"); onDismiss() }
                     SandwichItem(Icons.Default.History, "Watch History", theme = theme) { nav.navigate("watchHistory"); onDismiss() }
+                    SandwichItem(Icons.Default.Download, "Downloads", theme = theme) { nav.navigate("downloads"); onDismiss() }
                     SandwichItem(Icons.Default.Notifications, if (unreadCount > 0) "Notifications ($unreadCount)" else "Notifications", theme = theme) {
                         onNotifications()
                         onDismiss()
@@ -3052,6 +3053,7 @@ private fun SandwichMenuDialog(
 
                     SandwichItem(Icons.Default.Settings, "Settings", theme = theme) { nav.navigate("settings"); onDismiss() }
                     SandwichItem(Icons.Default.History, "Watch History", theme = theme) { nav.navigate("watchHistory"); onDismiss() }
+                    SandwichItem(Icons.Default.Download, "Downloads", theme = theme) { nav.navigate("downloads"); onDismiss() }
                     SandwichItem(Icons.Default.Notifications, if (unreadCount > 0) "Notifications ($unreadCount)" else "Notifications", theme = theme) {
                         onNotifications()
                         onDismiss()
