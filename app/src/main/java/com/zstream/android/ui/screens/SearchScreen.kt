@@ -241,7 +241,7 @@ fun SearchScreenTV(nav: NavController, vm: SearchViewModel) {
                                 modifier = Modifier.padding(bottom = 24.dp)
                             )
                         }
-                        items(items) { media ->
+                        items(items, key = { it.id }) { media ->
                             Box(modifier = Modifier.onFocusChanged { if (it.isFocused) focusedMedia = media }) {
                                 MediaCard(
                                     media = media,
@@ -422,7 +422,7 @@ fun SearchScreenPhone(nav: NavController, vm: SearchViewModel) {
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
-                    items(results) { media ->
+                    items(results, key = { it.id }) { media ->
                         MediaCard(media = media, onClick = { nav.navigate("detail/${media.type}/${media.id}") })
                     }
                     if (loadingMore) {

@@ -1078,8 +1078,13 @@ fun HomeScreen(
                                 }
                                 item { Spacer(Modifier.height(20.dp)) }
                             }
-                            // User sections first
-                            state.userSections
+                            // User sections first. Memoized on just its real inputs (not the
+                            // whole `state`, which also changes on every search keystroke) --
+                            // otherwise this list-concat getter reruns several times a second
+                            // while typing in the search box, for no reason (search doesn't
+                            // affect it at all).
+                            val userSections = remember(state.continueWatching, state.bookmarks) { state.userSections }
+                            userSections
                                 .sortedBy { section ->
                                     val id = when (section.title) {
                                         "Continue Watching" -> "continue_watching"
@@ -1170,8 +1175,16 @@ fun HomeScreen(
                             if (!isTv) {
                                 item { HomeTabs(state.activeTab, vm::setTab) }
 
-                                // Base sections second
-                                state.baseSections.map { section ->
+                                // Base sections second. Memoized on its real inputs (see
+                                // userSections above) -- this getter does a flatMap+dedup+take
+                                // pass over every home rail, which is far too expensive to redo
+                                // on every search keystroke.
+                                val baseSections = remember(
+                                    state.movieSections, state.tvSections, state.editorSections,
+                                    state.activeTab, state.continueWatching, state.bookmarks,
+                                    state.enableCarouselView, state.homeSectionCarouselLimit,
+                                ) { state.baseSections }
+                                baseSections.map { section ->
                                     val filtered = if (state.selectedGenreId != null)
                                         section.items.filter { it.genreIds?.contains(state.selectedGenreId) == true }
                                     else section.items
@@ -1969,7 +1982,7 @@ private fun MediaCarouselSection(
             contentPadding = PaddingValues(horizontal = if (isTv) TvHomeMetrics.screenPadding else 16.dp),
             horizontalArrangement = Arrangement.spacedBy(if (isTv) TvHomeMetrics.railItemSpacing else 10.dp)
         ) {
-            items(section.items) { media ->
+            items(section.items, key = { it.id }) { media ->
                 val progress = progressMap[media.id.toString()]
                 val progressInfo = progress?.let { entry ->
                     val watched = entry.watched.toFloat()
