@@ -42,6 +42,7 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import androidx.navigation.NavController
+import com.zstream.android.data.LocalMediaRepository
 import com.zstream.android.data.local.dao.DownloadDao
 import com.zstream.android.download.DownloadStorage
 import com.zstream.android.ui.LocalIsTv
@@ -68,8 +69,10 @@ class LocalPlayerViewModel @Inject constructor(
     savedState: SavedStateHandle,
     private val downloadDao: DownloadDao,
     private val storage: DownloadStorage,
+    private val localMediaRepository: LocalMediaRepository,
 ) : ViewModel() {
-    private val downloadId: Long = savedState.get<String>("downloadId")?.toLongOrNull() ?: -1L
+    private val downloadId: Long? = savedState.get<String>("downloadId")?.toLongOrNull()
+    private val localMediaId: Long? = savedState.get<String>("localMediaId")?.toLongOrNull()
 
     private val _source = MutableStateFlow<LocalPlaybackSource?>(null)
     val source: StateFlow<LocalPlaybackSource?> = _source.asStateFlow()
@@ -77,25 +80,36 @@ class LocalPlayerViewModel @Inject constructor(
     init {
         viewModelScope.launch {
             val loaded = withContext(Dispatchers.IO) {
-                val entity = downloadDao.getById(downloadId)
-                val filePath = entity?.filePath
-                val videoUri = filePath?.let { storage.resolvePlayableUri(it) }
-                if (entity == null || videoUri == null) {
-                    LocalPlaybackSource.NotFound
-                } else {
-                    val subtitles = entity.subtitlePaths.orEmpty().mapNotNull { path ->
-                        storage.resolvePlayableUri(path)?.let { uri -> path to uri }
-                    }
-                    val title = if (entity.type == "show") {
-                        "${entity.title} S${entity.season.toString().padStart(2, '0')}E${entity.episode.toString().padStart(2, '0')}"
-                    } else {
-                        entity.title
-                    }
-                    LocalPlaybackSource.Ready(title, videoUri, subtitles)
-                }
+                loadDownload() ?: loadLocalMedia() ?: LocalPlaybackSource.NotFound
             }
             _source.value = loaded
         }
+    }
+
+    private suspend fun loadDownload(): LocalPlaybackSource.Ready? {
+        val id = downloadId ?: return null
+        val entity = downloadDao.getById(id)
+        val filePath = entity?.filePath
+        val videoUri = filePath?.let { storage.resolvePlayableUri(it) } ?: return null
+        val subtitles = entity.subtitlePaths.orEmpty().mapNotNull { path ->
+            storage.resolvePlayableUri(path)?.let { uri -> path to uri }
+        }
+        val title = if (entity.type == "show") {
+            "${entity.title} S${entity.season.toString().padStart(2, '0')}E${entity.episode.toString().padStart(2, '0')}"
+        } else {
+            entity.title
+        }
+        return LocalPlaybackSource.Ready(title, videoUri, subtitles)
+    }
+
+    private suspend fun loadLocalMedia(): LocalPlaybackSource.Ready? {
+        val media = localMediaRepository.getMedia(localMediaId ?: return null) ?: return null
+        val title = if (media.mediaKind == "show") {
+            "${media.groupTitle} S${media.season.toString().padStart(2, '0')}E${media.episode.toString().padStart(2, '0')}"
+        } else {
+            media.groupTitle
+        }
+        return LocalPlaybackSource.Ready(title, android.net.Uri.parse(media.documentUri), localMediaRepository.siblingSubtitles(media))
     }
 }
 
