@@ -31,7 +31,7 @@ data class FreeSpaceInfo(val freeBytes: Long, val totalBytes: Long)
 sealed interface LibraryItem {
     data class DownloadMovie(val entity: DownloadEntity) : LibraryItem
     data class DownloadShow(val key: String, val title: String, val posterPath: String?, val episodes: List<DownloadEntity>) : LibraryItem
-    data class LocalGroup(val key: String, val title: String, val mediaKind: String, val items: List<LocalMediaEntity>) : LibraryItem
+    data class LocalGroup(val key: String, val title: String, val mediaKind: String, val posterPath: String?, val thumbnailPath: String?, val items: List<LocalMediaEntity>) : LibraryItem
 }
 
 data class DownloadsUiState(
@@ -149,12 +149,14 @@ class DownloadsViewModel @Inject constructor(
     }
 
     private fun groupLocalMedia(media: List<LocalMediaEntity>): List<LibraryItem.LocalGroup> =
-        media.groupBy { "${it.mediaKind}:${it.groupTitle}" }
+        media.groupBy { it.groupKey.ifBlank { "${it.mediaKind}:${it.groupTitle}" } }
             .map { (key, items) ->
                 LibraryItem.LocalGroup(
                     key = "local:$key",
                     title = items.first().groupTitle,
                     mediaKind = items.first().mediaKind,
+                    posterPath = items.firstOrNull { it.posterPath != null }?.posterPath,
+                    thumbnailPath = items.firstOrNull { it.thumbnailPath != null }?.thumbnailPath,
                     items = items.sortedWith(compareBy<LocalMediaEntity> { it.season ?: 0 }.thenBy { it.episode ?: 0 }.thenBy { it.displayName }),
                 )
             }

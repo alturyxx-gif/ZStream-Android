@@ -138,6 +138,7 @@ import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.ui.PlayerView
 import androidx.navigation.NavController
 import com.zstream.android.R
+import com.zstream.android.Urls
 import com.zstream.android.player.PlayerBackgroundController
 import androidx.media3.common.MediaItem.SubtitleConfiguration
 import android.net.Uri
@@ -297,8 +298,18 @@ private fun SubtitleTrackBadges(track: SubtitleTrack) {
 }
 
 private enum class PlayerMenuPage {
-    Root, Captions, CaptionLanguage, CaptionSettings, Playback, AdvancedColor, Sources, Quality, Audio, Download, DownloadQuality, WatchParty, SkipSegments, Seasons, Episodes, Variants
+    Root, Captions, CaptionLanguage, CaptionSettings, Playback, AdvancedColor, Sources, Quality, Audio, Download, DownloadQuality, WatchParty, SkipSegments, Seasons, Episodes, Variants, LocalFile
 }
+
+private data class LocalFileInfo(
+    val fileName: String,
+    val relativePath: String?,
+    val size: Long?,
+    val durationMs: Long?,
+    val matchSource: String?,
+    val tmdbId: String?,
+    val tmdbType: String?,
+)
 
 private sealed class PlayerInfoState {
     object Loading : PlayerInfoState()
@@ -1889,7 +1900,261 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
             modifier = Modifier.align(Alignment.CenterStart),
         )
     }
+    }
 }
+
+@OptIn(UnstableApi::class, ExperimentalComposeUiApi::class)
+@Composable
+fun LocalPlayerScreen(nav: NavController, vm: LocalPlayerViewModel = hiltViewModel()) {
+    val source by vm.source.collectAsState()
+    val settings by vm.settings.collectAsState(initial = com.zstream.android.data.local.entity.SettingsEntity())
+    val context = LocalContext.current
+    val activity = LocalActivity.current
+    val scope = rememberCoroutineScope()
+    val onBack = rememberSafeNavigateBack(nav, scope)
+    val ready = source as? LocalPlaybackSource.Ready
+    var controlsVisible by remember { mutableStateOf(true) }
+    var subtitlesEnabled by remember { mutableStateOf(settings.subtitlesEnabled) }
+    var selectedSubtitleId by remember { mutableStateOf<String?>(null) }
+    var selectedSubtitleLanguage by remember { mutableStateOf<String?>(null) }
+    var subtitleDelay by remember { mutableFloatStateOf(0f) }
+    var overrideCasing by remember { mutableStateOf(false) }
+    var menuPage by remember { mutableStateOf<PlayerMenuPage?>(null) }
+    val menuBackstack = remember { mutableStateListOf<PlayerMenuPage>() }
+
+    DisposableEffect(Unit) {
+        val window = activity?.window
+        if (window != null) {
+            WindowCompat.setDecorFitsSystemWindows(window, false)
+            WindowInsetsControllerCompat(window, window.decorView).apply {
+                hide(WindowInsetsCompat.Type.systemBars())
+                systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            }
+        }
+        onDispose {
+            if (window != null) WindowInsetsControllerCompat(window, window.decorView).show(WindowInsetsCompat.Type.systemBars())
+        }
+    }
+
+    val subtitleTracks = remember(ready) {
+        ready?.subtitles.orEmpty().map { (path, uri) ->
+            SubtitleTrack(
+                label = path.substringAfterLast('/'),
+                url = uri.toString(),
+                language = localSubtitleLanguageTag(path),
+                type = path.substringAfterLast('.', "srt").lowercase(),
+                id = uri.toString(),
+                source = "local",
+                external = true,
+            )
+        }
+    }
+    LaunchedEffect(subtitleTracks) {
+        if (selectedSubtitleId == null && settings.subtitlesEnabled) {
+            subtitleTracks.firstOrNull()?.let {
+                selectedSubtitleId = it.id
+                selectedSubtitleLanguage = it.language
+            }
+        }
+    }
+
+    val player = remember(ready) {
+        ready?.let { r ->
+            ExoPlayer.Builder(context).build().apply {
+                val mediaItem = MediaItem.Builder()
+                    .setUri(r.videoUri)
+                    .setSubtitleConfigurations(
+                        r.subtitles.map { (path, uri) ->
+                            MediaItem.SubtitleConfiguration.Builder(uri)
+                                .setMimeType(localSubtitleMimeType(path))
+                                .setLanguage(localSubtitleLanguageTag(path))
+                                .build()
+                        }
+                    )
+                    .build()
+                setMediaItem(mediaItem)
+                trackSelectionParameters = trackSelectionParameters
+                    .buildUpon()
+                    .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, !settings.subtitlesEnabled)
+                    .build()
+                playWhenReady = true
+                prepare()
+            }
+        }
+    }
+    DisposableEffect(player) {
+        onDispose { player?.release() }
+    }
+
+    Box(Modifier.fillMaxSize().background(Color.Black)) {
+        when {
+            source == null -> CircularProgressIndicator(color = Color.White, modifier = Modifier.align(Alignment.Center))
+            source is LocalPlaybackSource.NotFound -> {
+                ZsStatusBanner(
+                    message = "This file could not be found. It may have been moved or removed.",
+                    variant = ZsStatusBannerVariant.Error,
+                    modifier = Modifier.align(Alignment.Center).padding(horizontal = 24.dp),
+                )
+                IconButton(onClick = onBack, modifier = Modifier.align(Alignment.TopStart).padding(4.dp)) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = Color.White)
+                }
+            }
+            ready != null && player != null -> {
+                AndroidView(
+                    factory = { ctx ->
+                        PlayerView(ctx).apply {
+                            this.player = player
+                            useController = false
+                            layoutParams = FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT)
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize(),
+                )
+                val readyState = PlayerState.Ready(
+                    streamUrl = ready.videoUri.toString(),
+                    streamType = "file",
+                    headers = emptyMap(),
+                    subtitles = subtitleTracks,
+                    sources = emptyList(),
+                    sourceId = "local",
+                )
+                val localInfo = LocalFileInfo(
+                    fileName = ready.fileName,
+                    relativePath = ready.relativePath,
+                    size = ready.size,
+                    durationMs = ready.durationMs,
+                    matchSource = ready.matchSource,
+                    tmdbId = ready.tmdbId,
+                    tmdbType = ready.tmdbType,
+                )
+                PlayerControls(
+                    player = player,
+                    title = ready.title,
+                    episodeLabel = ready.episodeLabel,
+                    readyState = readyState,
+                    settings = settings,
+                    selectedSubtitleLanguage = selectedSubtitleLanguage,
+                    selectedSubtitleId = selectedSubtitleId,
+                    isBookmarked = false,
+                    onToggleBookmark = {},
+                    controlsVisible = controlsVisible,
+                    onControlsVisibilityChanged = { controlsVisible = it },
+                    subtitlesEnabled = subtitlesEnabled,
+                    onToggleSubtitles = {
+                        subtitlesEnabled = !subtitlesEnabled
+                        player.trackSelectionParameters = player.trackSelectionParameters
+                            .buildUpon()
+                            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, !subtitlesEnabled)
+                            .build()
+                    },
+                    onSelectSubtitle = { id ->
+                        subtitleTracks.firstOrNull { it.id == id }?.let {
+                            selectedSubtitleId = it.id
+                            selectedSubtitleLanguage = it.language
+                            subtitlesEnabled = true
+                            player.trackSelectionParameters = player.trackSelectionParameters
+                                .buildUpon()
+                                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                                .setPreferredTextLanguage(it.language)
+                                .build()
+                        }
+                    },
+                    onAutoSelectSubtitle = {
+                        subtitleTracks.firstOrNull()?.let {
+                            selectedSubtitleId = it.id
+                            selectedSubtitleLanguage = it.language
+                        }
+                    },
+                    onDisableSubtitles = {
+                        subtitlesEnabled = false
+                        selectedSubtitleId = null
+                        selectedSubtitleLanguage = null
+                        player.trackSelectionParameters = player.trackSelectionParameters
+                            .buildUpon()
+                            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+                            .build()
+                    },
+                    onUpdateSettings = vm::updateSettings,
+                    onSetSubtitleDelay = { subtitleDelay = it.coerceIn(-40f, 40f) },
+                    onSetOverrideCasing = { overrideCasing = it },
+                    subtitleDelay = subtitleDelay,
+                    overrideCasing = overrideCasing,
+                    onSetEnableAutoplay = { vm.updateSettings(settings.copy(enableAutoplay = it)) },
+                    onSetVideoBrightness = { vm.updateSettings(settings.copy(videoBrightness = it)) },
+                    onSetVideoContrast = { vm.updateSettings(settings.copy(videoContrast = it)) },
+                    onSetVideoSaturation = { vm.updateSettings(settings.copy(videoSaturation = it)) },
+                    onSetVideoHueRotate = { vm.updateSettings(settings.copy(videoHueRotate = it)) },
+                    onResetAdvancedColor = { vm.updateSettings(settings.copy(videoBrightness = 100, videoContrast = 100, videoSaturation = 100, videoHueRotate = 0)) },
+                    onSetVolumeBoost = { vm.updateSettings(settings.copy(volumeBoost = it)) },
+                    onSetVideoScaleMode = { vm.updateSettings(settings.copy(videoScaleMode = it)) },
+                    onSelectSource = {},
+                    onUseSource = {},
+                    onSwitchVariant = {},
+                    skipSegments = emptyList(),
+                    canSubmitSkipSegments = false,
+                    hasTidbKey = false,
+                    onSubmitSkipSegment = { Result.success(Unit) },
+                    tmdbId = 0,
+                    mediaType = "movie",
+                    seasonNumber = null,
+                    episodeNumber = null,
+                    seasonId = null,
+                    episodeId = null,
+                    onInfo = {},
+                    onBack = onBack,
+                    onPip = {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            activity?.enterPictureInPictureMode(
+                                PictureInPictureParams.Builder().setAspectRatio(Rational(16, 9)).build()
+                            )
+                        }
+                    },
+                    roomCode = null,
+                    participants = emptyList(),
+                    myUserId = null,
+                    isSyncing = false,
+                    isRegistering = false,
+                    contentMismatch = false,
+                    durationMismatch = false,
+                    hostGraceDeadlineMs = null,
+                    isOffline = false,
+                    isHost = false,
+                    onHostWatchParty = {},
+                    onLeaveWatchParty = {},
+                    onJoinWatchParty = {},
+                    onUpdateRoomCode = {},
+                    onManualSync = {},
+                    onLegacyWatchParty = {},
+                    showInfoSheet = false,
+                    menuPage = menuPage,
+                    onMenuBack = {
+                        if (menuBackstack.isNotEmpty()) menuBackstack.removeAt(menuBackstack.lastIndex)
+                        menuPage = menuBackstack.lastOrNull()
+                    },
+                    onMenuPageChange = { page ->
+                        if (page == null) {
+                            menuBackstack.clear()
+                            menuPage = null
+                        } else {
+                            menuBackstack += page
+                            menuPage = page
+                        }
+                    },
+                    allProgress = emptyList(),
+                    currentSeason = null,
+                    currentEpisode = null,
+                    onLoadSeason = {},
+                    onSwitchEpisode = { _, _ -> },
+                    poster = ready.posterPath?.let { Urls.TMDB_IMAGE + "w500${if (it.startsWith("/")) it else "/$it"}" },
+                    nav = nav,
+                    tvDetail = null,
+                    currentSeasonDetail = null,
+                    pauseMetadata = null,
+                    localFileInfo = localInfo,
+                )
+            }
+        }
+    }
 }
 
 @OptIn(UnstableApi::class)
@@ -2025,6 +2290,7 @@ private fun PlayerControls(
     tvDetail: com.zstream.android.data.model.TvDetail?,
     currentSeasonDetail: com.zstream.android.data.model.Season?,
     pauseMetadata: PauseMetadata?,
+    localFileInfo: LocalFileInfo? = null,
 ) {
     val menuOpen = menuPage != null
     val playbackErrorActive = readyState.playbackFailure != null
@@ -3242,7 +3508,8 @@ private fun PlayerControls(
                         nav = nav,
                         tvDetail = tvDetail,
                         currentSeasonDetail = currentSeasonDetail,
-                        onSetOverrideCasing = onSetOverrideCasing
+                        onSetOverrideCasing = onSetOverrideCasing,
+                        localFileInfo = localFileInfo,
                     )
                 }
             }
@@ -3274,6 +3541,23 @@ private fun DrawableControlIcon(@DrawableRes res: Int, theme: ZStreamTheme, onCl
 private fun formatTime(ms: Long): String {
     val s = ms / 1000; val h = s / 3600; val m = (s % 3600) / 60; val sec = s % 60
     return if (h > 0) "%d:%02d:%02d".format(h, m, sec) else "%d:%02d".format(m, sec)
+}
+
+private fun formatBytes(bytes: Long): String = when {
+    bytes >= 1024L * 1024L * 1024L -> "%.1f GB".format(bytes / (1024.0 * 1024.0 * 1024.0))
+    bytes >= 1024L * 1024L -> "%.1f MB".format(bytes / (1024.0 * 1024.0))
+    bytes >= 1024L -> "%.1f KB".format(bytes / 1024.0)
+    else -> "$bytes B"
+}
+
+private fun localSubtitleMimeType(path: String): String = when (path.substringAfterLast('.', "").lowercase()) {
+    "vtt" -> MimeTypes.TEXT_VTT
+    else -> MimeTypes.APPLICATION_SUBRIP
+}
+
+private fun localSubtitleLanguageTag(path: String): String {
+    val name = path.substringAfterLast('/').substringBeforeLast('.')
+    return name.substringAfterLast('.', "").ifBlank { "und" }
 }
 
 private fun advancedColorSummary(settings: com.zstream.android.data.local.entity.SettingsEntity): String {
@@ -3825,6 +4109,7 @@ private fun PlayerMenuContent(
     nav: NavController,
     tvDetail: com.zstream.android.data.model.TvDetail?,
     currentSeasonDetail: com.zstream.android.data.model.Season?,
+    localFileInfo: LocalFileInfo? = null,
 ) {
     val theme = LocalZStreamTheme.current
     val isTv = LocalIsTv.current
@@ -3873,6 +4158,7 @@ private fun PlayerMenuContent(
                     PlayerMenuPage.Seasons -> "Seasons"
                     PlayerMenuPage.Episodes -> currentSeason?.let { "Season $it" } ?: "Episodes"
                     PlayerMenuPage.Variants -> "Stream Variants"
+                    PlayerMenuPage.LocalFile -> "File"
                 },
                 showBack = true,
                 onBack = onBack,
@@ -3924,10 +4210,14 @@ private fun PlayerMenuContent(
                                         PlayerMenuPage.Quality
                                     )
                                 },
-                                PlayerMenuTileItem(
-                                    "Source",
-                                    sourceId?.replaceFirstChar { it.titlecase() }
-                                        ?: "Auto") { onOpenPage(PlayerMenuPage.Sources) },
+                                if (localFileInfo != null) {
+                                    PlayerMenuTileItem("File", localFileInfo.fileName) { onOpenPage(PlayerMenuPage.LocalFile) }
+                                } else {
+                                    PlayerMenuTileItem(
+                                        "Source",
+                                        sourceId?.replaceFirstChar { it.titlecase() }
+                                            ?: "Auto") { onOpenPage(PlayerMenuPage.Sources) }
+                                },
                                 PlayerMenuTileItem(
                                     "Subtitles",
                                     selectedSubtitleLanguage?.let(::subtitleLanguageName) ?: "Off"
@@ -3939,15 +4229,17 @@ private fun PlayerMenuContent(
                                 },
                             )
                         )
-                        PlayerMenuSection {
-                            PlayerMenuLinkRow("Download", rightIcon = Icons.Filled.Download) {
-                                onOpenPage(PlayerMenuPage.Download)
-                            }
-                            PlayerMenuLinkRow("Watch Party", rightIcon = Icons.Filled.Group) {
-                                onOpenPage(PlayerMenuPage.WatchParty)
+                        if (localFileInfo == null) {
+                            PlayerMenuSection {
+                                PlayerMenuLinkRow("Download", rightIcon = Icons.Filled.Download) {
+                                    onOpenPage(PlayerMenuPage.Download)
+                                }
+                                PlayerMenuLinkRow("Watch Party", rightIcon = Icons.Filled.Group) {
+                                    onOpenPage(PlayerMenuPage.WatchParty)
+                                }
                             }
                         }
-                        if (variants.size > 1) {
+                        if (localFileInfo == null && variants.size > 1) {
                             PlayerMenuSection {
                                 val currentVariant = variants.find { it.streamUrl == streamUrl }
                                 PlayerMenuChevronRow(
@@ -3965,8 +4257,10 @@ private fun PlayerMenuContent(
                             PlayerMenuChevronRow("Playback") {
                                 onOpenPage(PlayerMenuPage.Playback)
                             }
-                            PlayerMenuChevronRow("Skip Segments") {
-                                onOpenPage(PlayerMenuPage.SkipSegments)
+                            if (localFileInfo == null) {
+                                PlayerMenuChevronRow("Skip Segments") {
+                                    onOpenPage(PlayerMenuPage.SkipSegments)
+                                }
                             }
                         }
                     }
@@ -4494,6 +4788,28 @@ private fun PlayerMenuContent(
                         if (audioOptions.isEmpty()) {
                             PlayerMenuStubCard("No selectable audio tracks exposed by Media3 for this stream.")
                         }
+                    }
+
+                    PlayerMenuPage.LocalFile -> {
+                        localFileInfo?.let { info ->
+                            PlayerMenuSection {
+                                PlayerMenuSummaryCard(
+                                    title = info.fileName,
+                                    value = info.relativePath ?: "Local file",
+                                    subtitle = listOfNotNull(
+                                        info.size?.let(::formatBytes),
+                                        info.durationMs?.let(::formatTime),
+                                    ).joinToString(" · ").ifBlank { "Local file" },
+                                )
+                            }
+                            PlayerMenuSection {
+                                PlayerMenuSummaryCard(
+                                    title = "Match",
+                                    value = info.matchSource?.replaceFirstChar { it.titlecase() } ?: "Local",
+                                    subtitle = info.tmdbId?.let { "${info.tmdbType ?: "tmdb"} #$it" } ?: "No TMDB match",
+                                )
+                            }
+                        } ?: PlayerMenuStubCard("No local file information available.")
                     }
 
                     PlayerMenuPage.Download -> {

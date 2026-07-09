@@ -22,6 +22,9 @@ interface LocalLibraryDao {
     @Query("SELECT * FROM local_media WHERE id = :id")
     suspend fun getMedia(id: Long): LocalMediaEntity?
 
+    @Query("SELECT * FROM local_media WHERE folderId = :folderId")
+    suspend fun getMediaForFolder(folderId: Long): List<LocalMediaEntity>
+
     @Query("SELECT * FROM local_library_folders WHERE id = :id")
     suspend fun getFolder(id: Long): LocalLibraryFolderEntity?
 

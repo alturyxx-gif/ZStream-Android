@@ -25,7 +25,7 @@ import com.zstream.android.data.local.entity.ProgressEntity
         LocalLibraryFolderEntity::class,
         LocalMediaEntity::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -68,11 +68,30 @@ abstract class AppDatabase : RoomDatabase() {
                         mediaKind TEXT NOT NULL,
                         season INTEGER,
                         episode INTEGER,
+                        groupKey TEXT NOT NULL DEFAULT '',
+                        matchSource TEXT NOT NULL DEFAULT 'legacy',
+                        tmdbId TEXT,
+                        tmdbType TEXT,
+                        posterPath TEXT,
+                        thumbnailPath TEXT,
+                        metadataTitle TEXT,
                         FOREIGN KEY(folderId) REFERENCES local_library_folders(id) ON DELETE CASCADE
                     )
                     """.trimIndent()
                 )
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_local_media_folderId ON local_media(folderId)")
+            }
+        }
+
+        private val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE local_media ADD COLUMN groupKey TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE local_media ADD COLUMN matchSource TEXT NOT NULL DEFAULT 'legacy'")
+                db.execSQL("ALTER TABLE local_media ADD COLUMN tmdbId TEXT")
+                db.execSQL("ALTER TABLE local_media ADD COLUMN tmdbType TEXT")
+                db.execSQL("ALTER TABLE local_media ADD COLUMN posterPath TEXT")
+                db.execSQL("ALTER TABLE local_media ADD COLUMN thumbnailPath TEXT")
+                db.execSQL("ALTER TABLE local_media ADD COLUMN metadataTitle TEXT")
             }
         }
 
@@ -82,7 +101,7 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     "zstream.db"
-                ).addMigrations(MIGRATION_4_5).build()
+                ).addMigrations(MIGRATION_4_5, MIGRATION_5_6).build()
                 INSTANCE = instance
                 instance
             }

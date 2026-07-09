@@ -58,6 +58,7 @@ import com.zstream.android.theme.ZStreamTheme
 import com.zstream.android.ui.LocalIsTv
 import com.zstream.android.ui.components.themed.ZsOutlinedWrapper
 import com.zstream.android.ui.navigation.rememberSafeNavigateBack
+import java.io.File
 
 /** e.g. "57.9 GB / 128 GB free" */
 fun formatFreeSpace(freeBytes: Long, totalBytes: Long): String {
@@ -71,6 +72,9 @@ private fun posterUrl(posterPath: String?): String? {
     val clean = if (posterPath.startsWith("/")) posterPath else "/$posterPath"
     return Urls.TMDB_IMAGE + "w342$clean"
 }
+
+private fun localPosterModel(posterPath: String?, thumbnailPath: String?): Any? =
+    posterUrl(posterPath) ?: thumbnailPath?.let(::File)
 
 @Composable
 fun DownloadsScreen(nav: NavController) {
@@ -308,7 +312,7 @@ private fun LibraryCard(item: LibraryItem, theme: ZStreamTheme, isTv: Boolean, f
     val poster = when (item) {
         is LibraryItem.DownloadMovie -> posterUrl(item.entity.posterPath)
         is LibraryItem.DownloadShow -> posterUrl(item.posterPath)
-        is LibraryItem.LocalGroup -> null
+        is LibraryItem.LocalGroup -> localPosterModel(item.posterPath, item.thumbnailPath)
     }
     var focused by remember { mutableStateOf(false) }
     ZsOutlinedWrapper(
@@ -460,7 +464,7 @@ private fun DownloadItem(
 }
 
 @Composable
-private fun PosterBox(poster: String?, title: String, icon: androidx.compose.ui.graphics.vector.ImageVector, theme: ZStreamTheme) {
+private fun PosterBox(poster: Any?, title: String, icon: androidx.compose.ui.graphics.vector.ImageVector, theme: ZStreamTheme) {
     Box(
         modifier = Modifier.size(width = 60.dp, height = 88.dp).clip(RoundedCornerShape(6.dp)).background(theme.colors.background.secondary),
         contentAlignment = Alignment.Center,
