@@ -17,6 +17,7 @@ import com.zstream.android.data.adb.ReleaseCheckInterval
 import com.zstream.android.data.adb.ReleaseUpdateManager
 import com.zstream.android.plugin.PluginManager
 import com.zstream.android.plugin.PluginState
+import com.zstream.android.plugin.pluginVersionLabel
 import com.google.gson.Gson
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.FlowPreview
@@ -63,10 +64,11 @@ class SettingsViewModel @Inject constructor(
             runCatching {
                 val stagedVersion = pluginManager.checkForUpdate()
                 _pluginUpdateMessage.value = if (stagedVersion != null) {
-                    "Plugin v$stagedVersion will be applied on next launch."
+                    val display = pluginManager.stagedDisplayVersion() ?: stagedVersion.toString()
+                    "Plugin ${pluginVersionLabel(display)} will be applied on next launch."
                 } else {
-                    val current = pluginManager.pluginVersion()
-                    "Plugin is up to date${if (current != null) " (v$current)" else ""}."
+                    val current = pluginManager.pluginDisplayVersion()
+                    "Plugin is up to date${if (current != null) " (${pluginVersionLabel(current)})" else ""}."
                 }
             }.onFailure {
                 _pluginUpdateMessage.value = "Update check failed: ${it.message}"

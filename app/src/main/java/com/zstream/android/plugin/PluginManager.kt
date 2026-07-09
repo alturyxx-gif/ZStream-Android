@@ -94,7 +94,7 @@ class PluginManager @Inject constructor(
                     return@launch
                 }
                 val plugin = loader.load(file)
-                _pluginState.value = PluginState.Ready(plugin, meta.version)
+                _pluginState.value = PluginState.Ready(plugin, meta.version, meta.displayVersion ?: meta.version.toString())
                 Log.i(TAG, "Plugin v${meta.version} loaded")
                 checkForUpdateInBackground(meta.version)
             } catch (e: Exception) {
@@ -119,14 +119,15 @@ class PluginManager @Inject constructor(
         val dest = loader.pluginDir().resolve("plugin-v0.apk")
         src.copyTo(dest, overwrite = true)
         val meta = PluginMetadata(
-            version     = 0,
-            hash        = "sha256:dev",
-            fileName    = dest.name,
-            activatedAt = System.currentTimeMillis() / 1000,
+            version        = 0,
+            hash           = "sha256:dev",
+            fileName       = dest.name,
+            activatedAt    = System.currentTimeMillis() / 1000,
+            displayVersion = "dev",
         )
         writeActiveMeta(meta)
         val plugin = loader.load(dest)
-        _pluginState.value = PluginState.Ready(plugin, 0)
+        _pluginState.value = PluginState.Ready(plugin, 0, "dev")
         Log.i(TAG, "Debug sideload complete: $path")
     }
 
@@ -152,16 +153,17 @@ class PluginManager @Inject constructor(
         }
 
         val meta = PluginMetadata(
-            version     = manifest.latestVersion,
-            hash        = manifest.hash,
-            fileName    = file.name,
-            activatedAt = System.currentTimeMillis() / 1000,
+            version        = manifest.latestVersion,
+            hash           = manifest.hash,
+            fileName       = file.name,
+            activatedAt    = System.currentTimeMillis() / 1000,
+            displayVersion = manifest.displayVersion,
         )
         writeActiveMeta(meta)
         markHighestSeenVersion(manifest.latestVersion)
 
         val plugin = loader.load(file)
-        _pluginState.value = PluginState.Ready(plugin, meta.version)
+        _pluginState.value = PluginState.Ready(plugin, meta.version, meta.displayVersion ?: meta.version.toString())
         Log.i(TAG, "Plugin v${meta.version} installed manually")
     }
 
@@ -221,10 +223,11 @@ class PluginManager @Inject constructor(
         }
 
         val staged = PluginMetadata(
-            version     = manifest.latestVersion,
-            hash        = manifest.hash,
-            fileName    = file.name,
-            activatedAt = System.currentTimeMillis() / 1000,
+            version        = manifest.latestVersion,
+            hash           = manifest.hash,
+            fileName       = file.name,
+            activatedAt    = System.currentTimeMillis() / 1000,
+            displayVersion = manifest.displayVersion,
         )
         writeStagedMeta(staged)
 
@@ -232,9 +235,11 @@ class PluginManager @Inject constructor(
         val currentState = pluginState.value
         if (currentState is PluginState.Ready) {
             _pluginState.value = PluginState.UpdateAvailable(
-                plugin         = currentState.plugin,
-                currentVersion = currentState.version,
-                stagedVersion  = staged.version,
+                plugin                = currentState.plugin,
+                currentVersion        = currentState.version,
+                currentDisplayVersion = currentState.displayVersion,
+                stagedVersion         = staged.version,
+                stagedDisplayVersion  = staged.displayVersion ?: staged.version.toString(),
             )
         }
 
@@ -407,8 +412,18 @@ class PluginManager @Inject constructor(
         else -> null
     }
 
+    /** Cosmetic display version (e.g. "1.2.3") for the currently active plugin, for Settings. */
+    fun pluginDisplayVersion(): String? = when (val s = pluginState.value) {
+        is PluginState.Ready -> s.displayVersion
+        is PluginState.UpdateAvailable -> s.currentDisplayVersion
+        else -> null
+    }
+
     fun stagedVersion(): Int? =
         (pluginState.value as? PluginState.UpdateAvailable)?.stagedVersion
+
+    fun stagedDisplayVersion(): String? =
+        (pluginState.value as? PluginState.UpdateAvailable)?.stagedDisplayVersion
 
     suspend fun readLastChecked(): Long? =
         dataStore.data.first()[KEY_LAST_CHECKED]?.toLongOrNull()

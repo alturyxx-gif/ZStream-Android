@@ -14,10 +14,12 @@ sealed class PluginState {
     /**
      * Plugin is loaded and ready to resolve streams. [plugin] is the raw Entry instance — the
      * app has no compiled contract with it and only ever calls it via reflection.
+     * [displayVersion] is the cosmetic version string for Settings (e.g. "1.2.3").
      */
     data class Ready(
         val plugin: Any,
         val version: Int,
+        val displayVersion: String,
     ) : PluginState()
 
     /**
@@ -27,7 +29,9 @@ sealed class PluginState {
     data class UpdateAvailable(
         val plugin: Any,
         val currentVersion: Int,
+        val currentDisplayVersion: String,
         val stagedVersion: Int,
+        val stagedDisplayVersion: String,
     ) : PluginState()
 
     /** The plugin file exists but failed to load or verify. Treat as not installed. */
