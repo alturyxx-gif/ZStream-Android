@@ -978,6 +978,19 @@ fun HomeScreen(
                         }
                     }
 
+                    // Memoized on just their real inputs (not the whole `state`, which also
+                    // changes on every search keystroke) -- otherwise these list-concat/dedup
+                    // getters rerun several times a second while typing in the search box, for
+                    // no reason (search doesn't affect either of them). Hoisted out of the
+                    // LazyColumn's content lambda since LazyListScope isn't a @Composable scope
+                    // -- remember() can't be called directly inside it.
+                    val userSections = remember(state.continueWatching, state.bookmarks) { state.userSections }
+                    val baseSections = remember(
+                        state.movieSections, state.tvSections, state.editorSections,
+                        state.activeTab, state.continueWatching, state.bookmarks,
+                        state.enableCarouselView, state.homeSectionCarouselLimit,
+                    ) { state.baseSections }
+
                     LazyColumn(
                         state = listState,
                         modifier = Modifier
@@ -1078,12 +1091,7 @@ fun HomeScreen(
                                 }
                                 item { Spacer(Modifier.height(20.dp)) }
                             }
-                            // User sections first. Memoized on just its real inputs (not the
-                            // whole `state`, which also changes on every search keystroke) --
-                            // otherwise this list-concat getter reruns several times a second
-                            // while typing in the search box, for no reason (search doesn't
-                            // affect it at all).
-                            val userSections = remember(state.continueWatching, state.bookmarks) { state.userSections }
+                            // User sections first (userSections computed above, outside the LazyColumn content lambda)
                             userSections
                                 .sortedBy { section ->
                                     val id = when (section.title) {
@@ -1175,15 +1183,7 @@ fun HomeScreen(
                             if (!isTv) {
                                 item { HomeTabs(state.activeTab, vm::setTab) }
 
-                                // Base sections second. Memoized on its real inputs (see
-                                // userSections above) -- this getter does a flatMap+dedup+take
-                                // pass over every home rail, which is far too expensive to redo
-                                // on every search keystroke.
-                                val baseSections = remember(
-                                    state.movieSections, state.tvSections, state.editorSections,
-                                    state.activeTab, state.continueWatching, state.bookmarks,
-                                    state.enableCarouselView, state.homeSectionCarouselLimit,
-                                ) { state.baseSections }
+                                // Base sections second (baseSections computed above, outside the LazyColumn content lambda)
                                 baseSections.map { section ->
                                     val filtered = if (state.selectedGenreId != null)
                                         section.items.filter { it.genreIds?.contains(state.selectedGenreId) == true }
