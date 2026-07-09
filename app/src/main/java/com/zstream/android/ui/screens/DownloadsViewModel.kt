@@ -98,6 +98,8 @@ class DownloadsViewModel @Inject constructor(
 
     fun resume(entity: DownloadEntity) = DownloadService.resume(appContext, entity.id)
 
+    fun retry(entity: DownloadEntity) = DownloadService.resume(appContext, entity.id)
+
     fun cancel(entity: DownloadEntity) {
         DownloadService.cancel(appContext, entity.id)
         viewModelScope.launch {

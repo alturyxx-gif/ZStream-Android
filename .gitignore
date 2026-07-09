@@ -38,3 +38,12 @@ xp-turnstile/
 *.md
 *.apk
 *.aar
+hs_err_pid9984.log
+.gitignore
+build_full2.log
+build_full.log
+build_full3.log
+build_full4.log
+hs_err_pid14440.log
+build_full5.log
+replay_pid9984.log

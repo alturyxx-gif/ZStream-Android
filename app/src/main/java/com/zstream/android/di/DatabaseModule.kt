@@ -4,8 +4,10 @@ import android.content.Context
 import com.zstream.android.data.local.AppDatabase
 import com.zstream.android.data.local.dao.BookmarkDao
 import com.zstream.android.data.local.dao.DownloadDao
+import com.zstream.android.data.local.dao.LocalFileProgressDao
 import com.zstream.android.data.local.dao.LocalLibraryDao
 import com.zstream.android.data.local.dao.ProgressDao
+import com.zstream.android.data.local.dao.SkipSegmentDao
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -41,5 +43,15 @@ object DatabaseModule {
     @Provides
     fun provideLocalLibraryDao(database: AppDatabase): LocalLibraryDao {
         return database.localLibraryDao()
+    }
+
+    @Provides
+    fun provideLocalFileProgressDao(database: AppDatabase): LocalFileProgressDao {
+        return database.localFileProgressDao()
+    }
+
+    @Provides
+    fun provideSkipSegmentDao(database: AppDatabase): SkipSegmentDao {
+        return database.skipSegmentDao()
     }
 }

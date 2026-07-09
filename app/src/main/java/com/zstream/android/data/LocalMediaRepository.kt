@@ -183,6 +183,7 @@ class LocalMediaRepository @Inject constructor(
             posterPath = base.posterPath,
             thumbnailPath = thumbnail,
             metadataTitle = metadataTitle,
+            fingerprint = fingerprint,
         )
     }
 
