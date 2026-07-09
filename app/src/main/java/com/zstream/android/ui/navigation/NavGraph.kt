@@ -64,6 +64,10 @@ fun NavGraph(nav: NavHostController) {
             "localPlayer/{downloadId}",
             arguments = listOf(navArgument("downloadId") { type = NavType.StringType }),
         ) { LocalPlayerScreen(nav) }
+        composable(
+            "localFilePlayer/{localMediaId}",
+            arguments = listOf(navArgument("localMediaId") { type = NavType.StringType }),
+        ) { LocalPlayerScreen(nav) }
         composable("tvSync") { TvSyncScreen(nav) }
     }
 }

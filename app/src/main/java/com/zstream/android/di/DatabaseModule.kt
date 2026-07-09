@@ -4,6 +4,7 @@ import android.content.Context
 import com.zstream.android.data.local.AppDatabase
 import com.zstream.android.data.local.dao.BookmarkDao
 import com.zstream.android.data.local.dao.DownloadDao
+import com.zstream.android.data.local.dao.LocalLibraryDao
 import com.zstream.android.data.local.dao.ProgressDao
 import dagger.Module
 import dagger.Provides
@@ -35,5 +36,10 @@ object DatabaseModule {
     @Provides
     fun provideDownloadDao(database: AppDatabase): DownloadDao {
         return database.downloadDao()
+    }
+
+    @Provides
+    fun provideLocalLibraryDao(database: AppDatabase): LocalLibraryDao {
+        return database.localLibraryDao()
     }
 }
