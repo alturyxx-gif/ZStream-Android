@@ -54,12 +54,20 @@ object NetworkModule {
     fun backendRetrofit(client: OkHttpClient): Retrofit = Retrofit.Builder()
         .baseUrl(Urls.BACKEND)
         .client(client.newBuilder()
-            .addInterceptor(HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.BODY })
-            .addInterceptor { chain ->
-                val resp = chain.proceed(chain.request())
-                val body = resp.body?.string() ?: ""
-                android.util.Log.d("BackendRaw", "${chain.request().method} ${chain.request().url} -> ${resp.code}\n$body")
-                resp.newBuilder().body(okhttp3.ResponseBody.create(resp.body?.contentType(), body)).build()
+            .apply {
+                // Both interceptors log full request/response bodies -- which include the
+                // session bearer token and user settings (febbox/tidb/debrid/trakt keys).
+                // Debug-only: a release build must never write these to logcat, and the raw
+                // dumper also fully buffers every response body into memory just to log it.
+                if (BuildConfig.DEBUG) {
+                    addInterceptor(HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.BODY })
+                    addInterceptor { chain ->
+                        val resp = chain.proceed(chain.request())
+                        val body = resp.body?.string() ?: ""
+                        android.util.Log.d("BackendRaw", "${chain.request().method} ${chain.request().url} -> ${resp.code}\n$body")
+                        resp.newBuilder().body(okhttp3.ResponseBody.create(resp.body?.contentType(), body)).build()
+                    }
+                }
             }
             .build())
         .addConverterFactory(GsonConverterFactory.create())
@@ -80,7 +88,11 @@ object NetworkModule {
                     .build()
                 chain.proceed(req)
             }
-            .addInterceptor(HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.BODY })
+            .apply {
+                if (BuildConfig.DEBUG) {
+                    addInterceptor(HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.BODY })
+                }
+            }
             .build())
         .addConverterFactory(GsonConverterFactory.create())
         .build()

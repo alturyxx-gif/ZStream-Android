@@ -10,6 +10,7 @@ import androidx.media3.common.util.UnstableApi
 import com.zstream.android.data.BookmarkRepository
 import com.zstream.android.data.TmdbRepository
 import com.zstream.android.plugin.PluginManager
+import com.zstream.android.plugin.SourceInfo
 import com.zstream.android.plugin.SourceOrderStore
 import com.zstream.android.plugin.Caption
 import com.zstream.android.plugin.MediaRequest as PluginMediaRequest
@@ -286,7 +287,9 @@ class PlayerViewModel @OptIn(UnstableApi::class)
     private val _subtitleCues = MutableStateFlow<List<SubtitleCue>>(emptyList())
     val subtitleCues = _subtitleCues.asStateFlow()
 
-    private val subtitleCache = mutableMapOf<String, List<SubtitleCue>>()
+    // Written from Dispatchers.IO by potentially concurrent parse coroutines (multiple
+    // downloadAndParseSubtitles() calls can be in flight at once) -- must be thread-safe.
+    private val subtitleCache = java.util.concurrent.ConcurrentHashMap<String, List<SubtitleCue>>()
 
     private val _selectedSubtitleLang = MutableStateFlow<String?>(null)
     val selectedSubtitleLang = _selectedSubtitleLang.asStateFlow()
@@ -352,6 +355,7 @@ class PlayerViewModel @OptIn(UnstableApi::class)
 
     private val sources = mutableListOf<SourceResult>()
     private val probeJobs = mutableMapOf<String, Job>()
+    private var cachedDisplaySources: List<SourceInfo> = emptyList()
     private val failedVariantUrls = mutableSetOf<String>()
     private val failedPlaybackSourceIds = mutableSetOf<String>()
     private var skipSegmentsCacheKey: String? = null
@@ -636,6 +640,7 @@ class PlayerViewModel @OptIn(UnstableApi::class)
                 val settingsValue = settingsPrefs.settings.first()
                 val pluginSources = pluginManager.availableSources()
                 val displaySources = sourceOrderStore.getOrderedSources(pluginSources)
+                cachedDisplaySources = displaySources
 
                 if (selectedSourceId == null && settingsValue.manualSourceSelection && !automaticRecovery) {
                     val availableSources = displaySources.map { SourceResult(it.id, SourceStatus.IDLE) }
@@ -716,9 +721,11 @@ class PlayerViewModel @OptIn(UnstableApi::class)
                             sources.clear()
                             sources.addAll(success)
 
-                            // Save last successful source
+                            // Save last successful source. Uses the single-key setter (not a
+                            // full-entity updateSettings from a stale `settings.value` snapshot)
+                            // so it can't race a concurrent settings write and clobber it.
                             viewModelScope.launch {
-                                settingsPrefs.updateSettings(settings.value.copy(lastSuccessfulSource = source.id))
+                                settingsPrefs.setLastSuccessfulSource(source.id)
                             }
 
                             subtitleSearchLanguage = settingsValue.defaultSubtitleLanguage ?: "en"
@@ -794,7 +801,7 @@ class PlayerViewModel @OptIn(UnstableApi::class)
     }
 
     fun probeSource(sourceId: String) {
-        val pluginSources = pluginManager.availableSources()
+        val pluginSources = cachedDisplaySources.ifEmpty { pluginManager.availableSources() }
         val currentSources = if (sources.isEmpty()) {
             pluginSources.map { SourceResult(it.id, SourceStatus.IDLE) }.also {
                 sources.clear()

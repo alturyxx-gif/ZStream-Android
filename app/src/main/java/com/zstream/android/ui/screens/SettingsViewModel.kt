@@ -17,6 +17,8 @@ import com.zstream.android.data.adb.ReleaseCheckInterval
 import com.zstream.android.data.adb.ReleaseUpdateManager
 import com.zstream.android.plugin.PluginManager
 import com.zstream.android.plugin.PluginState
+import com.zstream.android.plugin.SourceInfo
+import com.zstream.android.plugin.SourceOrderStore
 import com.zstream.android.plugin.pluginVersionLabel
 import com.google.gson.Gson
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -47,6 +49,7 @@ class SettingsViewModel @Inject constructor(
     private val httpClient: OkHttpClient,
     private val releaseUpdateManager: ReleaseUpdateManager,
     private val pluginManager: PluginManager,
+    private val sourceOrderStore: SourceOrderStore,
 ) : ViewModel() {
     val traktState = traktRepo.state
     val releaseChecksEnabled = releaseUpdateManager.enabled
@@ -54,6 +57,28 @@ class SettingsViewModel @Inject constructor(
 
     // Plugin state — exposed directly from PluginManager
     val pluginState = pluginManager.pluginState
+
+    private val _sourceOrder = MutableStateFlow<List<SourceInfo>>(emptyList())
+    val sourceOrder: StateFlow<List<SourceInfo>> = _sourceOrder
+
+    init {
+        viewModelScope.launch {
+            pluginState.collect { refreshSourceOrder() }
+        }
+    }
+
+    private fun refreshSourceOrder() {
+        viewModelScope.launch {
+            _sourceOrder.value = sourceOrderStore.getOrderedSources(pluginManager.availableSources())
+        }
+    }
+
+    fun reorderSources(newOrder: List<SourceInfo>) {
+        _sourceOrder.value = newOrder
+        viewModelScope.launch {
+            sourceOrderStore.saveOrder(newOrder.map { it.id })
+        }
+    }
 
     private val _pluginUpdateMessage = MutableStateFlow<String?>(null)
     val pluginUpdateMessage = _pluginUpdateMessage.asStateFlow()

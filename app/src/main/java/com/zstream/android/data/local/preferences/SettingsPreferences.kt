@@ -388,11 +388,13 @@ class SettingsPreferences @Inject constructor(
     suspend fun appendGroupOrder(groups: List<String>): List<String> {
         val normalized = groups.filter { it.isNotBlank() }
         if (normalized.isEmpty()) return emptyList()
-        val next = context.settingsStore.data.first().let { current ->
-            val existing = current[KEY_GROUP_ORDER]?.split(",")?.filter { it.isNotBlank() }.orEmpty()
-            (existing + normalized).distinct()
-        }
+        // Read-modify-write happens inside the same edit{} transform (DataStore serializes
+        // concurrent edit{} calls) instead of a separate .data.first() read beforehand, which
+        // could race a concurrent appendGroupOrder/setGroupOrder call and silently drop it.
+        var next: List<String> = emptyList()
         context.settingsStore.edit { prefs ->
+            val existing = prefs[KEY_GROUP_ORDER]?.split(",")?.filter { it.isNotBlank() }.orEmpty()
+            next = (existing + normalized).distinct()
             prefs[KEY_GROUP_ORDER] = next.joinToString(",")
         }
         return next

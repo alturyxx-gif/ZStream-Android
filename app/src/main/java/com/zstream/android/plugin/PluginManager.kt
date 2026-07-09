@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.intrinsics.COROUTINE_SUSPENDED
@@ -61,6 +62,10 @@ class PluginManager @Inject constructor(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val gson = Gson()
     private val initStarted = java.util.concurrent.atomic.AtomicBoolean(false)
+    // Serializes checkForUpdate() so a background check and a user-triggered "Check for
+    // update" tap can't both call loader.download() at the same time -- they'd write to the
+    // same fixed tmp path and interleave/self-abort each other's download.
+    private val updateMutex = kotlinx.coroutines.sync.Mutex()
 
     // -------------------------------------------------------------------------
     // Public state
@@ -196,28 +201,29 @@ class PluginManager @Inject constructor(
      * Returns the staged version number if an update was staged, null if already up to date.
      */
     suspend fun checkForUpdate(currentVersion: Int? = null): Int? = withContext(Dispatchers.IO) {
+        updateMutex.withLock {
         val activeVersion = currentVersion
             ?: (pluginState.value as? PluginState.Ready)?.version
             ?: (pluginState.value as? PluginState.UpdateAvailable)?.currentVersion
-            ?: return@withContext null
+            ?: return@withLock null
 
         val manifest = updateChecker.fetchManifest()
         writeLastChecked()
 
         if (manifest.latestVersion <= activeVersion) {
             Log.i(TAG, "Plugin up to date (v$activeVersion)")
-            return@withContext null
+            return@withLock null
         }
 
         val highestSeen = readHighestSeenVersion()
         if (manifest.latestVersion < highestSeen) {
             Log.w(TAG, "Manifest rollback refused (v${manifest.latestVersion} < highest seen v$highestSeen)")
-            return@withContext null
+            return@withLock null
         }
 
         if (manifest.minAppVersion > BuildConfig.VERSION_CODE) {
             Log.w(TAG, "Plugin v${manifest.latestVersion} requires app v${manifest.minAppVersion}, skipping")
-            return@withContext null
+            return@withLock null
         }
 
         Log.i(TAG, "Staging plugin update: v$activeVersion → v${manifest.latestVersion}")
@@ -226,7 +232,7 @@ class PluginManager @Inject constructor(
         if (!loader.verifySignature(file)) {
             file.delete()
             Log.w(TAG, "Staged plugin failed signature check — discarding")
-            return@withContext null
+            return@withLock null
         }
 
         val staged = PluginMetadata(
@@ -252,6 +258,7 @@ class PluginManager @Inject constructor(
 
         Log.i(TAG, "Plugin v${staged.version} staged — activates on next launch")
         staged.version
+        }
     }
 
     // -------------------------------------------------------------------------

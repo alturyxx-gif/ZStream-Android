@@ -1503,13 +1503,20 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     player.trackSelectionParameters = builder.build()
                 }
 
+                LaunchedEffect(player, settings.videoBrightness, settings.videoContrast, settings.videoSaturation, settings.videoHueRotate) {
+                    player.setVideoEffects(
+                        buildVideoColorEffects(
+                            brightness = settings.videoBrightness,
+                            contrast = settings.videoContrast,
+                            saturation = settings.videoSaturation,
+                            hueRotate = settings.videoHueRotate,
+                        )
+                    )
+                }
+
                 if (!isPlaybackFailed && (!settings.enableNativeSubtitles || selectedTrackIsExternal) && subtitlesEnabled && selectedLang != null && visibleCues.isNotEmpty()) {
                     // Move subtitles up when controls overlay is shown
                     val controlsBottom = if (isInPip) 0.dp else if (controlsVisible) 80.dp else 0.dp
-                    Log.d("PlayerScreen", "rendering ${visibleCues.size} cues at ${currentPositionMs}ms, " +
-                        "color=${settings.subtitleColor} size=${settings.subtitleSize} " +
-                        "fontStyle=${settings.subtitleFontStyle} bgOpacity=${settings.subtitleBackgroundOpacity} " +
-                        "bold=${settings.subtitleBold}")
                     val textColor = Color(android.graphics.Color.parseColor(settings.subtitleColor))
                     val bgAlpha = settings.subtitleBackgroundOpacity.coerceIn(0f, 1f)
                     val pipSubtitleScale = if (isInPip) 0.72f else 1f
@@ -2051,6 +2058,16 @@ fun LocalPlayerScreen(nav: NavController, vm: LocalPlayerViewModel = hiltViewMod
                         vm.loadSkipSegments(ready, duration)
                     }
                 }
+                LaunchedEffect(player, settings.videoBrightness, settings.videoContrast, settings.videoSaturation, settings.videoHueRotate) {
+                    player.setVideoEffects(
+                        buildVideoColorEffects(
+                            brightness = settings.videoBrightness,
+                            contrast = settings.videoContrast,
+                            saturation = settings.videoSaturation,
+                            hueRotate = settings.videoHueRotate,
+                        )
+                    )
+                }
                 val readyState = PlayerState.Ready(
                     streamUrl = ready.videoUri.toString(),
                     streamType = "file",
@@ -2232,6 +2249,46 @@ private fun applyNativeSubtitleStyle(
 private fun volumeBoostToMillibels(volumeBoost: Int): Int {
     val over = (volumeBoost - 100).coerceAtLeast(0)
     return over * 45
+}
+
+/**
+ * Brightness/contrast/saturation/hue settings were persisted and shown in the sliders but never
+ * actually applied to the decoded video -- nothing in the codebase called
+ * ExoPlayer.setVideoEffects(). All four settings use a 100 = "no change" scale (0-200, except
+ * hue which is 0-360 degrees) to match the slider UI already built around that convention.
+ */
+@OptIn(UnstableApi::class)
+private fun buildVideoColorEffects(
+    brightness: Int,
+    contrast: Int,
+    saturation: Int,
+    hueRotate: Int,
+): List<androidx.media3.common.Effect> {
+    val effects = mutableListOf<androidx.media3.common.Effect>()
+    if (contrast != 100) {
+        val contrastValue = ((contrast - 100) / 100f).coerceIn(-1f, 1f)
+        effects.add(androidx.media3.effect.Contrast(contrastValue))
+    }
+    if (brightness != 100) {
+        val scale = (brightness / 100f).coerceIn(0.1f, 2f)
+        effects.add(
+            androidx.media3.effect.RgbAdjustment.Builder()
+                .setRedScale(scale)
+                .setGreenScale(scale)
+                .setBlueScale(scale)
+                .build()
+        )
+    }
+    if (saturation != 100 || hueRotate != 0) {
+        val saturationAdjustment = ((saturation - 100) / 100f).coerceIn(-1f, 1f)
+        effects.add(
+            androidx.media3.effect.HslAdjustment.Builder()
+                .adjustHue(hueRotate.toFloat())
+                .adjustSaturation(saturationAdjustment)
+                .build()
+        )
+    }
+    return effects
 }
 
 @OptIn(UnstableApi::class)
@@ -3076,6 +3133,11 @@ private fun PlayerControls(
                                         onClick = {
                                             onControlsVisibilityChanged(true)
                                             onLoadSeason(currentSeason ?: 1)
+                                            // Push Seasons before Episodes so the popup's back
+                                            // button returns to the season list instead of
+                                            // closing the whole menu (there was nothing under
+                                            // Episodes in the backstack otherwise).
+                                            onMenuPageChange(PlayerMenuPage.Seasons)
                                             onMenuPageChange(PlayerMenuPage.Episodes)
                                             menuSourceRequester = episodesFocusRequester
                                         },
@@ -3202,6 +3264,9 @@ private fun PlayerControls(
                                     onClick = {
                                         onControlsVisibilityChanged(true)
                                         onLoadSeason(currentSeason ?: 1)
+                                        // See the TV Episodes button above for why Seasons is
+                                        // pushed first.
+                                        onMenuPageChange(PlayerMenuPage.Seasons)
                                         onMenuPageChange(PlayerMenuPage.Episodes)
                                     },
                                 )

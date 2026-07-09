@@ -2,9 +2,11 @@ package com.zstream.android.data.adb
 
 import io.github.muntashirakon.adb.AdbAuthenticationFailedException
 import io.github.muntashirakon.adb.AdbPairingRequiredException
+import java.io.File
 import java.io.InputStream
 import java.io.OutputStream
 import java.net.URI
+import java.security.MessageDigest
 import java.util.concurrent.CancellationException
 
 enum class AdbFailureKind {
@@ -60,10 +62,36 @@ internal fun validateApkUrl(url: String): String {
     } catch (e: Exception) {
         throw AdbOperationException(AdbFailureKind.DOWNLOAD, "Invalid APK URL", e)
     }
-    if (parsed.scheme !in setOf("http", "https") || parsed.host.isNullOrBlank()) {
-        throw AdbOperationException(AdbFailureKind.DOWNLOAD, "Invalid APK URL")
+    if (parsed.scheme != "https" || parsed.host.isNullOrBlank()) {
+        throw AdbOperationException(AdbFailureKind.DOWNLOAD, "APK download URL must be HTTPS")
     }
     return parsed.toString()
+}
+
+/**
+ * GitHub release assets carry a `digest` field shaped like "sha256:<hex>". Verifies the
+ * downloaded APK matches it before it's ever pushed to `cmd package install` on the TV --
+ * without this, a MITM'd or substituted download would be installed with no integrity check.
+ * Assets without a digest (older uploads) skip verification rather than blocking install.
+ */
+internal fun verifyApkDigest(file: File, expectedDigest: String?) {
+    if (expectedDigest.isNullOrBlank()) return
+    val expectedHex = expectedDigest.substringAfter("sha256:", "").lowercase()
+    if (expectedHex.isBlank()) return
+    val actualHex = MessageDigest.getInstance("SHA-256").let { md ->
+        file.inputStream().use { input ->
+            val buffer = ByteArray(1 shl 20)
+            while (true) {
+                val read = input.read(buffer)
+                if (read < 0) break
+                md.update(buffer, 0, read)
+            }
+        }
+        md.digest().joinToString("") { "%02x".format(it) }
+    }
+    if (!actualHex.equals(expectedHex, ignoreCase = true)) {
+        throw AdbOperationException(AdbFailureKind.DOWNLOAD, "Downloaded APK failed checksum verification")
+    }
 }
 
 internal fun packageManagerSucceeded(output: String): Boolean =
