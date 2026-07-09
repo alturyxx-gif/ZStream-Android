@@ -252,6 +252,7 @@ class PlayerViewModel @OptIn(UnstableApi::class)
     val playerCache: SimpleCache,
     val watchPartyManager: WatchPartyManager,
     private val downloadRepository: com.zstream.android.download.DownloadRepository,
+    private val skipSegmentRepository: com.zstream.android.data.SkipSegmentRepository,
     @dagger.hilt.android.qualifiers.ApplicationContext private val appContext: android.content.Context,
     savedState: SavedStateHandle,
 ) : ViewModel() {
@@ -545,9 +546,15 @@ class PlayerViewModel @OptIn(UnstableApi::class)
 
         viewModelScope.launch {
             val settingsValue = settingsPrefs.settings.first()
-            val resolvedSegments = fetchTheIntroDbSegments(durationMs, settingsValue.tidbKey)
-                ?: fetchFallbackSkipSegments(settingsValue)
-                ?: emptyList()
+            val resolvedSegments = skipSegmentRepository.getSegments(
+                tmdbId = tmdbId,
+                mediaType = mediaType,
+                season = season,
+                episode = episode,
+                durationMs = durationMs,
+                tidbKey = settingsValue.tidbKey,
+                febboxKey = settingsValue.febboxKey,
+            )
             skipSegmentsCacheKey = cacheKey
             _skipSegments.value = resolvedSegments
         }
@@ -587,6 +594,19 @@ class PlayerViewModel @OptIn(UnstableApi::class)
                     throw IllegalStateException(message.ifBlank { "Failed to submit segment" })
                 }
             }
+        }.onSuccess {
+            val settingsValue = settingsPrefs.settings.first()
+            skipSegmentsCacheKey = null
+            _skipSegments.value = skipSegmentRepository.refreshAfterSubmit(
+                tmdbId = tmdbId,
+                mediaType = mediaType,
+                season = season,
+                episode = episode,
+                durationMs = submission.videoDurationMs ?: 0L,
+                tidbKey = tidbKey,
+                febboxKey = settingsValue.febboxKey,
+            )
+            skipSegmentsCacheKey = buildSkipSegmentsCacheKey()
         }
     }
 
@@ -1489,114 +1509,12 @@ class PlayerViewModel @OptIn(UnstableApi::class)
         return h.toLong() * 3600000 + m.toLong() * 60000 + s.toLong() * 1000 + ms.toLong()
     }
 
-    private suspend fun fetchTheIntroDbSegments(durationMs: Long, tidbKey: String?): List<SkipSegment>? = withContext(Dispatchers.IO) {
-        val apiUrl = buildString {
-            append("https://api.theintrodb.org/v3/media?tmdb_id=$tmdbId")
-            if (mediaType == "tv" && season != null && episode != null) {
-                append("&season=$season&episode=$episode")
-            }
-            if (durationMs > 0) {
-                append("&duration_ms=$durationMs")
-            }
-        }
-
-        val request = Request.Builder()
-            .url(apiUrl)
-            .apply {
-                if (!tidbKey.isNullOrBlank()) {
-                    header("Authorization", "Bearer $tidbKey")
-                }
-            }
-            .build()
-
-        runCatching {
-            httpClient.newCall(request).execute().use { response ->
-                if (response.code == 404) return@withContext null
-                if (!response.isSuccessful) {
-                    Log.w("PlayerVM", "TIDB skip segments failed with ${response.code}")
-                    return@withContext emptyList()
-                }
-                parseSkipSegmentsFromTidb(JSONObject(response.body?.string().orEmpty()))
-            }
-        }.getOrElse {
-            Log.e("PlayerVM", "Failed to fetch TIDB skip segments", it)
-            emptyList()
-        }
-    }
-
-    private suspend fun fetchFallbackSkipSegments(settings: SettingsEntity): List<SkipSegment>? {
-        if (mediaType != "tv" || season == null || episode == null) return null
-
-        val imdbId = runCatching { tmdbRepo.tvDetail(id).imdbId }.getOrNull()
-        if (imdbId.isNullOrBlank()) return null
-
-        fetchIntroDbTime(imdbId)?.let { introEndMs ->
-            return listOf(SkipSegment(type = "intro", startMs = 0L, endMs = introEndMs))
-        }
-
-        if (!settings.febboxKey.isNullOrBlank()) {
-            fetchFedSkipsTime(imdbId)?.let { introEndMs ->
-                return listOf(SkipSegment(type = "intro", startMs = 0L, endMs = introEndMs))
-            }
-        }
-
-        return null
-    }
-
-    private suspend fun fetchIntroDbTime(imdbId: String): Long? = withContext(Dispatchers.IO) {
-        val request = Request.Builder()
-            .url("https://api.introdb.app/intro?imdb_id=$imdbId&season=$season&episode=$episode")
-            .build()
-        runCatching {
-            httpClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return@withContext null
-                JSONObject(response.body?.string().orEmpty()).optLong("end_ms").takeIf { it > 0 }
-            }
-        }.getOrNull()
-    }
-
-    private suspend fun fetchFedSkipsTime(imdbId: String): Long? = withContext(Dispatchers.IO) {
-        val request = Request.Builder()
-            .url("https://fed-skips.pstream.mov/$imdbId/$season/$episode")
-            .build()
-        runCatching {
-            httpClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return@withContext null
-                val raw = JSONObject(response.body?.string().orEmpty()).optString("introSkipTime")
-                raw.removeSuffix("s").toLongOrNull()?.times(1000)
-            }
-        }.getOrNull()
-    }
-
-    private fun parseSkipSegmentsFromTidb(json: JSONObject): List<SkipSegment> {
-        val types = listOf("intro", "recap", "credits", "preview")
-        return buildList {
-            types.forEach { type ->
-                val items = json.optJSONArray(type) ?: JSONArray()
-                for (i in 0 until items.length()) {
-                    val item = items.optJSONObject(i) ?: continue
-                    add(
-                        SkipSegment(
-                            type = type,
-                            startMs = item.optNullableLong("start_ms"),
-                            endMs = item.optNullableLong("end_ms"),
-                        )
-                    )
-                }
-            }
-        }
-    }
-
     private fun buildSkipSegmentsCacheKey(): String? {
         return when {
             mediaType == "movie" -> "skip-movie-$tmdbId"
             mediaType == "tv" && season != null && episode != null -> "skip-tv-$tmdbId-$season-$episode"
             else -> null
         }
-    }
-
-    private fun JSONObject.optNullableLong(key: String): Long? {
-        return if (isNull(key)) null else optLong(key)
     }
 
     private fun String.decodeRouteParam(): String {

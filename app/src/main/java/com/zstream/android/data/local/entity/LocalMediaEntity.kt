@@ -38,4 +38,5 @@ data class LocalMediaEntity(
     val posterPath: String? = null,
     val thumbnailPath: String? = null,
     val metadataTitle: String? = null,
+    val fingerprint: String? = null,
 )

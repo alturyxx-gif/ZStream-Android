@@ -305,9 +305,9 @@ private fun SeasonHeader(season: Int, theme: ZStreamTheme) {
 private fun LibraryCard(item: LibraryItem, theme: ZStreamTheme, isTv: Boolean, focusRequester: FocusRequester?, onClick: () -> Unit) {
     val title = itemTitle(item)
     val subtitle = when (item) {
-        is LibraryItem.DownloadMovie -> statusLabel(item.entity)
+        is LibraryItem.DownloadMovie -> "Movie · ${statusLabel(item.entity)}"
         is LibraryItem.DownloadShow -> showSummary(item.episodes)
-        is LibraryItem.LocalGroup -> if (item.mediaKind == "show") "${item.items.size} episodes" else "${item.items.size} files"
+        is LibraryItem.LocalGroup -> libraryGroupSummary(item.mediaKind, item.items)
     }
     val poster = when (item) {
         is LibraryItem.DownloadMovie -> posterUrl(item.entity.posterPath)
@@ -515,6 +515,22 @@ private fun showSummary(episodes: List<DownloadEntity>): String {
     val seasonLabel = if (seasons == 1) "1 season" else "$seasons seasons"
     val episodeLabel = if (episodes.size == 1) "1 episode" else "${episodes.size} episodes"
     return "$seasonLabel · $episodeLabel · $status"
+}
+
+/** [items] are pure local (never actual downloads) — "Downloaded" here means TMDB-tracked, "Local" means unmatched. */
+private fun libraryGroupSummary(mediaKind: String, items: List<LocalMediaEntity>): String {
+    val isTracked = items.any { it.tmdbId != null }
+    val status = if (isTracked) "Downloaded" else "Local"
+    return when (mediaKind) {
+        "show" -> {
+            val seasons = items.mapNotNull { it.season }.distinct().size
+            val seasonLabel = if (seasons == 1) "1 season" else "$seasons seasons"
+            val episodeLabel = if (items.size == 1) "1 episode" else "${items.size} episodes"
+            "$seasonLabel · $episodeLabel · $status"
+        }
+        "movie" -> "Movie · $status"
+        else -> "${items.size} ${if (items.size == 1) "file" else "files"} · $status"
+    }
 }
 
 private fun downloadTitleFor(entity: DownloadEntity): String {

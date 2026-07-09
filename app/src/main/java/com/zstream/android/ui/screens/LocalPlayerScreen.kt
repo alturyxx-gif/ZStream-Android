@@ -43,6 +43,8 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import androidx.navigation.NavController
 import com.zstream.android.data.LocalMediaRepository
+import com.zstream.android.data.LocalFileProgressRepository
+import com.zstream.android.data.buildLocalFileProgressId
 import com.zstream.android.data.local.dao.DownloadDao
 import com.zstream.android.data.local.preferences.SettingsPreferences
 import com.zstream.android.download.DownloadStorage
@@ -56,6 +58,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
@@ -75,6 +78,9 @@ sealed class LocalPlaybackSource {
         val tmdbType: String?,
         val posterPath: String?,
         val thumbnailPath: String?,
+        val season: Int?,
+        val episode: Int?,
+        val localFileId: String?,
     ) : LocalPlaybackSource()
     object NotFound : LocalPlaybackSource()
 }
@@ -86,20 +92,91 @@ class LocalPlayerViewModel @Inject constructor(
     private val storage: DownloadStorage,
     private val localMediaRepository: LocalMediaRepository,
     private val settingsPrefs: SettingsPreferences,
+    private val progressRepository: com.zstream.android.data.ProgressRepository,
+    private val localFileProgressRepository: LocalFileProgressRepository,
+    private val skipSegmentRepository: com.zstream.android.data.SkipSegmentRepository,
 ) : ViewModel() {
     private val downloadId: Long? = savedState.get<String>("downloadId")?.toLongOrNull()
     private val localMediaId: Long? = savedState.get<String>("localMediaId")?.toLongOrNull()
 
     private val _source = MutableStateFlow<LocalPlaybackSource?>(null)
     val source: StateFlow<LocalPlaybackSource?> = _source.asStateFlow()
+    private val _resumeWatchedSec = MutableStateFlow<Long?>(null)
+    val resumeWatchedSec: StateFlow<Long?> = _resumeWatchedSec.asStateFlow()
+    private val _skipSegments = MutableStateFlow<List<SkipSegment>>(emptyList())
+    val skipSegments: StateFlow<List<SkipSegment>> = _skipSegments.asStateFlow()
+    private var skipSegmentsCacheKey: String? = null
     val settings = settingsPrefs.settings
 
     init {
         viewModelScope.launch {
-            val loaded = withContext(Dispatchers.IO) {
-                loadDownload() ?: loadLocalMedia() ?: LocalPlaybackSource.NotFound
+            withContext(Dispatchers.IO) {
+                val loaded = loadDownload() ?: loadLocalMedia() ?: LocalPlaybackSource.NotFound
+                val resumeSec = (loaded as? LocalPlaybackSource.Ready)?.let { loadExistingProgress(it) }
+                _resumeWatchedSec.value = resumeSec
+                _source.value = loaded
             }
-            _source.value = loaded
+        }
+    }
+
+    private suspend fun loadExistingProgress(ready: LocalPlaybackSource.Ready): Long? {
+        return if (ready.tmdbId != null) {
+            val id = com.zstream.android.data.local.entity.ProgressEntity.computeId(ready.tmdbId, ready.season, ready.episode)
+            progressRepository.getProgressById(id)?.watched?.toLong()
+        } else if (ready.localFileId != null) {
+            localFileProgressRepository.get(ready.localFileId)?.watched?.toLong()
+        } else {
+            null
+        }
+    }
+
+    fun saveProgress(ready: LocalPlaybackSource.Ready, watchedSec: Long, durationSec: Long) {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                if (ready.tmdbId != null) {
+                    progressRepository.updateProgress(
+                        tmdbId = ready.tmdbId,
+                        title = ready.title,
+                        type = ready.tmdbType ?: "movie",
+                        watched = watchedSec.toInt(),
+                        duration = durationSec.toInt(),
+                        posterPath = ready.posterPath,
+                        episodeNumber = ready.episode,
+                        seasonNumber = ready.season,
+                    )
+                } else if (ready.localFileId != null) {
+                    localFileProgressRepository.update(
+                        id = ready.localFileId,
+                        title = ready.title,
+                        watched = watchedSec.toInt(),
+                        duration = durationSec.toInt(),
+                        posterPath = ready.posterPath,
+                        thumbnailPath = ready.thumbnailPath,
+                    )
+                }
+            }
+        }
+    }
+
+    fun loadSkipSegments(ready: LocalPlaybackSource.Ready, durationMs: Long) {
+        val tmdbId = ready.tmdbId ?: return
+        val mediaType = if (ready.tmdbType == "show") "tv" else ready.tmdbType ?: "movie"
+        val cacheKey = skipSegmentRepository.buildMediaKey(tmdbId, mediaType, ready.season, ready.episode) ?: return
+        if (skipSegmentsCacheKey == cacheKey) return
+
+        viewModelScope.launch {
+            val settingsValue = settingsPrefs.settings.first()
+            val resolvedSegments = skipSegmentRepository.getSegments(
+                tmdbId = tmdbId,
+                mediaType = mediaType,
+                season = ready.season,
+                episode = ready.episode,
+                durationMs = durationMs,
+                tidbKey = settingsValue.tidbKey,
+                febboxKey = settingsValue.febboxKey,
+            )
+            skipSegmentsCacheKey = cacheKey
+            _skipSegments.value = resolvedSegments
         }
     }
 
@@ -130,6 +207,9 @@ class LocalPlayerViewModel @Inject constructor(
             tmdbType = entity.type,
             posterPath = entity.posterPath,
             thumbnailPath = null,
+            season = entity.season,
+            episode = entity.episode,
+            localFileId = null,
         )
     }
 
@@ -154,6 +234,11 @@ class LocalPlayerViewModel @Inject constructor(
             tmdbType = media.tmdbType,
             posterPath = media.posterPath,
             thumbnailPath = media.thumbnailPath,
+            season = media.season,
+            episode = media.episode,
+            localFileId = if (media.tmdbId == null) {
+                buildLocalFileProgressId(media.fingerprint, media.folderId, media.documentUri)
+            } else null,
         )
     }
 

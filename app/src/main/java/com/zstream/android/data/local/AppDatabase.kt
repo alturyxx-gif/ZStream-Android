@@ -9,13 +9,17 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.zstream.android.data.local.dao.BookmarkDao
 import com.zstream.android.data.local.dao.DownloadDao
+import com.zstream.android.data.local.dao.LocalFileProgressDao
 import com.zstream.android.data.local.dao.LocalLibraryDao
 import com.zstream.android.data.local.dao.ProgressDao
+import com.zstream.android.data.local.dao.SkipSegmentDao
 import com.zstream.android.data.local.entity.BookmarkEntity
 import com.zstream.android.data.local.entity.DownloadEntity
+import com.zstream.android.data.local.entity.LocalFileProgressEntity
 import com.zstream.android.data.local.entity.LocalLibraryFolderEntity
 import com.zstream.android.data.local.entity.LocalMediaEntity
 import com.zstream.android.data.local.entity.ProgressEntity
+import com.zstream.android.data.local.entity.SkipSegmentEntity
 
 @Database(
     entities = [
@@ -24,8 +28,10 @@ import com.zstream.android.data.local.entity.ProgressEntity
         DownloadEntity::class,
         LocalLibraryFolderEntity::class,
         LocalMediaEntity::class,
+        LocalFileProgressEntity::class,
+        SkipSegmentEntity::class,
     ],
-    version = 7,
+    version = 9,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -34,6 +40,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun bookmarkDao(): BookmarkDao
     abstract fun downloadDao(): DownloadDao
     abstract fun localLibraryDao(): LocalLibraryDao
+    abstract fun localFileProgressDao(): LocalFileProgressDao
+    abstract fun skipSegmentDao(): SkipSegmentDao
 
     companion object {
         @Volatile
@@ -101,13 +109,51 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS local_file_progress (
+                        id TEXT PRIMARY KEY NOT NULL,
+                        title TEXT NOT NULL,
+                        posterPath TEXT,
+                        thumbnailPath TEXT,
+                        watched INTEGER NOT NULL,
+                        duration INTEGER NOT NULL,
+                        updatedAt INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS skip_segments (
+                        id TEXT PRIMARY KEY NOT NULL,
+                        mediaKey TEXT NOT NULL,
+                        segmentType TEXT NOT NULL,
+                        startMs INTEGER,
+                        endMs INTEGER,
+                        source TEXT NOT NULL,
+                        updatedAt INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_skip_segments_mediaKey ON skip_segments(mediaKey)")
+            }
+        }
+
+        private val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE local_media ADD COLUMN fingerprint TEXT")
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
                     "zstream.db"
-                ).addMigrations(MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7).build()
+                ).addMigrations(MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9).build()
                 INSTANCE = instance
                 instance
             }
