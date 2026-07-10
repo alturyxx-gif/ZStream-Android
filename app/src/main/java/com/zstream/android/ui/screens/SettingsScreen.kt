@@ -1,5 +1,6 @@
 package com.zstream.android.ui.screens
 
+import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.slideInVertically
@@ -877,10 +878,18 @@ private fun PluginVersionSection(vm: SettingsViewModel, theme: ZStreamTheme, isT
 }
 
 @Composable
-private fun SettingsRow(label: String, value: String, theme: ZStreamTheme) {
+private fun SettingsRow(label: String, value: String, theme: ZStreamTheme, onClick: (() -> Unit)? = null) {
+    val interactionSource = remember { MutableInteractionSource() }
     Row(
         Modifier
             .fillMaxWidth()
+            .then(
+                if (onClick != null) {
+                    Modifier.clickable(interactionSource = interactionSource, indication = null, onClick = onClick)
+                } else {
+                    Modifier
+                }
+            )
             .padding(horizontal = 16.dp, vertical = 14.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
@@ -964,6 +973,17 @@ private fun AccountSection(
 ) {
     var nickname by remember(session) { mutableStateOf(session?.nickname ?: "") }
     val scope = rememberCoroutineScope()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var versionTapCount by remember { mutableStateOf(0) }
+    var lastVersionTapAt by remember { mutableStateOf(0L) }
+    val onVersionTap: () -> Unit = onVersionTap@{
+        val now = System.currentTimeMillis()
+        versionTapCount = if (now - lastVersionTapAt <= 1500L) versionTapCount + 1 else 1
+        lastVersionTapAt = now
+        if (versionTapCount < 6) return@onVersionTap
+        versionTapCount = 0
+        Toast.makeText(context, "started with a spark now we're on fire", Toast.LENGTH_LONG).show()
+    }
 
     Column(Modifier
         .padding(horizontal = if (isTv) 16.dp else 0.dp)
@@ -1092,7 +1112,7 @@ private fun AccountSection(
                         .padding(end = 12.dp))
                 }
                 HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
-                TvSettingsRow(theme) {
+                TvSettingsRow(theme, onActivate = onVersionTap) {
                     Text("App Version", color = theme.colors.type.text, fontSize = 14.sp, modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 12.dp))
                     Text(com.zstream.android.BuildConfig.VERSION_NAME, color = theme.colors.type.secondary, fontSize = 13.sp, modifier = Modifier.padding(end = 12.dp))
                 }
@@ -1103,7 +1123,7 @@ private fun AccountSection(
             SettingsCard(theme) {
                 SettingsRow("Backend URL", com.zstream.android.Urls.BACKEND.removePrefix("https://").removePrefix("http://"), theme)
                 HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
-                SettingsRow("App Version", com.zstream.android.BuildConfig.VERSION_NAME, theme)
+                SettingsRow("App Version", com.zstream.android.BuildConfig.VERSION_NAME, theme, onClick = onVersionTap)
                 HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                 PluginVersionSection(vm = vm, theme = theme, isTv = false)
             }
