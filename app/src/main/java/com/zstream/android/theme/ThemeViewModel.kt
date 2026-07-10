@@ -20,6 +20,9 @@ class ThemeViewModel @Inject constructor(
     private val _currentTheme = mutableStateOf(ThemeRegistry.defaultTheme)
     val currentTheme: State<ZStreamTheme> = _currentTheme
 
+    private val _currentFont = mutableStateOf("onest")
+    val currentFont: State<String> = _currentFont
+
     init {
         viewModelScope.launch {
             settingsPreferences.settings
@@ -28,6 +31,13 @@ class ThemeViewModel @Inject constructor(
                 }
                 .collect { theme ->
                     _currentTheme.value = theme
+                }
+        }
+        viewModelScope.launch {
+            settingsPreferences.settings
+                .map { settings -> settings.applicationFont }
+                .collect { font ->
+                    _currentFont.value = font
                 }
         }
     }

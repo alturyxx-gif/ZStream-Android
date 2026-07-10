@@ -1938,6 +1938,21 @@ private fun AppearanceSection(
                 )
             }
         }
+
+        Spacer(Modifier.height(16.dp))
+        SectionLabel("Font", theme)
+        SettingsCard(theme) {
+            ZsDropdownRow(
+                "Application Font",
+                com.zstream.android.ui.theme.AppFonts.options.map { it.displayName },
+                com.zstream.android.ui.theme.AppFonts.byId(settings.applicationFont).displayName,
+                { displayName ->
+                    val selected = com.zstream.android.ui.theme.AppFonts.options.find { it.displayName == displayName }
+                    if (selected != null) vm.setApplicationFont(selected.id)
+                },
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
+        }
     }
 }
 

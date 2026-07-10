@@ -35,6 +35,7 @@ class SettingsPreferences @Inject constructor(
 
     // UI/Display Settings
     private val KEY_APPLICATION_THEME = stringPreferencesKey("application_theme")
+    private val KEY_APPLICATION_FONT = stringPreferencesKey("application_font")
     private val KEY_CUSTOM_THEME = stringPreferencesKey("custom_theme")
     private val KEY_APPLICATION_LANGUAGE = stringPreferencesKey("application_language")
     private val KEY_ENABLE_THUMBNAILS = booleanPreferencesKey("enable_thumbnails")
@@ -124,6 +125,7 @@ class SettingsPreferences @Inject constructor(
     val settings: Flow<SettingsEntity> = context.settingsStore.data.map { prefs ->
         SettingsEntity(
             applicationTheme = prefs[KEY_APPLICATION_THEME] ?: "classic",
+            applicationFont = prefs[KEY_APPLICATION_FONT] ?: "onest",
             customTheme = decodeCustomTheme(prefs[KEY_CUSTOM_THEME]),
             applicationLanguage = prefs[KEY_APPLICATION_LANGUAGE] ?: "en",
             defaultSubtitleLanguage = prefs[KEY_DEFAULT_SUBTITLE_LANGUAGE]
@@ -197,6 +199,7 @@ class SettingsPreferences @Inject constructor(
     suspend fun updateSettings(entity: SettingsEntity, syncToRemote: Boolean = true) {
         context.settingsStore.edit { prefs ->
             prefs[KEY_APPLICATION_THEME] = entity.applicationTheme
+            prefs[KEY_APPLICATION_FONT] = entity.applicationFont
             if (entity.customTheme != null) {
                 prefs[KEY_CUSTOM_THEME] = gson.toJson(entity.customTheme)
             } else {
@@ -320,6 +323,7 @@ class SettingsPreferences @Inject constructor(
             val currentDefaultPlaybackSpeed = current[KEY_DEFAULT_PLAYBACK_SPEED]?.toFloatOrNull() ?: 1f
             val currentDoubleTapSeekSeconds = current[KEY_DOUBLE_TAP_SEEK_SECONDS] ?: 10
             val currentGridRows = (current[KEY_GRID_ROWS] ?: 2).coerceIn(1, 8)
+            val currentApplicationFont = current[KEY_APPLICATION_FONT] ?: "onest"
 
             val mappedHomeSectionOrder = remote.homeSectionOrder?.map { section ->
                 when (section) {
@@ -330,6 +334,7 @@ class SettingsPreferences @Inject constructor(
 
             updateSettings(SettingsEntity(
                 applicationTheme = remote.applicationTheme ?: "classic",
+                applicationFont = currentApplicationFont,
                 customTheme = remote.customTheme?.toEntity(),
                 applicationLanguage = remote.applicationLanguage ?: "en",
                 defaultSubtitleLanguage = remote.defaultSubtitleLanguage,
@@ -429,6 +434,12 @@ class SettingsPreferences @Inject constructor(
     suspend fun setApplicationTheme(theme: String) {
         context.settingsStore.edit { prefs ->
             prefs[KEY_APPLICATION_THEME] = theme
+        }
+    }
+
+    suspend fun setApplicationFont(font: String) {
+        context.settingsStore.edit { prefs ->
+            prefs[KEY_APPLICATION_FONT] = font
         }
     }
 
