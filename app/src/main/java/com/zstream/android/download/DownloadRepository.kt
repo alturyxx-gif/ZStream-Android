@@ -272,6 +272,24 @@ class DownloadRepository @Inject constructor(
                 }.onFailure { Log.w(TAG, "Subtitle download failed for ${caption.langIso}: ${it.message}") }
             }
 
+            val metadataEntry = DownloadIndexEntry(
+                tmdbId = entity.tmdbId,
+                type = entity.type,
+                title = entity.title,
+                season = entity.season,
+                episode = entity.episode,
+                episodeTitle = entity.episodeTitle,
+                sourceId = entity.sourceId,
+                variantId = entity.variantId,
+                qualityLabel = entity.qualityLabel,
+                posterPath = entity.posterPath,
+                filePath = videoFile.displayPath,
+                subtitlePaths = subtitleFiles.map { it.second.displayPath },
+                finishedAt = System.currentTimeMillis(),
+            )
+            runCatching { storage.appendMetadataBox(videoFile, requestCodecGson.toJson(metadataEntry)) }
+                .onFailure { Log.w(TAG, "Failed to embed recovery metadata in ${videoFile.displayPath}: ${it.message}") }
+
             storage.finalize(videoFile)
             val finalSize = storage.fileSize(videoFile)
             val fingerprint = VideoFingerprint.compute(appContext, videoFile.playableUri(), finalSize, null)

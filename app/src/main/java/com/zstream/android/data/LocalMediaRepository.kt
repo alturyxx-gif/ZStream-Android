@@ -12,7 +12,6 @@ import com.zstream.android.data.local.entity.DownloadEntity
 import com.zstream.android.data.local.entity.DownloadStatus
 import com.zstream.android.data.local.entity.LocalLibraryFolderEntity
 import com.zstream.android.data.local.entity.LocalMediaEntity
-import com.zstream.android.download.DOWNLOAD_INDEX_DISPLAY_NAME
 import com.zstream.android.download.DownloadStorage
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
@@ -294,9 +293,6 @@ class LocalMediaRepository @Inject constructor(
 
     private fun isVideo(name: String, mime: String?): Boolean {
         if (name.startsWith(".") || name.contains(".pending-", ignoreCase = true)) return false
-        // Disguised as video/mp4 for MediaStore permission purposes (see DownloadStorage's
-        // writeIndexJson doc comment) -- it's actually plain JSON text, not a real video.
-        if (name == DOWNLOAD_INDEX_DISPLAY_NAME) return false
         if (mime?.startsWith("video/") == true) return true
         return name.substringAfterLast('.', "").lowercase() in setOf("mp4", "mkv", "webm", "avi", "mov", "m4v")
     }

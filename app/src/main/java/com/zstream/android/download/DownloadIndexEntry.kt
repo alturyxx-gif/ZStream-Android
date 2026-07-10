@@ -4,9 +4,10 @@ import com.zstream.android.data.local.entity.DownloadEntity
 import com.zstream.android.data.local.entity.DownloadStatus
 
 /**
- * Persisted shape for the recovery index written to public storage (see DownloadStorage's
- * writeIndexJson/readIndexJson). Deliberately decoupled from DownloadEntity — a future Room
- * migration to that entity must not silently change what an old index file deserializes into.
+ * Persisted shape for the metadata atom embedded directly into each downloaded video file (see
+ * DownloadStorage's appendMetadataBox/readMetadataBox). Deliberately decoupled from DownloadEntity
+ * — a future Room migration to that entity must not silently change what an old embedded box
+ * deserializes into.
  */
 data class DownloadIndexEntry(
     val tmdbId: String,
@@ -24,27 +25,6 @@ data class DownloadIndexEntry(
     val subtitlePaths: List<String>? = null,
     val finishedAt: Long? = null,
 )
-
-/** Null if this row has no file yet (shouldn't happen for a DONE download, but guards defensively). */
-fun DownloadEntity.toIndexEntry(): DownloadIndexEntry? {
-    val path = filePath ?: return null
-    return DownloadIndexEntry(
-        tmdbId = tmdbId,
-        type = type,
-        title = title,
-        season = season,
-        episode = episode,
-        episodeTitle = episodeTitle,
-        sourceId = sourceId,
-        variantId = variantId,
-        qualityLabel = qualityLabel,
-        posterPath = posterPath,
-        filePath = path,
-        contentFingerprint = contentFingerprint,
-        subtitlePaths = subtitlePaths,
-        finishedAt = finishedAt,
-    )
-}
 
 fun DownloadIndexEntry.toDownloadEntity(): DownloadEntity = DownloadEntity(
     tmdbId = tmdbId,
