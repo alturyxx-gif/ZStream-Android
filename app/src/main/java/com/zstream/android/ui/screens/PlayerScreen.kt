@@ -639,8 +639,12 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                                 val showUseButton = source.status == SourceStatus.SUCCESS
                                 val useButtonFocusRequester = remember(source.id) { FocusRequester() }
                                 var isRowFocused by remember(source.id) { mutableStateOf(false) }
+                                val wasFocusedPriorToResolve = remember(source.id) { mutableStateOf(false) }
+                                LaunchedEffect(isRowFocused) {
+                                    if (!showUseButton) wasFocusedPriorToResolve.value = isRowFocused
+                                }
                                 LaunchedEffect(showUseButton) {
-                                    if (showUseButton && isRowFocused) {
+                                    if (showUseButton && wasFocusedPriorToResolve.value) {
                                         runCatching { useButtonFocusRequester.requestFocus() }
                                     }
                                 }
@@ -1186,10 +1190,41 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                 var lastInteractionTime by remember { mutableLongStateOf(System.currentTimeMillis()) }
                 val updateActivity = { lastInteractionTime = System.currentTimeMillis() }
                 val tryNextSourceFocusRequester = remember { FocusRequester() }
+                val sourcesFocusRequester = remember { FocusRequester() }
+                val variantsFocusRequester = remember { FocusRequester() }
+                // Locked once a source error hides the controls on TV -- stays locked (controls
+                // cannot be reopened by any key/touch) until a genuinely new stream starts, which
+                // is tracked by streamUrl identity below.
+                var errorControlsLocked by remember { mutableStateOf(false) }
+                // Which error-overlay button (Sources or Variants) opened the currently-open
+                // menu, if any -- lets the back key inside that menu return focus to the button
+                // that opened it, instead of the normal close/goBack navigation.
+                var errorMenuOrigin by remember { mutableStateOf<PlayerMenuPage?>(null) }
                 LaunchedEffect(isPlaybackFailed, isTv) {
                     if (isPlaybackFailed && isTv) {
                         controlsVisible = false
-                        tryNextSourceFocusRequester.requestFocus()
+                        errorControlsLocked = true
+                        menuBackstack.clear()
+                        showInfoSheet = false
+                        // Unconditional -- retry a few times a frame apart since the error
+                        // overlay's button may not have finished attaching to the focus tree
+                        // yet on the same frame this effect fires.
+                        repeat(5) {
+                            runCatching { tryNextSourceFocusRequester.requestFocus() }
+                            kotlinx.coroutines.delay(16)
+                        }
+                    }
+                }
+                LaunchedEffect(s.streamUrl) {
+                    errorControlsLocked = false
+                    errorMenuOrigin = null
+                }
+                // Re-focus the hidden player surface whenever the controls bar (and its
+                // focusable buttons) leaves composition, so D-pad center/enter still reaches
+                // the key handler below instead of landing on a stale/removed focus target.
+                LaunchedEffect(controlsVisible, isPlaybackFailed, isTv) {
+                    if (!controlsVisible && !isPlaybackFailed && isTv) {
+                        runCatching { playerFocusRequester.requestFocus() }
                     }
                 }
 
@@ -1341,10 +1376,17 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                             when (keyEvent.nativeKeyEvent.keyCode) {
                                 android.view.KeyEvent.KEYCODE_DPAD_CENTER,
                                 android.view.KeyEvent.KEYCODE_ENTER,
-                                android.view.KeyEvent.KEYCODE_BUTTON_A,
+                                android.view.KeyEvent.KEYCODE_BUTTON_A -> {
+                                    if (!controlsVisible) {
+                                        if (player.isPlaying) player.pause() else player.play()
+                                        updateActivity()
+                                        true
+                                    } else false
+                                }
+
                                 android.view.KeyEvent.KEYCODE_DPAD_UP,
                                 android.view.KeyEvent.KEYCODE_DPAD_DOWN -> {
-                                    if (!controlsVisible) {
+                                    if (!controlsVisible && !errorControlsLocked) {
                                         controlsVisible = true
                                         updateActivity()
                                         true
@@ -1352,7 +1394,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                                 }
 
                                 android.view.KeyEvent.KEYCODE_DPAD_LEFT -> {
-                                    if (!controlsVisible) {
+                                    if (!controlsVisible && !errorControlsLocked) {
                                         player.seekTo(
                                             (player.currentPosition - 10_000).coerceAtLeast(
                                                 0
@@ -1365,7 +1407,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                                 }
 
                                 android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                                    if (!controlsVisible) {
+                                    if (!controlsVisible && !errorControlsLocked) {
                                         player.seekTo(
                                             (player.currentPosition + 10_000).coerceAtMost(
                                                 player.duration
@@ -1446,7 +1488,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                             sourceId = s.sourceId,
                             onTryNextSource = vm::retryNextSourceAfterError,
                             onOpenSources = {
-                                controlsVisible = true
+                                errorMenuOrigin = PlayerMenuPage.Sources
                                 onMenuPageChange(PlayerMenuPage.Sources)
                                 updateActivity()
                             },
@@ -1456,6 +1498,14 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                             },
                             onReload = vm::reloadCurrentSource,
                             tryNextSourceFocusRequester = tryNextSourceFocusRequester,
+                            sourcesFocusRequester = sourcesFocusRequester,
+                            variantsFocusRequester = variantsFocusRequester,
+                            hasVariants = s.variants.isNotEmpty(),
+                            onOpenVariants = {
+                                errorMenuOrigin = PlayerMenuPage.Variants
+                                onMenuPageChange(PlayerMenuPage.Variants)
+                                updateActivity()
+                            },
                             modifier = Modifier.fillMaxSize()
                         )
                     }
@@ -1735,6 +1785,17 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     menuPage = menuPage,
                     onMenuBack = goBackMenuPage,
                     onMenuPageChange = onMenuPageChange,
+                    hideMenuBackFor = errorMenuOrigin,
+                    onErrorMenuBackPressed = {
+                        closeMenu()
+                        when (errorMenuOrigin) {
+                            PlayerMenuPage.Sources -> sourcesFocusRequester.requestFocus()
+                            PlayerMenuPage.Variants -> variantsFocusRequester.requestFocus()
+                            else -> {}
+                        }
+                        errorMenuOrigin = null
+                    },
+                    errorControlsLocked = errorControlsLocked,
                     allProgress = progressList,
                     currentSeason = vm.season,
                     currentEpisode = vm.episode,
@@ -2412,6 +2473,9 @@ private fun PlayerControls(
     menuPage: PlayerMenuPage?,
     onMenuBack: () -> Unit,
     onMenuPageChange: (PlayerMenuPage?) -> Unit,
+    hideMenuBackFor: PlayerMenuPage? = null,
+    onErrorMenuBackPressed: (() -> Unit)? = null,
+    errorControlsLocked: Boolean = false,
     allProgress: List<com.zstream.android.data.local.entity.ProgressEntity>,
     currentSeason: Int?,
     currentEpisode: Int?,
@@ -2531,7 +2595,9 @@ private fun PlayerControls(
     }
 
     LaunchedEffect(menuOpen) {
-        if (menuOpen && !controlsVisible) {
+        // Sources/Variants opened from the source-error page must keep the controls bar
+        // locked hidden -- only the menu overlay itself should become visible.
+        if (menuOpen && !controlsVisible && !errorControlsLocked) {
             onControlsVisibilityChanged(true)
         }
     }
@@ -3443,21 +3509,21 @@ private fun PlayerControls(
         val menuFirstItemFocusRequester = remember { FocusRequester() }
         LaunchedEffect(menuOpen) {
             if (menuOpen && isTv) {
-                android.util.Log.d("PlayerFocus", "Menu opened, requesting focus on menuFirstItemFocusRequester, source=$menuSourceRequester")
-                menuFirstItemFocusRequester.requestFocus()
-                android.util.Log.d("PlayerFocus", "Menu focus request completed")
+                repeat(5) {
+                    runCatching { menuFirstItemFocusRequester.requestFocus() }
+                    delay(16)
+                }
             } else if (!menuOpen && isTv && menuSourceRequester != null) {
-                android.util.Log.d("PlayerFocus", "Menu closed, restoring focus to source=$menuSourceRequester")
-                menuSourceRequester!!.requestFocus()
+                runCatching { menuSourceRequester!!.requestFocus() }
                 menuSourceRequester = null
-                android.util.Log.d("PlayerFocus", "Focus restoration completed")
             }
         }
         LaunchedEffect(menuPage) {
             if (menuPage != null && isTv) {
-                android.util.Log.d("PlayerFocus", "Menu page changed to $menuPage, requesting focus on first item")
-                menuFirstItemFocusRequester.requestFocus()
-                android.util.Log.d("PlayerFocus", "Page focus request completed")
+                repeat(5) {
+                    runCatching { menuFirstItemFocusRequester.requestFocus() }
+                    delay(16)
+                }
             }
         }
         // Quality/audio options for a download load asynchronously after navigating to their
@@ -3490,9 +3556,11 @@ private fun PlayerControls(
                     .then(if (isTv) Modifier.focusProperties { canFocus = false } else Modifier)
                     .onKeyEvent {
                         if (isTv && it.type == KeyEventType.KeyDown && it.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_BACK) {
-                            onMenuPageChange(
-                                null
-                            )
+                            if (menuPage == hideMenuBackFor && onErrorMenuBackPressed != null) {
+                                onErrorMenuBackPressed()
+                            } else {
+                                onMenuPageChange(null)
+                            }
                             true
                         } else false
                     }
@@ -3538,6 +3606,7 @@ private fun PlayerControls(
                 ) {
                     PlayerMenuContent(
                         page = menuPage ?: PlayerMenuPage.Root,
+                        hideBackButton = menuPage != null && menuPage == hideMenuBackFor,
                         title = title,
                         settings = settings,
                         sourceId = readyState.sourceId,
@@ -4185,6 +4254,7 @@ private fun SkipSegmentOverlay(
 @Composable
 private fun PlayerMenuContent(
     page: PlayerMenuPage,
+    hideBackButton: Boolean = false,
     title: String,
     settings: com.zstream.android.data.local.entity.SettingsEntity,
     sourceId: String?,
@@ -4327,7 +4397,7 @@ private fun PlayerMenuContent(
                     PlayerMenuPage.Variants -> "Stream Variants"
                     PlayerMenuPage.LocalFile -> "File"
                 },
-                showBack = true,
+                showBack = !hideBackButton,
                 onBack = onBack,
                 rightContent = if (page == PlayerMenuPage.Captions) {
                     {
@@ -4856,8 +4926,12 @@ private fun PlayerMenuContent(
                                     if (index == 0 && firstItemFocusRequester != null) firstItemFocusRequester else FocusRequester()
                                 }
                                 var isRowFocused by remember(source.id) { mutableStateOf(false) }
+                                val wasFocusedPriorToResolve = remember(source.id) { mutableStateOf(false) }
+                                LaunchedEffect(isRowFocused) {
+                                    if (!showUseButton) wasFocusedPriorToResolve.value = isRowFocused
+                                }
                                 LaunchedEffect(showUseButton) {
-                                    if (showUseButton && isRowFocused) {
+                                    if (showUseButton && wasFocusedPriorToResolve.value) {
                                         runCatching { useButtonFocusRequester.requestFocus() }
                                     }
                                 }
@@ -6543,18 +6617,25 @@ private fun ManualSourceStatusContent(
             }
         }
         SourceStatus.SUCCESS -> {
+            val isTv = LocalIsTv.current
+            var useButtonFocused by remember { mutableStateOf(false) }
+            val useButtonShape = RoundedCornerShape(8.dp)
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 ZsCheckmark()
-                TextButton(
-                    onClick = onUse,
-                    colors = ButtonDefaults.textButtonColors(contentColor = theme.colors.type.emphasis),
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.type.emphasis.copy(alpha = 0.15f)),
-                    modifier = Modifier
-                        .height(28.dp)
-                        .then(if (useButtonFocusRequester != null) Modifier.focusRequester(useButtonFocusRequester) else Modifier)
-                ) {
-                    Text("Use", fontSize = 12.sp)
+                ZsOutlinedWrapper(visible = isTv && useButtonFocused, shape = useButtonShape, gap = 2.dp) {
+                    TextButton(
+                        onClick = onUse,
+                        shape = useButtonShape,
+                        colors = ButtonDefaults.textButtonColors(contentColor = theme.colors.type.emphasis),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.type.emphasis.copy(alpha = 0.15f)),
+                        modifier = Modifier
+                            .height(28.dp)
+                            .then(if (useButtonFocusRequester != null) Modifier.focusRequester(useButtonFocusRequester) else Modifier)
+                            .onFocusChanged { useButtonFocused = it.isFocused }
+                    ) {
+                        Text("Use", fontSize = 12.sp)
+                    }
                 }
             }
         }
@@ -6660,8 +6741,21 @@ private fun PlaybackErrorOverlay(
     onReload: () -> Unit,
     modifier: Modifier = Modifier,
     tryNextSourceFocusRequester: FocusRequester? = null,
+    sourcesFocusRequester: FocusRequester? = null,
+    variantsFocusRequester: FocusRequester? = null,
+    hasVariants: Boolean = false,
+    onOpenVariants: (() -> Unit)? = null,
 ) {
     val theme = LocalZStreamTheme.current
+    val isTv = LocalIsTv.current
+    LaunchedEffect(Unit) {
+        if (isTv) {
+            repeat(5) {
+                runCatching { tryNextSourceFocusRequester?.requestFocus() }
+                kotlinx.coroutines.delay(16)
+            }
+        }
+    }
     Box(
         modifier = modifier
             .clickable(
@@ -6726,23 +6820,49 @@ private fun PlaybackErrorOverlay(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Button(
-                        onClick = onTryNextSource,
-                        modifier = Modifier
-                            .weight(1f)
-                            .then(
-                                if (tryNextSourceFocusRequester != null) Modifier.focusRequester(tryNextSourceFocusRequester) else Modifier
-                            ),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Text("Try next source")
+                    var tryNextFocused by remember { mutableStateOf(false) }
+                    ZsOutlinedWrapper(visible = isTv && tryNextFocused, shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f)) {
+                        Button(
+                            onClick = onTryNextSource,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .then(
+                                    if (tryNextSourceFocusRequester != null) Modifier.focusRequester(tryNextSourceFocusRequester) else Modifier
+                                )
+                                .onFocusChanged { tryNextFocused = it.isFocused },
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text("Try next source")
+                        }
                     }
-                    OutlinedButton(
-                        onClick = onOpenSources,
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Text("Sources")
+                    var sourcesFocused by remember { mutableStateOf(false) }
+                    ZsOutlinedWrapper(visible = isTv && sourcesFocused, shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f)) {
+                        OutlinedButton(
+                            onClick = onOpenSources,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .then(if (sourcesFocusRequester != null) Modifier.focusRequester(sourcesFocusRequester) else Modifier)
+                                .onFocusChanged { sourcesFocused = it.isFocused },
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text("Sources")
+                        }
+                    }
+                }
+                if (hasVariants && onOpenVariants != null) {
+                    Spacer(Modifier.height(12.dp))
+                    var variantsFocused by remember { mutableStateOf(false) }
+                    ZsOutlinedWrapper(visible = isTv && variantsFocused, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
+                        OutlinedButton(
+                            onClick = onOpenVariants,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .then(if (variantsFocusRequester != null) Modifier.focusRequester(variantsFocusRequester) else Modifier)
+                                .onFocusChanged { variantsFocused = it.isFocused },
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text("Variants")
+                        }
                     }
                 }
                 Spacer(Modifier.height(12.dp))
@@ -6750,19 +6870,29 @@ private fun PlaybackErrorOverlay(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    OutlinedButton(
-                        onClick = onShowDetails,
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Text("Show error details")
+                    var detailsFocused by remember { mutableStateOf(false) }
+                    ZsOutlinedWrapper(visible = isTv && detailsFocused, shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f)) {
+                        OutlinedButton(
+                            onClick = onShowDetails,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .onFocusChanged { detailsFocused = it.isFocused },
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text("Show error details")
+                        }
                     }
-                    OutlinedButton(
-                        onClick = onReload,
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Text("Reload source")
+                    var reloadFocused by remember { mutableStateOf(false) }
+                    ZsOutlinedWrapper(visible = isTv && reloadFocused, shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f)) {
+                        OutlinedButton(
+                            onClick = onReload,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .onFocusChanged { reloadFocused = it.isFocused },
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text("Reload source")
+                        }
                     }
                 }
                 Spacer(Modifier.height(12.dp))
