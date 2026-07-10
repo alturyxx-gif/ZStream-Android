@@ -884,7 +884,7 @@ class PlayerViewModel @OptIn(UnstableApi::class)
             return
         }
         desiredVariantName = variant.name
-        _state.value = current.copy(streamUrl = variant.streamUrl)
+        _state.value = current.copy(streamUrl = variant.streamUrl, playbackFailure = null)
             .copy(streamType = variant.streamType, headers = if (variant.headers.isNotEmpty()) variant.headers else current.headers)
     }
 
@@ -1044,15 +1044,14 @@ class PlayerViewModel @OptIn(UnstableApi::class)
                 return@launch
             }
 
-            awaitingRecoveryPlayback = true
-            _recoveryNotice.emit("Auto retrying")
-
             if (errorCode == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS) {
                 when (httpStatus) {
                     403 -> {
                         // Signed URL expired — re-resolve immediately to get fresh URLs.
                         // Pass the currently-playing variant as a hint so the source
                         // can prioritise refreshing that URL.
+                        awaitingRecoveryPlayback = true
+                        _recoveryNotice.emit("Auto retrying")
                         val playingVariantId = current.variants
                             .firstOrNull { it.streamUrl == current.streamUrl }?.id
                         Log.w("PlaybackRecovery", "403 on source ${current.sourceId}; re-resolving (URL expired, variant=$playingVariantId)")
@@ -1060,54 +1059,36 @@ class PlayerViewModel @OptIn(UnstableApi::class)
                         return@launch
                     }
                     429 -> {
-                        // Rate-limited — this variant's URL is being throttled.
-                        // Mark it failed and try the next variant; if exhausted, wait before re-resolving.
-                        Log.w("PlaybackRecovery", "429 on source ${current.sourceId}; variant rate-limited, trying next")
+                        // Rate-limited — this variant's URL is being throttled. Wait it out and
+                        // re-resolve rather than cycling variants (a rate limit tends to apply
+                        // to the whole source, not just this URL).
+                        awaitingRecoveryPlayback = true
+                        _recoveryNotice.emit("Auto retrying")
+                        Log.w("PlaybackRecovery", "429 on source ${current.sourceId}; waiting 5s before re-resolve")
                         failedVariantUrls += current.streamUrl
-                        val nextVariant = nextUnfailedVariantUrl(current.streamUrl, current.variants, failedVariantUrls)
-                        if (nextVariant != null) {
-                            _state.value = current.copy(streamUrl = nextVariant, failedVariantUrls = failedVariantUrls.toSet())
-                            return@launch
-                        }
-                        // All variants rate-limited — wait before re-resolving to let the CDN cool down
-                        Log.w("PlaybackRecovery", "all variants rate-limited; waiting 5s before re-resolve")
                         kotlinx.coroutines.delay(5_000)
                         failedVariantUrls.clear()
                         loadInternal(automaticRecovery = true)
                         return@launch
                     }
                     else -> {
-                        // Unknown HTTP error — fall through to variant cycling below
+                        // Unknown HTTP error — fall through to the plain variant-failure path below.
                     }
                 }
             }
 
             failedVariantUrls += current.streamUrl
 
-            // Try next unfailed variant for any source (not just Artemis)
-            val nextVariant = nextUnfailedVariantUrl(current.streamUrl, current.variants, failedVariantUrls)
-            if (nextVariant != null) {
-                Log.w("PlaybackRecovery", "variant failed; trying $nextVariant")
-                _state.value = current.copy(
-                    streamUrl = nextVariant,
-                    failedVariantUrls = failedVariantUrls.toSet(),
-                )
-                return@launch
-            }
-
-            // All variants exhausted — try next source
-            val sourceId = current.sourceId
-            if (sourceId == null || !failedPlaybackSourceIds.add(sourceId)) {
-                _state.value = current.copy(
-                    playbackFailure = PlaybackFailure(
-                        message = "Playback failed after trying available alternatives: $message",
-                        details = details,
-                    )
-                )
-                return@launch
-            }
-            Log.w("PlaybackRecovery", "source ${current.sourceId} failed; restarting with it last")
-            loadInternal(automaticRecovery = true, deprioritizedSourceId = sourceId)
+            // Mark this variant failed (shows the fail icon beside it in the variant picker) and
+            // toast it — the user picks the next variant themselves.
+            val sourceLabel = current.sourceId.orEmpty().replaceFirstChar { it.uppercase() }
+            val variantLabel = current.variants.find { it.streamUrl == current.streamUrl }?.displayLabel()
+            Log.w("PlaybackRecovery", "variant failed; sourceId=${current.sourceId} variant=$variantLabel")
+            awaitingRecoveryPlayback = false
+            _recoveryNotice.tryEmit(
+                "$sourceLabel${variantLabel?.let { " · $it" }.orEmpty()} source failed! Try another"
+            )
+            _state.value = current.copy(failedVariantUrls = failedVariantUrls.toSet())
         }
     }
 
