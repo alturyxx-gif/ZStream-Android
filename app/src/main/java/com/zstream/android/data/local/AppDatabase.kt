@@ -31,6 +31,7 @@ import com.zstream.android.data.local.entity.SkipSegmentEntity
         LocalFileProgressEntity::class,
         SkipSegmentEntity::class,
     ],
+
     version = 11,
     exportSchema = false
 )
