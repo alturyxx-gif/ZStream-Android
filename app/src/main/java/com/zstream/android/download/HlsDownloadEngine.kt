@@ -29,7 +29,7 @@ private const val TAG = "HlsDownloadEngine"
 // the radio/CPU with everything else running on-device, unlike a dedicated desktop machine.
 // Reduced when "Allow parallel download" is on (see DownloadRepository.run()), since multiple
 // downloads then compete for the same radio/CPU at once.
-const val DEFAULT_SEGMENT_WORKERS = 14
+const val DEFAULT_SEGMENT_WORKERS = 12
 const val PARALLEL_MODE_SEGMENT_WORKERS = 10
 
 data class HlsDownloadProgress(
@@ -203,18 +203,34 @@ class HlsDownloadEngine(private val client: OkHttpClient) {
         return plain.size.toLong()
     }
 
+    private class RateLimited(val retryAfterMs: Long?) : Exception()
+
     /**
-     * Segment CDNs commonly rate-limit (HTTP 429) under our parallel-worker load — retry with
-     * backoff instead of failing the whole download the first time one segment gets throttled.
+     * Segment CDNs commonly rate-limit (HTTP 429) under our parallel-worker load. 429s get their
+     * own much more patient retry budget than genuine errors (5xx/network) — honoring the
+     * upstream's own Retry-After header when it sends one, falling back to capped exponential
+     * backoff otherwise — instead of giving up on the whole download the first time a segment
+     * gets throttled.
      */
-    private suspend fun fetchWithRetry(url: String, headers: Map<String, String>, maxAttempts: Int = 5): ByteArray {
+    private suspend fun fetchWithRetry(
+        url: String,
+        headers: Map<String, String>,
+        maxAttempts: Int = 5,
+        maxRateLimitAttempts: Int = 30,
+    ): ByteArray {
         var lastError: Exception? = null
-        for (attempt in 0 until maxAttempts) {
-            if (attempt > 0) kotlinx.coroutines.delay(500L * (1L shl (attempt - 1))) // 500ms, 1s, 2s, 4s
+        var otherAttempts = 0
+        var rateLimitAttempts = 0
+        while (true) {
             val request = Request.Builder().url(url).headers(downloadHeaders(headers)).build()
             try {
                 client.newCall(request).execute().use { resp ->
-                    if (resp.code == 429 || resp.code in 500..599) {
+                    if (resp.code == 429) {
+                        val retryAfterMs = resp.header("Retry-After")?.trim()?.toLongOrNull()?.times(1000)
+                        lastError = RateLimited(retryAfterMs)
+                        return@use
+                    }
+                    if (resp.code in 500..599) {
                         lastError = IllegalStateException("Segment fetch failed: HTTP ${resp.code}")
                         return@use
                     }
@@ -224,8 +240,19 @@ class HlsDownloadEngine(private val client: OkHttpClient) {
             } catch (t: Exception) {
                 lastError = t
             }
+
+            val err = lastError
+            if (err is RateLimited) {
+                rateLimitAttempts++
+                if (rateLimitAttempts >= maxRateLimitAttempts) throw IllegalStateException("Segment rate limited after $rateLimitAttempts attempts")
+                val delayMs = err.retryAfterMs ?: (1000L * (1L shl minOf(rateLimitAttempts - 1, 5))).coerceAtMost(30_000L)
+                kotlinx.coroutines.delay(delayMs)
+            } else {
+                otherAttempts++
+                if (otherAttempts >= maxAttempts) throw err ?: IllegalStateException("Segment fetch failed after $otherAttempts attempts")
+                kotlinx.coroutines.delay(500L * (1L shl (otherAttempts - 1))) // 500ms, 1s, 2s, 4s
+            }
         }
-        throw lastError ?: IllegalStateException("Segment fetch failed after $maxAttempts attempts")
     }
 
     private fun decryptAes128(data: ByteArray, keyBytes: ByteArray, ivHex: String): ByteArray {
@@ -371,7 +398,7 @@ class HlsDownloadEngine(private val client: OkHttpClient) {
         if (segments.isEmpty() || (videoMuxIndex == -1 && audioMuxIndex == -1)) return
         var lastReportedPct = -1
         val bufferInfo = MediaCodec.BufferInfo()
-        val buffer = java.nio.ByteBuffer.allocate(1 shl 20) // 1MB, grown below if a sample is bigger
+        val buffer = java.nio.ByteBuffer.allocate(8 shl 20)
 
         for ((index, entry) in segments.withIndex()) {
             // awaitSegmentReady() only suspends when it actually has to wait, so a backlog-catchup
@@ -397,6 +424,7 @@ class HlsDownloadEngine(private val client: OkHttpClient) {
 
                 val firstPtsPerTrack = mutableMapOf<Int, Long>()
                 while (true) {
+                    buffer.clear()
                     val sampleSize = extractor.readSampleData(buffer, 0)
                     if (sampleSize < 0) break
                     val extractorTrack = extractor.sampleTrackIndex

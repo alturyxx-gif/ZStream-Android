@@ -43,7 +43,7 @@ class DownloadIndexSync @Inject constructor(
     }
 
     /** One-shot: re-inserts any indexed download missing from the DB, provided its file is still there. */
-    private suspend fun reconcile() = withContext(Dispatchers.IO) {
+    suspend fun reconcile() = withContext(Dispatchers.IO) {
         val json = runCatching { downloadStorage.readIndexJson() }.getOrNull() ?: return@withContext
         val entries: List<DownloadIndexEntry> = runCatching {
             indexGson.fromJson<List<DownloadIndexEntry>>(json, indexListType)

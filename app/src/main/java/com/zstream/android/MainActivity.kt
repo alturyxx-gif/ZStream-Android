@@ -30,6 +30,7 @@ import com.zstream.android.data.adb.OPEN_TV_INSTALLER_EXTRA
 import com.zstream.android.data.adb.RELEASE_UPDATE_EXTRA
 import com.zstream.android.data.adb.ReleaseUpdateNavigation
 import com.zstream.android.data.adb.ReleaseUpdateManager
+import com.zstream.android.download.DownloadIndexSync
 import com.zstream.android.download.OpenDownloadsNavigation
 import com.zstream.android.player.PlayerBackgroundController
 import com.zstream.android.plugin.PluginGateViewModel
@@ -50,6 +51,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -57,6 +59,7 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var watchPartyManager: WatchPartyManager
     @Inject lateinit var releaseUpdateManager: ReleaseUpdateManager
     @Inject lateinit var pluginManager: PluginManager
+    @Inject lateinit var downloadIndexSync: DownloadIndexSync
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -79,6 +82,14 @@ class MainActivity : ComponentActivity() {
             checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
         ) {
             requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 4102)
+        }
+        val storageReadPermission = when {
+            android.os.Build.VERSION.SDK_INT >= 33 -> android.Manifest.permission.READ_MEDIA_VIDEO
+            android.os.Build.VERSION.SDK_INT >= 29 -> android.Manifest.permission.READ_EXTERNAL_STORAGE
+            else -> null
+        }
+        if (storageReadPermission != null && checkSelfPermission(storageReadPermission) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(storageReadPermission), 4103)
         }
 
         setContent {
@@ -121,6 +132,13 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
+        }
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 4103 && grantResults.firstOrNull() == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            androidx.lifecycle.lifecycleScope.launch { downloadIndexSync.reconcile() }
         }
     }
 
