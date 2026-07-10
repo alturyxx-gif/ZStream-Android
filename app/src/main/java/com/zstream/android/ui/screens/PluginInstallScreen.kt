@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material3.CircularProgressIndicator
@@ -25,6 +26,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -33,7 +37,21 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.zstream.android.BuildConfig
 import com.zstream.android.plugin.PluginGateViewModel
 import com.zstream.android.plugin.PluginState
+import com.zstream.android.theme.LocalZStreamTheme
 import com.zstream.android.ui.components.themed.ZsButton
+import com.zstream.android.ui.components.themed.ZsButtonVariant
+import com.zstream.android.ui.components.themed.ZsCard
+import com.zstream.android.ui.components.themed.ZsStatusBanner
+import com.zstream.android.ui.components.themed.ZsStatusBannerVariant
+import com.zstream.android.ui.components.themed.ZsTextButton
+
+@Composable
+private fun pluginScreenBackground(accent: androidx.compose.ui.graphics.Color, base: androidx.compose.ui.graphics.Color) =
+    Brush.radialGradient(
+        colors = listOf(accent.copy(alpha = 0.20f), accent.copy(alpha = 0.05f), base),
+        center = Offset(0.5f, 0.05f),
+        radius = 1100f,
+    )
 
 /**
  * Full-screen gate shown when the plugin is not installed or failed to load.
@@ -46,124 +64,126 @@ fun PluginInstallScreen(vm: PluginGateViewModel) {
     val progress by vm.installProgress.collectAsStateWithLifecycle()
     val error by vm.installError.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val theme = LocalZStreamTheme.current
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
+            .background(pluginScreenBackground(theme.colors.type.logo, theme.colors.background.main)),
         contentAlignment = Alignment.Center,
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 40.dp),
+                .padding(horizontal = 32.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
+            Box(
+                modifier = Modifier
+                    .size(96.dp)
+                    .clip(CircleShape)
+                    .background(
+                        Brush.radialGradient(
+                            listOf(theme.colors.type.logo.copy(alpha = 0.35f), theme.colors.type.logo.copy(alpha = 0.08f)),
+                        )
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Extension,
+                    contentDescription = null,
+                    modifier = Modifier.size(44.dp),
+                    tint = theme.colors.type.logo,
+                )
+            }
 
-            // Icon
-            Icon(
-                imageVector = Icons.Default.Extension,
-                contentDescription = null,
-                modifier = Modifier.size(72.dp),
-                tint = MaterialTheme.colorScheme.primary,
-            )
+            Spacer(modifier = Modifier.height(28.dp))
 
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // Title
             Text(
-                text = "Content Plugin Required",
+                text = "one more step",
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center,
-                color = MaterialTheme.colorScheme.onBackground,
+                color = theme.colors.type.emphasis,
             )
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
-            // Body
             Text(
-                text = "ZStream requires a small content plugin to resolve streams. " +
-                    "The plugin is distributed separately so it can be updated " +
-                    "independently without requiring an app update.",
+                text = "download the content plugin to start watching. " +
+                    "it updates on its own from here, so this only takes a second.",
                 style = MaterialTheme.typography.bodyMedium,
                 textAlign = TextAlign.Center,
-                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
+                color = theme.colors.type.secondary,
+                modifier = Modifier.padding(horizontal = 8.dp),
             )
 
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(36.dp))
 
-            // Progress bar (shown while downloading / verifying)
-            AnimatedVisibility(
-                visible = progress != null,
-                enter = fadeIn(),
-                exit = fadeOut(),
-            ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    val p = progress ?: 0f
-                    if (p >= 1f) {
-                        // Verifying phase — indeterminate
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(32.dp),
-                            color = MaterialTheme.colorScheme.primary,
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "Verifying...",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
-                        )
-                    } else {
-                        LinearProgressIndicator(
-                            progress = { p },
-                            modifier = Modifier.fillMaxWidth(),
-                            color = MaterialTheme.colorScheme.primary,
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "${(p * 100).toInt()}%",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
-                        )
+            AnimatedVisibility(visible = progress != null, enter = fadeIn(), exit = fadeOut()) {
+                ZsCard(modifier = Modifier.fillMaxWidth().padding(bottom = 20.dp)) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(18.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        val p = progress ?: 0f
+                        if (p >= 1f) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(28.dp),
+                                color = theme.colors.type.logo,
+                                strokeWidth = 3.dp,
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Text(
+                                text = "verifying...",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = theme.colors.type.secondary,
+                            )
+                        } else {
+                            LinearProgressIndicator(
+                                progress = { p },
+                                modifier = Modifier.fillMaxWidth().height(6.dp).clip(CircleShape),
+                                color = theme.colors.type.logo,
+                                trackColor = theme.colors.type.divider.copy(alpha = 0.2f),
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Text(
+                                text = "downloading — ${(p * 100).toInt()}%",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = theme.colors.type.secondary,
+                            )
+                        }
                     }
-                    Spacer(modifier = Modifier.height(16.dp))
                 }
             }
 
-            // Error message
             AnimatedVisibility(visible = error != null, enter = fadeIn(), exit = fadeOut()) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = error ?: "",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error,
-                        textAlign = TextAlign.Center,
+                Column(modifier = Modifier.fillMaxWidth().padding(bottom = 20.dp)) {
+                    ZsStatusBanner(
+                        message = error?.lowercase() ?: "",
+                        variant = ZsStatusBannerVariant.Error,
                     )
-                    Spacer(modifier = Modifier.height(16.dp))
                 }
             }
 
-            // Install / Retry button
             ZsButton(
                 text = when {
-                    pluginState is PluginState.Failed -> "Retry"
-                    error != null -> "Retry"
-                    else -> "Install Plugin"
+                    pluginState is PluginState.Failed -> "retry"
+                    error != null -> "retry"
+                    else -> "download plugin"
                 },
                 onClick = { vm.install() },
                 enabled = progress == null,
-                modifier = Modifier.align(Alignment.CenterHorizontally)
+                variant = ZsButtonVariant.Purple,
+                modifier = Modifier.fillMaxWidth(),
+                buttonModifier = Modifier.fillMaxWidth().height(52.dp),
             )
 
-            // Debug sideload button — only visible in debug builds
             if (BuildConfig.DEBUG) {
                 Spacer(modifier = Modifier.height(12.dp))
-                ZsButton(
-                    text = "Dev: Sideload plugin",
+                ZsTextButton(
+                    text = "dev: sideload plugin",
                     onClick = {
                         val path = context.getExternalFilesDir(null)
                             ?.resolve("plugin-debug.apk")?.absolutePath
@@ -171,7 +191,6 @@ fun PluginInstallScreen(vm: PluginGateViewModel) {
                         vm.debugSideload(path)
                     },
                     enabled = progress == null,
-                    modifier = Modifier.align(Alignment.CenterHorizontally),
                 )
             }
         }
@@ -181,12 +200,13 @@ fun PluginInstallScreen(vm: PluginGateViewModel) {
 /** Minimal full-screen loading indicator shown during the plugin startup check. */
 @Composable
 fun PluginLoadingScreen() {
+    val theme = LocalZStreamTheme.current
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
+            .background(pluginScreenBackground(theme.colors.type.logo, theme.colors.background.main)),
         contentAlignment = Alignment.Center,
     ) {
-        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+        CircularProgressIndicator(color = theme.colors.type.logo)
     }
 }

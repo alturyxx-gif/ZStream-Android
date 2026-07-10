@@ -10,7 +10,6 @@ import com.zstream.android.data.local.entity.DownloadEntity
 import com.zstream.android.data.local.entity.DownloadStatus
 import com.zstream.android.data.local.entity.LocalLibraryFolderEntity
 import com.zstream.android.data.local.entity.LocalMediaEntity
-import com.zstream.android.download.DownloadIndexSync
 import com.zstream.android.download.DownloadService
 import com.zstream.android.download.DownloadStorage
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -47,7 +46,6 @@ class DownloadsViewModel @Inject constructor(
     private val downloadDao: DownloadDao,
     private val storage: DownloadStorage,
     private val localMediaRepository: LocalMediaRepository,
-    private val downloadIndexSync: DownloadIndexSync,
 ) : ViewModel() {
     val downloads: StateFlow<List<DownloadEntity>> = downloadDao.observeAll()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -122,10 +120,7 @@ class DownloadsViewModel @Inject constructor(
     }
 
     fun rescan(folders: List<LocalLibraryFolderEntity>) {
-        viewModelScope.launch {
-            folders.forEach { localMediaRepository.scanFolder(it) }
-            downloadIndexSync.reconcile()
-        }
+        viewModelScope.launch { folders.forEach { localMediaRepository.scanFolder(it) } }
     }
 
     fun replaceFolder(folder: LocalLibraryFolderEntity, uri: Uri) {

@@ -13,13 +13,11 @@ import dagger.hilt.components.SingletonComponent
 class ZStreamApp : Application(), ImageLoaderFactory {
     @javax.inject.Inject lateinit var traktRepository: com.zstream.android.data.TraktRepository
     @javax.inject.Inject lateinit var releaseUpdateManager: com.zstream.android.data.adb.ReleaseUpdateManager
-    @javax.inject.Inject lateinit var downloadIndexSync: com.zstream.android.download.DownloadIndexSync
 
     override fun onCreate() {
         super.onCreate()
         traktRepository.start()
         releaseUpdateManager.start()
-        downloadIndexSync.start()
     }
 
     @EntryPoint

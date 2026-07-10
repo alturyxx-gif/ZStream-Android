@@ -30,7 +30,6 @@ import com.zstream.android.data.adb.OPEN_TV_INSTALLER_EXTRA
 import com.zstream.android.data.adb.RELEASE_UPDATE_EXTRA
 import com.zstream.android.data.adb.ReleaseUpdateNavigation
 import com.zstream.android.data.adb.ReleaseUpdateManager
-import com.zstream.android.download.DownloadIndexSync
 import com.zstream.android.download.OpenDownloadsNavigation
 import com.zstream.android.player.PlayerBackgroundController
 import com.zstream.android.plugin.PluginGateViewModel
@@ -51,7 +50,6 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -59,7 +57,6 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var watchPartyManager: WatchPartyManager
     @Inject lateinit var releaseUpdateManager: ReleaseUpdateManager
     @Inject lateinit var pluginManager: PluginManager
-    @Inject lateinit var downloadIndexSync: DownloadIndexSync
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -75,25 +72,13 @@ class MainActivity : ComponentActivity() {
         handleOpenDownloadsIntent(intent)
         val uiModeManager = getSystemService(UI_MODE_SERVICE) as UiModeManager
         val isTv = uiModeManager.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
-        val permissionsToRequest = mutableListOf<String>()
         if (
             !isTv &&
             releaseUpdateManager.enabled.value &&
             android.os.Build.VERSION.SDK_INT >= 33 &&
             checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
         ) {
-            permissionsToRequest += android.Manifest.permission.POST_NOTIFICATIONS
-        }
-        val storageReadPermission = when {
-            android.os.Build.VERSION.SDK_INT >= 33 -> android.Manifest.permission.READ_MEDIA_VIDEO
-            android.os.Build.VERSION.SDK_INT >= 29 -> android.Manifest.permission.READ_EXTERNAL_STORAGE
-            else -> null
-        }
-        if (storageReadPermission != null && checkSelfPermission(storageReadPermission) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-            permissionsToRequest += storageReadPermission
-        }
-        if (permissionsToRequest.isNotEmpty()) {
-            requestPermissions(permissionsToRequest.toTypedArray(), 4102)
+            requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 4102)
         }
 
         setContent {
@@ -137,32 +122,6 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
-    }
-
-    private var storageReconcileDone = false
-
-    private fun maybeReconcileDownloads() {
-        if (storageReconcileDone) return
-        val storagePermission = when {
-            android.os.Build.VERSION.SDK_INT >= 33 -> android.Manifest.permission.READ_MEDIA_VIDEO
-            android.os.Build.VERSION.SDK_INT >= 29 -> android.Manifest.permission.READ_EXTERNAL_STORAGE
-            else -> null
-        }
-        if (storagePermission == null || checkSelfPermission(storagePermission) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
-            storageReconcileDone = true
-            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch { downloadIndexSync.reconcile() }
-        }
-    }
-
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode != 4102) return
-        maybeReconcileDownloads()
-    }
-
-    override fun onResume() {
-        super.onResume()
-        maybeReconcileDownloads()
     }
 
     override fun onUserLeaveHint() {
