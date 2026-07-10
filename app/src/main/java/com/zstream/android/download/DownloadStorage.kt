@@ -239,17 +239,43 @@ class DownloadStorage @Inject constructor(
             return
         }
         val collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
-        val uri = queryIndexUri(collection) ?: run {
-            val values = ContentValues().apply {
-                put(MediaStore.Downloads.DISPLAY_NAME, INDEX_DISPLAY_NAME)
-                put(MediaStore.Downloads.MIME_TYPE, "application/json")
-                put(MediaStore.Downloads.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/$INDEX_RELATIVE_FOLDER/")
-            }
-            context.contentResolver.insert(collection, values)
-                ?: error("MediaStore insert failed for $INDEX_DISPLAY_NAME")
-        }
+        val uri = resolveIndexUriForWrite(collection)
         context.contentResolver.openOutputStream(uri, "wt")?.use { it.write(json.toByteArray(Charsets.UTF_8)) }
             ?: error("Could not open output stream for $INDEX_DISPLAY_NAME")
+    }
+
+    /**
+     * Resolves the MediaStore row to write the index to, preferring a cached row id from a
+     * previous write over re-querying — querying by displayName/relativePath after insert proved
+     * unreliable in practice (kept creating "(1)", "(2)"... duplicates every write instead of
+     * finding the row it had just inserted), so the row id is cached in SharedPreferences (stable
+     * for the life of the row) and reused directly, bypassing that query entirely for repeat
+     * writes within the same install.
+     */
+    private fun resolveIndexUriForWrite(collection: Uri): Uri {
+        val prefs = context.getSharedPreferences(INDEX_PREFS_NAME, Context.MODE_PRIVATE)
+        val cachedId = prefs.getLong(INDEX_PREF_ROW_ID, -1L)
+        if (cachedId != -1L) {
+            val cachedUri = android.content.ContentUris.withAppendedId(collection, cachedId)
+            val stillExists = context.contentResolver.query(
+                cachedUri, arrayOf(MediaStore.MediaColumns._ID), null, null, null,
+            )?.use { it.moveToFirst() } ?: false
+            if (stillExists) return cachedUri
+        }
+        val found = queryIndexUri(collection)
+        if (found != null) {
+            prefs.edit().putLong(INDEX_PREF_ROW_ID, android.content.ContentUris.parseId(found)).apply()
+            return found
+        }
+        val values = ContentValues().apply {
+            put(MediaStore.Downloads.DISPLAY_NAME, INDEX_DISPLAY_NAME)
+            put(MediaStore.Downloads.MIME_TYPE, "application/json")
+            put(MediaStore.Downloads.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/$INDEX_RELATIVE_FOLDER/")
+        }
+        val inserted = context.contentResolver.insert(collection, values)
+            ?: error("MediaStore insert failed for $INDEX_DISPLAY_NAME")
+        prefs.edit().putLong(INDEX_PREF_ROW_ID, android.content.ContentUris.parseId(inserted)).apply()
+        return inserted
     }
 
     /** Reads back the recovery index written by [writeIndexJson]. Null if none exists yet. */
@@ -267,8 +293,8 @@ class DownloadStorage @Inject constructor(
 
     private fun queryIndexUri(collection: Uri): Uri? {
         val projection = arrayOf(MediaStore.MediaColumns._ID)
-        val selection = "${MediaStore.MediaColumns.DISPLAY_NAME} LIKE ? AND ${MediaStore.MediaColumns.RELATIVE_PATH}=?"
-        val args = arrayOf("zstream_index%.json", "${Environment.DIRECTORY_DOWNLOADS}/$INDEX_RELATIVE_FOLDER/")
+        val selection = "${MediaStore.MediaColumns.DISPLAY_NAME} LIKE ?"
+        val args = arrayOf("zstream_index%.json")
         val sortOrder = "${MediaStore.MediaColumns.DATE_MODIFIED} DESC"
         return context.contentResolver.query(collection, projection, selection, args, sortOrder)?.use { cursor ->
             if (!cursor.moveToFirst()) return@use null
@@ -280,5 +306,7 @@ class DownloadStorage @Inject constructor(
     private companion object {
         const val INDEX_RELATIVE_FOLDER = "ZStream"
         const val INDEX_DISPLAY_NAME = "zstream_index.json"
+        const val INDEX_PREFS_NAME = "download_storage_index"
+        const val INDEX_PREF_ROW_ID = "index_row_id"
     }
 }
