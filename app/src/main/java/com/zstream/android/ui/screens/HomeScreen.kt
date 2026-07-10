@@ -1009,7 +1009,7 @@ fun HomeScreen(
                     // no reason (search doesn't affect either of them). Hoisted out of the
                     // LazyColumn's content lambda since LazyListScope isn't a @Composable scope
                     // -- remember() can't be called directly inside it.
-                    val userSections = remember(state.continueWatching, state.bookmarks) { state.userSections }
+                    val userSections = remember(state.continueWatching, state.bookmarks, state.downloaded) { state.userSections }
                     val baseSections = remember(
                         state.movieSections, state.tvSections, state.editorSections,
                         state.activeTab, state.continueWatching, state.bookmarks,

@@ -45,7 +45,9 @@ import androidx.navigation.NavController
 import com.zstream.android.data.LocalMediaRepository
 import com.zstream.android.data.LocalFileProgressRepository
 import com.zstream.android.data.buildLocalFileProgressId
+import com.zstream.android.data.local.dao.CachedEpisodeDao
 import com.zstream.android.data.local.dao.DownloadDao
+import com.zstream.android.data.local.entity.DownloadEntity
 import com.zstream.android.data.local.preferences.SettingsPreferences
 import com.zstream.android.download.DownloadStorage
 import com.zstream.android.ui.LocalIsTv
@@ -59,6 +61,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
@@ -99,6 +102,7 @@ class LocalPlayerViewModel @Inject constructor(
     private val progressRepository: com.zstream.android.data.ProgressRepository,
     private val localFileProgressRepository: LocalFileProgressRepository,
     private val skipSegmentRepository: com.zstream.android.data.SkipSegmentRepository,
+    private val cachedEpisodeDao: CachedEpisodeDao,
 ) : ViewModel() {
     private val downloadId: Long? = savedState.get<String>("downloadId")?.toLongOrNull()
     private val localMediaId: Long? = savedState.get<String>("localMediaId")?.toLongOrNull()
@@ -112,16 +116,81 @@ class LocalPlayerViewModel @Inject constructor(
     private var skipSegmentsCacheKey: String? = null
     val settings = settingsPrefs.settings
 
+    /** Offline episode picker for the in-player Episodes/Seasons menu, built from locally cached
+     * TMDB metadata (same cache DetailViewModel warms) rather than a live network call — the whole
+     * point of this screen is playing content that's already on disk with no connectivity assumed. */
+    private var offlineShowTmdbId: String? = null
+    private val _tvDetail = MutableStateFlow<com.zstream.android.data.model.TvDetail?>(null)
+    val tvDetail: StateFlow<com.zstream.android.data.model.TvDetail?> = _tvDetail.asStateFlow()
+    private val _currentSeasonDetail = MutableStateFlow<com.zstream.android.data.model.Season?>(null)
+    val currentSeasonDetail: StateFlow<com.zstream.android.data.model.Season?> = _currentSeasonDetail.asStateFlow()
+    private val _downloadedEpisodes = MutableStateFlow<Map<String, DownloadEntity>>(emptyMap())
+    val downloadedEpisodes: StateFlow<Map<String, DownloadEntity>> = _downloadedEpisodes.asStateFlow()
+
     init {
         viewModelScope.launch {
-            withContext(Dispatchers.IO) {
-                val loaded = loadDownload() ?: loadLocalMedia() ?: LocalPlaybackSource.NotFound
-                val resumeSec = (loaded as? LocalPlaybackSource.Ready)?.let { loadExistingProgress(it) }
-                _resumeWatchedSec.value = resumeSec
-                _source.value = loaded
+            val (resumeSec, loaded) = withContext(Dispatchers.IO) {
+                val l = loadDownload() ?: loadLocalMedia() ?: LocalPlaybackSource.NotFound
+                val r = (l as? LocalPlaybackSource.Ready)?.let { loadExistingProgress(it) }
+                r to l
+            }
+            _resumeWatchedSec.value = resumeSec
+            _source.value = loaded
+            val ready = loaded as? LocalPlaybackSource.Ready
+            if (ready?.tmdbId != null && ready.tmdbType == "show") {
+                observeDownloadedEpisodes(ready.tmdbId)
+                loadOfflineShowMetadata(ready.tmdbId, ready.showTitle, ready.posterPath)
+                loadSeason(ready.season ?: 1)
             }
         }
     }
+
+    private fun observeDownloadedEpisodes(tmdbId: String) {
+        viewModelScope.launch {
+            downloadDao.observeCompleted()
+                .map { list -> list.filter { it.tmdbId == tmdbId }.associateBy { "${it.season}|${it.episode}" } }
+                .collect { _downloadedEpisodes.value = it }
+        }
+    }
+
+    private suspend fun loadOfflineShowMetadata(tmdbId: String, showTitle: String, posterPath: String?) {
+        offlineShowTmdbId = tmdbId
+        val seasonNumbers = withContext(Dispatchers.IO) { cachedEpisodeDao.getAvailableSeasonsSync(tmdbId) }
+        if (seasonNumbers.isEmpty()) return
+        val seasons = seasonNumbers.sorted().map { num ->
+            com.zstream.android.data.model.Season(id = 0, seasonNumber = num, name = "Season $num", episodeCount = null, posterPath = null, episodes = null)
+        }
+        _tvDetail.value = com.zstream.android.data.model.TvDetail(
+            id = tmdbId.toIntOrNull() ?: 0, name = showTitle, overview = null, posterPath = posterPath, backdropPath = null,
+            firstAirDate = null, voteAverage = null, numberOfSeasons = seasons.size, seasons = seasons, genres = null, credits = null,
+        )
+    }
+
+    fun loadSeason(number: Int) {
+        val tmdbId = offlineShowTmdbId ?: return
+        viewModelScope.launch {
+            val cached = withContext(Dispatchers.IO) { cachedEpisodeDao.getSeasonSync(tmdbId, number) }
+            _currentSeasonDetail.value = if (cached.isEmpty()) null else com.zstream.android.data.model.Season(
+                id = 0,
+                seasonNumber = number,
+                name = "Season $number",
+                episodeCount = cached.size,
+                posterPath = null,
+                episodes = cached.map { entry ->
+                    com.zstream.android.data.model.Episode(
+                        id = entry.episodeId,
+                        name = entry.title,
+                        episodeNumber = entry.episode,
+                        seasonNumber = entry.season,
+                        stillPath = entry.stillPath,
+                        overview = entry.overview,
+                        airDate = entry.airDate,
+                    )
+                },
+            )
+        }
+    }
+
 
     private suspend fun loadExistingProgress(ready: LocalPlaybackSource.Ready): Long? {
         return if (ready.tmdbId != null) {

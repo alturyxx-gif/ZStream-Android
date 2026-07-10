@@ -407,27 +407,34 @@ class PlayerViewModel @OptIn(UnstableApi::class)
 
     private fun loadTvDetail() {
         viewModelScope.launch {
-            runCatching {
-                val detail = tmdbRepo.tvDetail(id)
-                _tvDetail.value = detail
-                
-                // Load current season detail
-                val sNum = season ?: detail.seasons?.firstOrNull()?.seasonNumber ?: 1
-                loadSeason(sNum)
-            }.onFailure {
-                Log.e("PlayerVM", "Failed to load TV detail", it)
+            var detail: com.zstream.android.data.model.TvDetail? = null
+            repeat(3) { attempt ->
+                detail = runCatching { tmdbRepo.tvDetail(id) }.getOrNull()
+                if (detail != null) return@repeat
+                Log.e("PlayerVM", "Failed to load TV detail (attempt ${attempt + 1}/3)")
+                if (attempt < 2) kotlinx.coroutines.delay(800L * (attempt + 1))
             }
+            val d = detail ?: return@launch
+            _tvDetail.value = d
+            val sNum = season ?: d.seasons?.firstOrNull()?.seasonNumber ?: 1
+            loadSeason(sNum)
         }
+    }
+
+    /** Transient TMDB failures (rate limiting, network blips) shouldn't permanently show "no episodes found". */
+    private suspend fun fetchSeasonWithRetry(number: Int, attempts: Int = 3): com.zstream.android.data.model.Season? {
+        repeat(attempts) { attempt ->
+            val sDetail = runCatching { tmdbRepo.season(id, number) }.getOrNull()
+            if (sDetail != null) return sDetail
+            Log.e("PlayerVM", "Failed to load season $number (attempt ${attempt + 1}/$attempts)")
+            if (attempt < attempts - 1) kotlinx.coroutines.delay(800L * (attempt + 1))
+        }
+        return null
     }
 
     fun loadSeason(number: Int) {
         viewModelScope.launch {
-            runCatching {
-                val sDetail = tmdbRepo.season(id, number)
-                _currentSeasonDetail.value = sDetail
-            }.onFailure {
-                Log.e("PlayerVM", "Failed to load season $number", it)
-            }
+            fetchSeasonWithRetry(number)?.let { _currentSeasonDetail.value = it }
         }
     }
 
@@ -438,8 +445,7 @@ class PlayerViewModel @OptIn(UnstableApi::class)
 
         viewModelScope.launch {
             val sDetail = if (_currentSeasonDetail.value?.seasonNumber != seasonNumber) {
-                runCatching { tmdbRepo.season(id, seasonNumber) }.getOrNull()
-                    .also { _currentSeasonDetail.value = it }
+                fetchSeasonWithRetry(seasonNumber)?.also { _currentSeasonDetail.value = it }
             } else _currentSeasonDetail.value
 
             val ep = sDetail?.episodes?.find { it.episodeNumber == episodeNumber }

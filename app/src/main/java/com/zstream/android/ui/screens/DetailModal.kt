@@ -138,6 +138,7 @@ fun MovieDetailModal(
     onMarkMovieWatched: () -> Unit,
     downloadedMovieId: Long? = null,
     onDownloadMovie: () -> Unit = {},
+    isMovieDownloadPending: Boolean = false,
     onClearMovieWatchHistory: () -> Unit,
     onBookmarkCollection: ((CollectionSummary) -> Unit)? = null,
     onBrowseCollection: ((CollectionSummary) -> Unit)? = null,
@@ -294,6 +295,7 @@ fun MovieDetailModal(
                     onFocusChanged = { focused ->
                         if (focused && isTv) scrollRequestId++
                     },
+                    loading = isMovieDownloadPending,
                     onClick = { if (downloadedMovieId == null) onDownloadMovie() },
                 )
 
@@ -665,6 +667,7 @@ fun TvDetailModal(
     downloadedEpisodes: Map<String, DownloadEntity> = emptyMap(),
     onDownloadEpisode: (com.zstream.android.data.model.Episode) -> Unit = {},
     onDownloadSeason: () -> Unit = {},
+    pendingDownloads: Set<String> = emptySet(),
     isOffline: Boolean = false,
     onBookmarkCollection: ((CollectionSummary) -> Unit)? = null,
     onBrowseCollection: ((CollectionSummary) -> Unit)? = null,
@@ -728,6 +731,8 @@ fun TvDetailModal(
             onClearEpisodeWatchHistory = onClearEpisodeWatchHistory,
             downloadedEpisodes = downloadedEpisodes,
             onDownloadEpisode = onDownloadEpisode,
+            onDownloadSeason = onDownloadSeason,
+            pendingDownloads = pendingDownloads,
             isOffline = isOffline,
             firstItemFocusRequester = firstItemFocusRequester,
             specActions = { },
@@ -758,19 +763,27 @@ fun TvDetailModal(
                 ) {
                     Button(
                         onClick = {
-                            if (hasProgress && resumeProgress != null) {
-                                val sNum = resumeProgress.seasonNumber ?: selectedSeason?.seasonNumber ?: 1
-                                val eNum = resumeProgress.episodeNumber ?: 1
-                                val downloaded = downloadedEpisodes["$sNum|$eNum"]
-                                if (downloaded != null) nav.navigate("localPlayer/${downloaded.id}")
-                                else nav.navigate("player/tv/${detail.id}?season=$sNum&episode=$eNum&title=${detail.name.encode()}&year=${detail.firstAirDate?.take(4)?.toIntOrNull() ?: 0}&poster=${detail.posterPath?.encode() ?: ""}")
-                            } else {
-                                val firstEp = selectedSeason?.episodes?.airedEpisodes()?.firstOrNull()
-                                if (firstEp != null) {
-                                    val downloaded = downloadedEpisodes["${firstEp.seasonNumber}|${firstEp.episodeNumber}"]
-                                    if (downloaded != null) nav.navigate("localPlayer/${downloaded.id}")
-                                    else nav.navigate("player/tv/${detail.id}?season=${firstEp.seasonNumber}&episode=${firstEp.episodeNumber}&title=${detail.name.encode()}&year=${detail.firstAirDate?.take(4)?.toIntOrNull() ?: 0}&poster=${detail.posterPath?.encode() ?: ""}")
+                            val progressDownload = if (hasProgress && resumeProgress != null) {
+                                val sNum = resumeProgress.seasonNumber
+                                val eNum = resumeProgress.episodeNumber
+                                if (sNum != null && eNum != null) downloadedEpisodes["$sNum|$eNum"] else null
+                            } else null
+                            val firstEp = selectedSeason?.episodes?.airedEpisodes()?.firstOrNull()
+                            val firstEpDownload = firstEp?.let { downloadedEpisodes["${it.seasonNumber}|${it.episodeNumber}"] }
+                            val anyDownload = downloadedEpisodes.values
+                                .filter { it.season != null && it.episode != null }
+                                .minWithOrNull(compareBy({ it.season }, { it.episode }))
+
+                            when {
+                                progressDownload != null -> nav.navigate("localPlayer/${progressDownload.id}")
+                                hasProgress && resumeProgress != null && !isOffline -> {
+                                    val sNum = resumeProgress.seasonNumber ?: selectedSeason?.seasonNumber ?: 1
+                                    val eNum = resumeProgress.episodeNumber ?: 1
+                                    nav.navigate("player/tv/${detail.id}?season=$sNum&episode=$eNum&title=${detail.name.encode()}&year=${detail.firstAirDate?.take(4)?.toIntOrNull() ?: 0}&poster=${detail.posterPath?.encode() ?: ""}")
                                 }
+                                firstEpDownload != null -> nav.navigate("localPlayer/${firstEpDownload.id}")
+                                !isOffline && firstEp != null -> nav.navigate("player/tv/${detail.id}?season=${firstEp.seasonNumber}&episode=${firstEp.episodeNumber}&title=${detail.name.encode()}&year=${detail.firstAirDate?.take(4)?.toIntOrNull() ?: 0}&poster=${detail.posterPath?.encode() ?: ""}")
+                                anyDownload != null -> nav.navigate("localPlayer/${anyDownload.id}")
                             }
                         },
                         colors = ButtonDefaults.buttonColors(
@@ -819,15 +832,6 @@ fun TvDetailModal(
                     onClick = { showGroupEditor = true },
                 )
             }
-
-            SharedActionPill(
-                icon = Icons.Filled.Download,
-                theme = theme,
-                onFocusChanged = { focused ->
-                    if (focused && isTv) scrollRequestId++
-                },
-                onClick = onDownloadSeason,
-            )
 
             SharedActionPill(
                 icon = Icons.Filled.RemoveRedEye,
@@ -994,6 +998,7 @@ internal fun SharedEpisodeRow(
     horizontalPadding: Dp = 16.dp,
     downloadEntry: DownloadEntity? = null,
     onDownloadEpisode: () -> Unit = {},
+    isDownloadPending: Boolean = false,
     isOffline: Boolean = false,
     modifier: Modifier = Modifier
 ) {
@@ -1104,6 +1109,12 @@ internal fun SharedEpisodeRow(
                             tint = theme.colors.type.success,
                             modifier = Modifier.padding(8.dp).size(20.dp),
                         )
+                    } else if (isDownloadPending) {
+                        CircularProgressIndicator(
+                            color = theme.colors.type.secondary,
+                            strokeWidth = 2.dp,
+                            modifier = Modifier.padding(8.dp).size(20.dp),
+                        )
                     } else if (!isOffline) {
                         Icon(
                             imageVector = Icons.Filled.Download,
@@ -1187,9 +1198,15 @@ private fun EpisodeSwipeBackground(
     val activeClear = dismissState.dismissDirection == SwipeToDismissBoxValue.EndToStart ||
         dismissState.targetValue == SwipeToDismissBoxValue.EndToStart ||
         dismissState.currentValue == SwipeToDismissBoxValue.EndToStart
+    // Guards against the background peeking through the (nominally opaque) foreground row when
+    // settled at/near zero offset -- only fade the swipe actions in once the user has genuinely
+    // dragged past a few pixels, rather than relying solely on z-order to hide them at rest.
+    val dragOffsetPx = runCatching { kotlin.math.abs(dismissState.requireOffset()) }.getOrDefault(0f)
+    val revealAlpha = (dragOffsetPx / 24f).coerceIn(0f, 1f)
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .alpha(revealAlpha)
             .clip(RoundedCornerShape(12.dp))
             .background(theme.colors.background.secondary.copy(alpha = 0.35f))
             .padding(horizontal = 12.dp),
