@@ -115,6 +115,7 @@ import com.zstream.android.data.adb.ReleaseUpdateManager
 import com.zstream.android.data.adb.ReleaseUpdateNavigation
 import com.zstream.android.data.adb.TvAdbManager
 import com.zstream.android.data.local.entity.BookmarkEntity
+import com.zstream.android.data.local.entity.DownloadEntity
 import com.zstream.android.data.model.Media
 import com.zstream.android.theme.LocalZStreamTheme
 import com.zstream.android.ui.LocalIsTv
@@ -435,7 +436,6 @@ fun HomeScreen(
     var showTvInstaller by remember { mutableStateOf(false) }
     var showTvActions by remember { mutableStateOf(false) }
     var showReleaseUpdatePrompt by remember { mutableStateOf(false) }
-    var offlineBannerDismissed by remember { mutableStateOf(false) }
     var editingGroup by remember { mutableStateOf<String?>(null) }
     var sectionSettings by remember { mutableStateOf<String?>(null) }
     var editingBookmarks by remember { mutableStateOf(false) }
@@ -537,10 +537,6 @@ fun HomeScreen(
             showLayoutMenu = true
             HomeLayoutMenuSignal.consume()
         }
-    }
-
-    LaunchedEffect(state.isOffline) {
-        if (state.isOffline) offlineBannerDismissed = false
     }
 
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
@@ -923,8 +919,8 @@ fun HomeScreen(
                     )
 
                     OfflineBanner(
-                        visible = state.isOffline && !offlineBannerDismissed,
-                        onDismiss = { offlineBannerDismissed = true },
+                        visible = state.isOffline && !state.offlineBannerDismissed,
+                        onDismiss = vm::dismissOfflineBanner,
                     )
                     HomeDialogs()
                     return
@@ -1165,6 +1161,7 @@ fun HomeScreen(
                                     if (!state.enableCarouselView) {
                                         MediaGridPages(
                                             sortedSection, nav, state.progressMap,
+                                            downloadedByTmdbId = state.downloadedByTmdbId,
                                             numOfColumns = numOfColumns,
                                             numOfRows = numOfRows,
                                             currentPage = sectionPage,
@@ -1191,6 +1188,7 @@ fun HomeScreen(
                                                 sortedSection,
                                                 nav,
                                                 progressMap = state.progressMap,
+                                                downloadedByTmdbId = state.downloadedByTmdbId,
                                                 editable = editingBookmarks,
                                                 onRemoveItem = removeItem,
                                                 onEditItem = editItem,
@@ -1210,7 +1208,7 @@ fun HomeScreen(
                                     item { Spacer(Modifier.height(20.dp)) }
                                 }
 
-                            if (!isTv) {
+                            if (!isTv && !state.isOffline) {
                                 item { HomeTabs(state.activeTab, vm::setTab) }
 
                                 // Base sections second (baseSections computed above, outside the LazyColumn content lambda)
@@ -1232,7 +1230,7 @@ fun HomeScreen(
                             }
                         }
                     }
-                    
+
                     // Pull-to-Refresh Indicator
                     if (pullOffset > 0 || isRefreshing) {
                         Box(
@@ -1341,8 +1339,8 @@ fun HomeScreen(
         }
 
         OfflineBanner(
-            visible = state.isOffline && !offlineBannerDismissed,
-            onDismiss = { offlineBannerDismissed = true },
+            visible = state.isOffline && !state.offlineBannerDismissed,
+            onDismiss = vm::dismissOfflineBanner,
         )
         HomeDialogs()
     }
@@ -1353,40 +1351,26 @@ private fun BoxScope.OfflineBanner(visible: Boolean, onDismiss: () -> Unit) {
     val theme = LocalZStreamTheme.current
     AnimatedVisibility(
         visible = visible,
-        enter = slideInVertically { -it } + fadeIn(),
-        exit = slideOutVertically { -it } + fadeOut(),
+        enter = slideInVertically { it } + fadeIn(),
+        exit = slideOutVertically { it } + fadeOut(),
         modifier = Modifier
-            .align(Alignment.TopCenter)
-            .statusBarsPadding()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .align(Alignment.BottomCenter)
+            .navigationBarsPadding()
+            .padding(bottom = 16.dp),
     ) {
         Surface(
             color = theme.colors.background.secondary,
-            shape = RoundedCornerShape(12.dp),
+            shape = RoundedCornerShape(20.dp),
             border = BorderStroke(1.dp, theme.colors.type.divider.copy(alpha = 0.2f)),
+            modifier = Modifier.clickable(onClick = onDismiss),
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    "You're offline — showing downloaded content",
-                    color = theme.colors.type.text,
-                    fontSize = 13.sp,
-                    modifier = Modifier.weight(1f),
-                )
-                ZsIconButton(
-                    onClick = onDismiss,
-                    icon = Icons.Default.Close,
-                    contentDescription = "Dismiss",
-                    variant = ZsIconButtonVariant.Ghost,
-                    containerSize = 28.dp,
-                    iconSize = 16.dp,
-                )
-            }
+            Text(
+                "You're offline",
+                color = theme.colors.type.text,
+                fontSize = 13.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
+            )
         }
     }
 }
@@ -1999,11 +1983,34 @@ private fun SectionEditActions(
     )
 }
 
+/**
+ * Prefers a downloaded copy over the network detail/player flow when one exists — matches the
+ * exact in-progress episode's download when known, falls back to Downloads when a show has more
+ * than one downloaded episode (browsing there already handles that grouping).
+ */
+private fun resolveMediaClickRoute(
+    media: Media,
+    progress: ProgressEntity?,
+    downloadedByTmdbId: Map<String, List<DownloadEntity>>,
+): String {
+    val entries = downloadedByTmdbId[media.id.toString()].orEmpty()
+    val episodeMatch = if (progress?.seasonNumber != null && progress.episodeNumber != null) {
+        entries.firstOrNull { it.season == progress.seasonNumber && it.episode == progress.episodeNumber }
+    } else null
+    return when {
+        episodeMatch != null -> "localPlayer/${episodeMatch.id}"
+        entries.size == 1 -> "localPlayer/${entries.first().id}"
+        entries.size > 1 -> "downloads"
+        else -> "detail/${media.type}/${media.id}"
+    }
+}
+
 @Composable
 private fun MediaCarouselSection(
     section: MediaSection,
     nav: NavController,
     progressMap: Map<String, ProgressEntity> = emptyMap(),
+    downloadedByTmdbId: Map<String, List<DownloadEntity>> = emptyMap(),
     editable: Boolean = false,
     onRemoveItem: ((Media) -> Unit)? = null,
     onEditItem: ((Media) -> Unit)? = null,
@@ -2086,7 +2093,7 @@ private fun MediaCarouselSection(
                         media = media,
                         onClick = {
                             if (editable && isTv) tvEditMediaId = media.id
-                            else nav.navigate("detail/${media.type}/${media.id}")
+                            else nav.navigate(resolveMediaClickRoute(media, progress, downloadedByTmdbId))
                         },
                         percentage = progressInfo?.first,
                         seriesLabel = progressInfo?.second,
@@ -2175,6 +2182,7 @@ private fun MediaGridRow(
     rowItems: List<Media>,
     nav: NavController,
     progressMap: Map<String, ProgressEntity> = emptyMap(),
+    downloadedByTmdbId: Map<String, List<DownloadEntity>> = emptyMap(),
     numOfColumns: Int,
     editable: Boolean = false,
     onRemoveItem: ((Media) -> Unit)? = null,
@@ -2233,7 +2241,7 @@ private fun MediaGridRow(
                     media = media,
                     onClick = {
                         if (editable && isTv) tvEditMediaId = media.id
-                        else nav.navigate("detail/${media.type}/${media.id}")
+                        else nav.navigate(resolveMediaClickRoute(media, progress, downloadedByTmdbId))
                     },
                     percentage = progressInfo?.first,
                     seriesLabel = progressInfo?.second,
@@ -2301,6 +2309,7 @@ private fun LazyListScope.MediaGridPages(
     section: MediaSection,
     nav: NavController,
     progressMap: Map<String, ProgressEntity> = emptyMap(),
+    downloadedByTmdbId: Map<String, List<DownloadEntity>> = emptyMap(),
     numOfColumns: Int,
     numOfRows: Int,
     currentPage: Int,
@@ -2355,6 +2364,7 @@ private fun LazyListScope.MediaGridPages(
                             rowItems = rowItems,
                             nav = nav,
                             progressMap = progressMap,
+                            downloadedByTmdbId = downloadedByTmdbId,
                             numOfColumns = numOfColumns,
                             editable = editable,
                             onRemoveItem = onRemoveItem,
@@ -4810,6 +4820,7 @@ private fun TvHomeScreenContent(
                                     section,
                                     nav,
                                     state.progressMap,
+                                    downloadedByTmdbId = state.downloadedByTmdbId,
                                     modifier = Modifier.onFocusChanged {
                                         if (it.hasFocus) {
                                             requestTvHomeScroll(
@@ -4826,6 +4837,7 @@ private fun TvHomeScreenContent(
                                 section = section,
                                 nav = nav,
                                 progressMap = state.progressMap,
+                                downloadedByTmdbId = state.downloadedByTmdbId,
                                 numOfColumns = 6,
                                 numOfRows = state.gridRows,
                                 currentPage = gridPages[section.title] ?: 0,
@@ -4842,42 +4854,44 @@ private fun TvHomeScreenContent(
                         item { Spacer(Modifier.height(TvHomeMetrics.sectionSpacing)) }
                     }
 
-                    val tabsItemIndex = startIndexOffset + userSections.size * 2
-                    item {
-                        HomeTabs(
-                            activeTab = state.activeTab,
-                            onTab = vm::setTab,
-                            onFocused = {
-                                requestTvHomeScroll(
-                                    itemIndex = tabsItemIndex,
-                                    scrollOffset = -topPaddingPx,
-                                    reason = "home-tabs-focus",
-                                )
-                            },
-                        )
-                    }
-                    item { Spacer(Modifier.height(TvHomeMetrics.sectionSpacing)) }
-
-                    discoverSections.forEachIndexed { sectionIndex, section ->
-                        val sectionItemIndex = tabsItemIndex + 2 + sectionIndex * 2
-                        val pageKey = "discover-${section.title}"
-                        item(key = pageKey) {
-                            MediaCarouselSection(
-                                section = section,
-                                nav = nav,
-                                progressMap = state.progressMap,
-                                modifier = Modifier.onFocusChanged {
-                                    if (it.hasFocus) {
-                                        requestTvHomeScroll(
-                                            itemIndex = sectionItemIndex,
-                                            scrollOffset = -topPaddingPx,
-                                            reason = "section-focus:${section.title}",
-                                        )
-                                    }
+                    if (!state.isOffline) {
+                        val tabsItemIndex = startIndexOffset + userSections.size * 2
+                        item {
+                            HomeTabs(
+                                activeTab = state.activeTab,
+                                onTab = vm::setTab,
+                                onFocused = {
+                                    requestTvHomeScroll(
+                                        itemIndex = tabsItemIndex,
+                                        scrollOffset = -topPaddingPx,
+                                        reason = "home-tabs-focus",
+                                    )
                                 },
                             )
                         }
                         item { Spacer(Modifier.height(TvHomeMetrics.sectionSpacing)) }
+
+                        discoverSections.forEachIndexed { sectionIndex, section ->
+                            val sectionItemIndex = tabsItemIndex + 2 + sectionIndex * 2
+                            val pageKey = "discover-${section.title}"
+                            item(key = pageKey) {
+                                MediaCarouselSection(
+                                    section = section,
+                                    nav = nav,
+                                    progressMap = state.progressMap,
+                                    modifier = Modifier.onFocusChanged {
+                                        if (it.hasFocus) {
+                                            requestTvHomeScroll(
+                                                itemIndex = sectionItemIndex,
+                                                scrollOffset = -topPaddingPx,
+                                                reason = "section-focus:${section.title}",
+                                            )
+                                        }
+                                    },
+                                )
+                            }
+                            item { Spacer(Modifier.height(TvHomeMetrics.sectionSpacing)) }
+                        }
                     }
                 }
             }

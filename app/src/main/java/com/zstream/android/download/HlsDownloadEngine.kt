@@ -27,7 +27,7 @@ private const val TAG = "HlsDownloadEngine"
 // Matches the desktop app's segment worker pool sizing (16 workers there); artemis comfortably
 // serves this level of per-download parallelism. Kept slightly below desktop's since phones share
 // the radio/CPU with everything else running on-device, unlike a dedicated desktop machine.
-private const val SEGMENT_WORKERS = 10
+private const val SEGMENT_WORKERS = 14
 
 data class HlsDownloadProgress(
     val segmentsDone: Int,

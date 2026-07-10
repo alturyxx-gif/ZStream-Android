@@ -6,6 +6,7 @@ import com.zstream.android.data.ConnectivityObserver
 import com.zstream.android.data.TmdbRepository
 import com.zstream.android.data.BookmarkRepository
 import com.zstream.android.data.local.dao.DownloadDao
+import com.zstream.android.data.local.entity.DownloadEntity
 import com.zstream.android.data.local.dao.toMediaOrNull
 import com.zstream.android.data.local.entity.BookmarkEntity
 import com.zstream.android.data.local.entity.ProgressEntity
@@ -69,6 +70,7 @@ data class HomeState(
     val continueWatching: List<MediaSection> = emptyList(),
     val bookmarks: List<MediaSection> = emptyList(),
     val downloaded: List<MediaSection> = emptyList(),
+    val downloadedByTmdbId: Map<String, List<DownloadEntity>> = emptyMap(),
     val bookmarkEntities: Map<String, BookmarkEntity> = emptyMap(),
     val progressMap: Map<String, ProgressEntity> = emptyMap(),
     val enableDiscover: Boolean = false,
@@ -82,6 +84,7 @@ data class HomeState(
     val loading: Boolean = true,
     val error: String? = null,
     val isOffline: Boolean = false,
+    val offlineBannerDismissed: Boolean = false,
     val continueWatchingLoading: Boolean = true,
     val bookmarksLoading: Boolean = true,
     val enableCarouselView: Boolean = true,
@@ -92,8 +95,17 @@ data class HomeState(
 ) {
     val userSections: List<MediaSection> get() {
         val userContent = mutableListOf<MediaSection>()
-        if (continueWatching.isNotEmpty()) userContent.addAll(continueWatching)
-        if (bookmarks.isNotEmpty()) userContent.addAll(bookmarks)
+        if (isOffline) {
+            fun List<MediaSection>.keepOnlyDownloaded() = mapNotNull { section ->
+                val filtered = section.items.filter { downloadedByTmdbId.containsKey(it.id.toString()) }
+                if (filtered.isEmpty()) null else section.copy(items = filtered, totalItems = filtered.size)
+            }
+            userContent.addAll(continueWatching.keepOnlyDownloaded())
+            userContent.addAll(bookmarks.keepOnlyDownloaded())
+        } else {
+            if (continueWatching.isNotEmpty()) userContent.addAll(continueWatching)
+            if (bookmarks.isNotEmpty()) userContent.addAll(bookmarks)
+        }
         if (downloaded.isNotEmpty()) userContent.addAll(downloaded)
         return userContent
     }
@@ -360,7 +372,10 @@ class HomeViewModel @Inject constructor(
                 val media = downloads.distinctBy { it.tmdbId }.mapNotNull { it.toMediaOrNull() }
                 val section = media.takeIf { it.isNotEmpty() }
                     ?.let { MediaSection("Downloaded", it) }
-                _state.update { it.copy(downloaded = section?.let(::listOf) ?: emptyList()) }
+                _state.update { it.copy(
+                    downloaded = section?.let(::listOf) ?: emptyList(),
+                    downloadedByTmdbId = downloads.groupBy { it.tmdbId },
+                ) }
             }
         }
     }
@@ -368,9 +383,17 @@ class HomeViewModel @Inject constructor(
     private fun observeConnectivityRecovery() {
         viewModelScope.launch {
             connectivityObserver.isOnline.drop(1).distinctUntilChanged().collect { online ->
-                if (online && _state.value.isOffline) load()
+                if (online && _state.value.isOffline) {
+                    // Re-arm the offline banner for the next offline period.
+                    _state.update { it.copy(offlineBannerDismissed = false) }
+                    load()
+                }
             }
         }
+    }
+
+    fun dismissOfflineBanner() {
+        _state.update { it.copy(offlineBannerDismissed = true) }
     }
 
     fun load() {
