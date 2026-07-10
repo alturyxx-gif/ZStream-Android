@@ -996,11 +996,11 @@ internal fun SharedEpisodeRow(
                 Row(
                     Modifier
                         .fillMaxWidth()
-                        .then(if (compact) Modifier.height(76.dp) else Modifier.height(IntrinsicSize.Min))
+                        .then(if (compact) Modifier.height(44.dp) else Modifier.height(IntrinsicSize.Min))
                 ) {
                     Box(
                         Modifier
-                            .width(if (compact) 112.dp else 90.dp)
+                            .width(if (compact) 64.dp else 90.dp)
                             .fillMaxHeight()
                     ) {
                         AsyncImage(

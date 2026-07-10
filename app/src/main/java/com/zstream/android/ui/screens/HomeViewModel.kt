@@ -2,8 +2,11 @@ package com.zstream.android.ui.screens
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.zstream.android.data.ConnectivityObserver
 import com.zstream.android.data.TmdbRepository
 import com.zstream.android.data.BookmarkRepository
+import com.zstream.android.data.local.dao.DownloadDao
+import com.zstream.android.data.local.dao.toMediaOrNull
 import com.zstream.android.data.local.entity.BookmarkEntity
 import com.zstream.android.data.local.entity.ProgressEntity
 import com.zstream.android.data.local.entity.SettingsEntity
@@ -22,6 +25,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
@@ -63,6 +68,7 @@ data class HomeState(
     val editorSections: List<MediaSection> = emptyList(),
     val continueWatching: List<MediaSection> = emptyList(),
     val bookmarks: List<MediaSection> = emptyList(),
+    val downloaded: List<MediaSection> = emptyList(),
     val bookmarkEntities: Map<String, BookmarkEntity> = emptyMap(),
     val progressMap: Map<String, ProgressEntity> = emptyMap(),
     val enableDiscover: Boolean = false,
@@ -75,6 +81,7 @@ data class HomeState(
     val searchQuery: String = "",
     val loading: Boolean = true,
     val error: String? = null,
+    val isOffline: Boolean = false,
     val continueWatchingLoading: Boolean = true,
     val bookmarksLoading: Boolean = true,
     val enableCarouselView: Boolean = true,
@@ -87,6 +94,7 @@ data class HomeState(
         val userContent = mutableListOf<MediaSection>()
         if (continueWatching.isNotEmpty()) userContent.addAll(continueWatching)
         if (bookmarks.isNotEmpty()) userContent.addAll(bookmarks)
+        if (downloaded.isNotEmpty()) userContent.addAll(downloaded)
         return userContent
     }
 
@@ -144,6 +152,8 @@ class HomeViewModel @Inject constructor(
     private val watchPartyManager: WatchPartyManager,
     private val dataSyncManager: com.zstream.android.data.DataSyncManager,
     private val traktRepo: com.zstream.android.data.TraktRepository,
+    private val downloadDao: DownloadDao,
+    private val connectivityObserver: ConnectivityObserver,
 ) : ViewModel() {
     private val discoverSourcePages = mutableMapOf<MediaSectionSource, Int>()
     private var replenishDiscoverJob: Job? = null
@@ -153,10 +163,12 @@ class HomeViewModel @Inject constructor(
     private var isSearchingMore = false
     private var searchGeneration = 0
 
-    init { 
+    init {
         load()
         observeUserContent()
+        observeDownloaded()
         observeSettings()
+        observeConnectivityRecovery()
     }
 
     val watchPartyRoomCode = watchPartyManager.roomCode
@@ -342,9 +354,33 @@ class HomeViewModel @Inject constructor(
         }
     }
 
+    private fun observeDownloaded() {
+        viewModelScope.launch {
+            downloadDao.observeCompleted().collect { downloads ->
+                val media = downloads.distinctBy { it.tmdbId }.mapNotNull { it.toMediaOrNull() }
+                val section = media.takeIf { it.isNotEmpty() }
+                    ?.let { MediaSection("Downloaded", it) }
+                _state.update { it.copy(downloaded = section?.let(::listOf) ?: emptyList()) }
+            }
+        }
+    }
+
+    private fun observeConnectivityRecovery() {
+        viewModelScope.launch {
+            connectivityObserver.isOnline.drop(1).distinctUntilChanged().collect { online ->
+                if (online && _state.value.isOffline) load()
+            }
+        }
+    }
+
     fun load() {
         viewModelScope.launch {
             _state.update { it.copy(loading = true) }
+            if (!connectivityObserver.isOnlineNow()) {
+                android.util.Log.d("HomeVM", "Offline — skipping TMDB fetch, showing downloaded content")
+                _state.update { it.copy(loading = false, error = null, isOffline = true) }
+                return@launch
+            }
             android.util.Log.d("HomeVM", "Loading home sections from TMDB...")
             runCatching {
                 supervisorScope {
@@ -384,6 +420,7 @@ class HomeViewModel @Inject constructor(
 
                     _state.update { it.copy(
                         loading = false,
+                        isOffline = false,
                         featuredMedia = featuredWithLogos,
                         movieSections = listOf(
                             MediaSection("Most Popular", popularMovies.await(), MediaSectionSource.PopularMovies),
@@ -407,7 +444,13 @@ class HomeViewModel @Inject constructor(
                 }
             }.onFailure { e ->
                 android.util.Log.e("HomeVM", "Failed to load home sections", e)
-                _state.update { it.copy(loading = false, error = e.message ?: "No connection") }
+                if (e is java.io.IOException) {
+                    // Connectivity-shaped failure (DNS/connect/timeout) — show the offline
+                    // downloaded-library experience instead of a raw exception message.
+                    _state.update { it.copy(loading = false, error = null, isOffline = true) }
+                } else {
+                    _state.update { it.copy(loading = false, error = e.message ?: "No connection") }
+                }
             }
         }
     }
