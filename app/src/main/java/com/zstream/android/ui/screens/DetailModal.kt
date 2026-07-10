@@ -11,7 +11,6 @@ import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.BringIntoViewSpec
 import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -163,8 +162,8 @@ fun MovieDetailModal(
 
     LaunchedEffect(firstItemFocusRequester) {
         if (firstItemFocusRequester != null && isTv) {
-            kotlinx.coroutines.delay(100)
-            firstItemFocusRequester.requestFocus()
+            androidx.compose.runtime.withFrameNanos { }
+            runCatching { firstItemFocusRequester.requestFocus() }
         }
     }
 
@@ -674,8 +673,8 @@ fun TvDetailModal(
 
     LaunchedEffect(firstItemFocusRequester) {
         if (firstItemFocusRequester != null && isTv) {
-            kotlinx.coroutines.delay(100)
-            firstItemFocusRequester.requestFocus()
+            androidx.compose.runtime.withFrameNanos { }
+            runCatching { firstItemFocusRequester.requestFocus() }
         }
     }
 
@@ -984,7 +983,6 @@ internal fun SharedEpisodeRow(
                     .clip(RoundedCornerShape(12.dp))
                     .background(theme.colors.modal.background)
                     .onFocusChanged { isFocused = it.isFocused }
-                    .focusable()
                     .clickable {
                         if (onEpisodeClick != null) {
                             onEpisodeClick()

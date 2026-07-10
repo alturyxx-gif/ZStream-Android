@@ -134,8 +134,19 @@ import java.net.URL
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 private const val HOME_FOCUS_DEBUG_TAG = "HomeFocusDebug"
+
+/** Cross-screen signal so Settings' "Edit home sections" row can open Home's layout dialog. */
+object HomeLayoutMenuSignal {
+    private val _open = MutableStateFlow(false)
+    val open = _open.asStateFlow()
+    fun request() { _open.value = true }
+    fun consume() { _open.value = false }
+}
+
 
 private object TvHomeMetrics {
     val screenPadding = 32.dp
@@ -441,6 +452,7 @@ fun HomeScreen(
     val context = LocalContext.current
     val releaseUpdateManager = remember(context) { ReleaseUpdateManager(context.applicationContext) }
     val releaseUpdateLaunch by ReleaseUpdateNavigation.launch.collectAsState()
+    val openLayoutMenuSignal by HomeLayoutMenuSignal.open.collectAsState()
     val focusManager = LocalFocusManager.current
     val uriHandler = LocalUriHandler.current
     val density = LocalDensity.current
@@ -515,6 +527,13 @@ fun HomeScreen(
             ReleaseUpdateNavigation.consume()
         } else if (releaseUpdateManager.hasPendingUpdate) {
             showReleaseUpdatePrompt = true
+        }
+    }
+
+    LaunchedEffect(openLayoutMenuSignal) {
+        if (openLayoutMenuSignal) {
+            showLayoutMenu = true
+            HomeLayoutMenuSignal.consume()
         }
     }
 
@@ -889,7 +908,7 @@ fun HomeScreen(
                         placeholder = placeholder,
                         onShowNotifications = { showNotifications = true },
                         onShowTipJar = { showTipJar = true },
-                        onShowLayout = { showLayoutMenu = true },
+                        onShowLayout = { nav.navigate("downloads") },
                         onShowMenu = { showSandwichMenu = true },
                         hazeState = hazeState,
                         isPipActive = isTvPipActive,
@@ -1272,7 +1291,7 @@ fun HomeScreen(
                         ) {
                             TopNavBar(
                                 hazeState = hazeState,
-                                onLayout = { showLayoutMenu = true },
+                                onLayout = { nav.navigate("downloads") },
                                 onMenu = { showSandwichMenu = true },
                                 onDiscord = { uriHandler.openUri(Urls.DISCORD_LINK) },
                                 onNotifications = { showNotifications = true },
@@ -1515,7 +1534,7 @@ private fun TopNavBar(
                 HeaderIconButton(icon = Icons.Default.Tv, hazeState = hazeState, onClick = onTvInstaller)
             }
             // Layout button — dark pill matching sandwich (just grid icon, no text)
-            HeaderIconButton(icon = Icons.Default.GridView, hazeState = hazeState, onClick = onLayout)
+            HeaderIconButton(icon = Icons.Default.Download, hazeState = hazeState, onClick = onLayout)
             // Sandwich menu
             var menuFocused by remember { mutableStateOf(false) }
             ZsOutlinedWrapper(
@@ -5002,7 +5021,7 @@ private fun TvTopBar(
             } else {
                 TvHeaderButton(Icons.Default.AttachMoney, null, hazeState, onClick = onTipJar)
             }
-            TvHeaderButton(Icons.Default.GridView, null, hazeState, onClick = onLayout)
+            TvHeaderButton(Icons.Default.Download, null, hazeState, onClick = onLayout)
             ZsOutlinedWrapper(
                 visible = focusedMenu && LocalIsTv.current,
                 shape = RoundedCornerShape(50),

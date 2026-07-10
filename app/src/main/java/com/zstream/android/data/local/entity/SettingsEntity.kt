@@ -22,7 +22,7 @@ data class SettingsEntity(
     val enableMinimalCards: Boolean = false,
     val homeSectionCarouselLimit: Int = 20,
     val enableLowPerformanceMode: Boolean = false,
-    val enablePauseOverlay: Boolean = true,
+    val enablePauseOverlay: Boolean = false,
 
     // Playback Settings
     val defaultSubtitleLanguage: String? = null,

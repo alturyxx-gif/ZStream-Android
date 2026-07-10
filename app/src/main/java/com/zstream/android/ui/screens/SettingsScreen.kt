@@ -338,7 +338,7 @@ private fun TvSettingsScreen(
                                 firstItemFocusRequester = contentFirstItemFocusRequester,
                             )
                             1 -> PreferencesSection(settings, bookmarks, theme, vm, isTv = true, firstItemFocusRequester = contentFirstItemFocusRequester)
-                            2 -> AppearanceSection(settings, theme, vm, isTv = true, firstItemFocusRequester = contentFirstItemFocusRequester)
+                            2 -> AppearanceSection(settings, theme, vm, nav, isTv = true, firstItemFocusRequester = contentFirstItemFocusRequester)
                             3 -> PlayerSection(settings, theme, vm, isTv = true, firstItemFocusRequester = contentFirstItemFocusRequester)
                             5 -> ConnectionsSection(settings, theme, vm, isTv = true, firstItemFocusRequester = contentFirstItemFocusRequester)
                         }
@@ -765,7 +765,7 @@ private fun PhoneSettingsScreen(
                             exportLauncher.launch("zstream_backup_${System.currentTimeMillis()}.json")
                         })
                         1 -> PreferencesSection(settings, bookmarks, theme, vm)
-                        2 -> AppearanceSection(settings, theme, vm)
+                        2 -> AppearanceSection(settings, theme, vm, nav)
                         3 -> PlayerSection(settings, theme, vm)
                         5 -> ConnectionsSection(settings, theme, vm)
                     }
@@ -1623,9 +1623,10 @@ private fun SourceOrderDialog(
 
 @Composable
 private fun AppearanceSection(
-    settings: SettingsEntity, 
-    theme: ZStreamTheme, 
-    vm: SettingsViewModel, 
+    settings: SettingsEntity,
+    theme: ZStreamTheme,
+    vm: SettingsViewModel,
+    nav: NavController,
     isTv: Boolean = false,
     firstItemFocusRequester: FocusRequester? = null,
 ) {
@@ -1689,6 +1690,13 @@ private fun AppearanceSection(
                         onValueChange = { vm.setHomeSectionCarouselLimit(it.roundToInt()) },
                         theme = theme
                     )
+                }
+                HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
+                TvSettingsRow(theme, onActivate = {
+                    HomeLayoutMenuSignal.request()
+                    nav.navigate("home")
+                }) {
+                    Text("Edit home sections", color = theme.colors.type.text, fontSize = 14.sp, modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 12.dp))
                 }
             }
         } else {
@@ -1766,6 +1774,20 @@ private fun AppearanceSection(
                             theme = theme
                         )
                     }
+                }
+                HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            HomeLayoutMenuSignal.request()
+                            nav.navigate("home")
+                        }
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Edit home sections", color = theme.colors.type.text, fontSize = 14.sp)
                 }
             }
         }
@@ -2208,7 +2230,13 @@ private fun SubtitlesSettingsContent(
                     .clip(RoundedCornerShape(12.dp))
                     .background(theme.colors.settings.card.background)
             ) {
-                TvDropdownRow("Preferred language", listOf("English"), "English", { vm.setDefaultSubtitleLanguage("en") }, theme)
+                TvDropdownRow(
+                    "Preferred language",
+                    SUBTITLE_LANGUAGES.map { it.second },
+                    subtitleLanguageDisplayName(settings.defaultSubtitleLanguage),
+                    { display -> vm.setDefaultSubtitleLanguage(subtitleLanguageCodeFor(display)) },
+                    theme,
+                )
                 HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                 TvSettingsRow(theme, onActivate = { vm.setEnableNativeSubtitles(!settings.enableNativeSubtitles) }) {
                     TvSwitchContent("Native Subtitles", "Use system subtitle renderer", settings.enableNativeSubtitles)
@@ -2402,7 +2430,12 @@ private fun SubtitlesSettingsContent(
             Spacer(Modifier.height(8.dp))
             SectionLabel("Behavior", theme)
             SettingsCard(theme) {
-                ZsDropdownRow("Preferred language", listOf("English"), "English", { vm.setDefaultSubtitleLanguage("en") })
+                ZsDropdownRow(
+                    "Preferred language",
+                    SUBTITLE_LANGUAGES.map { it.second },
+                    subtitleLanguageDisplayName(settings.defaultSubtitleLanguage),
+                    { display -> vm.setDefaultSubtitleLanguage(subtitleLanguageCodeFor(display)) },
+                )
                 HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                 ZsSwitchRow(
                     title = "Native Subtitles",
@@ -2521,6 +2554,29 @@ private fun SubtitlesSettingsContent(
         }
     }
 }
+
+private val SUBTITLE_LANGUAGES: List<Pair<String, String>> = listOf(
+    "en" to "English",
+    "es" to "Spanish",
+    "fr" to "French",
+    "de" to "German",
+    "pt" to "Portuguese",
+    "it" to "Italian",
+    "nl" to "Dutch",
+    "ja" to "Japanese",
+    "ko" to "Korean",
+    "zh" to "Chinese",
+    "ar" to "Arabic",
+    "hi" to "Hindi",
+    "ru" to "Russian",
+    "tr" to "Turkish",
+)
+
+private fun subtitleLanguageDisplayName(code: String?): String =
+    SUBTITLE_LANGUAGES.firstOrNull { it.first == code }?.second ?: "English"
+
+private fun subtitleLanguageCodeFor(displayName: String): String =
+    SUBTITLE_LANGUAGES.firstOrNull { it.second == displayName }?.first ?: "en"
 
 private val subtitleColorGrid = listOf(
     "#ffffff", "#f0f0f0", "#d4d4d4", "#b0b0b0",
