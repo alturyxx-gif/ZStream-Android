@@ -13,6 +13,14 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
+ * Filename of the recovery index written by [DownloadStorage.writeIndexJson] — exposed so scanners
+ * that walk the ZStream folder (e.g. LocalMediaRepository's manually-added local-folder feature)
+ * can exclude it. It's disguised as video/mp4 (see writeIndexJson's doc comment for why) which
+ * would otherwise make it look like a bogus playable entry to any such scanner.
+ */
+const val DOWNLOAD_INDEX_DISPLAY_NAME = "zstream_index.mp4"
+
+/**
  * A file the download pipeline is writing to — either a MediaStore "Downloads" entry (API 29+,
  * scoped storage) or a plain File under the legacy public Downloads directory (API 24-28, needs
  * WRITE_EXTERNAL_STORAGE, declared maxSdkVersion="28" in the manifest since it's a no-op/denied
@@ -225,9 +233,19 @@ class DownloadStorage @Inject constructor(
 
     /**
      * Writes (overwriting any previous copy) a small recovery index of completed downloads to a
-     * fixed path — "Downloads/ZStream/zstream_index.json" — so DownloadIndexSync can rebuild the
+     * fixed path — "Downloads/ZStream/zstream_index.mp4" — so DownloadIndexSync can rebuild the
      * DownloadEntity rows for these files after an uninstall/reinstall wipes the app-private Room
      * database. Lives at the ZStream root, not nested per-title like video files.
+     *
+     * Named/typed as video/mp4 (the content is still plain JSON text) rather than application/json
+     * on purpose: confirmed via a live MediaStore dump that uninstalling nulls out a row's
+     * owner_package_name, and Android 13+'s granular storage permissions only grant cross-app
+     * visibility for their own media type (READ_MEDIA_VIDEO covers any video file system-wide,
+     * matching why the actual downloaded .mp4s stay resolvable after a reinstall) -- there is no
+     * equivalent permission for arbitrary file types, so a real application/json row becomes
+     * permanently unqueryable the moment its owning install is gone, regardless of any query logic
+     * here. Riding along under READ_MEDIA_VIDEO (already requested and granted for playback) is
+     * what actually makes this survive a reinstall, short of requesting MANAGE_EXTERNAL_STORAGE.
      */
     fun writeIndexJson(json: String) {
         if (!isScopedStorage) {
@@ -269,7 +287,7 @@ class DownloadStorage @Inject constructor(
         }
         val values = ContentValues().apply {
             put(MediaStore.Downloads.DISPLAY_NAME, INDEX_DISPLAY_NAME)
-            put(MediaStore.Downloads.MIME_TYPE, "application/json")
+            put(MediaStore.Downloads.MIME_TYPE, "video/mp4")
             put(MediaStore.Downloads.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/$INDEX_RELATIVE_FOLDER/")
         }
         val inserted = context.contentResolver.insert(collection, values)
@@ -294,7 +312,7 @@ class DownloadStorage @Inject constructor(
     private fun queryIndexUri(collection: Uri): Uri? {
         val projection = arrayOf(MediaStore.MediaColumns._ID)
         val selection = "${MediaStore.MediaColumns.DISPLAY_NAME} LIKE ?"
-        val args = arrayOf("zstream_index%.json")
+        val args = arrayOf("zstream_index%")
         val sortOrder = "${MediaStore.MediaColumns.DATE_MODIFIED} DESC"
         return context.contentResolver.query(collection, projection, selection, args, sortOrder)?.use { cursor ->
             if (!cursor.moveToFirst()) return@use null
@@ -305,7 +323,7 @@ class DownloadStorage @Inject constructor(
 
     private companion object {
         const val INDEX_RELATIVE_FOLDER = "ZStream"
-        const val INDEX_DISPLAY_NAME = "zstream_index.json"
+        const val INDEX_DISPLAY_NAME = DOWNLOAD_INDEX_DISPLAY_NAME
         const val INDEX_PREFS_NAME = "download_storage_index"
         const val INDEX_PREF_ROW_ID = "index_row_id"
     }
