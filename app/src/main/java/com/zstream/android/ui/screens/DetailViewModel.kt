@@ -80,6 +80,10 @@ class DetailViewModel @Inject constructor(
             .map { online -> !online }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), !connectivityObserver.isOnlineNow())
 
+    /** "season|episode" keys (movies "null|null") currently being resolved by [downloadResolver] — lets the UI show a spinner between tap and enqueue, since the resolve step itself has no other progress signal. */
+    private val _pendingDownloads = MutableStateFlow<Set<String>>(emptySet())
+    val pendingDownloads: kotlinx.coroutines.flow.StateFlow<Set<String>> = _pendingDownloads.asStateFlow()
+
     // Add flows for bookmark and progress
     val isBookmarked = bookmarkRepo.observeBookmark(id.toString())
         .map { it != null }
@@ -466,28 +470,42 @@ class DetailViewModel @Inject constructor(
 
     fun downloadMovie() {
         val current = _state.value as? DetailState.Movie ?: return
+        val key = "null|null"
+        if (key in _pendingDownloads.value) return
         viewModelScope.launch {
-            downloadResolver.resolveAndEnqueue(
-                mediaType = "movie",
-                tmdbId = id.toString(),
-                title = current.detail.title,
-                posterPath = current.detail.posterPath,
-            )
+            _pendingDownloads.value = _pendingDownloads.value + key
+            try {
+                downloadResolver.resolveAndEnqueue(
+                    mediaType = "movie",
+                    tmdbId = id.toString(),
+                    title = current.detail.title,
+                    posterPath = current.detail.posterPath,
+                )
+            } finally {
+                _pendingDownloads.value = _pendingDownloads.value - key
+            }
         }
     }
 
     fun downloadEpisode(episode: Episode) {
         val current = _state.value as? DetailState.Tv ?: return
+        val key = "${episode.seasonNumber}|${episode.episodeNumber}"
+        if (key in _pendingDownloads.value) return
         viewModelScope.launch {
-            downloadResolver.resolveAndEnqueue(
-                mediaType = "tv",
-                tmdbId = id.toString(),
-                title = current.detail.name,
-                posterPath = current.detail.posterPath,
-                season = episode.seasonNumber,
-                episode = episode.episodeNumber,
-                episodeTitle = episode.name,
-            )
+            _pendingDownloads.value = _pendingDownloads.value + key
+            try {
+                downloadResolver.resolveAndEnqueue(
+                    mediaType = "tv",
+                    tmdbId = id.toString(),
+                    title = current.detail.name,
+                    posterPath = current.detail.posterPath,
+                    season = episode.seasonNumber,
+                    episode = episode.episodeNumber,
+                    episodeTitle = episode.name,
+                )
+            } finally {
+                _pendingDownloads.value = _pendingDownloads.value - key
+            }
         }
     }
 
@@ -495,10 +513,14 @@ class DetailViewModel @Inject constructor(
         val current = _state.value as? DetailState.Tv ?: return
         val season = current.selectedSeason ?: return
         val alreadyDownloaded = downloadedEpisodes.value.keys
+        val targets = season.episodes.orEmpty()
+            .filterNot { alreadyDownloaded.contains("${it.seasonNumber}|${it.episodeNumber}") }
         viewModelScope.launch {
-            season.episodes.orEmpty()
-                .filterNot { alreadyDownloaded.contains("${it.seasonNumber}|${it.episodeNumber}") }
-                .forEach { episode ->
+            targets.forEach { episode ->
+                val key = "${episode.seasonNumber}|${episode.episodeNumber}"
+                if (key in _pendingDownloads.value) return@forEach
+                _pendingDownloads.value = _pendingDownloads.value + key
+                try {
                     downloadResolver.resolveAndEnqueue(
                         mediaType = "tv",
                         tmdbId = id.toString(),
@@ -508,7 +530,10 @@ class DetailViewModel @Inject constructor(
                         episode = episode.episodeNumber,
                         episodeTitle = episode.name,
                     )
+                } finally {
+                    _pendingDownloads.value = _pendingDownloads.value - key
                 }
+            }
         }
     }
 }

@@ -369,6 +369,8 @@ internal fun ColumnScope.SharedTvDetailContent(
     onClearEpisodeWatchHistory: (Episode) -> Unit = {},
     downloadedEpisodes: Map<String, com.zstream.android.data.local.entity.DownloadEntity> = emptyMap(),
     onDownloadEpisode: (Episode) -> Unit = {},
+    onDownloadSeason: () -> Unit = {},
+    pendingDownloads: Set<String> = emptySet(),
     isOffline: Boolean = false,
     firstItemFocusRequester: FocusRequester? = null,
     trailers: List<com.zstream.android.data.ImdbTrailer> = emptyList(),
@@ -480,6 +482,23 @@ internal fun ColumnScope.SharedTvDetailContent(
             .filter { it.seasonNumber == selectedSeason.seasonNumber }
             .associateBy { it.episodeNumber }
         ZsBottomSheetSectionHeader("Episodes")
+        val seasonPending = episodes.any { pendingDownloads.contains("${it.seasonNumber}|${it.episodeNumber}") }
+        val seasonFullyDownloaded = episodes.all { downloadedEpisodes.containsKey("${it.seasonNumber}|${it.episodeNumber}") }
+        if (!isOffline && !seasonFullyDownloaded) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = onDownloadSeason, enabled = !seasonPending) {
+                    if (seasonPending) {
+                        CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp, color = theme.colors.type.secondary)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Downloading Season ${selectedSeason.seasonNumber}…", color = theme.colors.type.secondary)
+                    } else {
+                        Icon(Icons.Filled.Download, null, modifier = Modifier.size(16.dp), tint = theme.colors.global.accentA)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Download Season ${selectedSeason.seasonNumber}", color = theme.colors.global.accentA)
+                    }
+                }
+            }
+        }
         episodes.forEach { episode ->
             com.zstream.android.ui.screens.SharedEpisodeRow(
                 ep = episode,
@@ -494,6 +513,7 @@ internal fun ColumnScope.SharedTvDetailContent(
                 onClearHistory = { onClearEpisodeWatchHistory(episode) },
                 downloadEntry = downloadedEpisodes["${episode.seasonNumber}|${episode.episodeNumber}"],
                 onDownloadEpisode = { onDownloadEpisode(episode) },
+                isDownloadPending = pendingDownloads.contains("${episode.seasonNumber}|${episode.episodeNumber}"),
                 isOffline = isOffline,
             )
         }
@@ -519,6 +539,7 @@ internal fun SharedActionPill(
     theme: ZStreamTheme,
     focusRequester: FocusRequester? = null,
     onFocusChanged: ((Boolean) -> Unit)? = null,
+    loading: Boolean = false,
     onClick: () -> Unit,
 ) {
     val isTv = LocalIsTv.current
@@ -527,7 +548,7 @@ internal fun SharedActionPill(
     Box(
         modifier = Modifier
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
-            .onFocusChanged { 
+            .onFocusChanged {
                 isFocused = it.isFocused
                 onFocusChanged?.invoke(it.isFocused)
             }
@@ -544,10 +565,18 @@ internal fun SharedActionPill(
                 color = if (isFocused && isTv) theme.colors.global.accentA.copy(alpha = 0.3f) else theme.colors.type.text.copy(alpha = 0.05f),
                 border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.type.divider.copy(alpha = 0.3f)),
                 modifier = Modifier
-                    .clickable(onClick = onClick)
+                    .clickable(enabled = !loading, onClick = onClick)
             ) {
                 Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(icon, null, modifier = Modifier.size(20.dp), tint = theme.colors.type.text)
+                    if (loading) {
+                        CircularProgressIndicator(
+                            color = theme.colors.type.text,
+                            strokeWidth = 2.dp,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    } else {
+                        Icon(icon, null, modifier = Modifier.size(20.dp), tint = theme.colors.type.text)
+                    }
                 }
             }
         }

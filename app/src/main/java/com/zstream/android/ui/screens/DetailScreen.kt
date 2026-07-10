@@ -36,6 +36,7 @@ fun DetailScreen(nav: NavController, vm: DetailViewModel = hiltViewModel()) {
     val trailers by vm.trailers.collectAsState()
     val downloadedEpisodes by vm.downloadedEpisodes.collectAsState()
     val isOffline by vm.isOffline.collectAsState()
+    val pendingDownloads by vm.pendingDownloads.collectAsState()
     val hasProgress = progress?.let { it.watched >= 20 } ?: false
 
     if (!LocalIsTv.current) {
@@ -75,6 +76,7 @@ fun DetailScreen(nav: NavController, vm: DetailViewModel = hiltViewModel()) {
                 onClearMovieWatchHistory = vm::clearMovieWatchHistory,
                 downloadedMovieId = downloadedEpisodes["null|null"]?.id,
                 onDownloadMovie = vm::downloadMovie,
+                isMovieDownloadPending = "null|null" in pendingDownloads,
                 onBookmarkCollection = vm::bookmarkCollection,
                 onBrowseCollection = vm::loadCollection,
                 onClearCollection = vm::clearCollection,
@@ -108,6 +110,7 @@ fun DetailScreen(nav: NavController, vm: DetailViewModel = hiltViewModel()) {
                 downloadedEpisodes = downloadedEpisodes,
                 onDownloadEpisode = vm::downloadEpisode,
                 onDownloadSeason = vm::downloadSeason,
+                pendingDownloads = pendingDownloads,
                 isOffline = isOffline,
                 onBookmarkCollection = vm::bookmarkCollection,
                 onBrowseCollection = vm::loadCollection,

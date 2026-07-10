@@ -2014,6 +2014,9 @@ fun LocalPlayerScreen(nav: NavController, vm: LocalPlayerViewModel = hiltViewMod
     val resumeWatchedSec by vm.resumeWatchedSec.collectAsState()
     val skipSegments by vm.skipSegments.collectAsState()
     val settings by vm.settings.collectAsState(initial = com.zstream.android.data.local.entity.SettingsEntity())
+    val tvDetail by vm.tvDetail.collectAsState()
+    val currentSeasonDetail by vm.currentSeasonDetail.collectAsState()
+    val downloadedEpisodesForShow by vm.downloadedEpisodes.collectAsState()
     val context = LocalContext.current
     val activity = LocalActivity.current
     val scope = rememberCoroutineScope()
@@ -2064,6 +2067,8 @@ fun LocalPlayerScreen(nav: NavController, vm: LocalPlayerViewModel = hiltViewMod
         }
     }
 
+    var playbackError by remember { mutableStateOf<String?>(null) }
+
     val player = remember(ready) {
         ready?.let { r ->
             ExoPlayer.Builder(context).build().apply {
@@ -2083,6 +2088,15 @@ fun LocalPlayerScreen(nav: NavController, vm: LocalPlayerViewModel = hiltViewMod
                     .buildUpon()
                     .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, !settings.subtitlesEnabled)
                     .build()
+                addListener(object : Player.Listener {
+                    override fun onPlayerError(error: PlaybackException) {
+                        android.util.Log.e("LocalPlayback", "${error.errorCodeName}: ${error.message}", error)
+                        playbackError = error.message ?: error.errorCodeName
+                    }
+                    override fun onPlaybackStateChanged(state: Int) {
+                        if (state != Player.STATE_IDLE) playbackError = null
+                    }
+                })
                 playWhenReady = true
                 resumeWatchedSec?.let { seekTo(it * 1000) }
                 prepare()
@@ -2294,17 +2308,40 @@ fun LocalPlayerScreen(nav: NavController, vm: LocalPlayerViewModel = hiltViewMod
                         }
                     },
                     allProgress = emptyList(),
-                    currentSeason = null,
-                    currentEpisode = null,
-                    onLoadSeason = {},
-                    onSwitchEpisode = { _, _ -> },
+                    currentSeason = ready.season,
+                    currentEpisode = ready.episode,
+                    onLoadSeason = { vm.loadSeason(it) },
+                    onSwitchEpisode = { s, e ->
+                        downloadedEpisodesForShow["$s|$e"]?.let { entity -> nav.navigate("localPlayer/${entity.id}") }
+                    },
                     poster = ready.posterPath?.let { Urls.TMDB_IMAGE + "w500${if (it.startsWith("/")) it else "/$it"}" },
                     nav = nav,
-                    tvDetail = null,
-                    currentSeasonDetail = null,
+                    tvDetail = tvDetail,
+                    currentSeasonDetail = currentSeasonDetail,
                     pauseMetadata = null,
                     localFileInfo = localInfo,
+                    downloadedEpisodesForShow = downloadedEpisodesForShow,
                 )
+                if (playbackError != null) {
+                    Box(
+                        Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.75f)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            ZsStatusBanner(
+                                message = playbackError ?: "Playback error",
+                                variant = ZsStatusBannerVariant.Error,
+                                modifier = Modifier.padding(horizontal = 24.dp),
+                            )
+                            Spacer(Modifier.height(12.dp))
+                            Button(onClick = {
+                                playbackError = null
+                                player.prepare()
+                                player.playWhenReady = true
+                            }) { Text("Retry") }
+                        }
+                    }
+                }
             }
         }
     }
@@ -4361,6 +4398,7 @@ private fun PlayerMenuContent(
     tvDetail: com.zstream.android.data.model.TvDetail?,
     currentSeasonDetail: com.zstream.android.data.model.Season?,
     localFileInfo: LocalFileInfo? = null,
+    downloadedEpisodesForShow: Map<String, com.zstream.android.data.local.entity.DownloadEntity> = emptyMap(),
 ) {
     val theme = LocalZStreamTheme.current
     val isTv = LocalIsTv.current
@@ -5700,6 +5738,8 @@ private fun PlayerMenuContent(
                                     onEpisodeClick = {
                                         onSwitchEpisode(ep.seasonNumber, ep.episodeNumber)
                                     },
+                                    downloadEntry = downloadedEpisodesForShow["${ep.seasonNumber}|${ep.episodeNumber}"],
+                                    isOffline = localFileInfo != null,
                                     compact = true,
                                     horizontalPadding = 0.dp,
                                     modifier = Modifier
