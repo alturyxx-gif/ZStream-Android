@@ -91,6 +91,7 @@ class DownloadService : Service() {
 
     private suspend fun cleanupFromPreviousProcess() {
         downloadDao.getInFlight().forEach { stale ->
+            if (DownloadQueue.get(stale.id) != null) return@forEach
             val request = stale.toRequest()
             if (request != null) {
                 DownloadQueue.put(stale.id, request)
