@@ -74,6 +74,7 @@ class SettingsPreferences @Inject constructor(
     private val KEY_LAST_SUCCESSFUL_SOURCE = stringPreferencesKey("last_successful_source")
     private val KEY_ENABLE_LAST_SUCCESSFUL_SOURCE = booleanPreferencesKey("enable_last_successful_source")
     private val KEY_MANUAL_SOURCE_SELECTION = booleanPreferencesKey("manual_source_selection")
+    private val KEY_ALLOW_PARALLEL_DOWNLOAD = booleanPreferencesKey("allow_parallel_download")
     private val KEY_SOURCE_ORDER = stringPreferencesKey("source_order") // Stored as comma-separated
     private val KEY_ENABLE_SOURCE_ORDER = booleanPreferencesKey("enable_source_order")
 
@@ -155,6 +156,7 @@ class SettingsPreferences @Inject constructor(
             lastSuccessfulSource = prefs[KEY_LAST_SUCCESSFUL_SOURCE],
             enableLastSuccessfulSource = prefs[KEY_ENABLE_LAST_SUCCESSFUL_SOURCE] ?: false,
             manualSourceSelection = prefs[KEY_MANUAL_SOURCE_SELECTION] ?: false,
+            allowParallelDownload = prefs[KEY_ALLOW_PARALLEL_DOWNLOAD] ?: false,
             sourceOrder = prefs[KEY_SOURCE_ORDER]?.split(",")?.filter { it.isNotBlank() } ?: emptyList(),
             enableSourceOrder = prefs[KEY_ENABLE_SOURCE_ORDER] ?: false,
             proxyUrls = prefs[KEY_PROXY_URLS]?.split(",")?.filter { it.isNotBlank() } ?: emptyList(),
@@ -236,6 +238,7 @@ class SettingsPreferences @Inject constructor(
             }
             prefs[KEY_ENABLE_LAST_SUCCESSFUL_SOURCE] = entity.enableLastSuccessfulSource
             prefs[KEY_MANUAL_SOURCE_SELECTION] = entity.manualSourceSelection
+            prefs[KEY_ALLOW_PARALLEL_DOWNLOAD] = entity.allowParallelDownload
             prefs[KEY_SOURCE_ORDER] = entity.sourceOrder.joinToString(",")
             prefs[KEY_ENABLE_SOURCE_ORDER] = entity.enableSourceOrder
             prefs[KEY_PROXY_URLS] = entity.proxyUrls.joinToString(",")
@@ -614,6 +617,12 @@ class SettingsPreferences @Inject constructor(
     suspend fun setManualSourceSelection(enabled: Boolean) {
         context.settingsStore.edit { prefs ->
             prefs[KEY_MANUAL_SOURCE_SELECTION] = enabled
+        }
+    }
+
+    suspend fun setAllowParallelDownload(enabled: Boolean) {
+        context.settingsStore.edit { prefs ->
+            prefs[KEY_ALLOW_PARALLEL_DOWNLOAD] = enabled
         }
     }
 

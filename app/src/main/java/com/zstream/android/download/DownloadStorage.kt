@@ -222,4 +222,62 @@ class DownloadStorage @Inject constructor(
         "vtt" -> "text/vtt"
         else -> "application/x-subrip"
     }
+
+    /**
+     * Writes (overwriting any previous copy) a small recovery index of completed downloads to a
+     * fixed path — "Downloads/ZStream/zstream_index.json" — so DownloadIndexSync can rebuild the
+     * DownloadEntity rows for these files after an uninstall/reinstall wipes the app-private Room
+     * database. Lives at the ZStream root, not nested per-title like video files.
+     */
+    fun writeIndexJson(json: String) {
+        if (!isScopedStorage) {
+            @Suppress("DEPRECATION")
+            val root = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            val folder = File(root, INDEX_RELATIVE_FOLDER)
+            folder.mkdirs()
+            File(folder, INDEX_DISPLAY_NAME).writeText(json)
+            return
+        }
+        val collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+        val uri = queryIndexUri(collection) ?: run {
+            val values = ContentValues().apply {
+                put(MediaStore.Downloads.DISPLAY_NAME, INDEX_DISPLAY_NAME)
+                put(MediaStore.Downloads.MIME_TYPE, "application/json")
+                put(MediaStore.Downloads.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/$INDEX_RELATIVE_FOLDER")
+            }
+            context.contentResolver.insert(collection, values)
+                ?: error("MediaStore insert failed for $INDEX_DISPLAY_NAME")
+        }
+        context.contentResolver.openOutputStream(uri, "wt")?.use { it.write(json.toByteArray(Charsets.UTF_8)) }
+            ?: error("Could not open output stream for $INDEX_DISPLAY_NAME")
+    }
+
+    /** Reads back the recovery index written by [writeIndexJson]. Null if none exists yet. */
+    fun readIndexJson(): String? {
+        if (!isScopedStorage) {
+            @Suppress("DEPRECATION")
+            val root = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            val file = File(File(root, INDEX_RELATIVE_FOLDER), INDEX_DISPLAY_NAME)
+            return if (file.exists()) file.readText() else null
+        }
+        val collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+        val uri = queryIndexUri(collection) ?: return null
+        return context.contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) }
+    }
+
+    private fun queryIndexUri(collection: Uri): Uri? {
+        val projection = arrayOf(MediaStore.MediaColumns._ID)
+        val selection = "${MediaStore.MediaColumns.DISPLAY_NAME}=? AND ${MediaStore.MediaColumns.RELATIVE_PATH}=?"
+        val args = arrayOf(INDEX_DISPLAY_NAME, "${Environment.DIRECTORY_DOWNLOADS}/$INDEX_RELATIVE_FOLDER/")
+        return context.contentResolver.query(collection, projection, selection, args, null)?.use { cursor ->
+            if (!cursor.moveToFirst()) return@use null
+            val id = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID))
+            android.content.ContentUris.withAppendedId(collection, id)
+        }
+    }
+
+    private companion object {
+        const val INDEX_RELATIVE_FOLDER = "ZStream"
+        const val INDEX_DISPLAY_NAME = "zstream_index.json"
+    }
 }

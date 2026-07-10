@@ -25,6 +25,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.Coffee
@@ -32,6 +33,7 @@ import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Cottage
 import androidx.compose.material.icons.filled.DeviceHub
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.Headphones
@@ -65,6 +67,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -90,6 +93,7 @@ import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import com.zstream.android.R
 import com.zstream.android.Urls
+import com.zstream.android.data.local.entity.DownloadEntity
 import com.zstream.android.data.local.entity.ProgressEntity
 import com.zstream.android.data.model.CastMember
 import com.zstream.android.data.model.Episode
@@ -132,6 +136,8 @@ fun MovieDetailModal(
     hasProgress: Boolean,
     onBack: () -> Unit,
     onMarkMovieWatched: () -> Unit,
+    downloadedMovieId: Long? = null,
+    onDownloadMovie: () -> Unit = {},
     onClearMovieWatchHistory: () -> Unit,
     onBookmarkCollection: ((CollectionSummary) -> Unit)? = null,
     onBrowseCollection: ((CollectionSummary) -> Unit)? = null,
@@ -231,7 +237,10 @@ fun MovieDetailModal(
                         vertical = (-1).dp,
                     ) {
                         Button(
-                            onClick = { nav.navigate("player/movie/${detail.id}?title=${detail.title.encode()}&year=${detail.releaseDate?.take(4)?.toIntOrNull() ?: 0}&poster=${detail.posterPath?.encode() ?: ""}") },
+                            onClick = {
+                                if (downloadedMovieId != null) nav.navigate("localPlayer/$downloadedMovieId")
+                                else nav.navigate("player/movie/${detail.id}?title=${detail.title.encode()}&year=${detail.releaseDate?.take(4)?.toIntOrNull() ?: 0}&poster=${detail.posterPath?.encode() ?: ""}")
+                            },
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = theme.colors.buttons.purple,
                                 contentColor = theme.colors.type.emphasis,
@@ -278,6 +287,15 @@ fun MovieDetailModal(
                         onClick = { showGroupEditor = true },
                     )
                 }
+
+                SharedActionPill(
+                    icon = if (downloadedMovieId != null) Icons.Filled.CheckCircle else Icons.Filled.Download,
+                    theme = theme,
+                    onFocusChanged = { focused ->
+                        if (focused && isTv) scrollRequestId++
+                    },
+                    onClick = { if (downloadedMovieId == null) onDownloadMovie() },
+                )
 
                 SharedActionPill(
                     icon = Icons.Filled.RemoveRedEye,
@@ -644,6 +662,10 @@ fun TvDetailModal(
     onClearEpisodeWatchHistory: (com.zstream.android.data.model.Episode) -> Unit,
     onMarkSeasonWatched: () -> Unit,
     onClearSeasonWatchHistory: () -> Unit,
+    downloadedEpisodes: Map<String, DownloadEntity> = emptyMap(),
+    onDownloadEpisode: (com.zstream.android.data.model.Episode) -> Unit = {},
+    onDownloadSeason: () -> Unit = {},
+    isOffline: Boolean = false,
     onBookmarkCollection: ((CollectionSummary) -> Unit)? = null,
     onBrowseCollection: ((CollectionSummary) -> Unit)? = null,
     onClearCollection: () -> Unit = {},
@@ -704,6 +726,9 @@ fun TvDetailModal(
             onSelectSeason = onSelectSeason,
             onMarkEpisodeWatched = onMarkEpisodeWatched,
             onClearEpisodeWatchHistory = onClearEpisodeWatchHistory,
+            downloadedEpisodes = downloadedEpisodes,
+            onDownloadEpisode = onDownloadEpisode,
+            isOffline = isOffline,
             firstItemFocusRequester = firstItemFocusRequester,
             specActions = { },
         ) { requester ->
@@ -736,11 +761,15 @@ fun TvDetailModal(
                             if (hasProgress && resumeProgress != null) {
                                 val sNum = resumeProgress.seasonNumber ?: selectedSeason?.seasonNumber ?: 1
                                 val eNum = resumeProgress.episodeNumber ?: 1
-                                nav.navigate("player/tv/${detail.id}?season=$sNum&episode=$eNum&title=${detail.name.encode()}&year=${detail.firstAirDate?.take(4)?.toIntOrNull() ?: 0}&poster=${detail.posterPath?.encode() ?: ""}")
+                                val downloaded = downloadedEpisodes["$sNum|$eNum"]
+                                if (downloaded != null) nav.navigate("localPlayer/${downloaded.id}")
+                                else nav.navigate("player/tv/${detail.id}?season=$sNum&episode=$eNum&title=${detail.name.encode()}&year=${detail.firstAirDate?.take(4)?.toIntOrNull() ?: 0}&poster=${detail.posterPath?.encode() ?: ""}")
                             } else {
                                 val firstEp = selectedSeason?.episodes?.airedEpisodes()?.firstOrNull()
                                 if (firstEp != null) {
-                                    nav.navigate("player/tv/${detail.id}?season=${firstEp.seasonNumber}&episode=${firstEp.episodeNumber}&title=${detail.name.encode()}&year=${detail.firstAirDate?.take(4)?.toIntOrNull() ?: 0}&poster=${detail.posterPath?.encode() ?: ""}")
+                                    val downloaded = downloadedEpisodes["${firstEp.seasonNumber}|${firstEp.episodeNumber}"]
+                                    if (downloaded != null) nav.navigate("localPlayer/${downloaded.id}")
+                                    else nav.navigate("player/tv/${detail.id}?season=${firstEp.seasonNumber}&episode=${firstEp.episodeNumber}&title=${detail.name.encode()}&year=${detail.firstAirDate?.take(4)?.toIntOrNull() ?: 0}&poster=${detail.posterPath?.encode() ?: ""}")
                                 }
                             }
                         },
@@ -790,6 +819,15 @@ fun TvDetailModal(
                     onClick = { showGroupEditor = true },
                 )
             }
+
+            SharedActionPill(
+                icon = Icons.Filled.Download,
+                theme = theme,
+                onFocusChanged = { focused ->
+                    if (focused && isTv) scrollRequestId++
+                },
+                onClick = onDownloadSeason,
+            )
 
             SharedActionPill(
                 icon = Icons.Filled.RemoveRedEye,
@@ -954,6 +992,9 @@ internal fun SharedEpisodeRow(
     onEpisodeClick: (() -> Unit)? = null,
     compact: Boolean = false,
     horizontalPadding: Dp = 16.dp,
+    downloadEntry: DownloadEntity? = null,
+    onDownloadEpisode: () -> Unit = {},
+    isOffline: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val pct = if (episodeProgress != null && episodeProgress.duration > 0) {
@@ -965,6 +1006,8 @@ internal fun SharedEpisodeRow(
         confirmValueChange = { true }
     )
     val scope = rememberCoroutineScope()
+    val isDownloaded = downloadEntry != null
+    val rowDisabled = !isDownloaded && isOffline
 
     val rowContent: @Composable () -> Unit = {
         val isTv = LocalIsTv.current
@@ -980,11 +1023,14 @@ internal fun SharedEpisodeRow(
             Box(
                 modifier
                     .fillMaxWidth()
+                    .alpha(if (rowDisabled) 0.4f else 1f)
                     .clip(RoundedCornerShape(12.dp))
                     .background(theme.colors.modal.background)
                     .onFocusChanged { isFocused = it.isFocused }
-                    .clickable {
-                        if (onEpisodeClick != null) {
+                    .clickable(enabled = !rowDisabled) {
+                        if (isDownloaded) {
+                            nav.navigate("localPlayer/${downloadEntry?.id}")
+                        } else if (onEpisodeClick != null) {
                             onEpisodeClick()
                         } else {
                             val encodedTitle = java.net.URLEncoder.encode(title, "UTF-8").replace("+", "%20")
@@ -1049,6 +1095,25 @@ internal fun SharedEpisodeRow(
                             )
                             Spacer(Modifier.height(4.dp))
                         }
+                    }
+
+                    if (isDownloaded) {
+                        Icon(
+                            imageVector = Icons.Filled.CheckCircle,
+                            contentDescription = "Downloaded",
+                            tint = theme.colors.type.success,
+                            modifier = Modifier.padding(8.dp).size(20.dp),
+                        )
+                    } else if (!isOffline) {
+                        Icon(
+                            imageVector = Icons.Filled.Download,
+                            contentDescription = "Download episode",
+                            tint = theme.colors.type.secondary,
+                            modifier = Modifier
+                                .padding(8.dp)
+                                .size(20.dp)
+                                .clickable { onDownloadEpisode() },
+                        )
                     }
                 }
 

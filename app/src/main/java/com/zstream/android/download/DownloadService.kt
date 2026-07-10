@@ -15,6 +15,7 @@ import com.zstream.android.MainActivity
 import com.zstream.android.R
 import com.zstream.android.data.local.dao.DownloadDao
 import com.zstream.android.data.local.entity.DownloadStatus
+import com.zstream.android.data.local.preferences.SettingsPreferences
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -23,6 +24,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
@@ -38,15 +41,17 @@ private const val ACTION_RESUME = "com.zstream.android.download.action.RESUME"
 private const val ACTION_CANCEL = "com.zstream.android.download.action.CANCEL"
 
 /**
- * Foreground service that runs one download at a time, in the order requests arrive. Each
- * request's actual data comes from DownloadQueue (see its doc comment) — the Intent only carries
- * the DB row id.
+ * Foreground service that runs downloads in the order requests arrive, one at a time by default
+ * or up to 5 concurrently when the "Allow parallel download" setting is on (see
+ * concurrencyLimit()). Each request's actual data comes from DownloadQueue (see its doc comment)
+ * — the Intent only carries the DB row id.
  */
 @AndroidEntryPoint
 class DownloadService : Service() {
     @Inject lateinit var repository: DownloadRepository
     @Inject lateinit var downloadDao: DownloadDao
     @Inject lateinit var storage: DownloadStorage
+    @Inject lateinit var settingsPrefs: SettingsPreferences
 
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private val queue = Channel<Long>(Channel.UNLIMITED)
@@ -66,11 +71,21 @@ class DownloadService : Service() {
         scope.launch { cleanupFromPreviousProcess() }
         workerJob = scope.launch {
             for (downloadId in queue) {
+                waitForFreeSlot()
                 val job = launch { runOne(downloadId) }
                 activeJobs[downloadId] = job
-                job.join()
-                activeJobs.remove(downloadId)
+                job.invokeOnCompletion { activeJobs.remove(downloadId) }
             }
+        }
+    }
+
+    /** 1 at a time by default; up to 5 concurrent when "Allow parallel download" is on. */
+    private suspend fun concurrencyLimit(): Int =
+        if (settingsPrefs.settings.first().allowParallelDownload) 5 else 1
+
+    private suspend fun waitForFreeSlot() {
+        while (activeJobs.size >= concurrencyLimit()) {
+            delay(300)
         }
     }
 

@@ -1983,28 +1983,6 @@ private fun SectionEditActions(
     )
 }
 
-/**
- * Prefers a downloaded copy over the network detail/player flow when one exists — matches the
- * exact in-progress episode's download when known, falls back to Downloads when a show has more
- * than one downloaded episode (browsing there already handles that grouping).
- */
-private fun resolveMediaClickRoute(
-    media: Media,
-    progress: ProgressEntity?,
-    downloadedByTmdbId: Map<String, List<DownloadEntity>>,
-): String {
-    val entries = downloadedByTmdbId[media.id.toString()].orEmpty()
-    val episodeMatch = if (progress?.seasonNumber != null && progress.episodeNumber != null) {
-        entries.firstOrNull { it.season == progress.seasonNumber && it.episode == progress.episodeNumber }
-    } else null
-    return when {
-        episodeMatch != null -> "localPlayer/${episodeMatch.id}"
-        entries.size == 1 -> "localPlayer/${entries.first().id}"
-        entries.size > 1 -> "downloads"
-        else -> "detail/${media.type}/${media.id}"
-    }
-}
-
 @Composable
 private fun MediaCarouselSection(
     section: MediaSection,
@@ -2093,7 +2071,7 @@ private fun MediaCarouselSection(
                         media = media,
                         onClick = {
                             if (editable && isTv) tvEditMediaId = media.id
-                            else nav.navigate(resolveMediaClickRoute(media, progress, downloadedByTmdbId))
+                            else nav.navigate("detail/${media.type}/${media.id}")
                         },
                         percentage = progressInfo?.first,
                         seriesLabel = progressInfo?.second,
@@ -2241,7 +2219,7 @@ private fun MediaGridRow(
                     media = media,
                     onClick = {
                         if (editable && isTv) tvEditMediaId = media.id
-                        else nav.navigate(resolveMediaClickRoute(media, progress, downloadedByTmdbId))
+                        else nav.navigate("detail/${media.type}/${media.id}")
                     },
                     percentage = progressInfo?.first,
                     seriesLabel = progressInfo?.second,

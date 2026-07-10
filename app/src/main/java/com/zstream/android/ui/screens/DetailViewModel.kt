@@ -3,16 +3,23 @@ package com.zstream.android.ui.screens
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.zstream.android.data.ConnectivityObserver
 import com.zstream.android.data.ImdbTrailer
 import com.zstream.android.data.ImdbTrailerRepository
 import com.zstream.android.data.TmdbRepository
+import com.zstream.android.data.local.dao.CachedEpisodeDao
+import com.zstream.android.data.local.dao.DownloadDao
+import com.zstream.android.data.local.entity.CachedEpisodeEntity
+import com.zstream.android.data.local.entity.DownloadEntity
 import com.zstream.android.data.local.entity.ProgressEntity
+import com.zstream.android.data.model.Episode
 import com.zstream.android.data.model.MovieDetail
 import com.zstream.android.data.model.Season
 import com.zstream.android.data.model.TvDetail
 import com.zstream.android.data.model.airedEpisodes
 import com.zstream.android.data.model.CollectionSummary
 import com.zstream.android.data.remote.CollectionDetails
+import com.zstream.android.download.DownloadResolver
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -43,6 +50,10 @@ class DetailViewModel @Inject constructor(
     private val progressRepo: com.zstream.android.data.ProgressRepository,
     private val bookmarkRepo: com.zstream.android.data.BookmarkRepository,
     private val imdbTrailerRepo: ImdbTrailerRepository,
+    private val cachedEpisodeDao: CachedEpisodeDao,
+    private val downloadDao: DownloadDao,
+    private val connectivityObserver: ConnectivityObserver,
+    private val downloadResolver: DownloadResolver,
     savedState: SavedStateHandle,
 ) : ViewModel() {
     private val id = savedState.get<Int>("id") ?: 0
@@ -54,7 +65,21 @@ class DetailViewModel @Inject constructor(
     val collection = _collection.asStateFlow()
     private val _trailers = MutableStateFlow<List<ImdbTrailer>>(emptyList())
     val trailers = _trailers.asStateFlow()
-    
+
+    /** Completed downloads for this title, grouped by "season|episode" (movies use "null|null"). */
+    val downloadedEpisodes: kotlinx.coroutines.flow.StateFlow<Map<String, DownloadEntity>> =
+        downloadDao.observeCompleted()
+            .map { downloads ->
+                downloads.filter { it.tmdbId == id.toString() }
+                    .associateBy { "${it.season}|${it.episode}" }
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
+    val isOffline: kotlinx.coroutines.flow.StateFlow<Boolean> =
+        connectivityObserver.isOnline
+            .map { online -> !online }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), !connectivityObserver.isOnlineNow())
+
     // Add flows for bookmark and progress
     val isBookmarked = bookmarkRepo.observeBookmark(id.toString())
         .map { it != null }
@@ -176,25 +201,111 @@ class DetailViewModel @Inject constructor(
         viewModelScope.launch {
             _state.value = DetailState.Loading
             _trailers.value = emptyList()
+            val offline = !connectivityObserver.isOnlineNow()
             runCatching {
                 if (mediaType == "movie") {
-                    val detail = repo.movieDetail(id)
+                    val detail = if (offline) {
+                        buildOfflineMovieDetail()
+                    } else {
+                        runCatching { repo.movieDetail(id) }.getOrNull() ?: buildOfflineMovieDetail()
+                    }
+                    requireNotNull(detail) { "No connection and nothing cached for this title" }
                     _state.value = DetailState.Movie(detail)
-                    loadImdbTrailers(detail.imdbId)
+                    if (!offline) loadImdbTrailers(detail.imdbId)
                 } else {
-                    val detail = repo.tvDetail(id)
+                    val detail = if (offline) {
+                        buildOfflineTvDetail()
+                    } else {
+                        runCatching { repo.tvDetail(id) }.getOrNull() ?: buildOfflineTvDetail()
+                    }
+                    requireNotNull(detail) { "No connection and nothing cached for this title" }
                     val preferredSeasonNumber = pendingInitialSeasonNumber ?: progress.value?.seasonNumber
                     val firstSeason = preferredSeasonNumber?.let { seasonNumber ->
-                        detail.seasons?.firstOrNull { it.seasonNumber == seasonNumber }?.let { repo.season(id, seasonNumber) }
+                        detail.seasons?.firstOrNull { it.seasonNumber == seasonNumber }?.let { fetchOrCachedSeason(seasonNumber) }
                     } ?: detail.seasons
                         ?.firstOrNull { it.seasonNumber > 0 }
-                        ?.let { repo.season(id, it.seasonNumber) }
+                        ?.let { fetchOrCachedSeason(it.seasonNumber) }
                     _state.value = DetailState.Tv(detail, firstSeason)
                     applyPendingInitialSeason()
-                    loadImdbTrailers(detail.imdbId ?: detail.externalIds?.imdbId)
+                    if (!offline) loadImdbTrailers(detail.imdbId ?: detail.externalIds?.imdbId)
                 }
             }.onFailure { _state.value = DetailState.Error(it.message ?: "Failed to load") }
         }
+    }
+
+    /** Builds a minimal MovieDetail from whatever's cached locally (download/bookmark/progress). */
+    private suspend fun buildOfflineMovieDetail(): MovieDetail? {
+        val fromDownload = downloadDao.getAllSync()
+            .firstOrNull { it.tmdbId == id.toString() && it.status == com.zstream.android.data.local.entity.DownloadStatus.DONE }
+        val title = fromDownload?.title ?: bookmark.value?.title ?: progress.value?.title ?: return null
+        val poster = fromDownload?.posterPath ?: bookmark.value?.posterPath ?: progress.value?.posterPath
+        return MovieDetail(
+            id = id, title = title, overview = null, posterPath = poster, backdropPath = null,
+            releaseDate = null, voteAverage = null, runtime = null, genres = null, credits = null,
+        )
+    }
+
+    /** Builds a minimal TvDetail (with cached season numbers) from local data only. */
+    private suspend fun buildOfflineTvDetail(): TvDetail? {
+        val fromDownload = downloadDao.getAllSync()
+            .firstOrNull { it.tmdbId == id.toString() && it.status == com.zstream.android.data.local.entity.DownloadStatus.DONE }
+        val title = fromDownload?.title ?: bookmark.value?.title ?: progress.value?.title ?: return null
+        val poster = fromDownload?.posterPath ?: bookmark.value?.posterPath ?: progress.value?.posterPath
+        val seasons = cachedEpisodeDao.getAvailableSeasonsSync(id.toString()).map { seasonNumber ->
+            Season(id = 0, seasonNumber = seasonNumber, name = "Season $seasonNumber", episodeCount = null, posterPath = null, episodes = null)
+        }
+        return TvDetail(
+            id = id, name = title, overview = null, posterPath = poster, backdropPath = null,
+            firstAirDate = null, voteAverage = null, numberOfSeasons = seasons.size, seasons = seasons,
+            genres = null, credits = null,
+        )
+    }
+
+    /** Fetches a season live when online (caching the result), otherwise falls back to the local cache. */
+    private suspend fun fetchOrCachedSeason(seasonNumber: Int): Season? {
+        if (connectivityObserver.isOnlineNow()) {
+            val season = runCatching { repo.season(id, seasonNumber) }.getOrNull()
+            if (season != null) {
+                cacheSeason(season)
+                return season
+            }
+        }
+        val cached = cachedEpisodeDao.getSeasonSync(id.toString(), seasonNumber)
+        if (cached.isEmpty()) return null
+        return Season(
+            id = 0,
+            seasonNumber = seasonNumber,
+            name = "Season $seasonNumber",
+            episodeCount = cached.size,
+            posterPath = null,
+            episodes = cached.map { entry ->
+                Episode(
+                    id = entry.episodeId,
+                    name = entry.title,
+                    episodeNumber = entry.episode,
+                    seasonNumber = entry.season,
+                    stillPath = entry.stillPath,
+                    overview = entry.overview,
+                    airDate = entry.airDate,
+                )
+            },
+        )
+    }
+
+    private suspend fun cacheSeason(season: Season) {
+        val episodes = season.episodes.orEmpty().map { ep ->
+            CachedEpisodeEntity(
+                tmdbId = id.toString(),
+                season = season.seasonNumber,
+                episode = ep.episodeNumber,
+                episodeId = ep.id,
+                title = ep.name ?: "Episode ${ep.episodeNumber}",
+                overview = ep.overview,
+                stillPath = ep.stillPath,
+                airDate = ep.airDate,
+            )
+        }
+        if (episodes.isNotEmpty()) cachedEpisodeDao.upsertAll(episodes)
     }
 
     private fun loadImdbTrailers(imdbId: String?) {
@@ -214,8 +325,7 @@ class DetailViewModel @Inject constructor(
     fun selectSeason(seasonNumber: Int) {
         val current = _state.value as? DetailState.Tv ?: return
         viewModelScope.launch {
-            runCatching { repo.season(id, seasonNumber) }
-                .onSuccess { _state.value = current.copy(selectedSeason = it) }
+            fetchOrCachedSeason(seasonNumber)?.let { _state.value = current.copy(selectedSeason = it) }
         }
     }
 
@@ -350,8 +460,55 @@ class DetailViewModel @Inject constructor(
 
         initialSeasonResolved = true
         viewModelScope.launch {
-            runCatching { repo.season(id, seasonNumber) }
-                .onSuccess { _state.value = current.copy(selectedSeason = it) }
+            fetchOrCachedSeason(seasonNumber)?.let { _state.value = current.copy(selectedSeason = it) }
+        }
+    }
+
+    fun downloadMovie() {
+        val current = _state.value as? DetailState.Movie ?: return
+        viewModelScope.launch {
+            downloadResolver.resolveAndEnqueue(
+                mediaType = "movie",
+                tmdbId = id.toString(),
+                title = current.detail.title,
+                posterPath = current.detail.posterPath,
+            )
+        }
+    }
+
+    fun downloadEpisode(episode: Episode) {
+        val current = _state.value as? DetailState.Tv ?: return
+        viewModelScope.launch {
+            downloadResolver.resolveAndEnqueue(
+                mediaType = "tv",
+                tmdbId = id.toString(),
+                title = current.detail.name,
+                posterPath = current.detail.posterPath,
+                season = episode.seasonNumber,
+                episode = episode.episodeNumber,
+                episodeTitle = episode.name,
+            )
+        }
+    }
+
+    fun downloadSeason() {
+        val current = _state.value as? DetailState.Tv ?: return
+        val season = current.selectedSeason ?: return
+        val alreadyDownloaded = downloadedEpisodes.value.keys
+        viewModelScope.launch {
+            season.episodes.orEmpty()
+                .filterNot { alreadyDownloaded.contains("${it.seasonNumber}|${it.episodeNumber}") }
+                .forEach { episode ->
+                    downloadResolver.resolveAndEnqueue(
+                        mediaType = "tv",
+                        tmdbId = id.toString(),
+                        title = current.detail.name,
+                        posterPath = current.detail.posterPath,
+                        season = episode.seasonNumber,
+                        episode = episode.episodeNumber,
+                        episodeTitle = episode.name,
+                    )
+                }
         }
     }
 }

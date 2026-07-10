@@ -1329,6 +1329,15 @@ private fun PreferencesSection(
                     TvSwitchContent("Auto-resume on Error", "Automatically try next source on playback error", settings.enableAutoResumeOnPlaybackError)
                 }
                 HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
+                TvSettingsRow(theme, onActivate = { vm.setAllowParallelDownload(!settings.allowParallelDownload) }) {
+                    TvSwitchContent(
+                        "Allow parallel download",
+                        "Allow downloading of multiple media at same time",
+                        settings.allowParallelDownload,
+                        warning = "This might make downloads unstable",
+                    )
+                }
+                HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                 TvSettingsRow(theme, onActivate = { showSourceOrderDialog = true }) {
                     TvChevronContent("Custom Source Order", "Choose which sources are tried first")
                 }
@@ -1348,6 +1357,15 @@ private fun PreferencesSection(
                     subtitle = "Automatically try next source on playback error",
                     checked = settings.enableAutoResumeOnPlaybackError,
                     onCheckedChange = vm::setEnableAutoResumeOnPlaybackError,
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                )
+                HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
+                ZsSwitchRow(
+                    title = "Allow parallel download",
+                    subtitle = "Allow downloading of multiple media at same time",
+                    notice = "This might make downloads unstable",
+                    checked = settings.allowParallelDownload,
+                    onCheckedChange = vm::setAllowParallelDownload,
                     modifier = Modifier.padding(horizontal = 16.dp),
                 )
                 HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
@@ -1387,6 +1405,7 @@ private fun RowScope.TvSwitchContent(
     checked: Boolean,
     enabled: Boolean = true,
     indent: Boolean = false,
+    warning: String? = null,
 ) {
     val theme = LocalZStreamTheme.current
     Column(
@@ -1399,6 +1418,10 @@ private fun RowScope.TvSwitchContent(
         if (!subtitle.isNullOrBlank()) {
             Spacer(Modifier.height(2.dp))
             Text(subtitle, color = theme.colors.type.dimmed, fontSize = 11.sp, lineHeight = 16.sp)
+        }
+        if (!warning.isNullOrBlank()) {
+            Spacer(Modifier.height(4.dp))
+            Text(warning, color = theme.colors.type.danger, fontSize = 10.sp)
         }
     }
     Switch(
