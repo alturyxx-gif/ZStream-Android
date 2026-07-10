@@ -135,10 +135,10 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == 4103 && grantResults.firstOrNull() == android.content.pm.PackageManager.PERMISSION_GRANTED) {
-            androidx.lifecycle.lifecycleScope.launch { downloadIndexSync.reconcile() }
+            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch { downloadIndexSync.reconcile() }
         }
     }
 
