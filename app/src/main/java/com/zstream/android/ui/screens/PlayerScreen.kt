@@ -1498,6 +1498,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                             },
                             onReload = vm::reloadCurrentSource,
                             tryNextSourceFocusRequester = tryNextSourceFocusRequester,
+<<<<<<< HEAD
                             sourcesFocusRequester = sourcesFocusRequester,
                             variantsFocusRequester = variantsFocusRequester,
                             hasVariants = s.variants.isNotEmpty(),
@@ -1506,6 +1507,8 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                                 onMenuPageChange(PlayerMenuPage.Variants)
                                 updateActivity()
                             },
+=======
+>>>>>>> 97147e1 (Fix more focus bugs on TV)
                             modifier = Modifier.fillMaxSize()
                         )
                     }
@@ -3524,6 +3527,22 @@ private fun PlayerControls(
                     runCatching { menuFirstItemFocusRequester.requestFocus() }
                     delay(16)
                 }
+            }
+        }
+        // Quality/audio options for a download load asynchronously after navigating to their
+        // page, so the first-item focus requester isn't attached to anything yet when the page
+        // change above fires -- re-request once the loading spinner clears and the list mounts.
+        LaunchedEffect(menuPage, downloadQualityLoading) {
+            if (menuPage == PlayerMenuPage.DownloadQuality && !downloadQualityLoading && isTv) {
+                menuFirstItemFocusRequester.requestFocus()
+            }
+        }
+        // Selecting a season kicks off an async fetch and navigates to Episodes immediately
+        // (onLoadSeason() then onOpenPage() back-to-back), so the page-change effect above fires
+        // while the episode list is still empty. Re-request once the season detail lands.
+        LaunchedEffect(menuPage, currentSeasonDetail) {
+            if (menuPage == PlayerMenuPage.Episodes && isTv && !currentSeasonDetail?.episodes.isNullOrEmpty()) {
+                menuFirstItemFocusRequester.requestFocus()
             }
         }
         // Quality/audio options for a download load asynchronously after navigating to their
@@ -6741,10 +6760,13 @@ private fun PlaybackErrorOverlay(
     onReload: () -> Unit,
     modifier: Modifier = Modifier,
     tryNextSourceFocusRequester: FocusRequester? = null,
+<<<<<<< HEAD
     sourcesFocusRequester: FocusRequester? = null,
     variantsFocusRequester: FocusRequester? = null,
     hasVariants: Boolean = false,
     onOpenVariants: (() -> Unit)? = null,
+=======
+>>>>>>> 97147e1 (Fix more focus bugs on TV)
 ) {
     val theme = LocalZStreamTheme.current
     val isTv = LocalIsTv.current
@@ -6820,6 +6842,7 @@ private fun PlaybackErrorOverlay(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
+<<<<<<< HEAD
                     var tryNextFocused by remember { mutableStateOf(false) }
                     ZsOutlinedWrapper(visible = isTv && tryNextFocused, shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f)) {
                         Button(
@@ -6834,6 +6857,18 @@ private fun PlaybackErrorOverlay(
                         ) {
                             Text("Try next source")
                         }
+=======
+                    Button(
+                        onClick = onTryNextSource,
+                        modifier = Modifier
+                            .weight(1f)
+                            .then(
+                                if (tryNextSourceFocusRequester != null) Modifier.focusRequester(tryNextSourceFocusRequester) else Modifier
+                            ),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("Try next source")
+>>>>>>> 97147e1 (Fix more focus bugs on TV)
                     }
                     var sourcesFocused by remember { mutableStateOf(false) }
                     ZsOutlinedWrapper(visible = isTv && sourcesFocused, shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f)) {
