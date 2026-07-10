@@ -1,5 +1,7 @@
 package com.zstream.android.download
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import okhttp3.Headers.Companion.toHeaders
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -180,6 +182,20 @@ fun fetchHlsQualityOptions(client: OkHttpClient, playlistUrl: String, headers: M
 
 fun pickDefaultAudioRendition(options: List<HlsAudioRendition>): HlsAudioRendition? =
     options.firstOrNull { it.isDefault } ?: options.firstOrNull()
+
+suspend fun probeHlsSegment(client: OkHttpClient, playlistUrl: String, headers: Map<String, String>): Boolean =
+    withContext(Dispatchers.IO) {
+        runCatching {
+            val fetched = fetchAndParseHlsPlaylist(client, playlistUrl, headers)
+            val segment = fetched.playlist.segments.firstOrNull() ?: return@runCatching true
+            val request = Request.Builder()
+                .url(segment.uri)
+                .headers(downloadHeaders(headers))
+                .header("Range", "bytes=0-0")
+                .build()
+            client.newCall(request).execute().use { it.isSuccessful }
+        }.getOrDefault(false)
+    }
 
 data class HlsFetchResult(val playlist: HlsPlaylist, val audioPlaylistUrl: String?)
 
