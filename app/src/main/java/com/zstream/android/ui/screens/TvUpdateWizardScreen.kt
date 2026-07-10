@@ -588,6 +588,7 @@ fun TvUpdateWizardScreen(onDismiss: () -> Unit) {
                                             val result = withContext(Dispatchers.IO) {
                                                 tvManager.installFromUrl(
                                                     apk.downloadUrl,
+                                                    expectedDigest = apk.digest,
                                                     onProgress = { progress = it },
                                                     isCancelled = { !operationJob.isActive },
                                                 )

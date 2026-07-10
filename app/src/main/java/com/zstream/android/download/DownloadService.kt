@@ -74,20 +74,16 @@ class DownloadService : Service() {
         }
     }
 
-    /**
-     * A download's temp segment cache (cacheDir/downloads/<id>) only gets deleted in a `finally`
-     * block once the download finishes or fails — if the process was killed mid-download instead
-     * (app force-stopped, OOM-killed), that cleanup never ran and the segments just sit there.
-     * DownloadService starting fresh means nothing is legitimately using that directory yet, so
-     * it's always safe to wipe it here, and to mark any rows still claiming to be in-flight as
-     * failed (they can't have survived the process dying). Rows left PAUSED are left alone —
-     * those are a deliberate user action, not an interrupted process, and resuming them still
-     * works (their segment cache survives a process death same as any other file on disk).
-     */
     private suspend fun cleanupFromPreviousProcess() {
-        File(cacheDir, "downloads").deleteRecursively()
         downloadDao.getInFlight().forEach { stale ->
-            downloadDao.update(stale.copy(status = DownloadStatus.FAILED, errorMessage = "Interrupted"))
+            val request = stale.toRequest()
+            if (request != null) {
+                DownloadQueue.put(stale.id, request)
+                downloadDao.update(stale.copy(status = DownloadStatus.PAUSED))
+            } else {
+                File(cacheDir, "downloads/${stale.id}").deleteRecursively()
+                downloadDao.update(stale.copy(status = DownloadStatus.FAILED, errorMessage = "Interrupted"))
+            }
         }
         val swept = storage.sweepOrphanedPendingFiles()
         if (swept > 0) android.util.Log.i("DownloadService", "swept $swept orphaned pending file(s) from a previous crashed download")
@@ -151,8 +147,12 @@ class DownloadService : Service() {
 
     private suspend fun handleResume(downloadId: Long) {
         val entity = downloadDao.getById(downloadId) ?: return
-        if (entity.status != DownloadStatus.PAUSED) return
-        downloadDao.update(entity.copy(status = DownloadStatus.QUEUED))
+        if (entity.status != DownloadStatus.PAUSED && entity.status != DownloadStatus.FAILED) return
+        if (DownloadQueue.get(downloadId) == null) {
+            val request = entity.toRequest() ?: return
+            DownloadQueue.put(downloadId, request)
+        }
+        downloadDao.update(entity.copy(status = DownloadStatus.QUEUED, errorMessage = null))
         queue.send(downloadId)
     }
 
@@ -233,10 +233,7 @@ class DownloadService : Service() {
             .setOnlyAlertOnce(true)
             .setContentIntent(contentIntent)
 
-        if (ongoing && downloadId >= 0 && status != DownloadStatus.REMUXING) {
-            // Pausing mid-remux would require restarting the mux from scratch anyway (MediaMuxer
-            // can't be paused/resumed) — simplest to just let remux finish rather than offer pause
-            // during that short final phase.
+        if (ongoing && downloadId >= 0) {
             val isPaused = status == DownloadStatus.PAUSED
             builder.addAction(0, if (isPaused) "Resume" else "Pause", actionPendingIntent(if (isPaused) ACTION_RESUME else ACTION_PAUSE, downloadId))
             builder.addAction(0, "Cancel", actionPendingIntent(ACTION_CANCEL, downloadId))

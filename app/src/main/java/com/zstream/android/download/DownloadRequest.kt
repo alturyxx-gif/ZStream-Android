@@ -17,6 +17,7 @@ data class DownloadRequest(
     val captions: List<Caption> = emptyList(),
     /** Separate audio-only rendition URL, resolved from the master playlist's #EXT-X-MEDIA group when this stream doesn't mux audio into the video segments. */
     val audioStreamUrl: String? = null,
+    val audioLanguage: String? = null,
     /** Raw TMDB poster path (e.g. "/abc123.jpg"), shown in the Downloads list. */
     val posterPath: String? = null,
 )

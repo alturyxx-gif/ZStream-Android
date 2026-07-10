@@ -19,6 +19,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Brush
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Coffee
@@ -27,12 +30,16 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Headphones
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Theaters
 import androidx.compose.material.icons.filled.Tv
+import androidx.compose.ui.window.Dialog
+import com.zstream.android.plugin.SourceInfo
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -77,6 +84,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
@@ -1144,6 +1152,9 @@ private fun PreferencesSection(
     isTv: Boolean = false,
     firstItemFocusRequester: FocusRequester? = null,
 ) {
+    var showSourceOrderDialog by remember { mutableStateOf(false) }
+    val sourceOrder by vm.sourceOrder.collectAsState()
+
     Column(Modifier
         .padding(bottom = 32.dp, top = if (isTv) 16.dp else 0.dp).padding(horizontal = if (isTv) 16.dp else 0.dp)) {
         Spacer(Modifier.height(8.dp))
@@ -1297,6 +1308,10 @@ private fun PreferencesSection(
                 TvSettingsRow(theme, onActivate = { vm.setEnableAutoResumeOnPlaybackError(!settings.enableAutoResumeOnPlaybackError) }) {
                     TvSwitchContent("Auto-resume on Error", "Automatically try next source on playback error", settings.enableAutoResumeOnPlaybackError)
                 }
+                HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
+                TvSettingsRow(theme, onActivate = { showSourceOrderDialog = true }) {
+                    TvChevronContent("Custom Source Order", "Choose which sources are tried first")
+                }
             }
         } else {
             SettingsCard(theme) {
@@ -1315,9 +1330,32 @@ private fun PreferencesSection(
                     onCheckedChange = vm::setEnableAutoResumeOnPlaybackError,
                     modifier = Modifier.padding(horizontal = 16.dp),
                 )
+                HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable { showSourceOrderDialog = true }
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Custom Source Order", color = theme.colors.type.text, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                        Text("Choose which sources are tried first", color = theme.colors.type.dimmed, fontSize = 12.sp)
+                    }
+                    Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = theme.colors.type.dimmed)
+                }
             }
         }
 
+    }
+
+    if (showSourceOrderDialog) {
+        SourceOrderDialog(
+            sources = sourceOrder,
+            theme = theme,
+            onReorder = vm::reorderSources,
+            onDismiss = { showSourceOrderDialog = false },
+        )
     }
 }
 
@@ -1355,6 +1393,169 @@ private fun RowScope.TvSwitchContent(
         ),
         modifier = Modifier.padding(end = 12.dp, top = 2.dp),
     )
+}
+
+/** Renders title + subtitle + a chevron, used inside TvSettingsRow for rows that open a dialog/sub-screen. */
+@Composable
+private fun RowScope.TvChevronContent(title: String, subtitle: String? = null) {
+    val theme = LocalZStreamTheme.current
+    Column(
+        Modifier
+            .weight(1f)
+            .padding(start = 12.dp, top = 12.dp, bottom = 12.dp)
+    ) {
+        Text(title, color = theme.colors.type.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        if (!subtitle.isNullOrBlank()) {
+            Spacer(Modifier.height(2.dp))
+            Text(subtitle, color = theme.colors.type.dimmed, fontSize = 11.sp, lineHeight = 16.sp)
+        }
+    }
+    Icon(
+        Icons.Filled.ChevronRight,
+        contentDescription = null,
+        tint = theme.colors.type.dimmed,
+        modifier = Modifier.padding(end = 12.dp),
+    )
+}
+
+/**
+ * Reorderable list of sources shown top-to-bottom in the order they'll be tried during scraping.
+ * Supports both touch drag (long-press the handle) and D-pad-friendly up/down buttons, since a
+ * pointer-drag gesture alone isn't usable from a TV remote.
+ */
+@Composable
+private fun SourceOrderDialog(
+    sources: List<SourceInfo>,
+    theme: ZStreamTheme,
+    onReorder: (List<SourceInfo>) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val items = remember(sources) { mutableStateListOf(*sources.toTypedArray()) }
+    var draggedIndex by remember { mutableStateOf<Int?>(null) }
+    var draggedOffset by remember { mutableStateOf(0f) }
+    val itemHeights = remember { mutableMapOf<Int, Int>() }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(16.dp))
+                .background(theme.colors.modal.background)
+                .border(1.dp, theme.colors.type.divider.copy(alpha = 0.2f), RoundedCornerShape(16.dp))
+                .padding(16.dp)
+        ) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Column {
+                    Text("Custom Source Order", color = theme.colors.type.emphasis, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    Text("Sources are tried top to bottom", color = theme.colors.type.dimmed, fontSize = 12.sp)
+                }
+                IconButton(onClick = onDismiss) {
+                    Icon(Icons.Filled.Close, contentDescription = "Close", tint = theme.colors.type.secondary)
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+
+            if (items.isEmpty()) {
+                Text("No sources available yet.", color = theme.colors.type.dimmed, fontSize = 13.sp, modifier = Modifier.padding(vertical = 12.dp))
+            }
+
+            Column(Modifier.fillMaxWidth()) {
+                items.forEachIndexed { index, source ->
+                    val isDragging = draggedIndex == index
+                    Box(
+                        modifier = Modifier
+                            .onGloballyPositioned { itemHeights[index] = it.size.height }
+                            .offset { IntOffset(0, if (isDragging) draggedOffset.roundToInt() else 0) }
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(if (isDragging) theme.colors.background.secondaryHover.copy(alpha = 0.6f) else Color.Transparent)
+                            .padding(vertical = 2.dp)
+                    ) {
+                        Row(
+                            Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Text("${index + 1}", color = theme.colors.type.dimmed, fontSize = 12.sp, modifier = Modifier.width(16.dp))
+                            Icon(
+                                Icons.Filled.DragHandle,
+                                contentDescription = "Drag to reorder",
+                                tint = theme.colors.type.dimmed,
+                                modifier = Modifier
+                                    .size(22.dp)
+                                    .pointerInput(Unit) {
+                                        detectDragGesturesAfterLongPress(
+                                            onDragStart = {
+                                                draggedIndex = index
+                                                draggedOffset = 0f
+                                            },
+                                            onDrag = { change, dragAmount ->
+                                                change.consume()
+                                                val idx = draggedIndex
+                                                if (idx != null) {
+                                                    draggedOffset += dragAmount.y
+                                                    val h = (itemHeights[idx] ?: 0).toFloat()
+                                                    if (draggedOffset > h / 2 && idx < items.size - 1) {
+                                                        items[idx] = items[idx + 1].also { items[idx + 1] = items[idx] }
+                                                        draggedIndex = idx + 1
+                                                        draggedOffset -= h
+                                                    } else if (draggedOffset < -(h / 2) && idx > 0) {
+                                                        items[idx] = items[idx - 1].also { items[idx - 1] = items[idx] }
+                                                        draggedIndex = idx - 1
+                                                        draggedOffset += h
+                                                    }
+                                                }
+                                            },
+                                            onDragEnd = {
+                                                onReorder(items.toList())
+                                                draggedIndex = null
+                                                draggedOffset = 0f
+                                            },
+                                            onDragCancel = {
+                                                draggedIndex = null
+                                                draggedOffset = 0f
+                                            },
+                                        )
+                                    }
+                            )
+                            Text(
+                                source.displayName,
+                                color = theme.colors.type.text,
+                                fontSize = 14.sp,
+                                modifier = Modifier.weight(1f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            IconButton(
+                                onClick = {
+                                    if (index > 0) {
+                                        items[index] = items[index - 1].also { items[index - 1] = items[index] }
+                                        onReorder(items.toList())
+                                    }
+                                },
+                                enabled = index > 0,
+                                modifier = Modifier.size(32.dp),
+                            ) {
+                                Icon(Icons.Filled.KeyboardArrowUp, contentDescription = "Move up", tint = if (index > 0) theme.colors.type.secondary else theme.colors.type.dimmed.copy(alpha = 0.3f))
+                            }
+                            IconButton(
+                                onClick = {
+                                    if (index < items.size - 1) {
+                                        items[index] = items[index + 1].also { items[index + 1] = items[index] }
+                                        onReorder(items.toList())
+                                    }
+                                },
+                                enabled = index < items.size - 1,
+                                modifier = Modifier.size(32.dp),
+                            ) {
+                                Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Move down", tint = if (index < items.size - 1) theme.colors.type.secondary else theme.colors.type.dimmed.copy(alpha = 0.3f))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 //  Appearance Section

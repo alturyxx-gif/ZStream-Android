@@ -88,7 +88,7 @@ fun DownloadsScreen(nav: NavController) {
     var pendingDelete by remember { mutableStateOf<DownloadEntity?>(null) }
     var pendingFolderDelete by remember { mutableStateOf<LocalLibraryFolderEntity?>(null) }
     var pendingFolderPickAgain by remember { mutableStateOf<LocalLibraryFolderEntity?>(null) }
-    var selected by remember { mutableStateOf<LibraryItem?>(null) }
+    var selectedKey by remember { mutableStateOf<String?>(null) }
     val backFocusRequester = remember { FocusRequester() }
     val firstItemFocusRequester = remember { FocusRequester() }
     val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
@@ -99,11 +99,16 @@ fun DownloadsScreen(nav: NavController) {
         pendingFolderPickAgain = null
     }
 
-    BackHandler(enabled = selected != null) { selected = null }
+    // Re-derived from uiState.items every recomposition (not a frozen snapshot captured at
+    // navigation time) so live progress updates (Room Flow emissions) actually reach the
+    // episode list instead of only showing up after backing out and re-entering.
+    val current = selectedKey?.let { key -> uiState.items.firstOrNull { itemKey(it) == key } }
 
-    LaunchedEffect(isTv, uiState.items.size, selected) {
+    BackHandler(enabled = selectedKey != null) { selectedKey = null }
+
+    LaunchedEffect(isTv, uiState.items.size, selectedKey) {
         if (isTv) {
-            if (uiState.items.isNotEmpty() && selected == null) runCatching { firstItemFocusRequester.requestFocus() }
+            if (uiState.items.isNotEmpty() && selectedKey == null) runCatching { firstItemFocusRequester.requestFocus() }
             else runCatching { backFocusRequester.requestFocus() }
         }
     }
@@ -113,15 +118,15 @@ fun DownloadsScreen(nav: NavController) {
             Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 48.dp, bottom = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = { if (selected == null) onBack() else selected = null }, modifier = Modifier.focusRequester(backFocusRequester)) {
+            IconButton(onClick = { if (selectedKey == null) onBack() else selectedKey = null }, modifier = Modifier.focusRequester(backFocusRequester)) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = Color.White)
             }
             Spacer(Modifier.width(8.dp))
             Column(Modifier.weight(1f)) {
-                Text(selectedTitle(selected), color = theme.colors.type.emphasis, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                Text(selectedTitle(current), color = theme.colors.type.emphasis, fontSize = 20.sp, fontWeight = FontWeight.Bold)
                 Text(headerStatus(freeSpace, uiState), color = theme.colors.type.secondary, fontSize = 12.sp)
             }
-            if (selected == null) {
+            if (selectedKey == null) {
                 IconButton(onClick = { folderPicker.launch(null) }) {
                     Icon(Icons.Filled.Folder, contentDescription = "Add Folder", tint = theme.colors.type.secondary)
                 }
@@ -131,7 +136,6 @@ fun DownloadsScreen(nav: NavController) {
             }
         }
 
-        val current = selected
         if (current == null) {
             LibraryContent(
                 items = uiState.items,
@@ -143,10 +147,10 @@ fun DownloadsScreen(nav: NavController) {
                 onOpen = { item ->
                     when (item) {
                         is LibraryItem.DownloadMovie -> if (item.entity.status == DownloadStatus.DONE) nav.navigate("localPlayer/${item.entity.id}")
-                        is LibraryItem.DownloadShow -> selected = item
+                        is LibraryItem.DownloadShow -> selectedKey = itemKey(item)
                         is LibraryItem.LocalGroup -> {
                             if (item.items.size == 1 && item.mediaKind != "show") nav.navigate("localFilePlayer/${item.items.first().id}")
-                            else selected = item
+                            else selectedKey = itemKey(item)
                         }
                     }
                 },
@@ -156,6 +160,11 @@ fun DownloadsScreen(nav: NavController) {
                     pendingFolderPickAgain = it
                     folderPicker.launch(null)
                 },
+                onPause = { vm.pause(it) },
+                onResume = { vm.resume(it) },
+                onCancel = { vm.cancel(it) },
+                onDelete = { pendingDelete = it },
+                onRetry = { vm.retry(it) },
             )
         } else {
             DetailList(
@@ -168,6 +177,7 @@ fun DownloadsScreen(nav: NavController) {
                 onResume = { vm.resume(it) },
                 onCancel = { vm.cancel(it) },
                 onDelete = { pendingDelete = it },
+                onRetry = { vm.retry(it) },
             )
         }
     }
@@ -175,10 +185,26 @@ fun DownloadsScreen(nav: NavController) {
     pendingDelete?.let { entity ->
         AlertDialog(
             onDismissRequest = { pendingDelete = null },
-            title = { Text("Delete download?") },
-            text = { Text(downloadTitleFor(entity)) },
+            icon = { Icon(Icons.Filled.Delete, contentDescription = null, tint = theme.colors.type.danger) },
+            title = { Text("Delete this download?") },
+            text = {
+                Column {
+                    Text(
+                        buildString {
+                            append(downloadTitleFor(entity))
+                            append(" and any sidecar files (subtitles, etc.) will be permanently removed from your device.")
+                        }
+                    )
+                    entity.filePath?.let { path ->
+                        Spacer(Modifier.height(10.dp))
+                        Text(path, color = theme.colors.type.dimmed, fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+            },
             confirmButton = {
-                TextButton(onClick = { vm.delete(entity); pendingDelete = null }) { Text("Delete") }
+                TextButton(onClick = { vm.delete(entity); pendingDelete = null }) {
+                    Text("Delete", color = theme.colors.type.danger)
+                }
             },
             dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("Cancel") } },
         )
@@ -209,6 +235,11 @@ private fun LibraryContent(
     onRemoveFolder: (LocalLibraryFolderEntity) -> Unit,
     onAddFolder: () -> Unit,
     onPickAgain: (LocalLibraryFolderEntity) -> Unit,
+    onPause: (DownloadEntity) -> Unit,
+    onResume: (DownloadEntity) -> Unit,
+    onCancel: (DownloadEntity) -> Unit,
+    onDelete: (DownloadEntity) -> Unit,
+    onRetry: (DownloadEntity) -> Unit,
 ) {
     if (items.isEmpty() && folders.isEmpty()) {
         Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
@@ -229,7 +260,7 @@ private fun LibraryContent(
             modifier = Modifier.focusRestorer(firstItemFocusRequester),
         ) {
             items(items, key = { itemKey(it) }) { item ->
-                LibraryCard(item, theme, isTv, if (item == items.firstOrNull()) firstItemFocusRequester else null) { onOpen(item) }
+                LibraryEntry(item, theme, isTv, if (item == items.firstOrNull()) firstItemFocusRequester else null, onOpen, onPause, onResume, onCancel, onDelete, onRetry)
             }
             items(folders, key = { "folder:${it.id}" }) { folder ->
                 FolderStatusRow(folder, theme, isTv, folder.id in scanningFolderIds, onRemoveFolder, onPickAgain)
@@ -238,7 +269,7 @@ private fun LibraryContent(
     } else {
         LazyColumn(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)) {
             items(items, key = { itemKey(it) }) { item ->
-                LibraryCard(item, theme, isTv, if (item == items.firstOrNull()) firstItemFocusRequester else null) { onOpen(item) }
+                LibraryEntry(item, theme, isTv, if (item == items.firstOrNull()) firstItemFocusRequester else null, onOpen, onPause, onResume, onCancel, onDelete, onRetry)
                 Spacer(Modifier.height(10.dp))
             }
             items(folders, key = { "folder:${it.id}" }) { folder ->
@@ -246,6 +277,35 @@ private fun LibraryContent(
                 Spacer(Modifier.height(10.dp))
             }
         }
+    }
+}
+
+@Composable
+private fun LibraryEntry(
+    item: LibraryItem,
+    theme: ZStreamTheme,
+    isTv: Boolean,
+    focusRequester: FocusRequester?,
+    onOpen: (LibraryItem) -> Unit,
+    onPause: (DownloadEntity) -> Unit,
+    onResume: (DownloadEntity) -> Unit,
+    onCancel: (DownloadEntity) -> Unit,
+    onDelete: (DownloadEntity) -> Unit,
+    onRetry: (DownloadEntity) -> Unit,
+) {
+    if (item is LibraryItem.DownloadMovie) {
+        val entity = item.entity
+        DownloadItem(
+            entity, theme, isTv, focusRequester,
+            onPlay = { if (entity.status == DownloadStatus.DONE) onOpen(item) },
+            onPause = { onPause(entity) },
+            onResume = { onResume(entity) },
+            onCancel = { onCancel(entity) },
+            onDelete = { onDelete(entity) },
+            onRetry = { onRetry(entity) },
+        )
+    } else {
+        LibraryCard(item, theme, isTv, focusRequester) { onOpen(item) }
     }
 }
 
@@ -260,6 +320,7 @@ private fun DetailList(
     onResume: (DownloadEntity) -> Unit,
     onCancel: (DownloadEntity) -> Unit,
     onDelete: (DownloadEntity) -> Unit,
+    onRetry: (DownloadEntity) -> Unit,
 ) {
     val downloads = when (libraryItem) {
         is LibraryItem.DownloadShow -> libraryItem.episodes
@@ -276,7 +337,7 @@ private fun DetailList(
         downloads.groupBy { it.season ?: 0 }.forEach { (season, episodes) ->
             item("download-season:$season") { SeasonHeader(season, theme) }
             items(episodes, key = { "d:${it.id}" }) { entity ->
-                DownloadItem(entity, theme, isTv, null, { if (entity.status == DownloadStatus.DONE) onPlayDownload(entity) }, { onPause(entity) }, { onResume(entity) }, { onCancel(entity) }, { onDelete(entity) })
+                DownloadItem(entity, theme, isTv, null, { if (entity.status == DownloadStatus.DONE) onPlayDownload(entity) }, { onPause(entity) }, { onResume(entity) }, { onCancel(entity) }, { onDelete(entity) }, { onRetry(entity) })
                 Spacer(Modifier.height(10.dp))
             }
         }
@@ -401,6 +462,60 @@ private fun LocalMediaRow(media: LocalMediaEntity, theme: ZStreamTheme, isTv: Bo
 }
 
 @Composable
+private fun StatusPill(status: DownloadStatus, theme: ZStreamTheme) {
+    val (label, bg, fg) = when (status) {
+        DownloadStatus.QUEUED -> Triple("Queued", theme.colors.type.dimmed.copy(alpha = 0.15f), theme.colors.type.secondary)
+        DownloadStatus.DOWNLOADING -> Triple("Downloading", theme.colors.buttons.purple.copy(alpha = 0.2f), theme.colors.buttons.purpleHover)
+        DownloadStatus.REMUXING -> Triple("Remuxing", theme.colors.buttons.purple.copy(alpha = 0.2f), theme.colors.buttons.purpleHover)
+        DownloadStatus.PAUSED -> Triple("Paused", Color.White.copy(alpha = 0.1f), theme.colors.type.secondary)
+        DownloadStatus.DONE -> Triple("Ready", theme.colors.type.success.copy(alpha = 0.2f), theme.colors.type.success)
+        DownloadStatus.FAILED -> Triple("Failed", theme.colors.type.danger.copy(alpha = 0.2f), theme.colors.type.danger)
+        DownloadStatus.CANCELLED -> Triple("Cancelled", theme.colors.type.dimmed.copy(alpha = 0.15f), theme.colors.type.secondary)
+    }
+    Text(
+        label.uppercase(),
+        color = fg,
+        fontSize = 9.sp,
+        fontWeight = FontWeight.Bold,
+        letterSpacing = 0.5.sp,
+        modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(bg).padding(horizontal = 6.dp, vertical = 2.dp),
+    )
+}
+
+@Composable
+private fun QualityBadge(text: String?, bg: Color, fg: Color) {
+    if (text.isNullOrBlank()) return
+    Text(
+        text,
+        color = fg,
+        fontSize = 9.sp,
+        fontWeight = FontWeight.SemiBold,
+        modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(bg).padding(horizontal = 5.dp, vertical = 2.dp),
+    )
+}
+
+@Composable
+private fun RoundIconButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    contentDescription: String,
+    background: Color,
+    tint: Color,
+    onClick: () -> Unit,
+    size: androidx.compose.ui.unit.Dp = 36.dp,
+) {
+    Box(
+        modifier = Modifier
+            .size(size)
+            .clip(RoundedCornerShape(50))
+            .background(background)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, contentDescription = contentDescription, tint = tint, modifier = Modifier.size(size * 0.5f))
+    }
+}
+
+@Composable
 private fun DownloadItem(
     entity: DownloadEntity,
     theme: ZStreamTheme,
@@ -411,52 +526,99 @@ private fun DownloadItem(
     onResume: () -> Unit,
     onCancel: () -> Unit,
     onDelete: () -> Unit,
+    onRetry: () -> Unit,
 ) {
     val inFlight = entity.status == DownloadStatus.QUEUED || entity.status == DownloadStatus.DOWNLOADING || entity.status == DownloadStatus.REMUXING
     val isPaused = entity.status == DownloadStatus.PAUSED
+    val isFailed = entity.status == DownloadStatus.FAILED
     val isTerminal = entity.status == DownloadStatus.DONE || entity.status == DownloadStatus.FAILED || entity.status == DownloadStatus.CANCELLED
     val canPlay = entity.status == DownloadStatus.DONE
+    val showProgressBar = inFlight || isPaused
     var focused by remember { mutableStateOf(false) }
-    ZsOutlinedWrapper(visible = isTv && focused, shape = RoundedCornerShape(10.dp)) {
+    ZsOutlinedWrapper(visible = isTv && focused, shape = RoundedCornerShape(14.dp)) {
         Row(
             Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(10.dp))
+                .clip(RoundedCornerShape(14.dp))
                 .background(theme.colors.settings.card.background)
-                .border(1.dp, theme.colors.type.divider.copy(alpha = 0.3f), RoundedCornerShape(10.dp))
+                .border(1.dp, theme.colors.type.divider.copy(alpha = 0.3f), RoundedCornerShape(14.dp))
                 .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
                 .onFocusChanged { focused = it.hasFocus }
                 .clickable(enabled = canPlay, onClick = onPlay)
-                .padding(10.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .padding(12.dp),
+            verticalAlignment = Alignment.Top,
         ) {
             PosterBox(posterUrl(entity.posterPath), entity.title, if (entity.type == "show") Icons.Filled.Tv else Icons.Filled.Movie, theme)
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Text(downloadTitleFor(entity), color = theme.colors.type.emphasis, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Text("${entity.qualityLabel} · ${entity.sourceId}", color = theme.colors.type.secondary, fontSize = 12.sp)
-                if (inFlight || isPaused) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    StatusPill(entity.status, theme)
+                }
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    downloadTitleFor(entity),
+                    color = theme.colors.type.emphasis,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = if (canPlay) Modifier.clickable(onClick = onPlay) else Modifier,
+                )
+                Spacer(Modifier.height(6.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    QualityBadge(entity.qualityLabel.takeIf { it.isNotBlank() }, theme.colors.buttons.purple.copy(alpha = 0.25f), theme.colors.buttons.purpleHover)
+                    QualityBadge(entity.audioLanguage, Color.White.copy(alpha = 0.08f), theme.colors.type.secondary)
+                    QualityBadge(entity.sourceId, Color.White.copy(alpha = 0.08f), theme.colors.type.secondary)
+                }
+
+                if (isFailed && entity.errorMessage != null) {
                     Spacer(Modifier.height(6.dp))
-                    Box(Modifier.fillMaxWidth().height(3.dp).clip(RoundedCornerShape(2.dp)).background(theme.colors.mediaCard.barColor)) {
-                        Box(Modifier.fillMaxWidth(entity.progressPercent / 100f).fillMaxHeight().background(theme.colors.mediaCard.barFillColor))
+                    Text(entity.errorMessage, color = theme.colors.type.danger, fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                }
+
+                if (showProgressBar) {
+                    Spacer(Modifier.height(8.dp))
+                    Box(Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)).background(theme.colors.progress.background)) {
+                        Box(
+                            Modifier
+                                .fillMaxWidth((entity.progressPercent / 100f).coerceIn(0f, 1f))
+                                .fillMaxHeight()
+                                .clip(RoundedCornerShape(2.dp))
+                                .background(theme.colors.progress.filled.copy(alpha = if (isPaused) 0.5f else 1f))
+                        )
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text(leftProgressLineFor(entity), color = theme.colors.type.dimmed, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                        Spacer(Modifier.width(8.dp))
+                        Text(rightProgressLineFor(entity), color = theme.colors.type.dimmed, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
-                Spacer(Modifier.height(4.dp))
-                Text(statusLabel(entity), color = if (entity.status == DownloadStatus.FAILED) theme.colors.type.danger else theme.colors.type.dimmed, fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            }
-            if (inFlight && entity.status != DownloadStatus.REMUXING || isPaused) {
-                IconButton(onClick = if (isPaused) onResume else onPause) {
-                    Icon(if (isPaused) Icons.Filled.PlayArrow else Icons.Filled.Pause, contentDescription = if (isPaused) "Resume" else "Pause", tint = theme.colors.type.secondary)
+
+                if (entity.status == DownloadStatus.DONE && entity.filePath != null) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(entity.filePath, color = theme.colors.type.dimmed, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
-            if (inFlight || isPaused) {
-                IconButton(onClick = onCancel) {
-                    Icon(Icons.Filled.Close, contentDescription = "Cancel", tint = theme.colors.type.secondary)
+            Spacer(Modifier.width(8.dp))
+            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (canPlay) {
+                    RoundIconButton(Icons.Filled.PlayArrow, "Play", theme.colors.buttons.purple, Color.White, onPlay, size = 40.dp)
                 }
-            }
-            if (isTerminal) {
-                IconButton(onClick = onDelete) {
-                    Icon(Icons.Filled.Delete, contentDescription = "Delete", tint = theme.colors.type.secondary)
+                if (inFlight) {
+                    RoundIconButton(Icons.Filled.Pause, "Pause", Color.White.copy(alpha = 0.08f), theme.colors.type.secondary, onPause)
+                }
+                if (isPaused) {
+                    RoundIconButton(Icons.Filled.PlayArrow, "Resume", theme.colors.buttons.purple, Color.White, onResume)
+                }
+                if (isFailed) {
+                    RoundIconButton(Icons.Filled.Refresh, "Retry", theme.colors.buttons.purple.copy(alpha = 0.25f), theme.colors.buttons.purpleHover, onRetry)
+                }
+                if (inFlight || isPaused) {
+                    RoundIconButton(Icons.Filled.Close, "Cancel", theme.colors.buttons.danger.copy(alpha = 0.15f), theme.colors.buttons.danger, onCancel)
+                }
+                if (isTerminal) {
+                    RoundIconButton(Icons.Filled.Delete, "Delete", theme.colors.buttons.danger.copy(alpha = 0.15f), theme.colors.buttons.danger, onDelete)
                 }
             }
         }
@@ -466,13 +628,13 @@ private fun DownloadItem(
 @Composable
 private fun PosterBox(poster: Any?, title: String, icon: androidx.compose.ui.graphics.vector.ImageVector, theme: ZStreamTheme) {
     Box(
-        modifier = Modifier.size(width = 60.dp, height = 88.dp).clip(RoundedCornerShape(6.dp)).background(theme.colors.background.secondary),
+        modifier = Modifier.size(width = 80.dp, height = 120.dp).clip(RoundedCornerShape(8.dp)).background(theme.colors.background.secondary),
         contentAlignment = Alignment.Center,
     ) {
         if (poster != null) {
             AsyncImage(model = poster, contentDescription = title, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
         } else {
-            Icon(icon, contentDescription = null, tint = theme.colors.type.dimmed.copy(alpha = 0.5f), modifier = Modifier.size(30.dp))
+            Icon(icon, contentDescription = null, tint = theme.colors.type.dimmed.copy(alpha = 0.5f), modifier = Modifier.size(36.dp))
         }
     }
 }
@@ -555,4 +717,52 @@ private fun statusLabel(entity: DownloadEntity): String = when (entity.status) {
     DownloadStatus.DONE -> "Downloaded"
     DownloadStatus.FAILED -> "Failed: ${entity.errorMessage ?: "Unknown error"}"
     DownloadStatus.CANCELLED -> "Cancelled"
+}
+
+private fun formatSpeed(bytesPerSecond: Long): String {
+    val kb = bytesPerSecond / 1024.0
+    return if (kb >= 1024.0) "%.1f MB/s".format(kb / 1024.0) else "%.0f KB/s".format(kb)
+}
+
+private fun formatEta(seconds: Long): String {
+    val m = seconds / 60
+    val s = seconds % 60
+    return "%d:%02d".format(m, s)
+}
+
+private fun formatBytes(bytes: Long): String {
+    val mb = bytes / (1024.0 * 1024.0)
+    return if (mb >= 1024.0) "%.1f GB".format(mb / 1024.0) else "%.0f MB".format(mb)
+}
+
+private fun leftProgressLineFor(entity: DownloadEntity): String {
+    val parts = mutableListOf<String>()
+    parts.add("${entity.progressPercent}%")
+    val speed = entity.speedBps
+    if (speed != null && speed > 0) {
+        parts.add(formatSpeed(speed))
+        val total = entity.estimatedTotalBytes
+        val downloaded = entity.bytesDownloaded
+        if (total != null && downloaded != null && total > downloaded) {
+            parts.add("ETA ${formatEta((total - downloaded) / speed)}")
+        }
+    }
+    return parts.joinToString(" · ")
+}
+
+private fun rightProgressLineFor(entity: DownloadEntity): String {
+    val parts = mutableListOf<String>()
+    if (entity.segTotal > 0) {
+        parts.add("${entity.segDone}/${entity.segTotal} segments")
+    } else {
+        val downloaded = entity.bytesDownloaded
+        val total = entity.estimatedTotalBytes
+        if (downloaded != null) {
+            parts.add(if (total != null && total > 0) "${formatBytes(downloaded)} / ${formatBytes(total)}" else formatBytes(downloaded))
+        }
+    }
+    if (entity.remuxTotal > 0) {
+        parts.add("muxed ${entity.remuxDone}/${entity.remuxTotal}")
+    }
+    return parts.joinToString(" · ")
 }

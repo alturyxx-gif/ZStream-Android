@@ -146,6 +146,7 @@ fun TvInstallerScreen(onDismiss: () -> Unit) {
                 val result = withContext(Dispatchers.IO) {
                     manager.installFromUrl(
                         apk.downloadUrl,
+                        expectedDigest = apk.digest,
                         onProgress = { progress = it },
                         isCancelled = { !operationJob.isActive },
                     )
