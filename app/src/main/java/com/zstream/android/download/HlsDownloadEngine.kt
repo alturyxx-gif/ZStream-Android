@@ -456,9 +456,27 @@ class HlsDownloadEngine(private val client: OkHttpClient) {
                     val safePts = maxOf(baseOffset + (pts - firstPts), lastWritten + 1)
                     if (isVideo) offsets.videoLastWrittenPtsUs = safePts else offsets.audioLastWrittenPtsUs = safePts
 
+                    // Some sources hand MediaExtractor raw ADTS-framed AAC segments that don't get
+                    // their 7/9-byte ADTS header stripped during extraction -- the mp4a/esds track
+                    // this muxer writes requires headerless AAC per sample, so a leftover header
+                    // makes every sample fail to decode on strict (non-permissive) AAC decoders even
+                    // though lenient decoders silently resync past it. Strip it if present.
+                    var sampleOffset = 0
+                    var effectiveSize = sampleSize
+                    if (!isVideo && sampleSize > 7 &&
+                        buffer.get(0) == 0xFF.toByte() && (buffer.get(1).toInt() and 0xF0) == 0xF0
+                    ) {
+                        val protectionAbsent = buffer.get(1).toInt() and 0x01
+                        val headerLen = if (protectionAbsent == 1) 7 else 9
+                        if (sampleSize > headerLen) {
+                            sampleOffset = headerLen
+                            effectiveSize = sampleSize - headerLen
+                        }
+                    }
+
                     bufferInfo.apply {
-                        size = sampleSize
-                        offset = 0
+                        size = effectiveSize
+                        offset = sampleOffset
                         flags = extractor.sampleFlags
                         presentationTimeUs = safePts
                     }
