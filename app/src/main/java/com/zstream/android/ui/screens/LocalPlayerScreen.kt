@@ -66,6 +66,10 @@ import javax.inject.Inject
 sealed class LocalPlaybackSource {
     data class Ready(
         val title: String,
+        // Bare show/movie title with no "SxxEyy" suffix -- unlike [title] (which is for on-screen
+        // display), this is what gets persisted to progress so Continue Watching on the home
+        // screen shows the same title it would for online playback of the same show.
+        val showTitle: String,
         val episodeLabel: String?,
         val videoUri: android.net.Uri,
         val subtitles: List<Pair<String, android.net.Uri>>,
@@ -136,7 +140,7 @@ class LocalPlayerViewModel @Inject constructor(
                 if (ready.tmdbId != null) {
                     progressRepository.updateProgress(
                         tmdbId = ready.tmdbId,
-                        title = ready.title,
+                        title = ready.showTitle,
                         type = ready.tmdbType ?: "movie",
                         watched = watchedSec.toInt(),
                         duration = durationSec.toInt(),
@@ -195,6 +199,7 @@ class LocalPlayerViewModel @Inject constructor(
         }
         return LocalPlaybackSource.Ready(
             title = title,
+            showTitle = entity.title,
             episodeLabel = entity.episodeTitle,
             videoUri = videoUri,
             subtitles = subtitles,
@@ -222,6 +227,7 @@ class LocalPlayerViewModel @Inject constructor(
         }
         return LocalPlaybackSource.Ready(
             title = title,
+            showTitle = media.groupTitle,
             episodeLabel = null,
             videoUri = android.net.Uri.parse(media.documentUri),
             subtitles = localMediaRepository.siblingSubtitles(media),

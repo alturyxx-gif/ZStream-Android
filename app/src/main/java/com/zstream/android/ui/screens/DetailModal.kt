@@ -977,10 +977,9 @@ internal fun SharedEpisodeRow(
             outlineColor = Color.White,
             outlineWidth = 2.dp,
             gap = 4.dp,
-            modifier = modifier
         ) {
             Box(
-                Modifier
+                modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(12.dp))
                     .background(theme.colors.modal.background)

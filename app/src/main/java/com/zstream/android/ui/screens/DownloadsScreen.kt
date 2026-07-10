@@ -14,6 +14,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.material.icons.Icons
@@ -118,21 +119,34 @@ fun DownloadsScreen(nav: NavController) {
             Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 48.dp, bottom = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = { if (selectedKey == null) onBack() else selectedKey = null }, modifier = Modifier.focusRequester(backFocusRequester)) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = Color.White)
-            }
+            TvIconButton(
+                onClick = { if (selectedKey == null) onBack() else selectedKey = null },
+                isTv = isTv,
+                icon = Icons.AutoMirrored.Filled.ArrowBack,
+                contentDescription = "Back",
+                tint = Color.White,
+                modifier = Modifier.focusRequester(backFocusRequester),
+            )
             Spacer(Modifier.width(8.dp))
             Column(Modifier.weight(1f)) {
                 Text(selectedTitle(current), color = theme.colors.type.emphasis, fontSize = 20.sp, fontWeight = FontWeight.Bold)
                 Text(headerStatus(freeSpace, uiState), color = theme.colors.type.secondary, fontSize = 12.sp)
             }
             if (selectedKey == null) {
-                IconButton(onClick = { folderPicker.launch(null) }) {
-                    Icon(Icons.Filled.Folder, contentDescription = "Add Folder", tint = theme.colors.type.secondary)
-                }
-                IconButton(onClick = { vm.rescan(uiState.folders) }) {
-                    Icon(Icons.Filled.Refresh, contentDescription = "Rescan", tint = theme.colors.type.secondary)
-                }
+                TvIconButton(
+                    onClick = { folderPicker.launch(null) },
+                    isTv = isTv,
+                    icon = Icons.Filled.Folder,
+                    contentDescription = "Add Folder",
+                    tint = theme.colors.type.secondary,
+                )
+                TvIconButton(
+                    onClick = { vm.rescan(uiState.folders) },
+                    isTv = isTv,
+                    icon = Icons.Filled.Refresh,
+                    contentDescription = "Rescan",
+                    tint = theme.colors.type.secondary,
+                )
             }
         }
 
@@ -202,11 +216,19 @@ fun DownloadsScreen(nav: NavController) {
                 }
             },
             confirmButton = {
-                TextButton(onClick = { vm.delete(entity); pendingDelete = null }) {
-                    Text("Delete", color = theme.colors.type.danger)
+                var focused by remember { mutableStateOf(false) }
+                ZsOutlinedWrapper(visible = isTv && focused, shape = RoundedCornerShape(8.dp)) {
+                    TextButton(onClick = { vm.delete(entity); pendingDelete = null }, modifier = Modifier.onFocusChanged { focused = it.isFocused }) {
+                        Text("Delete", color = theme.colors.type.danger)
+                    }
                 }
             },
-            dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("Cancel") } },
+            dismissButton = {
+                var focused by remember { mutableStateOf(false) }
+                ZsOutlinedWrapper(visible = isTv && focused, shape = RoundedCornerShape(8.dp)) {
+                    TextButton(onClick = { pendingDelete = null }, modifier = Modifier.onFocusChanged { focused = it.isFocused }) { Text("Cancel") }
+                }
+            },
         )
     }
 
@@ -216,10 +238,35 @@ fun DownloadsScreen(nav: NavController) {
             title = { Text("Remove folder?") },
             text = { Text(folder.displayName) },
             confirmButton = {
-                TextButton(onClick = { vm.removeFolder(folder); pendingFolderDelete = null }) { Text("Remove") }
+                var focused by remember { mutableStateOf(false) }
+                ZsOutlinedWrapper(visible = isTv && focused, shape = RoundedCornerShape(8.dp)) {
+                    TextButton(onClick = { vm.removeFolder(folder); pendingFolderDelete = null }, modifier = Modifier.onFocusChanged { focused = it.isFocused }) { Text("Remove") }
+                }
             },
-            dismissButton = { TextButton(onClick = { pendingFolderDelete = null }) { Text("Cancel") } },
+            dismissButton = {
+                var focused by remember { mutableStateOf(false) }
+                ZsOutlinedWrapper(visible = isTv && focused, shape = RoundedCornerShape(8.dp)) {
+                    TextButton(onClick = { pendingFolderDelete = null }, modifier = Modifier.onFocusChanged { focused = it.isFocused }) { Text("Cancel") }
+                }
+            },
         )
+    }
+}
+
+@Composable
+private fun TvIconButton(
+    onClick: () -> Unit,
+    isTv: Boolean,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    contentDescription: String,
+    tint: Color,
+    modifier: Modifier = Modifier,
+) {
+    var focused by remember { mutableStateOf(false) }
+    ZsOutlinedWrapper(visible = isTv && focused, shape = CircleShape, gap = 2.dp) {
+        IconButton(onClick = onClick, modifier = modifier.onFocusChanged { focused = it.isFocused }) {
+            Icon(icon, contentDescription = contentDescription, tint = tint)
+        }
     }
 }
 
@@ -245,8 +292,11 @@ private fun LibraryContent(
         Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
             Text("No downloads or local folders yet", color = theme.colors.type.secondary, fontSize = 15.sp)
             Spacer(Modifier.height(8.dp))
-            TextButton(onClick = onAddFolder) {
-                Text("Add Folder")
+            var focused by remember { mutableStateOf(false) }
+            ZsOutlinedWrapper(visible = isTv && focused, shape = RoundedCornerShape(8.dp)) {
+                TextButton(onClick = onAddFolder, modifier = Modifier.onFocusChanged { focused = it.isFocused }) {
+                    Text("Add Folder")
+                }
             }
         }
         return
@@ -432,13 +482,20 @@ private fun FolderStatusRow(
             Text(status, color = if (folder.lastScanError == null) theme.colors.type.secondary else theme.colors.type.danger, fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
         if (folder.lastScanError != null && !isScanning) {
-            TextButton(onClick = { onPickAgain(folder) }) {
-                Text("Pick Again")
+            var pickAgainFocused by remember { mutableStateOf(false) }
+            ZsOutlinedWrapper(visible = isTv && pickAgainFocused, shape = RoundedCornerShape(8.dp)) {
+                TextButton(onClick = { onPickAgain(folder) }, modifier = Modifier.onFocusChanged { pickAgainFocused = it.isFocused }) {
+                    Text("Pick Again")
+                }
             }
         }
-        IconButton(onClick = { onRemove(folder) }) {
-            Icon(Icons.Filled.Delete, contentDescription = "Remove folder", tint = theme.colors.type.secondary)
-        }
+        TvIconButton(
+            onClick = { onRemove(folder) },
+            isTv = isTv,
+            icon = Icons.Filled.Delete,
+            contentDescription = "Remove folder",
+            tint = theme.colors.type.secondary,
+        )
     }
     }
 }
@@ -501,17 +558,22 @@ private fun RoundIconButton(
     background: Color,
     tint: Color,
     onClick: () -> Unit,
+    isTv: Boolean = false,
     size: androidx.compose.ui.unit.Dp = 36.dp,
 ) {
-    Box(
-        modifier = Modifier
-            .size(size)
-            .clip(RoundedCornerShape(50))
-            .background(background)
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(icon, contentDescription = contentDescription, tint = tint, modifier = Modifier.size(size * 0.5f))
+    var focused by remember { mutableStateOf(false) }
+    ZsOutlinedWrapper(visible = isTv && focused, shape = CircleShape, gap = 2.dp) {
+        Box(
+            modifier = Modifier
+                .size(size)
+                .clip(RoundedCornerShape(50))
+                .background(background)
+                .onFocusChanged { focused = it.isFocused }
+                .clickable(onClick = onClick),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(icon, contentDescription = contentDescription, tint = tint, modifier = Modifier.size(size * 0.5f))
+        }
     }
 }
 
@@ -535,16 +597,19 @@ private fun DownloadItem(
     val canPlay = entity.status == DownloadStatus.DONE
     val showProgressBar = inFlight || isPaused
     var focused by remember { mutableStateOf(false) }
-    ZsOutlinedWrapper(visible = isTv && focused, shape = RoundedCornerShape(14.dp)) {
+    ZsOutlinedWrapper(visible = !isTv && focused, shape = RoundedCornerShape(14.dp)) {
         Row(
             Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(14.dp))
                 .background(theme.colors.settings.card.background)
                 .border(1.dp, theme.colors.type.divider.copy(alpha = 0.3f), RoundedCornerShape(14.dp))
-                .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
-                .onFocusChanged { focused = it.hasFocus }
-                .clickable(enabled = canPlay, onClick = onPlay)
+                .then(if (!isTv && focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
+                .then(
+                    // On TV the row itself isn't a focus target at all -- only the action
+                    // buttons beside it are -- so it shouldn't intercept D-pad focus/clicks.
+                    if (isTv) Modifier else Modifier.onFocusChanged { focused = it.isFocused }.clickable(enabled = canPlay, onClick = onPlay)
+                )
                 .padding(12.dp),
             verticalAlignment = Alignment.Top,
         ) {
@@ -562,7 +627,7 @@ private fun DownloadItem(
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = if (canPlay) Modifier.clickable(onClick = onPlay) else Modifier,
+                    modifier = if (!isTv && canPlay) Modifier.clickable(onClick = onPlay) else Modifier,
                 )
                 Spacer(Modifier.height(6.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -601,24 +666,62 @@ private fun DownloadItem(
                 }
             }
             Spacer(Modifier.width(8.dp))
-            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                if (canPlay) {
-                    RoundIconButton(Icons.Filled.PlayArrow, "Play", theme.colors.buttons.purple, Color.White, onPlay, size = 40.dp)
+            if (isTv) {
+                // Primary (play/pause/resume/retry) and secondary (cancel/delete) actions are
+                // mutually exclusive per status, so at most one of each.
+                data class Action(
+                    val icon: androidx.compose.ui.graphics.vector.ImageVector,
+                    val label: String,
+                    val background: Color,
+                    val tint: Color,
+                    val onClick: () -> Unit,
+                )
+                val primary = when {
+                    canPlay -> Action(Icons.Filled.PlayArrow, "Play", theme.colors.buttons.purple, Color.White, onPlay)
+                    inFlight -> Action(Icons.Filled.Pause, "Pause", Color.White.copy(alpha = 0.08f), theme.colors.type.secondary, onPause)
+                    isPaused -> Action(Icons.Filled.PlayArrow, "Resume", theme.colors.buttons.purple, Color.White, onResume)
+                    isFailed -> Action(Icons.Filled.Refresh, "Retry", theme.colors.buttons.purple.copy(alpha = 0.25f), theme.colors.buttons.purpleHover, onRetry)
+                    else -> null
                 }
-                if (inFlight) {
-                    RoundIconButton(Icons.Filled.Pause, "Pause", Color.White.copy(alpha = 0.08f), theme.colors.type.secondary, onPause)
+                val secondary = when {
+                    inFlight || isPaused -> Action(Icons.Filled.Close, "Cancel", theme.colors.buttons.danger.copy(alpha = 0.15f), theme.colors.buttons.danger, onCancel)
+                    isTerminal -> Action(Icons.Filled.Delete, "Delete", theme.colors.buttons.danger.copy(alpha = 0.15f), theme.colors.buttons.danger, onDelete)
+                    else -> null
                 }
-                if (isPaused) {
-                    RoundIconButton(Icons.Filled.PlayArrow, "Resume", theme.colors.buttons.purple, Color.White, onResume)
+                val actions = listOfNotNull(primary, secondary)
+                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    actions.forEachIndexed { index, action ->
+                        TvSquareActionButton(
+                            icon = action.icon,
+                            contentDescription = action.label,
+                            background = action.background,
+                            tint = action.tint,
+                            onClick = action.onClick,
+                            size = 50.dp,
+                            focusRequester = if (index == 0) focusRequester else null,
+                        )
+                    }
                 }
-                if (isFailed) {
-                    RoundIconButton(Icons.Filled.Refresh, "Retry", theme.colors.buttons.purple.copy(alpha = 0.25f), theme.colors.buttons.purpleHover, onRetry)
-                }
-                if (inFlight || isPaused) {
-                    RoundIconButton(Icons.Filled.Close, "Cancel", theme.colors.buttons.danger.copy(alpha = 0.15f), theme.colors.buttons.danger, onCancel)
-                }
-                if (isTerminal) {
-                    RoundIconButton(Icons.Filled.Delete, "Delete", theme.colors.buttons.danger.copy(alpha = 0.15f), theme.colors.buttons.danger, onDelete)
+            } else {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (canPlay) {
+                        RoundIconButton(Icons.Filled.PlayArrow, "Play", theme.colors.buttons.purple, Color.White, onPlay, size = 40.dp)
+                    }
+                    if (inFlight) {
+                        RoundIconButton(Icons.Filled.Pause, "Pause", Color.White.copy(alpha = 0.08f), theme.colors.type.secondary, onPause)
+                    }
+                    if (isPaused) {
+                        RoundIconButton(Icons.Filled.PlayArrow, "Resume", theme.colors.buttons.purple, Color.White, onResume)
+                    }
+                    if (isFailed) {
+                        RoundIconButton(Icons.Filled.Refresh, "Retry", theme.colors.buttons.purple.copy(alpha = 0.25f), theme.colors.buttons.purpleHover, onRetry)
+                    }
+                    if (inFlight || isPaused) {
+                        RoundIconButton(Icons.Filled.Close, "Cancel", theme.colors.buttons.danger.copy(alpha = 0.15f), theme.colors.buttons.danger, onCancel)
+                    }
+                    if (isTerminal) {
+                        RoundIconButton(Icons.Filled.Delete, "Delete", theme.colors.buttons.danger.copy(alpha = 0.15f), theme.colors.buttons.danger, onDelete)
+                    }
                 }
             }
         }
@@ -626,9 +729,36 @@ private fun DownloadItem(
 }
 
 @Composable
+private fun TvSquareActionButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    contentDescription: String,
+    background: Color,
+    tint: Color,
+    onClick: () -> Unit,
+    size: androidx.compose.ui.unit.Dp,
+    focusRequester: FocusRequester? = null,
+) {
+    var focused by remember { mutableStateOf(false) }
+    ZsOutlinedWrapper(visible = focused, shape = RoundedCornerShape(10.dp), gap = 2.dp) {
+        Box(
+            modifier = Modifier
+                .size(size)
+                .clip(RoundedCornerShape(10.dp))
+                .background(background)
+                .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
+                .onFocusChanged { focused = it.isFocused }
+                .clickable(onClick = onClick),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(icon, contentDescription = contentDescription, tint = tint, modifier = Modifier.size(size * 0.4f))
+        }
+    }
+}
+
+@Composable
 private fun PosterBox(poster: Any?, title: String, icon: androidx.compose.ui.graphics.vector.ImageVector, theme: ZStreamTheme) {
     Box(
-        modifier = Modifier.size(width = 80.dp, height = 120.dp).clip(RoundedCornerShape(8.dp)).background(theme.colors.background.secondary),
+        modifier = Modifier.size(width = 50.dp, height = 120.dp).clip(RoundedCornerShape(8.dp)).background(theme.colors.background.secondary),
         contentAlignment = Alignment.Center,
     ) {
         if (poster != null) {
