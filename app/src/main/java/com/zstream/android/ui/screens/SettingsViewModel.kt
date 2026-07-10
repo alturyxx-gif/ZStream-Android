@@ -61,9 +61,15 @@ class SettingsViewModel @Inject constructor(
     private val _sourceOrder = MutableStateFlow<List<SourceInfo>>(emptyList())
     val sourceOrder: StateFlow<List<SourceInfo>> = _sourceOrder
 
+    private val _downloadSourceOrder = MutableStateFlow<List<SourceInfo>>(emptyList())
+    val downloadSourceOrder: StateFlow<List<SourceInfo>> = _downloadSourceOrder
+
     init {
         viewModelScope.launch {
-            pluginState.collect { refreshSourceOrder() }
+            pluginState.collect {
+                refreshSourceOrder()
+                refreshDownloadSourceOrder()
+            }
         }
     }
 
@@ -77,6 +83,19 @@ class SettingsViewModel @Inject constructor(
         _sourceOrder.value = newOrder
         viewModelScope.launch {
             sourceOrderStore.saveOrder(newOrder.map { it.id })
+        }
+    }
+
+    private fun refreshDownloadSourceOrder() {
+        viewModelScope.launch {
+            _downloadSourceOrder.value = sourceOrderStore.getDownloadOrder(pluginManager.availableSources())
+        }
+    }
+
+    fun reorderDownloadSources(newOrder: List<SourceInfo>) {
+        _downloadSourceOrder.value = newOrder
+        viewModelScope.launch {
+            sourceOrderStore.saveDownloadOrder(newOrder.map { it.id })
         }
     }
 

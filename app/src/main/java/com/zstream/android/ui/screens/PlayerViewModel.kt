@@ -708,7 +708,7 @@ class PlayerViewModel @OptIn(UnstableApi::class)
                         is StreamResult.Success -> {
                             // For HLS streams, probe one segment to confirm the CDN URL is live.
                             if (result.streamType == "hls" && !result.skipProbe) {
-                                val probeOk = probeHlsSegment(result.streamUrl, result.headers)
+                                val probeOk = com.zstream.android.download.probeHlsSegment(httpClient, result.streamUrl, result.headers)
                                 if (!probeOk) {
                                     val failed = sources.map {
                                         if (it.id == source.id) it.copy(status = SourceStatus.FAILED) else it
@@ -1213,7 +1213,7 @@ class PlayerViewModel @OptIn(UnstableApi::class)
             is StreamResult.Success -> {
                 // Probe HLS segment before accepting as valid.
                 if (result.streamType == "hls" && !result.skipProbe) {
-                    val probeOk = probeHlsSegment(result.streamUrl, result.headers)
+                    val probeOk = com.zstream.android.download.probeHlsSegment(httpClient, result.streamUrl, result.headers)
                     if (!probeOk) {
                         error("Source stream is not reachable")
                     }
@@ -1624,77 +1624,5 @@ class PlayerViewModel @OptIn(UnstableApi::class)
             }
         }.onFailure { Log.w("PlayerVM", "Granite subtitle lookup failed", it) }.getOrDefault(emptyList())
     }
-
-    /**
-     * Fetches the HLS playlist at [playlistUrl], follows through master→media
-     * if needed, then pulls 1 byte of the first segment to confirm the CDN URL
-     * is live.
-     *
-     * Returns true if we got a 2xx/206 from the segment, false on any failure.
-     * ponytail: one extra RTT (two if master playlist); ceiling is ~200ms latency.
-     */
-    private suspend fun probeHlsSegment(
-        playlistUrl: String,
-        headers: Map<String, String>,
-    ): Boolean = withContext(Dispatchers.IO) {
-        runCatching {
-            val playlistText = fetchPlaylistText(playlistUrl, headers)
-                ?: return@withContext false
-
-            // If this is a master playlist, follow to the first media playlist.
-            val mediaText = if (playlistText.contains("#EXT-X-STREAM-INF")) {
-                val variantLine = playlistText.lines()
-                    .firstOrNull { it.isNotBlank() && !it.startsWith("#") }
-                    ?: run {
-                        return@withContext false
-                    }
-                val mediaUrl = resolveUrl(playlistUrl, variantLine)
-                fetchPlaylistText(mediaUrl, headers) ?: return@withContext false
-            } else {
-                playlistText
-            }
-
-            // Find the first segment URI in the media playlist.
-            val segmentLine = mediaText.lines()
-                .firstOrNull { it.isNotBlank() && !it.startsWith("#") }
-                ?: run {
-                    return@withContext true
-                }
-
-            // Resolve relative to the last playlist we fetched.
-            val baseUrl = if (playlistText.contains("#EXT-X-STREAM-INF")) {
-                val variantLine = playlistText.lines().first { it.isNotBlank() && !it.startsWith("#") }
-                resolveUrl(playlistUrl, variantLine)
-            } else {
-                playlistUrl
-            }
-            val segmentUrl = resolveUrl(baseUrl, segmentLine)
-
-            // Pull 1 byte of the segment.
-            val segReq = headers.entries.fold(
-                Request.Builder().url(segmentUrl).header("Range", "bytes=0-0")
-            ) { b, (k, v) -> b.header(k, v) }.build()
-
-            httpClient.newCall(segReq).execute().use { resp ->
-                resp.isSuccessful
-            }
-        }.onFailure {
-        }.getOrDefault(false)
-    }
-
-    /** GET a playlist URL and return the body text, or null on non-2xx. */
-    private fun fetchPlaylistText(url: String, headers: Map<String, String>): String? {
-        val req = headers.entries.fold(
-            Request.Builder().url(url)
-        ) { b, (k, v) -> b.header(k, v) }.build()
-        return httpClient.newCall(req).execute().use { resp ->
-            if (!resp.isSuccessful) null else resp.body?.string().orEmpty()
-        }
-    }
-
-    /** Resolve a possibly-relative [ref] against a [base] URL. */
-    private fun resolveUrl(base: String, ref: String): String =
-        if (ref.startsWith("http")) ref
-        else "${base.substringBeforeLast('/')}/$ref"
 
 }

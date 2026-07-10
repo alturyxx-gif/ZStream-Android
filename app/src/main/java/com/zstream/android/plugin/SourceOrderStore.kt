@@ -11,55 +11,50 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 private val KEY_SOURCE_ORDER = stringPreferencesKey("source_order_json")
+private val KEY_DOWNLOAD_SOURCE_ORDER = stringPreferencesKey("download_source_order_json")
+private val DOWNLOAD_PRIORITY_SOURCE_IDS = listOf("stellar", "nesterov")
 
-/**
- * Persists the user's preferred source ordering as an ordered JSON array of source IDs.
- * Shares the same "plugin_prefs" DataStore instance as PluginManager (injected via PluginModule).
- *
- * A plain StringSet would lose ordering, so we store JSON instead.
- *
- * Merge semantics (applied in [getOrderedSources]):
- *  - Sources in user's stored order that still exist in [pluginSources] are kept in order.
- *  - Sources removed from the plugin are pruned.
- *  - New sources not yet in the stored order are appended to the end.
- */
 @Singleton
 class SourceOrderStore @Inject constructor(
     @PluginDataStore private val dataStore: DataStore<Preferences>,
 ) {
 
-    /**
-     * Returns the effective ordered source list by merging the stored user preference
-     * with the live [pluginSources] from the loaded plugin.
-     *
-     * If no preference is stored, returns [pluginSources] in the plugin's default order.
-     */
     suspend fun getOrderedSources(pluginSources: List<SourceInfo>): List<SourceInfo> {
-        val stored = readStoredOrder()
+        val stored = readStoredOrder(KEY_SOURCE_ORDER)
         if (stored.isEmpty()) return pluginSources
+        return mergeOrder(stored, pluginSources)
+    }
 
+    suspend fun saveOrder(sourceIds: List<String>) {
+        dataStore.edit { prefs -> prefs[KEY_SOURCE_ORDER] = JSONArray(sourceIds).toString() }
+    }
+
+    suspend fun getDownloadOrder(pluginSources: List<SourceInfo>): List<SourceInfo> {
+        val stored = readStoredOrder(KEY_DOWNLOAD_SOURCE_ORDER)
+        if (stored.isEmpty()) {
+            val priority = DOWNLOAD_PRIORITY_SOURCE_IDS.mapNotNull { id -> pluginSources.firstOrNull { it.id.equals(id, ignoreCase = true) } }
+            val rest = pluginSources.filterNot { source -> priority.any { it.id == source.id } }
+            return priority + rest
+        }
+        return mergeOrder(stored, pluginSources)
+    }
+
+    suspend fun saveDownloadOrder(sourceIds: List<String>) {
+        dataStore.edit { prefs -> prefs[KEY_DOWNLOAD_SOURCE_ORDER] = JSONArray(sourceIds).toString() }
+    }
+
+    private fun mergeOrder(stored: List<String>, pluginSources: List<SourceInfo>): List<SourceInfo> {
         val pluginMap = pluginSources.associateBy { it.id }
-
-        // Keep stored order, prune removed sources
         val ordered = stored.mapNotNull { pluginMap[it] }.toMutableList()
-
-        // Append new sources not yet in the stored order
         val seenIds = ordered.map { it.id }.toSet()
         pluginSources.forEach { source ->
             if (source.id !in seenIds) ordered.add(source)
         }
-
         return ordered
     }
 
-    /** Persists a new source ordering chosen by the user. */
-    suspend fun saveOrder(sourceIds: List<String>) {
-        val json = JSONArray(sourceIds).toString()
-        dataStore.edit { prefs -> prefs[KEY_SOURCE_ORDER] = json }
-    }
-
-    private suspend fun readStoredOrder(): List<String> {
-        val json = dataStore.data.first()[KEY_SOURCE_ORDER] ?: return emptyList()
+    private suspend fun readStoredOrder(key: androidx.datastore.preferences.core.Preferences.Key<String>): List<String> {
+        val json = dataStore.data.first()[key] ?: return emptyList()
         return try {
             val arr = JSONArray(json)
             (0 until arr.length()).map { arr.getString(it) }
@@ -68,3 +63,4 @@ class SourceOrderStore @Inject constructor(
         }
     }
 }
+

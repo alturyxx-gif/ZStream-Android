@@ -1173,7 +1173,9 @@ private fun PreferencesSection(
     firstItemFocusRequester: FocusRequester? = null,
 ) {
     var showSourceOrderDialog by remember { mutableStateOf(false) }
+    var showDownloadSourceOrderDialog by remember { mutableStateOf(false) }
     val sourceOrder by vm.sourceOrder.collectAsState()
+    val downloadSourceOrder by vm.downloadSourceOrder.collectAsState()
 
     Column(Modifier
         .padding(bottom = 32.dp, top = if (isTv) 16.dp else 0.dp).padding(horizontal = if (isTv) 16.dp else 0.dp)) {
@@ -1341,6 +1343,10 @@ private fun PreferencesSection(
                 TvSettingsRow(theme, onActivate = { showSourceOrderDialog = true }) {
                     TvChevronContent("Custom Source Order", "Choose which sources are tried first")
                 }
+                HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
+                TvSettingsRow(theme, onActivate = { showDownloadSourceOrderDialog = true }) {
+                    TvChevronContent("Preferred Source Order for Downloads", "Choose which sources downloads try first")
+                }
             }
         } else {
             SettingsCard(theme) {
@@ -1382,6 +1388,20 @@ private fun PreferencesSection(
                     }
                     Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = theme.colors.type.dimmed)
                 }
+                HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable { showDownloadSourceOrderDialog = true }
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Preferred Source Order for Downloads", color = theme.colors.type.text, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                        Text("Choose which sources downloads try first", color = theme.colors.type.dimmed, fontSize = 12.sp)
+                    }
+                    Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = theme.colors.type.dimmed)
+                }
             }
         }
 
@@ -1393,6 +1413,17 @@ private fun PreferencesSection(
             theme = theme,
             onReorder = vm::reorderSources,
             onDismiss = { showSourceOrderDialog = false },
+        )
+    }
+
+    if (showDownloadSourceOrderDialog) {
+        SourceOrderDialog(
+            sources = downloadSourceOrder,
+            theme = theme,
+            onReorder = vm::reorderDownloadSources,
+            onDismiss = { showDownloadSourceOrderDialog = false },
+            title = "Preferred Source Order for Downloads",
+            subtitle = "Downloads try sources top to bottom",
         )
     }
 }
@@ -1472,6 +1503,8 @@ private fun SourceOrderDialog(
     theme: ZStreamTheme,
     onReorder: (List<SourceInfo>) -> Unit,
     onDismiss: () -> Unit,
+    title: String = "Custom Source Order",
+    subtitle: String = "Sources are tried top to bottom",
 ) {
     val items = remember(sources) { mutableStateListOf(*sources.toTypedArray()) }
     var draggedIndex by remember { mutableStateOf<Int?>(null) }
@@ -1494,8 +1527,8 @@ private fun SourceOrderDialog(
         ) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Column {
-                    Text("Custom Source Order", color = theme.colors.type.emphasis, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                    Text("Sources are tried top to bottom", color = theme.colors.type.dimmed, fontSize = 12.sp)
+                    Text(title, color = theme.colors.type.emphasis, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    Text(subtitle, color = theme.colors.type.dimmed, fontSize = 12.sp)
                 }
                 var closeFocused by remember { mutableStateOf(false) }
                 ZsOutlinedWrapper(
