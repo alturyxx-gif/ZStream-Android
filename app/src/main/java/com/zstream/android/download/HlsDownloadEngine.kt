@@ -29,8 +29,8 @@ private const val TAG = "HlsDownloadEngine"
 // the radio/CPU with everything else running on-device, unlike a dedicated desktop machine.
 // Reduced when "Allow parallel download" is on (see DownloadRepository.run()), since multiple
 // downloads then compete for the same radio/CPU at once.
-const val DEFAULT_SEGMENT_WORKERS = 12
-const val PARALLEL_MODE_SEGMENT_WORKERS = 10
+const val DEFAULT_SEGMENT_WORKERS = 9
+const val PARALLEL_MODE_SEGMENT_WORKERS = 7
 
 data class HlsDownloadProgress(
     val segmentsDone: Int,
@@ -196,7 +196,12 @@ class HlsDownloadEngine(private val client: OkHttpClient) {
         keyMaterial: Map<String, ByteArray>,
     ): Long {
         val raw = fetchWithRetry(url, headers)
+        if (raw.isEmpty()) error("Empty segment body: $url")
         val plain = if (key != null) decryptAes128(raw, keyMaterial["${key.uri}|${key.iv}"] ?: error("Missing key for segment"), key.iv) else raw
+        // A 0-byte file here would silently satisfy nothing downstream and hang remux's
+        // awaitSegmentReady() forever (it waits for length() > 0, which never becomes true) --
+        // fail loudly instead so this segment retries/fails visibly like any other error.
+        if (plain.isEmpty()) error("Segment decrypted to 0 bytes: $url")
         val part = File(dest.parentFile, dest.name + ".part")
         part.writeBytes(plain)
         if (!part.renameTo(dest)) dest.writeBytes(plain)
@@ -273,8 +278,10 @@ class HlsDownloadEngine(private val client: OkHttpClient) {
         ByteArray(hex.length / 2) { i -> ((Character.digit(hex[i * 2], 16) shl 4) + Character.digit(hex[i * 2 + 1], 16)).toByte() }
 
     private suspend fun awaitSegmentReady(file: File) {
-        while (!(file.exists() && file.length() > 0)) {
-            kotlinx.coroutines.delay(40)
+        kotlinx.coroutines.withTimeout(10 * 60_000L) {
+            while (!(file.exists() && file.length() > 0)) {
+                kotlinx.coroutines.delay(40)
+            }
         }
     }
 
