@@ -1185,6 +1185,13 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                 val menuPage = menuBackstack.lastOrNull()
                 var lastInteractionTime by remember { mutableLongStateOf(System.currentTimeMillis()) }
                 val updateActivity = { lastInteractionTime = System.currentTimeMillis() }
+                val tryNextSourceFocusRequester = remember { FocusRequester() }
+                LaunchedEffect(isPlaybackFailed, isTv) {
+                    if (isPlaybackFailed && isTv) {
+                        controlsVisible = false
+                        tryNextSourceFocusRequester.requestFocus()
+                    }
+                }
 
                 val downloadAudioOptionsState = vm.downloadAudioOptions.collectAsState().value
                 LaunchedEffect(downloadAudioOptionsState) {
@@ -1211,7 +1218,12 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                             isPlaying = playing
                             pipIsPlaying = playing
                             if (!playing) {
-                                controlsVisible = true
+                                // Pausing for a playback failure on TV hides the controls in
+                                // favor of the error overlay (see the isPlaybackFailed effect
+                                // above) -- don't let this listener flip them back on.
+                                if (!(isTv && isPlaybackFailed)) {
+                                    controlsVisible = true
+                                }
                             } else if (!wasPlaying) {
                                 vm.onPlaybackStarted()
                                 controlsVisible = true
@@ -1443,6 +1455,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                                 showPlaybackErrorDetails = true
                             },
                             onReload = vm::reloadCurrentSource,
+                            tryNextSourceFocusRequester = tryNextSourceFocusRequester,
                             modifier = Modifier.fillMaxSize()
                         )
                     }
@@ -2973,6 +2986,12 @@ private fun PlayerControls(
                             player.seekTo(seekTargetMs)
                             skippedSegmentIds[skipSegmentId(segment)] = true
                         }
+                        // The skip button itself disappears once the segment is skipped (it's
+                        // conditioned on activeSkipSegments), which drops focus into the void on
+                        // TV -- send it somewhere known instead of leaving it stranded.
+                        if (isTv) {
+                            settingsFocusRequester.requestFocus()
+                        }
                     },
                     focusRequester = skipFocusRequester,
                     upRequester = playFocusRequester,
@@ -3439,6 +3458,22 @@ private fun PlayerControls(
                 android.util.Log.d("PlayerFocus", "Menu page changed to $menuPage, requesting focus on first item")
                 menuFirstItemFocusRequester.requestFocus()
                 android.util.Log.d("PlayerFocus", "Page focus request completed")
+            }
+        }
+        // Quality/audio options for a download load asynchronously after navigating to their
+        // page, so the first-item focus requester isn't attached to anything yet when the page
+        // change above fires -- re-request once the loading spinner clears and the list mounts.
+        LaunchedEffect(menuPage, downloadQualityLoading) {
+            if (menuPage == PlayerMenuPage.DownloadQuality && !downloadQualityLoading && isTv) {
+                menuFirstItemFocusRequester.requestFocus()
+            }
+        }
+        // Selecting a season kicks off an async fetch and navigates to Episodes immediately
+        // (onLoadSeason() then onOpenPage() back-to-back), so the page-change effect above fires
+        // while the episode list is still empty. Re-request once the season detail lands.
+        LaunchedEffect(menuPage, currentSeasonDetail) {
+            if (menuPage == PlayerMenuPage.Episodes && isTv && !currentSeasonDetail?.episodes.isNullOrEmpty()) {
+                menuFirstItemFocusRequester.requestFocus()
             }
         }
 
@@ -6624,6 +6659,7 @@ private fun PlaybackErrorOverlay(
     onShowDetails: () -> Unit,
     onReload: () -> Unit,
     modifier: Modifier = Modifier,
+    tryNextSourceFocusRequester: FocusRequester? = null,
 ) {
     val theme = LocalZStreamTheme.current
     Box(
@@ -6692,7 +6728,11 @@ private fun PlaybackErrorOverlay(
                 ) {
                     Button(
                         onClick = onTryNextSource,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier
+                            .weight(1f)
+                            .then(
+                                if (tryNextSourceFocusRequester != null) Modifier.focusRequester(tryNextSourceFocusRequester) else Modifier
+                            ),
                         shape = RoundedCornerShape(12.dp)
                     ) {
                         Text("Try next source")

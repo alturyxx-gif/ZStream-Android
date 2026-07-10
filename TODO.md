@@ -1,3 +1,7 @@
+bugs to fix:
+1. episodes list in player dont work in TV
+
+
 features to add:
 1. add subs download button (for when the video is downloaded on device)
 2. add strong fallback to server rotating cert
