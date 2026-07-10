@@ -244,6 +244,10 @@ class SettingsViewModel @Inject constructor(
         update { copy(enableDoubleClickToSeek = v) }
     }
 
+    fun setDoubleTapSeekSeconds(seconds: Int) {
+        update { copy(doubleTapSeekSeconds = seconds) }
+    }
+
     fun setEnableAutoResumeOnPlaybackError(v: Boolean) {
         update { copy(enableAutoResumeOnPlaybackError = v) }
     }

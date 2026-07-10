@@ -32,6 +32,8 @@ data class SettingsEntity(
     val enableNativeSubtitles: Boolean = false,
     val subtitlesEnabled: Boolean = false,
     val enableDoubleClickToSeek: Boolean = true,
+    // How far double-tap-to-seek jumps, in seconds. Local-only, not synced.
+    val doubleTapSeekSeconds: Int = 10,
     val enableNumberKeySeeking: Boolean = false,
     val enableHoldToBoost: Boolean = false,
     val videoBrightness: Int = 100,
