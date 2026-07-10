@@ -54,6 +54,7 @@ class SettingsPreferences @Inject constructor(
     private val KEY_ENABLE_NATIVE_SUBTITLES = booleanPreferencesKey("enable_native_subtitles")
     private val KEY_SUBTITLES_ENABLED = booleanPreferencesKey("subtitles_enabled")
     private val KEY_ENABLE_DOUBLE_CLICK_TO_SEEK = booleanPreferencesKey("enable_double_click_to_seek")
+    private val KEY_DOUBLE_TAP_SEEK_SECONDS = intPreferencesKey("double_tap_seek_seconds")
     private val KEY_ENABLE_NUMBER_KEY_SEEKING = booleanPreferencesKey("enable_number_key_seeking")
     private val KEY_ENABLE_HOLD_TO_BOOST = booleanPreferencesKey("enable_hold_to_boost")
     private val KEY_VIDEO_BRIGHTNESS = intPreferencesKey("video_brightness")
@@ -141,6 +142,7 @@ class SettingsPreferences @Inject constructor(
             enableNativeSubtitles = prefs[KEY_ENABLE_NATIVE_SUBTITLES] ?: false,
             subtitlesEnabled = prefs[KEY_SUBTITLES_ENABLED] ?: false,
             enableDoubleClickToSeek = prefs[KEY_ENABLE_DOUBLE_CLICK_TO_SEEK] ?: true,
+            doubleTapSeekSeconds = prefs[KEY_DOUBLE_TAP_SEEK_SECONDS] ?: 10,
             enableNumberKeySeeking = prefs[KEY_ENABLE_NUMBER_KEY_SEEKING] ?: false,
             enableHoldToBoost = prefs[KEY_ENABLE_HOLD_TO_BOOST] ?: false,
             videoBrightness = prefs[KEY_VIDEO_BRIGHTNESS] ?: 100,
@@ -220,6 +222,7 @@ class SettingsPreferences @Inject constructor(
             prefs[KEY_ENABLE_NATIVE_SUBTITLES] = entity.enableNativeSubtitles
             prefs[KEY_SUBTITLES_ENABLED] = entity.subtitlesEnabled
             prefs[KEY_ENABLE_DOUBLE_CLICK_TO_SEEK] = entity.enableDoubleClickToSeek
+            prefs[KEY_DOUBLE_TAP_SEEK_SECONDS] = entity.doubleTapSeekSeconds
             prefs[KEY_ENABLE_NUMBER_KEY_SEEKING] = entity.enableNumberKeySeeking
             prefs[KEY_ENABLE_HOLD_TO_BOOST] = entity.enableHoldToBoost
             prefs[KEY_VIDEO_BRIGHTNESS] = entity.videoBrightness
@@ -315,6 +318,7 @@ class SettingsPreferences @Inject constructor(
             val currentAutoPipEnabled = current[KEY_AUTO_PIP_ENABLED] ?: false
             val currentTrailersOpenInApp = current[KEY_TRAILERS_OPEN_IN_APP] ?: true
             val currentDefaultPlaybackSpeed = current[KEY_DEFAULT_PLAYBACK_SPEED]?.toFloatOrNull() ?: 1f
+            val currentDoubleTapSeekSeconds = current[KEY_DOUBLE_TAP_SEEK_SECONDS] ?: 10
             val currentGridRows = (current[KEY_GRID_ROWS] ?: 2).coerceIn(1, 8)
 
             val mappedHomeSectionOrder = remote.homeSectionOrder?.map { section ->
@@ -342,6 +346,7 @@ class SettingsPreferences @Inject constructor(
                 enableNativeSubtitles = remote.enableNativeSubtitles ?: false,
                 subtitlesEnabled = currentSubtitlesEnabled,
                 enableDoubleClickToSeek = remote.enableDoubleClickToSeek ?: true,
+                doubleTapSeekSeconds = currentDoubleTapSeekSeconds,
                 enableNumberKeySeeking = remote.enableNumberKeySeeking ?: false,
                 enableHoldToBoost = remote.enableHoldToBoost ?: false,
                 videoBrightness = currentVideoBrightness,
