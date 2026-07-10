@@ -38,7 +38,6 @@ private data class ClassicThemeSpec(
 
 object ThemePresets {
     val builtInThemes: List<ZStreamTheme> = listOf(
-        DefaultTheme.create(),
         createPaletteTheme(
             PaletteThemeSpec(
                 id = "teal",

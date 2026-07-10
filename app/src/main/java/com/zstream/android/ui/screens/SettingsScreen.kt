@@ -1434,6 +1434,11 @@ private fun SourceOrderDialog(
     var draggedIndex by remember { mutableStateOf<Int?>(null) }
     var draggedOffset by remember { mutableStateOf(0f) }
     val itemHeights = remember { mutableMapOf<Int, Int>() }
+    val closeFocusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(Unit) {
+        closeFocusRequester.requestFocus()
+    }
 
     Dialog(onDismissRequest = onDismiss) {
         Column(
@@ -1449,8 +1454,22 @@ private fun SourceOrderDialog(
                     Text("Custom Source Order", color = theme.colors.type.emphasis, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                     Text("Sources are tried top to bottom", color = theme.colors.type.dimmed, fontSize = 12.sp)
                 }
-                IconButton(onClick = onDismiss) {
-                    Icon(Icons.Filled.Close, contentDescription = "Close", tint = theme.colors.type.secondary)
+                var closeFocused by remember { mutableStateOf(false) }
+                ZsOutlinedWrapper(
+                    shape = RoundedCornerShape(8.dp),
+                    outlineColor = Color.White,
+                    outlineWidth = 2.dp,
+                    gap = 2.dp,
+                    visible = closeFocused,
+                ) {
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier
+                            .focusRequester(closeFocusRequester)
+                            .onFocusChanged { closeFocused = it.isFocused },
+                    ) {
+                        Icon(Icons.Filled.Close, contentDescription = "Close", tint = theme.colors.type.secondary)
+                    }
                 }
             }
             Spacer(Modifier.height(8.dp))
@@ -1526,29 +1545,51 @@ private fun SourceOrderDialog(
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
-                            IconButton(
-                                onClick = {
-                                    if (index > 0) {
-                                        items[index] = items[index - 1].also { items[index - 1] = items[index] }
-                                        onReorder(items.toList())
-                                    }
-                                },
-                                enabled = index > 0,
-                                modifier = Modifier.size(32.dp),
+                            var upFocused by remember { mutableStateOf(false) }
+                            ZsOutlinedWrapper(
+                                shape = RoundedCornerShape(8.dp),
+                                outlineColor = Color.White,
+                                outlineWidth = 2.dp,
+                                gap = 2.dp,
+                                visible = upFocused,
                             ) {
-                                Icon(Icons.Filled.KeyboardArrowUp, contentDescription = "Move up", tint = if (index > 0) theme.colors.type.secondary else theme.colors.type.dimmed.copy(alpha = 0.3f))
+                                IconButton(
+                                    onClick = {
+                                        if (index > 0) {
+                                            items[index] = items[index - 1].also { items[index - 1] = items[index] }
+                                            onReorder(items.toList())
+                                        }
+                                    },
+                                    enabled = index > 0,
+                                    modifier = Modifier
+                                        .size(32.dp)
+                                        .onFocusChanged { upFocused = it.isFocused },
+                                ) {
+                                    Icon(Icons.Filled.KeyboardArrowUp, contentDescription = "Move up", tint = if (index > 0) theme.colors.type.secondary else theme.colors.type.dimmed.copy(alpha = 0.3f))
+                                }
                             }
-                            IconButton(
-                                onClick = {
-                                    if (index < items.size - 1) {
-                                        items[index] = items[index + 1].also { items[index + 1] = items[index] }
-                                        onReorder(items.toList())
-                                    }
-                                },
-                                enabled = index < items.size - 1,
-                                modifier = Modifier.size(32.dp),
+                            var downFocused by remember { mutableStateOf(false) }
+                            ZsOutlinedWrapper(
+                                shape = RoundedCornerShape(8.dp),
+                                outlineColor = Color.White,
+                                outlineWidth = 2.dp,
+                                gap = 2.dp,
+                                visible = downFocused,
                             ) {
-                                Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Move down", tint = if (index < items.size - 1) theme.colors.type.secondary else theme.colors.type.dimmed.copy(alpha = 0.3f))
+                                IconButton(
+                                    onClick = {
+                                        if (index < items.size - 1) {
+                                            items[index] = items[index + 1].also { items[index + 1] = items[index] }
+                                            onReorder(items.toList())
+                                        }
+                                    },
+                                    enabled = index < items.size - 1,
+                                    modifier = Modifier
+                                        .size(32.dp)
+                                        .onFocusChanged { downFocused = it.isFocused },
+                                ) {
+                                    Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Move down", tint = if (index < items.size - 1) theme.colors.type.secondary else theme.colors.type.dimmed.copy(alpha = 0.3f))
+                                }
                             }
                         }
                     }
