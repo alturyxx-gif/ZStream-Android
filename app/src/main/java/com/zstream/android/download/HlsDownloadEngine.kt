@@ -335,6 +335,8 @@ class HlsDownloadEngine(private val client: OkHttpClient) {
     private class TrackOffsets {
         var videoTimeOffsetUs = 0L
         var audioTimeOffsetUs = 0L
+        var videoLastWrittenPtsUs = -1L
+        var audioLastWrittenPtsUs = -1L
     }
 
     /**
@@ -437,12 +439,21 @@ class HlsDownloadEngine(private val client: OkHttpClient) {
                     val pts = extractor.sampleTime
                     val firstPts = firstPtsPerTrack.getOrPut(extractorTrack) { pts }
                     val baseOffset = if (isVideo) offsets.videoTimeOffsetUs else offsets.audioTimeOffsetUs
+                    val lastWritten = if (isVideo) offsets.videoLastWrittenPtsUs else offsets.audioLastWrittenPtsUs
+
+                    // MediaMuxer requires strictly non-decreasing presentationTimeUs per track. A
+                    // segment's declared EXTINF duration (what baseOffset advances by) can be
+                    // slightly off from its actual decoded span, so the next segment's first sample
+                    // can land at or before the previous segment's last sample -- silently corrupting
+                    // (or truncating decode of) every sample after the first violation. Clamp forward.
+                    val safePts = maxOf(baseOffset + (pts - firstPts), lastWritten + 1)
+                    if (isVideo) offsets.videoLastWrittenPtsUs = safePts else offsets.audioLastWrittenPtsUs = safePts
 
                     bufferInfo.apply {
                         size = sampleSize
                         offset = 0
                         flags = extractor.sampleFlags
-                        presentationTimeUs = baseOffset + (pts - firstPts)
+                        presentationTimeUs = safePts
                     }
                     muxer.writeSampleData(muxIndex, buffer, bufferInfo)
                     extractor.advance()
