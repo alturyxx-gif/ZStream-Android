@@ -2525,6 +2525,7 @@ private fun PlayerControls(
     currentSeasonDetail: com.zstream.android.data.model.Season?,
     pauseMetadata: PauseMetadata?,
     localFileInfo: LocalFileInfo? = null,
+    downloadedEpisodesForShow: Map<String, com.zstream.android.data.local.entity.DownloadEntity> = emptyMap(),
 ) {
     val menuOpen = menuPage != null
     val playbackErrorActive = readyState.playbackFailure != null
@@ -3796,6 +3797,7 @@ private fun PlayerControls(
                         currentSeasonDetail = currentSeasonDetail,
                         onSetOverrideCasing = onSetOverrideCasing,
                         localFileInfo = localFileInfo,
+                        downloadedEpisodesForShow = downloadedEpisodesForShow,
                     )
                 }
             }
