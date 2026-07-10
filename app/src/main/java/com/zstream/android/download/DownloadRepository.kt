@@ -199,6 +199,11 @@ class DownloadRepository @Inject constructor(
                     var speedEwma: Long? = null
                     var downloadsComplete = false
                     val stateMutex = kotlinx.coroutines.sync.Mutex()
+                    val segmentWorkers = if (settingsPrefs.settings.first().allowParallelDownload) {
+                        PARALLEL_MODE_SEGMENT_WORKERS
+                    } else {
+                        DEFAULT_SEGMENT_WORKERS
+                    }
                     try {
                         HlsDownloadEngine(client).download(
                             videoPlaylistUrl = request.streamUrl,
@@ -244,6 +249,7 @@ class DownloadRepository @Inject constructor(
                                     }
                                 }
                             },
+                            segmentWorkers = segmentWorkers,
                         )
                     } finally {
                         // workDir's segment cache is deliberately NOT deleted here — if this download

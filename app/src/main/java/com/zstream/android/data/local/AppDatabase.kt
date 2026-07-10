@@ -8,12 +8,14 @@ import androidx.room.TypeConverters
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.zstream.android.data.local.dao.BookmarkDao
+import com.zstream.android.data.local.dao.CachedEpisodeDao
 import com.zstream.android.data.local.dao.DownloadDao
 import com.zstream.android.data.local.dao.LocalFileProgressDao
 import com.zstream.android.data.local.dao.LocalLibraryDao
 import com.zstream.android.data.local.dao.ProgressDao
 import com.zstream.android.data.local.dao.SkipSegmentDao
 import com.zstream.android.data.local.entity.BookmarkEntity
+import com.zstream.android.data.local.entity.CachedEpisodeEntity
 import com.zstream.android.data.local.entity.DownloadEntity
 import com.zstream.android.data.local.entity.LocalFileProgressEntity
 import com.zstream.android.data.local.entity.LocalLibraryFolderEntity
@@ -30,9 +32,10 @@ import com.zstream.android.data.local.entity.SkipSegmentEntity
         LocalMediaEntity::class,
         LocalFileProgressEntity::class,
         SkipSegmentEntity::class,
+        CachedEpisodeEntity::class,
     ],
 
-    version = 11,
+    version = 12,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -43,6 +46,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun localLibraryDao(): LocalLibraryDao
     abstract fun localFileProgressDao(): LocalFileProgressDao
     abstract fun skipSegmentDao(): SkipSegmentDao
+    abstract fun cachedEpisodeDao(): CachedEpisodeDao
 
     companion object {
         @Volatile
@@ -171,13 +175,33 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS season_episodes (
+                        tmdbId TEXT NOT NULL,
+                        season INTEGER NOT NULL,
+                        episode INTEGER NOT NULL,
+                        episodeId INTEGER NOT NULL,
+                        title TEXT NOT NULL,
+                        overview TEXT,
+                        stillPath TEXT,
+                        airDate TEXT,
+                        PRIMARY KEY(tmdbId, season, episode)
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
                     "zstream.db"
-                ).addMigrations(MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11).build()
+                ).addMigrations(MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12).build()
                 INSTANCE = instance
                 instance
             }

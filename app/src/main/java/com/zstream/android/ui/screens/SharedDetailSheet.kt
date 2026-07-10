@@ -367,6 +367,9 @@ internal fun ColumnScope.SharedTvDetailContent(
     onSelectSeason: (Int) -> Unit,
     onMarkEpisodeWatched: (Episode) -> Unit = {},
     onClearEpisodeWatchHistory: (Episode) -> Unit = {},
+    downloadedEpisodes: Map<String, com.zstream.android.data.local.entity.DownloadEntity> = emptyMap(),
+    onDownloadEpisode: (Episode) -> Unit = {},
+    isOffline: Boolean = false,
     firstItemFocusRequester: FocusRequester? = null,
     trailers: List<com.zstream.android.data.ImdbTrailer> = emptyList(),
     openTrailersInApp: Boolean = true,
@@ -461,7 +464,9 @@ internal fun ColumnScope.SharedTvDetailContent(
                         borderWidth = 1.dp,
                         selectedBorderWidth = 1.dp,
                     ),
-                    modifier = Modifier.onFocusChanged { isFocused = it.isFocused },
+                    modifier = Modifier
+                        .defaultMinSize(minWidth = 48.dp)
+                        .onFocusChanged { isFocused = it.isFocused },
                     leadingIcon = null,
                     trailingIcon = null,
                 )
@@ -487,6 +492,9 @@ internal fun ColumnScope.SharedTvDetailContent(
                 enableWatchActions = true,
                 onMarkWatched = { onMarkEpisodeWatched(episode) },
                 onClearHistory = { onClearEpisodeWatchHistory(episode) },
+                downloadEntry = downloadedEpisodes["${episode.seasonNumber}|${episode.episodeNumber}"],
+                onDownloadEpisode = { onDownloadEpisode(episode) },
+                isOffline = isOffline,
             )
         }
     }

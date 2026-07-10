@@ -217,6 +217,10 @@ class SettingsViewModel @Inject constructor(
         update { copy(manualSourceSelection = v) }
     }
 
+    fun setAllowParallelDownload(v: Boolean) {
+        update { copy(allowParallelDownload = v) }
+    }
+
     fun setEnableDoubleClickToSeek(v: Boolean) {
         update { copy(enableDoubleClickToSeek = v) }
     }

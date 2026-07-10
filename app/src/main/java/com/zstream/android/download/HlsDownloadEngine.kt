@@ -27,7 +27,10 @@ private const val TAG = "HlsDownloadEngine"
 // Matches the desktop app's segment worker pool sizing (16 workers there); artemis comfortably
 // serves this level of per-download parallelism. Kept slightly below desktop's since phones share
 // the radio/CPU with everything else running on-device, unlike a dedicated desktop machine.
-private const val SEGMENT_WORKERS = 14
+// Reduced when "Allow parallel download" is on (see DownloadRepository.run()), since multiple
+// downloads then compete for the same radio/CPU at once.
+const val DEFAULT_SEGMENT_WORKERS = 14
+const val PARALLEL_MODE_SEGMENT_WORKERS = 10
 
 data class HlsDownloadProgress(
     val segmentsDone: Int,
@@ -53,6 +56,7 @@ class HlsDownloadEngine(private val client: OkHttpClient) {
         outputFd: FileDescriptor,
         onProgress: suspend (HlsDownloadProgress) -> Unit,
         onRemuxProgress: suspend (done: Int, total: Int) -> Unit,
+        segmentWorkers: Int = DEFAULT_SEGMENT_WORKERS,
     ) = coroutineScope {
         workDir.mkdirs()
 
@@ -102,7 +106,7 @@ class HlsDownloadEngine(private val client: OkHttpClient) {
             )
         }
 
-        val semaphore = Semaphore(SEGMENT_WORKERS)
+        val semaphore = Semaphore(segmentWorkers)
         val jobs = (videoFiles + audioFiles).map { (segment, dest, key) ->
             async(Dispatchers.IO) {
                 semaphore.withPermit {

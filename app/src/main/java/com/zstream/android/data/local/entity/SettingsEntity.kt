@@ -55,6 +55,7 @@ data class SettingsEntity(
     val lastSuccessfulSource: String? = null,
     val enableLastSuccessfulSource: Boolean = false,
     val manualSourceSelection: Boolean = false,
+    val allowParallelDownload: Boolean = false,
     val sourceOrder: List<String> = emptyList(),
     val enableSourceOrder: Boolean = false,
 
@@ -131,6 +132,7 @@ data class SettingsEntity(
         lastSuccessfulSource?.let { json.put("lastSuccessfulSource", it) }
         json.put("enableLastSuccessfulSource", enableLastSuccessfulSource)
         json.put("manualSourceSelection", manualSourceSelection)
+        json.put("allowParallelDownload", allowParallelDownload)
         json.put("sourceOrder", JSONArray(sourceOrder))
         json.put("enableSourceOrder", enableSourceOrder)
         json.put("enableImageLogos", enableImageLogos)

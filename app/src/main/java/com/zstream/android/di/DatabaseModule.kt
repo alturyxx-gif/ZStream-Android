@@ -3,6 +3,7 @@ package com.zstream.android.di
 import android.content.Context
 import com.zstream.android.data.local.AppDatabase
 import com.zstream.android.data.local.dao.BookmarkDao
+import com.zstream.android.data.local.dao.CachedEpisodeDao
 import com.zstream.android.data.local.dao.DownloadDao
 import com.zstream.android.data.local.dao.LocalFileProgressDao
 import com.zstream.android.data.local.dao.LocalLibraryDao
@@ -53,5 +54,10 @@ object DatabaseModule {
     @Provides
     fun provideSkipSegmentDao(database: AppDatabase): SkipSegmentDao {
         return database.skipSegmentDao()
+    }
+
+    @Provides
+    fun provideCachedEpisodeDao(database: AppDatabase): CachedEpisodeDao {
+        return database.cachedEpisodeDao()
     }
 }
