@@ -60,7 +60,7 @@ class DownloadStorage @Inject constructor(
             val values = ContentValues().apply {
                 put(MediaStore.Downloads.DISPLAY_NAME, displayName)
                 put(MediaStore.Downloads.MIME_TYPE, mimeType)
-                put(MediaStore.Downloads.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/$relativeFolder")
+                put(MediaStore.Downloads.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/$relativeFolder/")
                 put(MediaStore.Downloads.IS_PENDING, 1)
             }
             val collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
@@ -243,7 +243,7 @@ class DownloadStorage @Inject constructor(
             val values = ContentValues().apply {
                 put(MediaStore.Downloads.DISPLAY_NAME, INDEX_DISPLAY_NAME)
                 put(MediaStore.Downloads.MIME_TYPE, "application/json")
-                put(MediaStore.Downloads.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/$INDEX_RELATIVE_FOLDER")
+                put(MediaStore.Downloads.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/$INDEX_RELATIVE_FOLDER/")
             }
             context.contentResolver.insert(collection, values)
                 ?: error("MediaStore insert failed for $INDEX_DISPLAY_NAME")
@@ -267,9 +267,10 @@ class DownloadStorage @Inject constructor(
 
     private fun queryIndexUri(collection: Uri): Uri? {
         val projection = arrayOf(MediaStore.MediaColumns._ID)
-        val selection = "${MediaStore.MediaColumns.DISPLAY_NAME}=? AND ${MediaStore.MediaColumns.RELATIVE_PATH}=?"
-        val args = arrayOf(INDEX_DISPLAY_NAME, "${Environment.DIRECTORY_DOWNLOADS}/$INDEX_RELATIVE_FOLDER/")
-        return context.contentResolver.query(collection, projection, selection, args, null)?.use { cursor ->
+        val selection = "${MediaStore.MediaColumns.DISPLAY_NAME} LIKE ? AND ${MediaStore.MediaColumns.RELATIVE_PATH}=?"
+        val args = arrayOf("zstream_index%.json", "${Environment.DIRECTORY_DOWNLOADS}/$INDEX_RELATIVE_FOLDER/")
+        val sortOrder = "${MediaStore.MediaColumns.DATE_MODIFIED} DESC"
+        return context.contentResolver.query(collection, projection, selection, args, sortOrder)?.use { cursor ->
             if (!cursor.moveToFirst()) return@use null
             val id = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID))
             android.content.ContentUris.withAppendedId(collection, id)
