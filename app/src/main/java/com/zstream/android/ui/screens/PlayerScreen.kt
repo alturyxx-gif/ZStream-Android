@@ -853,6 +853,9 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                                 }
                             }
                         })
+                        if (settings.defaultPlaybackSpeed != 1f) {
+                            playbackParameters = PlaybackParameters(settings.defaultPlaybackSpeed)
+                        }
                         prepare()
                         playWhenReady = true
                     }
@@ -2100,6 +2103,9 @@ fun LocalPlayerScreen(nav: NavController, vm: LocalPlayerViewModel = hiltViewMod
                         if (state != Player.STATE_IDLE) playbackError = null
                     }
                 })
+                if (settings.defaultPlaybackSpeed != 1f) {
+                    playbackParameters = PlaybackParameters(settings.defaultPlaybackSpeed)
+                }
                 playWhenReady = true
                 resumeWatchedSec?.let { seekTo(it * 1000) }
                 prepare()
@@ -3798,6 +3804,7 @@ private fun PlayerControls(
                             }
                             player.playbackParameters = PlaybackParameters(speed)
                             playbackSpeed = speed
+                            onUpdateSettings(settings.copy(defaultPlaybackSpeed = speed))
                             showSpeedOverlay(boosted = false, autoHide = true)
                         },
                         onSelectQuality = { option ->
