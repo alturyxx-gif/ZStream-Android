@@ -12,8 +12,7 @@ import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.ensureActive
 import kotlin.coroutines.coroutineContext
-import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.sync.withLock
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
@@ -24,13 +23,74 @@ import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.SecretKeySpec
 
 private const val TAG = "HlsDownloadEngine"
-// Matches the desktop app's segment worker pool sizing (16 workers there); artemis comfortably
-// serves this level of per-download parallelism. Kept slightly below desktop's since phones share
-// the radio/CPU with everything else running on-device, unlike a dedicated desktop machine.
-// Reduced when "Allow parallel download" is on (see DownloadRepository.run()), since multiple
-// downloads then compete for the same radio/CPU at once.
-const val DEFAULT_SEGMENT_WORKERS = 9
-const val PARALLEL_MODE_SEGMENT_WORKERS = 7
+// Starting point for AdaptiveConcurrencyController, not a fixed cap -- it ramps up from here
+// toward the per-source MAX below as long as segments keep succeeding, and instantly cuts back on
+// any 429. Empirically probed against nesterov's CDN (see _tmp/nesterov_ratelimit_probe*.js): a
+// clean burst of 19 concurrent segment requests succeeded, 20 got 4/20 rejected with a 429 and an
+// explicit "Retry-After: 10" header (confirmed by measurement -- recovery landed at ~10.5s). Kept
+// deliberately conservative below that ~19-20 ceiling since a real download shares the same per-IP
+// budget with retries, key/init fetches, and (in parallel-download mode) a second concurrent
+// download, none of which the isolated probe had to contend with.
+const val DEFAULT_SEGMENT_WORKERS = 6
+const val PARALLEL_MODE_SEGMENT_WORKERS = 5
+const val ADAPTIVE_MAX_WORKERS_SINGLE = 14
+const val ADAPTIVE_MAX_WORKERS_PARALLEL = 10
+private const val ADAPTIVE_MIN_WORKERS = 3
+private const val ADAPTIVE_RAMP_UP_STREAK = 15
+
+/**
+ * Concurrency limiter that starts at [startLimit] and adapts toward the CDN's real limit instead
+ * of guessing a fixed number: ramps up by +1 after [ADAPTIVE_RAMP_UP_STREAK] consecutive clean
+ * segments, and immediately halves on any 429 (loses far faster than it gains, since a burst of
+ * 429s costs way more retry/backoff time than a slower ramp-up costs in throughput).
+ */
+private class AdaptiveConcurrencyController(startLimit: Int, private val maxLimit: Int) {
+    private val mutex = kotlinx.coroutines.sync.Mutex()
+    private var limit = startLimit.coerceIn(ADAPTIVE_MIN_WORKERS, maxLimit)
+    private var active = 0
+    private var cleanStreak = 0
+
+    private suspend fun acquire() {
+        while (true) {
+            val granted = mutex.withLock { if (active < limit) { active++; true } else false }
+            if (granted) return
+            kotlinx.coroutines.delay(25)
+        }
+    }
+
+    private suspend fun release() {
+        mutex.withLock { active-- }
+    }
+
+    suspend fun onSegmentSuccess() {
+        mutex.withLock {
+            cleanStreak++
+            if (cleanStreak >= ADAPTIVE_RAMP_UP_STREAK && limit < maxLimit) {
+                limit++
+                cleanStreak = 0
+                Log.i(TAG, "adaptive concurrency: ramped up to $limit")
+            }
+        }
+    }
+
+    suspend fun onRateLimited() {
+        mutex.withLock {
+            val newLimit = (limit / 2).coerceAtLeast(ADAPTIVE_MIN_WORKERS)
+            if (newLimit != limit) Log.i(TAG, "adaptive concurrency: rate limited, cut $limit -> $newLimit")
+            limit = newLimit
+            cleanStreak = 0
+        }
+    }
+
+    suspend fun <T> withPermit(block: suspend () -> T): T {
+        acquire()
+        try {
+            return block()
+        } finally {
+            release()
+        }
+    }
+}
 
 data class HlsDownloadProgress(
     val segmentsDone: Int,
@@ -57,6 +117,7 @@ class HlsDownloadEngine(private val client: OkHttpClient) {
         onProgress: suspend (HlsDownloadProgress) -> Unit,
         onRemuxProgress: suspend (done: Int, total: Int) -> Unit,
         segmentWorkers: Int = DEFAULT_SEGMENT_WORKERS,
+        maxSegmentWorkers: Int = ADAPTIVE_MAX_WORKERS_SINGLE,
     ) = coroutineScope {
         workDir.mkdirs()
 
@@ -106,13 +167,14 @@ class HlsDownloadEngine(private val client: OkHttpClient) {
             )
         }
 
-        val semaphore = Semaphore(segmentWorkers)
+        val controller = AdaptiveConcurrencyController(startLimit = segmentWorkers, maxLimit = maxSegmentWorkers)
         val jobs = (videoFiles + audioFiles).map { (segment, dest, key) ->
             async(Dispatchers.IO) {
-                semaphore.withPermit {
+                controller.withPermit {
                     if (!(dest.exists() && dest.length() > 0)) {
-                        val size = downloadSegment(segment.uri, headers, dest, key, videoKeys + audioKeys)
+                        val size = downloadSegment(segment.uri, headers, dest, key, videoKeys + audioKeys, controller::onRateLimited)
                         synchronized(progressLock) { bytes += size }
+                        controller.onSegmentSuccess()
                     }
                     val (snapshot, shouldReport) = synchronized(progressLock) {
                         done++
@@ -194,8 +256,9 @@ class HlsDownloadEngine(private val client: OkHttpClient) {
         dest: File,
         key: HlsKey?,
         keyMaterial: Map<String, ByteArray>,
+        onRateLimited: suspend () -> Unit,
     ): Long {
-        val raw = fetchWithRetry(url, headers)
+        val raw = fetchWithRetry(url, headers, onRateLimited = onRateLimited)
         if (raw.isEmpty()) error("Empty segment body: $url")
         val plain = if (key != null) decryptAes128(raw, keyMaterial["${key.uri}|${key.iv}"] ?: error("Missing key for segment"), key.iv) else raw
         // A 0-byte file here would silently satisfy nothing downstream and hang remux's
@@ -222,10 +285,12 @@ class HlsDownloadEngine(private val client: OkHttpClient) {
         headers: Map<String, String>,
         maxAttempts: Int = 5,
         maxRateLimitAttempts: Int = 30,
+        onRateLimited: (suspend () -> Unit)? = null,
     ): ByteArray {
         var lastError: Exception? = null
         var otherAttempts = 0
         var rateLimitAttempts = 0
+        var notifiedRateLimit = false
         while (true) {
             val request = Request.Builder().url(url).headers(downloadHeaders(headers)).build()
             try {
@@ -248,6 +313,10 @@ class HlsDownloadEngine(private val client: OkHttpClient) {
 
             val err = lastError
             if (err is RateLimited) {
+                if (!notifiedRateLimit) {
+                    notifiedRateLimit = true
+                    onRateLimited?.invoke()
+                }
                 rateLimitAttempts++
                 if (rateLimitAttempts >= maxRateLimitAttempts) throw IllegalStateException("Segment rate limited after $rateLimitAttempts attempts")
                 val delayMs = err.retryAfterMs ?: (1000L * (1L shl minOf(rateLimitAttempts - 1, 5))).coerceAtMost(30_000L)
