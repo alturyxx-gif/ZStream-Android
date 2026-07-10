@@ -15,6 +15,9 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.view.WindowCompat
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -84,16 +87,24 @@ class MainActivity : ComponentActivity() {
         setContent {
             val pluginGateVm: PluginGateViewModel = hiltViewModel()
             val pluginState by pluginGateVm.pluginState.collectAsStateWithLifecycle()
+            var debugGateDismissed by rememberSaveable { mutableStateOf(false) }
+            val showDebugSideloadGate = BuildConfig.DEBUG && !debugGateDismissed &&
+                (pluginState is PluginState.Ready || pluginState is PluginState.UpdateAvailable)
 
             ZStreamTheme {
-                when (pluginState) {
-                    is PluginState.NotInstalled,
-                    is PluginState.Failed -> PluginInstallScreen(pluginGateVm)
+                when {
+                    pluginState is PluginState.NotInstalled ||
+                        pluginState is PluginState.Failed -> PluginInstallScreen(pluginGateVm)
 
-                    is PluginState.Loading -> PluginLoadingScreen()
+                    pluginState is PluginState.Loading -> PluginLoadingScreen()
 
-                    is PluginState.Ready,
-                    is PluginState.UpdateAvailable -> {
+                    showDebugSideloadGate -> PluginInstallScreen(
+                        vm = pluginGateVm,
+                        onContinue = { debugGateDismissed = true },
+                    )
+
+                    pluginState is PluginState.Ready ||
+                        pluginState is PluginState.UpdateAvailable -> {
                         // Plugin is present — initialize the normal app chrome
                         val navController = rememberNavController()
                         val chromeVm: AppChromeViewModel = hiltViewModel()

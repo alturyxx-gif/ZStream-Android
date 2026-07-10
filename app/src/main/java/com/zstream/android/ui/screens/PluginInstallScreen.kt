@@ -59,7 +59,7 @@ private fun pluginScreenBackground(accent: androidx.compose.ui.graphics.Color, b
  * The user can background the app via "Go to Home Screen" but cannot proceed to content.
  */
 @Composable
-fun PluginInstallScreen(vm: PluginGateViewModel) {
+fun PluginInstallScreen(vm: PluginGateViewModel, onContinue: (() -> Unit)? = null) {
     val pluginState by vm.pluginState.collectAsStateWithLifecycle()
     val progress by vm.installProgress.collectAsStateWithLifecycle()
     val error by vm.installError.collectAsStateWithLifecycle()
@@ -189,6 +189,7 @@ fun PluginInstallScreen(vm: PluginGateViewModel) {
                             ?.resolve("plugin-debug.apk")?.absolutePath
                             ?: "/sdcard/Android/data/com.zstream.android/files/plugin-debug.apk"
                         vm.debugSideload(path)
+                        onContinue?.invoke()
                     },
                     enabled = progress == null,
                 )
