@@ -45,6 +45,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
@@ -434,6 +435,7 @@ fun HomeScreen(
     var showTvInstaller by remember { mutableStateOf(false) }
     var showTvActions by remember { mutableStateOf(false) }
     var showReleaseUpdatePrompt by remember { mutableStateOf(false) }
+    var offlineBannerDismissed by remember { mutableStateOf(false) }
     var editingGroup by remember { mutableStateOf<String?>(null) }
     var sectionSettings by remember { mutableStateOf<String?>(null) }
     var editingBookmarks by remember { mutableStateOf(false) }
@@ -535,6 +537,10 @@ fun HomeScreen(
             showLayoutMenu = true
             HomeLayoutMenuSignal.consume()
         }
+    }
+
+    LaunchedEffect(state.isOffline) {
+        if (state.isOffline) offlineBannerDismissed = false
     }
 
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
@@ -916,6 +922,10 @@ fun HomeScreen(
                         onPipDrawerExpandedChange = onTvPipDrawerExpandedChange,
                     )
 
+                    OfflineBanner(
+                        visible = state.isOffline && !offlineBannerDismissed,
+                        onDismiss = { offlineBannerDismissed = true },
+                    )
                     HomeDialogs()
                     return
                 }
@@ -1045,6 +1055,7 @@ fun HomeScreen(
                                         heroSearchBarTopPx = it.positionInRoot().y
                                     },
                                     hideSearchBar = shouldStickHeroSearchBar,
+                                    enabled = !state.isOffline,
                                 )
                             }
                             item { GenrePills(state.selectedGenreId, vm::setGenre) }
@@ -1310,6 +1321,7 @@ fun HomeScreen(
                                     onClearFocus = { focusManager.clearFocus() },
                                     focusRequester = focusRequester,
                                     placeholder = placeholder,
+                                    enabled = !state.isOffline,
                                     modifier = Modifier.padding(horizontal = 16.dp)
                                 )
                             } else if (shouldStickHeroSearchBar) {
@@ -1318,6 +1330,7 @@ fun HomeScreen(
                                     onSearch = vm::onSearchChange,
                                     placeholder = placeholder,
                                     focusRequester = focusRequester,
+                                    enabled = !state.isOffline,
                                     modifier = Modifier.padding(horizontal = 16.dp),
                                 )
                             }
@@ -1327,7 +1340,54 @@ fun HomeScreen(
             }
         }
 
+        OfflineBanner(
+            visible = state.isOffline && !offlineBannerDismissed,
+            onDismiss = { offlineBannerDismissed = true },
+        )
         HomeDialogs()
+    }
+}
+
+@Composable
+private fun BoxScope.OfflineBanner(visible: Boolean, onDismiss: () -> Unit) {
+    val theme = LocalZStreamTheme.current
+    AnimatedVisibility(
+        visible = visible,
+        enter = slideInVertically { -it } + fadeIn(),
+        exit = slideOutVertically { -it } + fadeOut(),
+        modifier = Modifier
+            .align(Alignment.TopCenter)
+            .statusBarsPadding()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+    ) {
+        Surface(
+            color = theme.colors.background.secondary,
+            shape = RoundedCornerShape(12.dp),
+            border = BorderStroke(1.dp, theme.colors.type.divider.copy(alpha = 0.2f)),
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "You're offline — showing downloaded content",
+                    color = theme.colors.type.text,
+                    fontSize = 13.sp,
+                    modifier = Modifier.weight(1f),
+                )
+                ZsIconButton(
+                    onClick = onDismiss,
+                    icon = Icons.Default.Close,
+                    contentDescription = "Dismiss",
+                    variant = ZsIconButtonVariant.Ghost,
+                    containerSize = 28.dp,
+                    iconSize = 16.dp,
+                )
+            }
+        }
     }
 }
 
@@ -1641,6 +1701,7 @@ private fun HeroSection(
     searchBarModifier: Modifier = Modifier,
     hideSearchBar: Boolean = false,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
 ) {
     val theme = LocalZStreamTheme.current
     var focusedMenu by remember { mutableStateOf(false) }
@@ -1668,6 +1729,7 @@ private fun HeroSection(
                 onSearch = onSearch,
                 placeholder = placeholder,
                 focusRequester = focusRequester,
+                enabled = enabled,
                 modifier = Modifier
                     .weight(1f)
                     .graphicsLayer { alpha = if (hideSearchBar) 0f else 1f },
@@ -1685,6 +1747,7 @@ private fun HomeSearchBarRow(
     placeholder: String,
     focusRequester: FocusRequester? = null,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
 ) {
     val theme = LocalZStreamTheme.current
     val isTv = LocalIsTv.current
@@ -1702,6 +1765,7 @@ private fun HomeSearchBarRow(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(48.dp)
+                .alpha(if (enabled) 1f else 0.5f)
                 .clip(RoundedCornerShape(48.dp))
                 .background(theme.colors.search.background)
                 .border(
@@ -1711,7 +1775,7 @@ private fun HomeSearchBarRow(
                 )
                 .onFocusChanged { isSearchFocused = it.isFocused }
                 .then(
-                    if (isTv) {
+                    if (isTv && enabled) {
                         Modifier
                             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
                             .clickable { textFieldFocusRequester.requestFocus() }
@@ -1736,6 +1800,7 @@ private fun HomeSearchBarRow(
                     BasicTextField(
                         value = searchQuery,
                         onValueChange = onSearch,
+                        enabled = enabled,
                         singleLine = true,
                         textStyle = TextStyle(color = theme.colors.search.text, fontSize = 13.sp),
                         cursorBrush = SolidColor(theme.colors.global.accentA),
@@ -4357,7 +4422,8 @@ private fun SearchOverlay(
     onClearFocus: () -> Unit,
     focusRequester: FocusRequester,
     placeholder: String,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
 ) {
     val theme = LocalZStreamTheme.current
     val isTv = LocalIsTv.current
@@ -4373,6 +4439,7 @@ private fun SearchOverlay(
                 .animateContentSize()
                 .then(if (isSearching) Modifier.weight(1f) else Modifier.size(44.dp))
                 .height(44.dp)
+                .alpha(if (enabled) 1f else 0.5f)
                 .clip(RoundedCornerShape(44.dp))
                 .background(theme.colors.background.secondary.copy(alpha = 0.8f))
                 .border(
@@ -4380,7 +4447,7 @@ private fun SearchOverlay(
                     theme.colors.type.divider.copy(alpha = 0.3f),
                     RoundedCornerShape(44.dp)
                 )
-                .clickable(!isSearching) { onSearchFocusedChange(true) },
+                .clickable(enabled && !isSearching) { onSearchFocusedChange(true) },
             contentAlignment = Alignment.CenterStart,
         ) {
             Row(
@@ -4400,6 +4467,7 @@ private fun SearchOverlay(
                         BasicTextField(
                             value = searchQuery,
                             onValueChange = onSearch,
+                            enabled = enabled,
                             singleLine = true,
                             textStyle = TextStyle(color = theme.colors.search.text, fontSize = 13.sp),
                             cursorBrush = SolidColor(theme.colors.global.accentA),
@@ -4631,6 +4699,7 @@ private fun TvHomeScreenContent(
                             nav = nav,
                             placeholder = placeholder,
                             focusRequester = searchBarFocusRequester,
+                            enabled = !state.isOffline,
                             modifier = Modifier
                                 .focusProperties { up = sandwichFocusRequester }
                                 .onFocusChanged {

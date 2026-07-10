@@ -7,6 +7,7 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Update
 import com.zstream.android.data.local.entity.DownloadEntity
+import com.zstream.android.data.model.Media
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -29,9 +30,32 @@ interface DownloadDao {
     @Query("SELECT * FROM downloads ORDER BY createdAt DESC")
     fun observeAll(): Flow<List<DownloadEntity>>
 
+    @Query("SELECT * FROM downloads WHERE status = 'DONE' ORDER BY createdAt DESC")
+    fun observeCompleted(): Flow<List<DownloadEntity>>
+
     @Query("SELECT * FROM downloads ORDER BY createdAt DESC")
     suspend fun getAllSync(): List<DownloadEntity>
 
     @Query("SELECT * FROM downloads WHERE status IN ('QUEUED', 'DOWNLOADING', 'REMUXING')")
     suspend fun getInFlight(): List<DownloadEntity>
 }
+
+/** Builds the Media shape the home screen's carousels expect, for offline display. */
+fun DownloadEntity.toMediaOrNull(): Media? {
+    val mediaId = tmdbId.toIntOrNull() ?: return null
+    val isMovie = type == "movie"
+    return Media(
+        id = mediaId,
+        title = if (isMovie) title else null,
+        name = if (isMovie) null else title,
+        overview = null,
+        posterPath = posterPath,
+        backdropPath = null,
+        releaseDate = null,
+        firstAirDate = null,
+        voteAverage = null,
+        mediaType = if (isMovie) "movie" else "tv",
+        genreIds = null,
+    )
+}
+

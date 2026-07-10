@@ -232,7 +232,7 @@ private data class PlayerMenuTileItem(
     val value: String,
     val onClick: () -> Unit,
 )
-private val MENU_PANEL_WIDTH = 270.dp
+private val MENU_PANEL_WIDTH = 320.dp
 private val MENU_PANEL_HEIGHT = 470.dp
 private val OVERLAY_PANEL_SHAPE = RoundedCornerShape(16.dp)
 private val BOTTOM_BAR_MENU_BUTTON_SIZE = 42.dp
@@ -6244,12 +6244,14 @@ private fun PlayerMenuToggleRow(title: String, checked: Boolean, focusRequester:
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 12.dp, top = 8.dp, bottom = 8.dp, end = 0.dp),
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
                     title,
                     color = theme.colors.type.emphasis.copy(alpha = 0.96f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f)
                 )
                 Switch(
@@ -6378,7 +6380,7 @@ private fun PlayerMenuSliderRow(
                         }
                     }
                 }
-                .padding(horizontal = 4.dp, vertical = 2.dp),
+                .padding(horizontal = 12.dp, vertical = 8.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(label, color = playerMenuMutedText(), fontSize = 13.sp, modifier = Modifier.weight(1f))
@@ -6556,7 +6558,7 @@ private fun PlayerMenuSkipSegmentRow(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 14.dp, vertical = 12.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
@@ -6565,7 +6567,7 @@ private fun PlayerMenuSkipSegmentRow(
                     fontWeight = FontWeight.Medium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false),
+                    modifier = Modifier.weight(1.3f),
                 )
                 Text(
                     "${formatTime(segment.startMs ?: 0L)} - ${segment.endMs?.let(::formatTime) ?: "End of video"}",
@@ -6574,9 +6576,7 @@ private fun PlayerMenuSkipSegmentRow(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     textAlign = TextAlign.End,
-                    modifier = Modifier
-                        .padding(start = 8.dp)
-                        .widthIn(max = 140.dp),
+                    modifier = Modifier.weight(1f),
                 )
             }
         }
