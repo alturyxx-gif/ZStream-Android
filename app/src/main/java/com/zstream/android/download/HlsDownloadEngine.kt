@@ -9,6 +9,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import okhttp3.OkHttpClient
@@ -367,6 +368,11 @@ class HlsDownloadEngine(private val client: OkHttpClient) {
         val buffer = java.nio.ByteBuffer.allocate(1 shl 20) // 1MB, grown below if a sample is bigger
 
         for ((index, entry) in segments.withIndex()) {
+            // awaitSegmentReady() only suspends when it actually has to wait, so a backlog-catchup
+            // phase (segments already downloaded, remux lagging behind) can run this loop with zero
+            // suspension points and be uncancellable -- making a pause/cancel take however long that
+            // backlog takes to drain. ensureActive() adds a cheap cancellation checkpoint every iteration.
+            coroutineContext.ensureActive()
             val (segment, file) = entry
             awaitSegmentReady(file)
             var sawVideo = false
