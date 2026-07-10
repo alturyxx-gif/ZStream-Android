@@ -131,9 +131,12 @@ import androidx.media3.common.C
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
+import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.CacheDataSource.EventListener
 import androidx.media3.datasource.DefaultDataSource
@@ -763,7 +766,10 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                         .setUpstreamDataSourceFactory(
                             DefaultDataSource.Factory(
                                 context,
-                                DefaultHttpDataSource.Factory().setDefaultRequestProperties(headers),
+                                DefaultHttpDataSource.Factory()
+                                    .setDefaultRequestProperties(headers)
+                                    .setConnectTimeoutMs(30_000)
+                                    .setReadTimeoutMs(30_000),
                             )
                         )
                         .setEventListener(object : EventListener {
@@ -775,7 +781,12 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                                 Log.d("PlayerCache", "cacheIgnored reason=$reason")
                             }
                         })
-                )
+                ).setLoadErrorHandlingPolicy(object : DefaultLoadErrorHandlingPolicy() {
+                    override fun getRetryDelayMsFor(loadErrorInfo: LoadErrorHandlingPolicy.LoadErrorInfo): Long =
+                        minOf(1_000L * (loadErrorInfo.errorCount), 5_000L)
+
+                    override fun getMinimumLoadableRetryCount(dataType: Int): Int = 6
+                })
 
                 val player = remember {
                     val subtitleConfigs = if (settings.enableNativeSubtitles) {
@@ -808,6 +819,15 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     ExoPlayer.Builder(
                         context,
                         DefaultRenderersFactory(context).setEnableDecoderFallback(true),
+                    ).setLoadControl(
+                        DefaultLoadControl.Builder()
+                            .setBufferDurationsMs(
+                                30_000,
+                                120_000,
+                                DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_MS,
+                                DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS,
+                            )
+                            .build()
                     ).build().apply {
                         setMediaSource(mediaSourceFactory(s.headers).createMediaSource(mediaItem))
                         videoScalingMode = androidx.media3.common.C.VIDEO_SCALING_MODE_SCALE_TO_FIT
