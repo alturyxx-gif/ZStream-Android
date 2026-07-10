@@ -4683,7 +4683,7 @@ private fun PlayerMenuContent(
                                 valueText = { "${String.format("%.2f", it)}x" },
                                 range = PLAYBACK_SPEED_MIN..PLAYBACK_SPEED_MAX,
                                 steps = 0,
-                                onValueChange = { onSetPlaybackSpeed((it * 20).toInt() / 20f) },
+                                onValueChange = { onSetPlaybackSpeed((it * 20).roundToInt() / 20f) },
                                 onReset = { onSetPlaybackSpeed(1f) },
                                 isDefault = playbackSpeed == 1f,
                                 tickStep = 0.05f,
@@ -4697,9 +4697,10 @@ private fun PlayerMenuContent(
                                 valueText = { "${it.toInt()}%" },
                                 range = 10f..200f,
                                 steps = 0,
-                                onValueChange = { onSetVideoBrightness((it / 5).toInt() * 5) },
+                                onValueChange = { onSetVideoBrightness((it / 5f).roundToInt() * 5) },
                                 onReset = { onSetVideoBrightness(100) },
-                                isDefault = settings.videoBrightness == 100
+                                isDefault = settings.videoBrightness == 100,
+                                tickStep = 5f,
                             )
                             PlayerMenuToggleRow("Volume Boost", settings.volumeBoost > 100) {
                                 onSetVolumeBoost(if (settings.volumeBoost > 100) 100 else 150)
@@ -4711,9 +4712,10 @@ private fun PlayerMenuContent(
                                     valueText = { "${it.toInt()}%" },
                                     range = 100f..300f,
                                     steps = 0,
-                                    onValueChange = { onSetVolumeBoost((it / 10).toInt() * 10) },
+                                    onValueChange = { onSetVolumeBoost((it / 10f).roundToInt() * 10) },
                                     onReset = { onSetVolumeBoost(100) },
-                                    isDefault = settings.volumeBoost == 100
+                                    isDefault = settings.volumeBoost == 100,
+                                    tickStep = 10f,
                                 )
                             }
                             PlayerMenuChevronRow("Advanced color", advancedColorSummary(settings)) {
@@ -4741,9 +4743,10 @@ private fun PlayerMenuContent(
                                 valueText = { "${it.toInt()}%" },
                                 range = 10f..200f,
                                 steps = 0,
-                                onValueChange = { onSetVideoBrightness((it / 5).toInt() * 5) },
+                                onValueChange = { onSetVideoBrightness((it / 5f).roundToInt() * 5) },
                                 onReset = { onSetVideoBrightness(100) },
                                 isDefault = settings.videoBrightness == 100,
+                                tickStep = 5f,
                                 focusRequester = firstItemFocusRequester
                             )
                             PlayerMenuSliderRow(
@@ -4752,9 +4755,10 @@ private fun PlayerMenuContent(
                                 valueText = { "${it.toInt()}%" },
                                 range = 50f..200f,
                                 steps = 0,
-                                onValueChange = { onSetVideoContrast((it / 5).toInt() * 5) },
+                                onValueChange = { onSetVideoContrast((it / 5f).roundToInt() * 5) },
                                 onReset = { onSetVideoContrast(100) },
-                                isDefault = settings.videoContrast == 100
+                                isDefault = settings.videoContrast == 100,
+                                tickStep = 5f,
                             )
                             PlayerMenuSliderRow(
                                 label = "Saturation",
@@ -4762,9 +4766,10 @@ private fun PlayerMenuContent(
                                 valueText = { "${it.toInt()}%" },
                                 range = 0f..200f,
                                 steps = 0,
-                                onValueChange = { onSetVideoSaturation((it / 5).toInt() * 5) },
+                                onValueChange = { onSetVideoSaturation((it / 5f).roundToInt() * 5) },
                                 onReset = { onSetVideoSaturation(100) },
-                                isDefault = settings.videoSaturation == 100
+                                isDefault = settings.videoSaturation == 100,
+                                tickStep = 5f,
                             )
                             PlayerMenuSliderRow(
                                 label = "Hue",
@@ -4772,9 +4777,10 @@ private fun PlayerMenuContent(
                                 valueText = { "${it.toInt()}°" },
                                 range = -180f..180f,
                                 steps = 0,
-                                onValueChange = { onSetVideoHueRotate((it / 5).toInt() * 5) },
+                                onValueChange = { onSetVideoHueRotate((it / 5f).roundToInt() * 5) },
                                 onReset = { onSetVideoHueRotate(0) },
-                                isDefault = settings.videoHueRotate == 0
+                                isDefault = settings.videoHueRotate == 0,
+                                tickStep = 5f,
                             )
 
                             val isTv = LocalIsTv.current
@@ -4945,17 +4951,21 @@ private fun PlayerMenuContent(
 
                     PlayerMenuPage.Download -> {
                         val freeSpaceText = remember {
-                            @Suppress("DEPRECATION")
-                            val root = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
-                            val stat = android.os.StatFs(root.absolutePath)
-                            formatFreeSpace(stat.availableBytes, stat.totalBytes)
+                            runCatching {
+                                @Suppress("DEPRECATION")
+                                val root = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
+                                val stat = android.os.StatFs(root.absolutePath)
+                                formatFreeSpace(stat.availableBytes, stat.totalBytes)
+                            }.getOrNull()
                         }
-                        Text(
-                            freeSpaceText,
-                            color = com.zstream.android.theme.LocalZStreamTheme.current.colors.type.secondary,
-                            fontSize = 12.sp,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                        )
+                        if (freeSpaceText != null) {
+                            Text(
+                                freeSpaceText,
+                                color = com.zstream.android.theme.LocalZStreamTheme.current.colors.type.secondary,
+                                fontSize = 12.sp,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                            )
+                        }
                         PlayerMenuSection {
                             downloadableVariants.forEachIndexed { index, variant ->
                                 PlayerMenuSelectableRow(
