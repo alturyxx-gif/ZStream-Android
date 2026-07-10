@@ -1503,15 +1503,27 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     player.trackSelectionParameters = builder.build()
                 }
 
+                val hadVideoEffects = remember { mutableStateOf(false) }
                 LaunchedEffect(player, settings.videoBrightness, settings.videoContrast, settings.videoSaturation, settings.videoHueRotate) {
-                    player.setVideoEffects(
-                        buildVideoColorEffects(
-                            brightness = settings.videoBrightness,
-                            contrast = settings.videoContrast,
-                            saturation = settings.videoSaturation,
-                            hueRotate = settings.videoHueRotate,
-                        )
+                    // setVideoEffects() switches ExoPlayer onto the heavier GL effects pipeline,
+                    // which stalls seeking/segment loads -- so skip it entirely at neutral
+                    // defaults (unless we need to clear a previously-applied adjustment), and
+                    // debounce so a slider drag doesn't reconfigure the pipeline on every
+                    // intermediate tick (that reconfigure was what looked like a freeze).
+                    val effects = buildVideoColorEffects(
+                        brightness = settings.videoBrightness,
+                        contrast = settings.videoContrast,
+                        saturation = settings.videoSaturation,
+                        hueRotate = settings.videoHueRotate,
                     )
+                    if (effects.isEmpty()) {
+                        if (hadVideoEffects.value) player.setVideoEffects(effects)
+                        hadVideoEffects.value = false
+                    } else {
+                        delay(150)
+                        player.setVideoEffects(effects)
+                        hadVideoEffects.value = true
+                    }
                 }
 
                 if (!isPlaybackFailed && (!settings.enableNativeSubtitles || selectedTrackIsExternal) && subtitlesEnabled && selectedLang != null && visibleCues.isNotEmpty()) {
@@ -2058,15 +2070,22 @@ fun LocalPlayerScreen(nav: NavController, vm: LocalPlayerViewModel = hiltViewMod
                         vm.loadSkipSegments(ready, duration)
                     }
                 }
+                val hadVideoEffectsLocal = remember { mutableStateOf(false) }
                 LaunchedEffect(player, settings.videoBrightness, settings.videoContrast, settings.videoSaturation, settings.videoHueRotate) {
-                    player.setVideoEffects(
-                        buildVideoColorEffects(
-                            brightness = settings.videoBrightness,
-                            contrast = settings.videoContrast,
-                            saturation = settings.videoSaturation,
-                            hueRotate = settings.videoHueRotate,
-                        )
+                    val effects = buildVideoColorEffects(
+                        brightness = settings.videoBrightness,
+                        contrast = settings.videoContrast,
+                        saturation = settings.videoSaturation,
+                        hueRotate = settings.videoHueRotate,
                     )
+                    if (effects.isEmpty()) {
+                        if (hadVideoEffectsLocal.value) player.setVideoEffects(effects)
+                        hadVideoEffectsLocal.value = false
+                    } else {
+                        delay(150)
+                        player.setVideoEffects(effects)
+                        hadVideoEffectsLocal.value = true
+                    }
                 }
                 val readyState = PlayerState.Ready(
                     streamUrl = ready.videoUri.toString(),

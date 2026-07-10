@@ -1,13 +1,12 @@
 features to add:
 1. custom source order
-2. cast
-3. add subs download button (for when the video is downloaded on device)
-4. add ability to cancel ongoing download
-5. add strong fallback to server rotating cert
+2. add subs download button (for when the video is downloaded on device)
+3. add strong fallback to server rotating cert
+4. cast
 
 
 later features:
-1. countdown/upcoming movies/shows section
+1. countdown/upcoming movies/shows section and ability to send notification when something comes out
 2. nav bar for phone
 3. simkl
 
