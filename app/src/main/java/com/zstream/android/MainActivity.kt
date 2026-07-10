@@ -75,13 +75,14 @@ class MainActivity : ComponentActivity() {
         handleOpenDownloadsIntent(intent)
         val uiModeManager = getSystemService(UI_MODE_SERVICE) as UiModeManager
         val isTv = uiModeManager.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
+        val permissionsToRequest = mutableListOf<String>()
         if (
             !isTv &&
             releaseUpdateManager.enabled.value &&
             android.os.Build.VERSION.SDK_INT >= 33 &&
             checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
         ) {
-            requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 4102)
+            permissionsToRequest += android.Manifest.permission.POST_NOTIFICATIONS
         }
         val storageReadPermission = when {
             android.os.Build.VERSION.SDK_INT >= 33 -> android.Manifest.permission.READ_MEDIA_VIDEO
@@ -89,7 +90,10 @@ class MainActivity : ComponentActivity() {
             else -> null
         }
         if (storageReadPermission != null && checkSelfPermission(storageReadPermission) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(arrayOf(storageReadPermission), 4103)
+            permissionsToRequest += storageReadPermission
+        }
+        if (permissionsToRequest.isNotEmpty()) {
+            requestPermissions(permissionsToRequest.toTypedArray(), 4102)
         }
 
         setContent {
@@ -135,11 +139,30 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == 4103 && grantResults.firstOrNull() == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+    private var storageReconcileDone = false
+
+    private fun maybeReconcileDownloads() {
+        if (storageReconcileDone) return
+        val storagePermission = when {
+            android.os.Build.VERSION.SDK_INT >= 33 -> android.Manifest.permission.READ_MEDIA_VIDEO
+            android.os.Build.VERSION.SDK_INT >= 29 -> android.Manifest.permission.READ_EXTERNAL_STORAGE
+            else -> null
+        }
+        if (storagePermission == null || checkSelfPermission(storagePermission) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            storageReconcileDone = true
             kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch { downloadIndexSync.reconcile() }
         }
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode != 4102) return
+        maybeReconcileDownloads()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        maybeReconcileDownloads()
     }
 
     override fun onUserLeaveHint() {
