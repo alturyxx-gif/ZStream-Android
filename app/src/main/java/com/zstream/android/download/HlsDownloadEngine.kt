@@ -284,7 +284,7 @@ class HlsDownloadEngine(private val client: OkHttpClient) {
         url: String,
         headers: Map<String, String>,
         maxAttempts: Int = 5,
-        maxRateLimitAttempts: Int = 30,
+        maxRateLimitAttempts: Int = 60,
         onRateLimited: (suspend () -> Unit)? = null,
     ): ByteArray {
         var lastError: Exception? = null
@@ -305,7 +305,17 @@ class HlsDownloadEngine(private val client: OkHttpClient) {
                         return@use
                     }
                     if (!resp.isSuccessful) error("Segment fetch failed: HTTP ${resp.code}")
-                    return resp.body?.bytes() ?: error("Empty segment response")
+                    val bodyBytes = resp.body?.bytes()
+                    if (bodyBytes == null || bodyBytes.isEmpty()) {
+                        // Some CDNs throttle silently -- a 200 OK with a 0-byte body instead of a
+                        // proper 429 -- especially once a burst of real 429s has already happened.
+                        // Treat it exactly like a rate limit signal (no Retry-After to honor here,
+                        // so it falls back to capped exponential backoff) instead of letting an
+                        // empty body propagate up and fail the whole segment/download outright.
+                        lastError = RateLimited(retryAfterMs = null)
+                        return@use
+                    }
+                    return bodyBytes
                 }
             } catch (t: Exception) {
                 lastError = t

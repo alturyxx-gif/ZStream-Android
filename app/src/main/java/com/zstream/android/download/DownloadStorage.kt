@@ -12,13 +12,8 @@ import java.io.OutputStream
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/**
- * Filename of the recovery index written by [DownloadStorage.writeIndexJson] — exposed so scanners
- * that walk the ZStream folder (e.g. LocalMediaRepository's manually-added local-folder feature)
- * can exclude it. It's disguised as video/mp4 (see writeIndexJson's doc comment for why) which
- * would otherwise make it look like a bogus playable entry to any such scanner.
- */
-const val DOWNLOAD_INDEX_DISPLAY_NAME = "zstream_index.mp4"
+/** 4-byte type tag for the custom trailing MP4 atom [DownloadStorage.appendMetadataBox] writes. */
+private const val ZSMD_FOURCC = "zsmd"
 
 /**
  * A file the download pipeline is writing to — either a MediaStore "Downloads" entry (API 29+,
@@ -232,99 +227,150 @@ class DownloadStorage @Inject constructor(
     }
 
     /**
-     * Writes (overwriting any previous copy) a small recovery index of completed downloads to a
-     * fixed path — "Downloads/ZStream/zstream_index.mp4" — so DownloadIndexSync can rebuild the
-     * DownloadEntity rows for these files after an uninstall/reinstall wipes the app-private Room
-     * database. Lives at the ZStream root, not nested per-title like video files.
+     * Appends a self-contained metadata atom directly onto the end of an already-written video
+     * file, using the exact [DownloadFile] handle the caller already holds from [createVideoFile]
+     * — deliberately NOT re-resolved via a MediaStore query/insert, since that query-then-write
+     * pattern is what caused the old JSON-recovery-file approach to keep creating "(1)", "(2)"...
+     * duplicates instead of writing to the file it already had open moments earlier.
      *
-     * Named/typed as video/mp4 (the content is still plain JSON text) rather than application/json
-     * on purpose: confirmed via a live MediaStore dump that uninstalling nulls out a row's
-     * owner_package_name, and Android 13+'s granular storage permissions only grant cross-app
-     * visibility for their own media type (READ_MEDIA_VIDEO covers any video file system-wide,
-     * matching why the actual downloaded .mp4s stay resolvable after a reinstall) -- there is no
-     * equivalent permission for arbitrary file types, so a real application/json row becomes
-     * permanently unqueryable the moment its owning install is gone, regardless of any query logic
-     * here. Riding along under READ_MEDIA_VIDEO (already requested and granted for playback) is
-     * what actually makes this survive a reinstall, short of requesting MANAGE_EXTERNAL_STORAGE.
+     * Format is a standard top-level MP4 box appended after the muxer's own last box (ftyp/mdat/
+     * moov) — `[4-byte big-endian size][4 bytes "zsmd"][UTF-8 JSON payload]`, size covering the
+     * whole box including its own header. A trailing unknown top-level box like this is a widely
+     * tolerated MP4 pattern (the same mechanism "free"/custom atoms use) — demuxers walk the box
+     * list by size and skip anything they don't recognize, so this doesn't touch mdat/moov and
+     * can't corrupt playback. [readMetadataBox] locates it by reverse-scanning for the fourcc
+     * rather than needing any separate footer/index, so nothing else has to change if this is
+     * ever appended more than once (e.g. re-download) — the reader always finds the last one
+     * since it requires the box to end exactly at EOF.
+     *
+     * Written cross-app-visibly on purpose: this rides inside a genuine video/mp4 file that's
+     * already covered by READ_MEDIA_VIDEO (confirmed via a live MediaStore dump to survive a
+     * reinstall, unlike a separate application/json row, whose owner_package_name gets nulled out
+     * on uninstall with no permission able to see it again).
      */
-    fun writeIndexJson(json: String) {
-        if (!isScopedStorage) {
-            @Suppress("DEPRECATION")
-            val root = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-            val folder = File(root, INDEX_RELATIVE_FOLDER)
-            folder.mkdirs()
-            File(folder, INDEX_DISPLAY_NAME).writeText(json)
-            return
+    fun appendMetadataBox(file: DownloadFile, json: String) {
+        val payload = json.toByteArray(Charsets.UTF_8)
+        val box = java.nio.ByteBuffer.allocate(8 + payload.size).apply {
+            putInt(8 + payload.size)
+            put(ZSMD_FOURCC.toByteArray(Charsets.US_ASCII))
+            put(payload)
+        }.array()
+        when (file) {
+            is DownloadFile.MediaStoreFile -> {
+                context.contentResolver.openOutputStream(file.uri, "wa")?.use { it.write(box) }
+                    ?: error("Could not open append stream for ${file.displayPath}")
+            }
+            is DownloadFile.LegacyFile -> {
+                java.io.FileOutputStream(file.file, true).use { it.write(box) }
+            }
         }
-        val collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
-        val uri = resolveIndexUriForWrite(collection)
-        context.contentResolver.openOutputStream(uri, "wt")?.use { it.write(json.toByteArray(Charsets.UTF_8)) }
-            ?: error("Could not open output stream for $INDEX_DISPLAY_NAME")
     }
 
     /**
-     * Resolves the MediaStore row to write the index to, preferring a cached row id from a
-     * previous write over re-querying — querying by displayName/relativePath after insert proved
-     * unreliable in practice (kept creating "(1)", "(2)"... duplicates every write instead of
-     * finding the row it had just inserted), so the row id is cached in SharedPreferences (stable
-     * for the life of the row) and reused directly, bypassing that query entirely for repeat
-     * writes within the same install.
+     * Reads back the metadata atom [appendMetadataBox] wrote, given a URI (from a MediaStore
+     * video-file scan) or an absolute legacy path. Returns null if the file has no such box (e.g.
+     * a video the user dropped into ZStream/ manually) rather than throwing.
      */
-    private fun resolveIndexUriForWrite(collection: Uri): Uri {
-        val prefs = context.getSharedPreferences(INDEX_PREFS_NAME, Context.MODE_PRIVATE)
-        val cachedId = prefs.getLong(INDEX_PREF_ROW_ID, -1L)
-        if (cachedId != -1L) {
-            val cachedUri = android.content.ContentUris.withAppendedId(collection, cachedId)
-            val stillExists = context.contentResolver.query(
-                cachedUri, arrayOf(MediaStore.MediaColumns._ID), null, null, null,
-            )?.use { it.moveToFirst() } ?: false
-            if (stillExists) return cachedUri
+    fun readMetadataBox(ref: ScannedVideoRef): String? = when (ref) {
+        is ScannedVideoRef.MediaStoreRef -> {
+            val pfd = runCatching { context.contentResolver.openFileDescriptor(ref.uri, "r") }.getOrNull()
+            pfd?.use { readMetadataBoxFromFd(it) }
         }
-        val found = queryIndexUri(collection)
-        if (found != null) {
-            prefs.edit().putLong(INDEX_PREF_ROW_ID, android.content.ContentUris.parseId(found)).apply()
-            return found
+        is ScannedVideoRef.LegacyRef -> {
+            if (!ref.file.exists()) null else {
+                android.os.ParcelFileDescriptor.open(ref.file, android.os.ParcelFileDescriptor.MODE_READ_ONLY)
+                    .use { readMetadataBoxFromFd(it) }
+            }
         }
-        val values = ContentValues().apply {
-            put(MediaStore.Downloads.DISPLAY_NAME, INDEX_DISPLAY_NAME)
-            put(MediaStore.Downloads.MIME_TYPE, "video/mp4")
-            put(MediaStore.Downloads.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/$INDEX_RELATIVE_FOLDER/")
-        }
-        val inserted = context.contentResolver.insert(collection, values)
-            ?: error("MediaStore insert failed for $INDEX_DISPLAY_NAME")
-        prefs.edit().putLong(INDEX_PREF_ROW_ID, android.content.ContentUris.parseId(inserted)).apply()
-        return inserted
     }
 
-    /** Reads back the recovery index written by [writeIndexJson]. Null if none exists yet. */
-    fun readIndexJson(): String? {
+    private fun readMetadataBoxFromFd(pfd: android.os.ParcelFileDescriptor): String? {
+        val fileLength = pfd.statSize
+        if (fileLength < 8) return null
+        val searchWindow = minOf(fileLength, METADATA_SEARCH_WINDOW_BYTES)
+        val tail = ByteArray(searchWindow.toInt())
+        java.io.FileInputStream(pfd.fileDescriptor).channel.use { channel ->
+            channel.position(fileLength - searchWindow)
+            java.nio.ByteBuffer.wrap(tail).let { buf ->
+                while (buf.hasRemaining()) {
+                    val read = channel.read(buf)
+                    if (read < 0) break
+                }
+            }
+        }
+        val fourcc = ZSMD_FOURCC.toByteArray(Charsets.US_ASCII)
+        var searchFrom = tail.size - fourcc.size
+        while (searchFrom >= 4) {
+            val idx = lastIndexOfBytes(tail, fourcc, searchFrom)
+            if (idx < 0) break
+            val boxStartInTail = idx - 4
+            if (boxStartInTail >= 0) {
+                val size = java.nio.ByteBuffer.wrap(tail, boxStartInTail, 4).int
+                val boxStartInFile = (fileLength - searchWindow) + boxStartInTail
+                if (size in 8..searchWindow.toInt() && boxStartInFile + size == fileLength) {
+                    val payloadLen = size - 8
+                    val payloadStartInTail = boxStartInTail + 8
+                    if (payloadStartInTail + payloadLen <= tail.size) {
+                        return String(tail, payloadStartInTail, payloadLen, Charsets.UTF_8)
+                    }
+                }
+            }
+            searchFrom = idx - 1
+        }
+        return null
+    }
+
+    private fun lastIndexOfBytes(haystack: ByteArray, needle: ByteArray, fromIndex: Int): Int {
+        val start = minOf(fromIndex, haystack.size - needle.size)
+        for (i in start downTo 0) {
+            var matched = true
+            for (j in needle.indices) {
+                if (haystack[i + j] != needle[j]) { matched = false; break }
+            }
+            if (matched) return i
+        }
+        return -1
+    }
+
+    /**
+     * All video files under Downloads/ZStream/ (any depth), for [DownloadIndexSync]'s recovery
+     * scan to read [readMetadataBox] from. Cross-reinstall-safe on scoped storage since it's a
+     * plain video-mime MediaStore query, the same permission class that already lets
+     * [resolvePlayableUri] resolve old downloads after a reinstall.
+     */
+    fun scanZStreamVideoFiles(): List<ScannedVideoRef> {
         if (!isScopedStorage) {
             @Suppress("DEPRECATION")
             val root = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-            val file = File(File(root, INDEX_RELATIVE_FOLDER), INDEX_DISPLAY_NAME)
-            return if (file.exists()) file.readText() else null
+            val zstreamRoot = File(root, "ZStream")
+            if (!zstreamRoot.exists()) return emptyList()
+            return zstreamRoot.walkTopDown()
+                .filter { it.isFile && it.extension.lowercase() in VIDEO_EXTENSIONS }
+                .map { ScannedVideoRef.LegacyRef(it) }
+                .toList()
         }
         val collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
-        val uri = queryIndexUri(collection) ?: return null
-        return context.contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) }
-    }
-
-    private fun queryIndexUri(collection: Uri): Uri? {
         val projection = arrayOf(MediaStore.MediaColumns._ID)
-        val selection = "${MediaStore.MediaColumns.DISPLAY_NAME} LIKE ?"
-        val args = arrayOf("zstream_index%")
-        val sortOrder = "${MediaStore.MediaColumns.DATE_MODIFIED} DESC"
-        return context.contentResolver.query(collection, projection, selection, args, sortOrder)?.use { cursor ->
-            if (!cursor.moveToFirst()) return@use null
-            val id = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID))
-            android.content.ContentUris.withAppendedId(collection, id)
+        val selection = "${MediaStore.MediaColumns.MIME_TYPE} LIKE ? AND ${MediaStore.MediaColumns.RELATIVE_PATH} LIKE ?"
+        val args = arrayOf("video/%", "${Environment.DIRECTORY_DOWNLOADS}/ZStream/%")
+        val out = mutableListOf<ScannedVideoRef>()
+        context.contentResolver.query(collection, projection, selection, args, null)?.use { cursor ->
+            val idCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
+            while (cursor.moveToNext()) {
+                out += ScannedVideoRef.MediaStoreRef(android.content.ContentUris.withAppendedId(collection, cursor.getLong(idCol)))
+            }
         }
+        return out
     }
 
     private companion object {
-        const val INDEX_RELATIVE_FOLDER = "ZStream"
-        const val INDEX_DISPLAY_NAME = DOWNLOAD_INDEX_DISPLAY_NAME
-        const val INDEX_PREFS_NAME = "download_storage_index"
-        const val INDEX_PREF_ROW_ID = "index_row_id"
+        const val METADATA_SEARCH_WINDOW_BYTES = 262_144L // 256KB, generous for a JSON metadata payload
+        val VIDEO_EXTENSIONS = setOf("mp4", "mkv", "webm", "avi", "mov", "m4v")
     }
+}
+
+/** A video file found by [DownloadStorage.scanZStreamVideoFiles], to hand back to [DownloadStorage.readMetadataBox]. */
+sealed class ScannedVideoRef {
+    data class MediaStoreRef(val uri: Uri) : ScannedVideoRef()
+    data class LegacyRef(val file: File) : ScannedVideoRef()
 }
