@@ -14,6 +14,8 @@ import org.json.JSONObject
 data class SettingsEntity(
     // UI/Display Settings
     val applicationTheme: String = "classic",
+    // Local-only, not synced to backend.
+    val applicationFont: String = "onest",
     val applicationLanguage: String = "en",
     val enableThumbnails: Boolean = false,
     val enableImageLogos: Boolean = true,

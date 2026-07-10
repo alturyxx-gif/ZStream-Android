@@ -24,7 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.zstream.android.theme.LocalZStreamTheme
-import com.zstream.android.ui.theme.LatoFontFamily
+import com.zstream.android.ui.theme.LocalAppFontFamily
 
 @Composable
 fun ZsDropdownRow(
@@ -35,6 +35,7 @@ fun ZsDropdownRow(
     modifier: Modifier = Modifier,
 ) {
     val theme = LocalZStreamTheme.current
+    val fontFamily = LocalAppFontFamily.current
     var expanded by remember { mutableStateOf(false) }
 
     Row(
@@ -45,10 +46,10 @@ fun ZsDropdownRow(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(title, color = theme.colors.type.text, fontSize = 13.sp, fontFamily = LatoFontFamily)
+        Text(title, color = theme.colors.type.text, fontSize = 13.sp, fontFamily = fontFamily)
         Box {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(selected.replaceFirstChar(Char::uppercase), color = theme.colors.type.secondary, fontSize = 12.sp, fontFamily = LatoFontFamily)
+                Text(selected.replaceFirstChar(Char::uppercase), color = theme.colors.type.secondary, fontSize = 12.sp, fontFamily = fontFamily)
                 Icon(Icons.Filled.ArrowDropDown, null, tint = theme.colors.type.dimmed, modifier = Modifier.size(16.dp))
             }
             DropdownMenu(
@@ -63,7 +64,7 @@ fun ZsDropdownRow(
                                 option.replaceFirstChar(Char::uppercase),
                                 color = if (option == selected) theme.colors.global.accentA else theme.colors.type.text,
                                 fontSize = 13.sp,
-                                fontFamily = LatoFontFamily,
+                                fontFamily = fontFamily,
                             )
                         },
                         onClick = {

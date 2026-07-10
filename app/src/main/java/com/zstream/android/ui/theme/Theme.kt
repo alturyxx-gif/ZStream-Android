@@ -4,6 +4,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
@@ -25,6 +27,48 @@ val LatoFontFamily = FontFamily(
     Font(R.font.lato_black, weight = FontWeight.Black),
 )
 
+val OnestFontFamily = FontFamily(
+    Font(R.font.onest_light, weight = FontWeight.Light),
+    Font(R.font.onest_regular, weight = FontWeight.Normal),
+    Font(R.font.onest_medium, weight = FontWeight.Medium),
+    Font(R.font.onest_semibold, weight = FontWeight.SemiBold),
+    Font(R.font.onest_bold, weight = FontWeight.Bold),
+    Font(R.font.onest_black, weight = FontWeight.Black),
+)
+
+val GoogleSansFontFamily = FontFamily(
+    Font(R.font.googlesans_regular, weight = FontWeight.Normal),
+    Font(R.font.googlesans_medium, weight = FontWeight.Medium),
+    Font(R.font.googlesans_bold, weight = FontWeight.Bold),
+)
+
+val SpecialGothicExpandedOneFontFamily = FontFamily(
+    Font(R.font.specialgothic_regular, weight = FontWeight.Normal),
+)
+
+val ZalandoSansSemiExpandedFontFamily = FontFamily(
+    Font(R.font.zalandosans_regular, weight = FontWeight.Normal),
+    Font(R.font.zalandosans_medium, weight = FontWeight.Medium),
+    Font(R.font.zalandosans_bold, weight = FontWeight.Bold),
+)
+
+data class AppFontOption(val id: String, val displayName: String, val family: FontFamily)
+
+object AppFonts {
+    val options = listOf(
+        AppFontOption("onest", "Onest", OnestFontFamily),
+        AppFontOption("googlesans", "Google Sans", GoogleSansFontFamily),
+        AppFontOption("specialgothic", "Special Gothic Expanded One", SpecialGothicExpandedOneFontFamily),
+        AppFontOption("zalandosans", "Zalando Sans SemiExpanded", ZalandoSansSemiExpandedFontFamily),
+        AppFontOption("lato", "Lato", LatoFontFamily),
+    )
+    val default = options.first()
+
+    fun byId(id: String?): AppFontOption = options.find { it.id == id } ?: default
+}
+
+val LocalAppFontFamily = compositionLocalOf { AppFonts.default.family }
+
 private fun colorSchemeFor(theme: ZStreamTheme) = darkColorScheme(
     primary = theme.colors.global.accentA,
     onPrimary = theme.colors.buttons.primaryText,
@@ -43,23 +87,23 @@ private fun colorSchemeFor(theme: ZStreamTheme) = darkColorScheme(
     outline = theme.colors.type.divider,
 )
 
-private val AppTypography = with(Typography()) {
+private fun typographyFor(fontFamily: FontFamily) = with(Typography()) {
     Typography(
-        displayLarge = displayLarge.copy(fontFamily = LatoFontFamily),
-        displayMedium = displayMedium.copy(fontFamily = LatoFontFamily),
-        displaySmall = displaySmall.copy(fontFamily = LatoFontFamily),
-        headlineLarge = headlineLarge.copy(fontFamily = LatoFontFamily),
-        headlineMedium = headlineMedium.copy(fontFamily = LatoFontFamily),
-        headlineSmall = headlineSmall.copy(fontFamily = LatoFontFamily),
-        titleLarge = titleLarge.copy(fontFamily = LatoFontFamily),
-        titleMedium = titleMedium.copy(fontFamily = LatoFontFamily),
-        titleSmall = titleSmall.copy(fontFamily = LatoFontFamily),
-        bodyLarge = bodyLarge.copy(fontFamily = LatoFontFamily),
-        bodyMedium = bodyMedium.copy(fontFamily = LatoFontFamily),
-        bodySmall = bodySmall.copy(fontFamily = LatoFontFamily),
-        labelLarge = labelLarge.copy(fontFamily = LatoFontFamily),
-        labelMedium = labelMedium.copy(fontFamily = LatoFontFamily),
-        labelSmall = labelSmall.copy(fontFamily = LatoFontFamily),
+        displayLarge = displayLarge.copy(fontFamily = fontFamily),
+        displayMedium = displayMedium.copy(fontFamily = fontFamily),
+        displaySmall = displaySmall.copy(fontFamily = fontFamily),
+        headlineLarge = headlineLarge.copy(fontFamily = fontFamily),
+        headlineMedium = headlineMedium.copy(fontFamily = fontFamily),
+        headlineSmall = headlineSmall.copy(fontFamily = fontFamily),
+        titleLarge = titleLarge.copy(fontFamily = fontFamily),
+        titleMedium = titleMedium.copy(fontFamily = fontFamily),
+        titleSmall = titleSmall.copy(fontFamily = fontFamily),
+        bodyLarge = bodyLarge.copy(fontFamily = fontFamily),
+        bodyMedium = bodyMedium.copy(fontFamily = fontFamily),
+        bodySmall = bodySmall.copy(fontFamily = fontFamily),
+        labelLarge = labelLarge.copy(fontFamily = fontFamily),
+        labelMedium = labelMedium.copy(fontFamily = fontFamily),
+        labelSmall = labelSmall.copy(fontFamily = fontFamily),
     )
 }
 
@@ -67,13 +111,15 @@ private val AppTypography = with(Typography()) {
 fun ZStreamTheme(content: @Composable () -> Unit) {
     val themeVm: ThemeViewModel = viewModel()
     val currentTheme = themeVm.currentTheme.value
+    val currentFont = AppFonts.byId(themeVm.currentFont.value).family
 
-    androidx.compose.runtime.CompositionLocalProvider(
-        LocalZStreamTheme provides currentTheme
+    CompositionLocalProvider(
+        LocalZStreamTheme provides currentTheme,
+        LocalAppFontFamily provides currentFont,
     ) {
         MaterialTheme(
             colorScheme = colorSchemeFor(currentTheme),
-            typography = AppTypography,
+            typography = typographyFor(currentFont),
             content = content,
         )
     }

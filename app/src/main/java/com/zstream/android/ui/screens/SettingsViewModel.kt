@@ -164,6 +164,10 @@ class SettingsViewModel @Inject constructor(
         update { copy(applicationTheme = theme) }
     }
 
+    fun setApplicationFont(font: String) {
+        update { copy(applicationFont = font) }
+    }
+
     fun setEnableThumbnails(v: Boolean) {
         update { copy(enableThumbnails = v) }
     }
