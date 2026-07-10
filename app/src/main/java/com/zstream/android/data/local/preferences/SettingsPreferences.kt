@@ -65,6 +65,7 @@ class SettingsPreferences @Inject constructor(
     private val KEY_TV_PIP_POSITION = stringPreferencesKey("tv_pip_position")
     private val KEY_AUTO_PIP_ENABLED = booleanPreferencesKey("auto_pip_enabled")
     private val KEY_TRAILERS_OPEN_IN_APP = booleanPreferencesKey("trailers_open_in_app")
+    private val KEY_DEFAULT_PLAYBACK_SPEED = stringPreferencesKey("default_playback_speed")
 
     // Discover/Home Settings
     private val KEY_ENABLE_DISCOVER = booleanPreferencesKey("enable_discover")
@@ -151,6 +152,7 @@ class SettingsPreferences @Inject constructor(
             tvPipPosition = prefs[KEY_TV_PIP_POSITION] ?: "bottom_end",
             autoPipEnabled = prefs[KEY_AUTO_PIP_ENABLED] ?: false,
             trailersOpenInApp = prefs[KEY_TRAILERS_OPEN_IN_APP] ?: true,
+            defaultPlaybackSpeed = prefs[KEY_DEFAULT_PLAYBACK_SPEED]?.toFloatOrNull() ?: 1f,
             enableDiscover = prefs[KEY_ENABLE_DISCOVER] ?: false,
             enableFeatured = prefs[KEY_ENABLE_FEATURED] ?: true,
             lastSuccessfulSource = prefs[KEY_LAST_SUCCESSFUL_SOURCE],
@@ -229,6 +231,7 @@ class SettingsPreferences @Inject constructor(
             prefs[KEY_TV_PIP_POSITION] = entity.tvPipPosition
             prefs[KEY_AUTO_PIP_ENABLED] = entity.autoPipEnabled
             prefs[KEY_TRAILERS_OPEN_IN_APP] = entity.trailersOpenInApp
+            prefs[KEY_DEFAULT_PLAYBACK_SPEED] = entity.defaultPlaybackSpeed.toString()
             prefs[KEY_ENABLE_DISCOVER] = entity.enableDiscover
             prefs[KEY_ENABLE_FEATURED] = entity.enableFeatured
             if (entity.lastSuccessfulSource != null) {
@@ -311,6 +314,7 @@ class SettingsPreferences @Inject constructor(
             val currentTvPipPosition = current[KEY_TV_PIP_POSITION] ?: "bottom_end"
             val currentAutoPipEnabled = current[KEY_AUTO_PIP_ENABLED] ?: false
             val currentTrailersOpenInApp = current[KEY_TRAILERS_OPEN_IN_APP] ?: true
+            val currentDefaultPlaybackSpeed = current[KEY_DEFAULT_PLAYBACK_SPEED]?.toFloatOrNull() ?: 1f
             val currentGridRows = (current[KEY_GRID_ROWS] ?: 2).coerceIn(1, 8)
 
             val mappedHomeSectionOrder = remote.homeSectionOrder?.map { section ->
@@ -349,6 +353,7 @@ class SettingsPreferences @Inject constructor(
                 tvPipPosition = currentTvPipPosition,
                 autoPipEnabled = currentAutoPipEnabled,
                 trailersOpenInApp = currentTrailersOpenInApp,
+                defaultPlaybackSpeed = currentDefaultPlaybackSpeed,
                 enableDiscover = remote.enableDiscover ?: false,
                 enableFeatured = remote.enableFeatured ?: true,
                 lastSuccessfulSource = remote.lastSuccessfulSource,
@@ -583,6 +588,12 @@ class SettingsPreferences @Inject constructor(
     suspend fun setTrailersOpenInApp(value: Boolean) {
         context.settingsStore.edit { prefs ->
             prefs[KEY_TRAILERS_OPEN_IN_APP] = value
+        }
+    }
+
+    suspend fun setDefaultPlaybackSpeed(value: Float) {
+        context.settingsStore.edit { prefs ->
+            prefs[KEY_DEFAULT_PLAYBACK_SPEED] = value.toString()
         }
     }
 

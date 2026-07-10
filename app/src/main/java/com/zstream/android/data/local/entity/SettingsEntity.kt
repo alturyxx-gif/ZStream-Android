@@ -48,6 +48,8 @@ data class SettingsEntity(
     val autoPipEnabled: Boolean = false,
     // Phone only: whether trailers play in the in-app player or launch externally. Local-only, not synced.
     val trailersOpenInApp: Boolean = true,
+    // Playback speed carried over to the next video played. Local-only, not synced.
+    val defaultPlaybackSpeed: Float = 1f,
 
     // Discover/Home Settings
     val enableDiscover: Boolean = false, // Synced with backend, but the local UI no longer reads it.
