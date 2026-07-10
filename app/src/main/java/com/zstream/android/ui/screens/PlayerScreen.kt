@@ -870,10 +870,17 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                 }
 
                 // Re-load when the variant switches — streamUrl changes but player instance stays the same
+                val loadedEpisodeIdentity = remember { mutableStateOf(vm.episodeId to (vm.season to vm.episode)) }
                 LaunchedEffect(player, s.streamUrl, s.streamType, s.headers) {
                     val current = player.currentMediaItem?.localConfiguration?.uri?.toString()
                     if (current == s.streamUrl) return@LaunchedEffect  // already playing this URL
-                    val positionMs = player.currentPosition
+                    // Distinguish a genuine episode switch (start over at 0:00) from a same-episode
+                    // variant/quality/source switch (keep the current position) by comparing against
+                    // the episode identity the currently-loaded stream belongs to.
+                    val newIdentity = vm.episodeId to (vm.season to vm.episode)
+                    val episodeChanged = newIdentity != loadedEpisodeIdentity.value
+                    loadedEpisodeIdentity.value = newIdentity
+                    val positionMs = if (episodeChanged) 0L else player.currentPosition
                     val shouldPlay = player.playWhenReady && !isPlaybackFailed
                     Log.d("PlaybackDebug", "switching stream variant/source")
                     val mediaItem = MediaItem.Builder()
@@ -1777,13 +1784,6 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     onJoinWatchParty = { vm.watchPartyManager.joinRoom(it) },
                     onUpdateRoomCode = vm.watchPartyManager::updateRoomCode,
                     onManualSync = vm.watchPartyManager::manualSync,
-                    onLegacyWatchParty = {
-                        val encoded = Uri.encode(s.streamUrl)
-                        val wpUrl = "https://www.watchparty.me/create?video=$encoded"
-                        (context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager)?.let {
-                            it.setPrimaryClip(android.content.ClipData.newPlainText("Legacy Watch Party", wpUrl))
-                        }
-                    },
                     showInfoSheet = showInfoSheet,
                     menuPage = menuPage,
                     onMenuBack = goBackMenuPage,
@@ -2278,7 +2278,6 @@ fun LocalPlayerScreen(nav: NavController, vm: LocalPlayerViewModel = hiltViewMod
                     onJoinWatchParty = {},
                     onUpdateRoomCode = {},
                     onManualSync = {},
-                    onLegacyWatchParty = {},
                     showInfoSheet = false,
                     menuPage = menuPage,
                     onMenuBack = {
@@ -2471,7 +2470,6 @@ private fun PlayerControls(
     onJoinWatchParty: (String) -> Unit,
     onUpdateRoomCode: (String) -> Unit,
     onManualSync: () -> Unit,
-    onLegacyWatchParty: () -> Unit,
     showInfoSheet: Boolean,
     menuPage: PlayerMenuPage?,
     onMenuBack: () -> Unit,
@@ -3744,7 +3742,6 @@ private fun PlayerControls(
                         onJoinWatchParty = onJoinWatchParty,
                         onUpdateRoomCode = onUpdateRoomCode,
                         onManualSync = onManualSync,
-                        onLegacyWatchParty = onLegacyWatchParty,
                         isRegistering = isRegistering,
                         mediaType = mediaType,
                         tmdbId = tmdbId,
@@ -4349,7 +4346,6 @@ private fun PlayerMenuContent(
     onJoinWatchParty: (String) -> Unit,
     onUpdateRoomCode: (String) -> Unit,
     onManualSync: () -> Unit,
-    onLegacyWatchParty: () -> Unit,
     mediaType: String,
     tmdbId: Int,
     seasonId: String?,
@@ -4372,7 +4368,6 @@ private fun PlayerMenuContent(
     var isJoiningRoom by remember { mutableStateOf(false) }
     var joinRoomCode by remember { mutableStateOf("") }
     val joinFocusRequester = remember { FocusRequester() }
-    var isLegacyCopied by remember { mutableStateOf(false) }
     val hostGraceProgress by produceState(initialValue = 0f, key1 = hostGraceDeadlineMs) {
         while (hostGraceDeadlineMs != null) {
             val remaining = (hostGraceDeadlineMs - System.currentTimeMillis()).coerceAtLeast(0L)
@@ -5280,31 +5275,6 @@ private fun PlayerMenuContent(
                                                 .padding(horizontal = 16.dp)
                                         )
                                     }
-
-                                    ZsButton(
-                                        text = if (isLegacyCopied) "Link Copied!" else "Use Legacy Watch Party",
-                                        onClick = {
-                                            onLegacyWatchParty()
-                                            isLegacyCopied = true
-                                        },
-                                        variant = if (isLegacyCopied) ZsButtonVariant.Secondary else ZsButtonVariant.Secondary,
-                                        modifier = Modifier
-                                            .height(52.dp)
-                                            .padding(horizontal = 16.dp)
-                                    )
-                                    LaunchedEffect(isLegacyCopied) {
-                                        if (isLegacyCopied) {
-                                            delay(2000)
-                                            isLegacyCopied = false
-                                        }
-                                    }
-                                    Text(
-                                        text = "Legacy Watch Party might not be available for some sources",
-                                        color = playerMenuMutedText(),
-                                        fontSize = 11.sp,
-                                        textAlign = TextAlign.Center,
-                                        modifier = Modifier.fillMaxWidth()
-                                    )
                                 }
                             }
                         } else {
@@ -5336,13 +5306,8 @@ private fun PlayerMenuContent(
                                     verticalArrangement = Arrangement.spacedBy(16.dp)
                                 ) {
                                     // Main Action Card
-                                    Surface(
-                                        color = theme.colors.background.secondary.copy(alpha = 0.35f),
-                                        shape = RoundedCornerShape(24.dp),
-                                        border = BorderStroke(
-                                            1.dp,
-                                            theme.colors.type.divider.copy(alpha = 0.12f)
-                                        ),
+                                    ZsCard(
+                                        variant = ZsCardVariant.Elevated,
                                         modifier = Modifier.fillMaxWidth()
                                     ) {
                                         Column(
@@ -5360,7 +5325,7 @@ private fun PlayerMenuContent(
                                                         modifier = Modifier
                                                             .size(8.dp)
                                                             .background(
-                                                                Color(0xFF22C55E),
+                                                                theme.colors.type.success,
                                                                 CircleShape
                                                             )
                                                     )
@@ -6086,7 +6051,13 @@ private fun PlayerMenuSegmentedOptions(
                         }
                     }
             ) {
-                Text(label, color = if (isSelected) theme.colors.type.emphasis else playerMenuMutedText())
+                Text(
+                    label,
+                    color = if (isSelected) theme.colors.type.emphasis else playerMenuMutedText(),
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
         }
     }
@@ -6592,11 +6563,20 @@ private fun PlayerMenuSkipSegmentRow(
                     skipSegmentLabel(segment.type),
                     color = theme.colors.video.context.type.main,
                     fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
                 )
                 Text(
                     "${formatTime(segment.startMs ?: 0L)} - ${segment.endMs?.let(::formatTime) ?: "End of video"}",
                     color = theme.colors.video.context.type.secondary,
                     fontSize = 12.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.End,
+                    modifier = Modifier
+                        .padding(start = 8.dp)
+                        .widthIn(max = 140.dp),
                 )
             }
         }

@@ -109,6 +109,12 @@ class SettingsPreferences @Inject constructor(
     private val KEY_ENABLE_AUTO_RESUME_ON_PLAYBACK_ERROR = booleanPreferencesKey("enable_auto_resume_on_playback_error")
     private val KEY_ENABLE_NATIVE_KEYBOARD = booleanPreferencesKey("enable_native_keyboard")
 
+    // Mirrors the language codes offered in the subtitle language picker (SettingsScreen.kt) —
+    // used only to decide whether the device's locale is a sane first-run subtitle default.
+    private val SUBTITLE_LANGUAGE_AUTO_DETECT_CODES = setOf(
+        "en", "es", "fr", "de", "pt", "it", "nl", "ja", "ko", "zh", "ar", "hi", "ru", "tr"
+    )
+
     /**
      * Observe all settings as a data class
      */
@@ -117,7 +123,8 @@ class SettingsPreferences @Inject constructor(
             applicationTheme = prefs[KEY_APPLICATION_THEME] ?: "classic",
             customTheme = decodeCustomTheme(prefs[KEY_CUSTOM_THEME]),
             applicationLanguage = prefs[KEY_APPLICATION_LANGUAGE] ?: "en",
-            defaultSubtitleLanguage = prefs[KEY_DEFAULT_SUBTITLE_LANGUAGE],
+            defaultSubtitleLanguage = prefs[KEY_DEFAULT_SUBTITLE_LANGUAGE]
+                ?: java.util.Locale.getDefault().language.takeIf { it in SUBTITLE_LANGUAGE_AUTO_DETECT_CODES },
             enableThumbnails = prefs[KEY_ENABLE_THUMBNAILS] ?: false,
             enableImageLogos = prefs[KEY_ENABLE_IMAGE_LOGOS] ?: true,
             enableCarouselView = prefs[KEY_ENABLE_CAROUSEL_VIEW] ?: true,
@@ -125,7 +132,7 @@ class SettingsPreferences @Inject constructor(
             enableMinimalCards = prefs[KEY_ENABLE_MINIMAL_CARDS] ?: false,
             homeSectionCarouselLimit = (prefs[KEY_HOME_SECTION_CAROUSEL_LIMIT] ?: 20).coerceIn(1, 50),
             enableLowPerformanceMode = prefs[KEY_ENABLE_LOW_PERFORMANCE_MODE] ?: false,
-            enablePauseOverlay = prefs[KEY_ENABLE_PAUSE_OVERLAY] ?: true,
+            enablePauseOverlay = prefs[KEY_ENABLE_PAUSE_OVERLAY] ?: false,
             enableAutoplay = prefs[KEY_ENABLE_AUTOPLAY] ?: true,
             enableSkipCredits = prefs[KEY_ENABLE_SKIP_CREDITS] ?: true,
             enableAutoSkipSegments = prefs[KEY_ENABLE_AUTO_SKIP_SEGMENTS] ?: false,
@@ -321,7 +328,7 @@ class SettingsPreferences @Inject constructor(
                 gridRows = currentGridRows,
                 enableMinimalCards = remote.enableMinimalCards ?: false,
                 enableLowPerformanceMode = remote.enableLowPerformanceMode ?: false,
-                enablePauseOverlay = remote.enablePauseOverlay ?: true,
+                enablePauseOverlay = remote.enablePauseOverlay ?: false,
                 enableAutoplay = remote.enableAutoplay ?: true,
                 enableSkipCredits = remote.enableSkipCredits ?: true,
                 enableAutoSkipSegments = remote.enableAutoSkipSegments ?: false,
