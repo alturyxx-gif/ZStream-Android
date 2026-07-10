@@ -298,7 +298,7 @@ private fun SubtitleTrackBadges(track: SubtitleTrack) {
 }
 
 private enum class PlayerMenuPage {
-    Root, Captions, CaptionLanguage, CaptionSettings, Playback, AdvancedColor, Sources, Quality, Audio, Download, DownloadQuality, WatchParty, SkipSegments, Seasons, Episodes, Variants, LocalFile
+    Root, Captions, CaptionLanguage, CaptionSettings, Playback, AdvancedColor, Sources, Quality, Audio, Download, DownloadQuality, DownloadAudio, WatchParty, SkipSegments, Seasons, Episodes, Variants, LocalFile
 }
 
 private data class LocalFileInfo(
@@ -1186,6 +1186,13 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                 var lastInteractionTime by remember { mutableLongStateOf(System.currentTimeMillis()) }
                 val updateActivity = { lastInteractionTime = System.currentTimeMillis() }
 
+                val downloadAudioOptionsState = vm.downloadAudioOptions.collectAsState().value
+                LaunchedEffect(downloadAudioOptionsState) {
+                    if (downloadAudioOptionsState.isNotEmpty() && menuBackstack.lastOrNull() != PlayerMenuPage.DownloadAudio) {
+                        menuBackstack.add(PlayerMenuPage.DownloadAudio)
+                    }
+                }
+
                 // Re-apply the native resize mode when codec resolution changes.
                 val playerViewRef = remember { androidx.compose.runtime.mutableStateOf<PlayerView?>(null) }
                 var currentVideoSize by remember { mutableStateOf(androidx.media3.common.VideoSize.UNKNOWN) }
@@ -1496,13 +1503,32 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     player.trackSelectionParameters = builder.build()
                 }
 
+                val hadVideoEffects = remember { mutableStateOf(false) }
+                LaunchedEffect(player, settings.videoBrightness, settings.videoContrast, settings.videoSaturation, settings.videoHueRotate) {
+                    // setVideoEffects() switches ExoPlayer onto the heavier GL effects pipeline,
+                    // which stalls seeking/segment loads -- so skip it entirely at neutral
+                    // defaults (unless we need to clear a previously-applied adjustment), and
+                    // debounce so a slider drag doesn't reconfigure the pipeline on every
+                    // intermediate tick (that reconfigure was what looked like a freeze).
+                    val effects = buildVideoColorEffects(
+                        brightness = settings.videoBrightness,
+                        contrast = settings.videoContrast,
+                        saturation = settings.videoSaturation,
+                        hueRotate = settings.videoHueRotate,
+                    )
+                    if (effects.isEmpty()) {
+                        if (hadVideoEffects.value) player.setVideoEffects(effects)
+                        hadVideoEffects.value = false
+                    } else {
+                        delay(150)
+                        player.setVideoEffects(effects)
+                        hadVideoEffects.value = true
+                    }
+                }
+
                 if (!isPlaybackFailed && (!settings.enableNativeSubtitles || selectedTrackIsExternal) && subtitlesEnabled && selectedLang != null && visibleCues.isNotEmpty()) {
                     // Move subtitles up when controls overlay is shown
                     val controlsBottom = if (isInPip) 0.dp else if (controlsVisible) 80.dp else 0.dp
-                    Log.d("PlayerScreen", "rendering ${visibleCues.size} cues at ${currentPositionMs}ms, " +
-                        "color=${settings.subtitleColor} size=${settings.subtitleSize} " +
-                        "fontStyle=${settings.subtitleFontStyle} bgOpacity=${settings.subtitleBackgroundOpacity} " +
-                        "bold=${settings.subtitleBold}")
                     val textColor = Color(android.graphics.Color.parseColor(settings.subtitleColor))
                     val bgAlpha = settings.subtitleBackgroundOpacity.coerceIn(0f, 1f)
                     val pipSubtitleScale = if (isInPip) 0.72f else 1f
@@ -1625,6 +1651,8 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     onSelectDownloadQuality = vm::downloadAtQuality,
                     downloadQualityOptions = vm.downloadQualityOptions.collectAsState().value,
                     downloadQualityLoading = vm.downloadQualityLoading.collectAsState().value,
+                    onSelectDownloadAudio = vm::downloadWithAudio,
+                    downloadAudioOptions = downloadAudioOptionsState,
                     skipSegments = skipSegments,
                     canSubmitSkipSegments = LocalConfiguration.current.smallestScreenWidthDp < 600,
                     hasTidbKey = !settings.tidbKey.isNullOrBlank(),
@@ -2042,6 +2070,23 @@ fun LocalPlayerScreen(nav: NavController, vm: LocalPlayerViewModel = hiltViewMod
                         vm.loadSkipSegments(ready, duration)
                     }
                 }
+                val hadVideoEffectsLocal = remember { mutableStateOf(false) }
+                LaunchedEffect(player, settings.videoBrightness, settings.videoContrast, settings.videoSaturation, settings.videoHueRotate) {
+                    val effects = buildVideoColorEffects(
+                        brightness = settings.videoBrightness,
+                        contrast = settings.videoContrast,
+                        saturation = settings.videoSaturation,
+                        hueRotate = settings.videoHueRotate,
+                    )
+                    if (effects.isEmpty()) {
+                        if (hadVideoEffectsLocal.value) player.setVideoEffects(effects)
+                        hadVideoEffectsLocal.value = false
+                    } else {
+                        delay(150)
+                        player.setVideoEffects(effects)
+                        hadVideoEffectsLocal.value = true
+                    }
+                }
                 val readyState = PlayerState.Ready(
                     streamUrl = ready.videoUri.toString(),
                     streamType = "file",
@@ -2225,6 +2270,46 @@ private fun volumeBoostToMillibels(volumeBoost: Int): Int {
     return over * 45
 }
 
+/**
+ * Brightness/contrast/saturation/hue settings were persisted and shown in the sliders but never
+ * actually applied to the decoded video -- nothing in the codebase called
+ * ExoPlayer.setVideoEffects(). All four settings use a 100 = "no change" scale (0-200, except
+ * hue which is 0-360 degrees) to match the slider UI already built around that convention.
+ */
+@OptIn(UnstableApi::class)
+private fun buildVideoColorEffects(
+    brightness: Int,
+    contrast: Int,
+    saturation: Int,
+    hueRotate: Int,
+): List<androidx.media3.common.Effect> {
+    val effects = mutableListOf<androidx.media3.common.Effect>()
+    if (contrast != 100) {
+        val contrastValue = ((contrast - 100) / 100f).coerceIn(-1f, 1f)
+        effects.add(androidx.media3.effect.Contrast(contrastValue))
+    }
+    if (brightness != 100) {
+        val scale = (brightness / 100f).coerceIn(0.1f, 2f)
+        effects.add(
+            androidx.media3.effect.RgbAdjustment.Builder()
+                .setRedScale(scale)
+                .setGreenScale(scale)
+                .setBlueScale(scale)
+                .build()
+        )
+    }
+    if (saturation != 100 || hueRotate != 0) {
+        val saturationAdjustment = ((saturation - 100) / 100f).coerceIn(-1f, 1f)
+        effects.add(
+            androidx.media3.effect.HslAdjustment.Builder()
+                .adjustHue(hueRotate.toFloat())
+                .adjustSaturation(saturationAdjustment)
+                .build()
+        )
+    }
+    return effects
+}
+
 @OptIn(UnstableApi::class)
 private fun nativeResizeMode(mode: String) = when (mode.lowercase()) {
     "stretch" -> androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FILL
@@ -2279,6 +2364,8 @@ private fun PlayerControls(
     onSelectDownloadQuality: (DownloadQualityOption) -> Unit = {},
     downloadQualityOptions: List<DownloadQualityOption> = emptyList(),
     downloadQualityLoading: Boolean = false,
+    onSelectDownloadAudio: (com.zstream.android.download.HlsAudioRendition) -> Unit = {},
+    downloadAudioOptions: List<com.zstream.android.download.HlsAudioRendition> = emptyList(),
     skipSegments: List<SkipSegment>,
     canSubmitSkipSegments: Boolean,
     hasTidbKey: Boolean,
@@ -3065,6 +3152,11 @@ private fun PlayerControls(
                                         onClick = {
                                             onControlsVisibilityChanged(true)
                                             onLoadSeason(currentSeason ?: 1)
+                                            // Push Seasons before Episodes so the popup's back
+                                            // button returns to the season list instead of
+                                            // closing the whole menu (there was nothing under
+                                            // Episodes in the backstack otherwise).
+                                            onMenuPageChange(PlayerMenuPage.Seasons)
                                             onMenuPageChange(PlayerMenuPage.Episodes)
                                             menuSourceRequester = episodesFocusRequester
                                         },
@@ -3191,6 +3283,9 @@ private fun PlayerControls(
                                     onClick = {
                                         onControlsVisibilityChanged(true)
                                         onLoadSeason(currentSeason ?: 1)
+                                        // See the TV Episodes button above for why Seasons is
+                                        // pushed first.
+                                        onMenuPageChange(PlayerMenuPage.Seasons)
                                         onMenuPageChange(PlayerMenuPage.Episodes)
                                     },
                                 )
@@ -3429,6 +3524,7 @@ private fun PlayerControls(
                         },
                         downloadQualityOptions = downloadQualityOptions,
                         downloadQualityLoading = downloadQualityLoading,
+                        downloadAudioOptions = downloadAudioOptions,
                         failedVariantUrls = readyState.failedVariantUrls,
                         manualSourceSelection = settings.manualSourceSelection,
                         selectedSubtitleLanguage = selectedSubtitleLanguage,
@@ -3504,6 +3600,7 @@ private fun PlayerControls(
                         onSwitchVariant = onSwitchVariant,
                         onDownloadVariant = onDownloadVariant,
                         onSelectDownloadQuality = onSelectDownloadQuality,
+                        onSelectDownloadAudio = onSelectDownloadAudio,
                         onOpenSkipSubmission = {
                             skipSubmissionSeed = it ?: (skipSegments.firstOrNull() ?: SkipSegment("intro", null, null))
                             showSkipSubmissionDialog = true
@@ -4061,6 +4158,7 @@ private fun PlayerMenuContent(
     downloadableVariants: List<StreamVariant> = emptyList(),
     downloadQualityOptions: List<DownloadQualityOption> = emptyList(),
     downloadQualityLoading: Boolean = false,
+    downloadAudioOptions: List<com.zstream.android.download.HlsAudioRendition> = emptyList(),
     failedVariantUrls: Set<String> = emptySet(),
     manualSourceSelection: Boolean,
     selectedSubtitleLanguage: String?,
@@ -4108,6 +4206,7 @@ private fun PlayerMenuContent(
     onSwitchVariant: (StreamVariant) -> Unit,
     onDownloadVariant: (StreamVariant) -> Unit = {},
     onSelectDownloadQuality: (DownloadQualityOption) -> Unit = {},
+    onSelectDownloadAudio: (com.zstream.android.download.HlsAudioRendition) -> Unit = {},
     onOpenSkipSubmission: (SkipSegment?) -> Unit,
     onSeekToMs: (Long) -> Unit,
     onPip: () -> Unit,
@@ -4185,6 +4284,7 @@ private fun PlayerMenuContent(
                     PlayerMenuPage.Audio -> "Audio"
                     PlayerMenuPage.Download -> "Download"
                     PlayerMenuPage.DownloadQuality -> "Choose Quality"
+                    PlayerMenuPage.DownloadAudio -> "Choose Audio"
                     PlayerMenuPage.WatchParty -> "Watch Party"
                     PlayerMenuPage.SkipSegments -> "Skip Segments"
                     PlayerMenuPage.Seasons -> "Seasons"
@@ -4273,10 +4373,9 @@ private fun PlayerMenuContent(
                         }
                         if (localFileInfo == null && variants.size > 1) {
                             PlayerMenuSection {
-                                val currentVariant = variants.find { it.streamUrl == streamUrl }
                                 PlayerMenuChevronRow(
                                     title = "Stream Variants",
-                                    value = currentVariant?.displayLabel() ?: "${variants.size}",
+                                    value = "${variants.size}",
                                 ) { onOpenPage(PlayerMenuPage.Variants) }
                             }
                         }
@@ -4895,6 +4994,25 @@ private fun PlayerMenuContent(
                             if (downloadQualityOptions.isEmpty()) {
                                 PlayerMenuStubCard("No quality options found for this source.")
                             }
+                        }
+                    }
+                    PlayerMenuPage.DownloadAudio -> {
+                        PlayerMenuSection {
+                            downloadAudioOptions.forEachIndexed { index, rendition ->
+                                PlayerMenuSelectableRow(
+                                    title = rendition.name.ifBlank { rendition.language.ifBlank { "Audio ${index + 1}" } },
+                                    subtitle = rendition.language.takeIf { it.isNotBlank() && it != rendition.name },
+                                    selected = false,
+                                    onClick = {
+                                        onSelectDownloadAudio(rendition)
+                                        onBack()
+                                    },
+                                    focusRequester = if (index == 0) firstItemFocusRequester else null,
+                                )
+                            }
+                        }
+                        if (downloadAudioOptions.isEmpty()) {
+                            PlayerMenuStubCard("No audio options found for this source.")
                         }
                     }
                     PlayerMenuPage.WatchParty -> {
@@ -5645,11 +5763,11 @@ private fun PlayerMenuGridSection(items: List<PlayerMenuTileItem>, firstItemFocu
     ) {
         items.chunked(2).forEachIndexed { rowIndex, rowItems ->
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Max),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 rowItems.forEachIndexed { colIndex, item ->
-                    Box(modifier = Modifier.weight(1f)) {
+                    Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
                         PlayerMenuBoxNavTile(
                             title = item.title,
                             value = item.value,
@@ -5719,7 +5837,8 @@ private fun PlayerMenuBoxNavTile(
             shape = RoundedCornerShape(8.dp),
             modifier = Modifier
                 .fillMaxWidth()
-                .height(PLAYER_MENU_BOX_TILE_HEIGHT)
+                .fillMaxHeight()
+                .heightIn(min = PLAYER_MENU_BOX_TILE_HEIGHT)
                 .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
                 .focusProperties {
                     if (isTv) {
@@ -5736,7 +5855,7 @@ private fun PlayerMenuBoxNavTile(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
-                Text(title, color = theme.colors.type.emphasis, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center)
+                Text(title, color = theme.colors.type.emphasis, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Spacer(Modifier.height(4.dp))
                 Text(
                     value,
@@ -5919,7 +6038,9 @@ private fun PlayerMenuChevronRow(title: String, value: String? = null, icon: Str
                     title,
                     color = theme.colors.type.emphasis.copy(alpha = 0.96f),
                     modifier = Modifier.weight(1f),
-                    textAlign = TextAlign.Start
+                    textAlign = TextAlign.Start,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
                 if (!value.isNullOrBlank()) {
                     Text(
@@ -5927,7 +6048,8 @@ private fun PlayerMenuChevronRow(title: String, value: String? = null, icon: Str
                         color = Color.White,
                         fontSize = 13.sp,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.widthIn(max = 120.dp),
                     )
                     Spacer(Modifier.width(4.dp))
                 }

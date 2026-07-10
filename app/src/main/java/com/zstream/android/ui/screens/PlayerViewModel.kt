@@ -10,6 +10,7 @@ import androidx.media3.common.util.UnstableApi
 import com.zstream.android.data.BookmarkRepository
 import com.zstream.android.data.TmdbRepository
 import com.zstream.android.plugin.PluginManager
+import com.zstream.android.plugin.SourceInfo
 import com.zstream.android.plugin.SourceOrderStore
 import com.zstream.android.plugin.Caption
 import com.zstream.android.plugin.MediaRequest as PluginMediaRequest
@@ -149,7 +150,12 @@ data class StreamVariant(
 }
 
 /** One resolution choice discovered inside an HLS master playlist, for the download quality picker. */
-data class DownloadQualityOption(val label: String, val streamUrl: String, val bandwidth: Long, val audioUrl: String? = null)
+data class DownloadQualityOption(
+    val label: String,
+    val streamUrl: String,
+    val bandwidth: Long,
+    val audioOptions: List<com.zstream.android.download.HlsAudioRendition> = emptyList(),
+)
 
 internal fun preferredInitialVariantUrl(
     sourceId: String,
@@ -281,7 +287,9 @@ class PlayerViewModel @OptIn(UnstableApi::class)
     private val _subtitleCues = MutableStateFlow<List<SubtitleCue>>(emptyList())
     val subtitleCues = _subtitleCues.asStateFlow()
 
-    private val subtitleCache = mutableMapOf<String, List<SubtitleCue>>()
+    // Written from Dispatchers.IO by potentially concurrent parse coroutines (multiple
+    // downloadAndParseSubtitles() calls can be in flight at once) -- must be thread-safe.
+    private val subtitleCache = java.util.concurrent.ConcurrentHashMap<String, List<SubtitleCue>>()
 
     private val _selectedSubtitleLang = MutableStateFlow<String?>(null)
     val selectedSubtitleLang = _selectedSubtitleLang.asStateFlow()
@@ -347,6 +355,7 @@ class PlayerViewModel @OptIn(UnstableApi::class)
 
     private val sources = mutableListOf<SourceResult>()
     private val probeJobs = mutableMapOf<String, Job>()
+    private var cachedDisplaySources: List<SourceInfo> = emptyList()
     private val failedVariantUrls = mutableSetOf<String>()
     private val failedPlaybackSourceIds = mutableSetOf<String>()
     private var skipSegmentsCacheKey: String? = null
@@ -369,6 +378,10 @@ class PlayerViewModel @OptIn(UnstableApi::class)
     val downloadQualityOptions = _downloadQualityOptions.asStateFlow()
     private val _downloadQualityLoading = MutableStateFlow(false)
     val downloadQualityLoading = _downloadQualityLoading.asStateFlow()
+
+    private var pendingDownloadQuality: DownloadQualityOption? = null
+    private val _downloadAudioOptions = MutableStateFlow<List<com.zstream.android.download.HlsAudioRendition>>(emptyList())
+    val downloadAudioOptions = _downloadAudioOptions.asStateFlow()
 
     init {
         load()
@@ -627,6 +640,7 @@ class PlayerViewModel @OptIn(UnstableApi::class)
                 val settingsValue = settingsPrefs.settings.first()
                 val pluginSources = pluginManager.availableSources()
                 val displaySources = sourceOrderStore.getOrderedSources(pluginSources)
+                cachedDisplaySources = displaySources
 
                 if (selectedSourceId == null && settingsValue.manualSourceSelection && !automaticRecovery) {
                     val availableSources = displaySources.map { SourceResult(it.id, SourceStatus.IDLE) }
@@ -707,9 +721,11 @@ class PlayerViewModel @OptIn(UnstableApi::class)
                             sources.clear()
                             sources.addAll(success)
 
-                            // Save last successful source
+                            // Save last successful source. Uses the single-key setter (not a
+                            // full-entity updateSettings from a stale `settings.value` snapshot)
+                            // so it can't race a concurrent settings write and clobber it.
                             viewModelScope.launch {
-                                settingsPrefs.updateSettings(settings.value.copy(lastSuccessfulSource = source.id))
+                                settingsPrefs.setLastSuccessfulSource(source.id)
                             }
 
                             subtitleSearchLanguage = settingsValue.defaultSubtitleLanguage ?: "en"
@@ -785,7 +801,7 @@ class PlayerViewModel @OptIn(UnstableApi::class)
     }
 
     fun probeSource(sourceId: String) {
-        val pluginSources = pluginManager.availableSources()
+        val pluginSources = cachedDisplaySources.ifEmpty { pluginManager.availableSources() }
         val currentSources = if (sources.isEmpty()) {
             pluginSources.map { SourceResult(it.id, SourceStatus.IDLE) }.also {
                 sources.clear()
@@ -868,20 +884,14 @@ class PlayerViewModel @OptIn(UnstableApi::class)
             return
         }
         desiredVariantName = variant.name
-        _state.value = current.copy(streamUrl = variant.streamUrl)
+        _state.value = current.copy(streamUrl = variant.streamUrl, playbackFailure = null)
             .copy(streamType = variant.streamType, headers = if (variant.headers.isNotEmpty()) variant.headers else current.headers)
     }
 
-    /**
-     * Entry point from the Download page. For "file" sources there's only ever one quality, so
-     * this downloads immediately. For "hls" sources, the stream URL is often a master playlist
-     * with several resolutions inside it (1080p/720p/480p/...) — this probes for those first and,
-     * if more than one exists, surfaces them via downloadQualityOptions instead of guessing.
-     */
     fun beginDownload(variant: StreamVariant) {
         val ready = _state.value as? PlayerState.Ready ?: return
         if (variant.streamType != "hls") {
-            enqueueDownload(variant, variant.streamUrl, variant.displayLabel(), audioStreamUrl = null)
+            enqueueDownload(variant, variant.streamUrl, variant.displayLabel(), audioStreamUrl = null, audioLanguage = null)
             return
         }
         pendingDownloadVariant = variant
@@ -895,37 +905,70 @@ class PlayerViewModel @OptIn(UnstableApi::class)
             }.getOrDefault(emptyList())
             _downloadQualityLoading.value = false
             if (options.size <= 1) {
-                // Nothing to actually choose between — just download at the only available quality.
                 val single = options.firstOrNull()
-                enqueueDownload(variant, single?.uri ?: variant.streamUrl, single?.height?.let { "${it}p" } ?: variant.displayLabel(), single?.audioUrl)
+                proceedWithQuality(
+                    variant,
+                    DownloadQualityOption(
+                        label = single?.height?.let { "${it}p" } ?: variant.displayLabel(),
+                        streamUrl = single?.uri ?: variant.streamUrl,
+                        bandwidth = single?.bandwidth ?: 0L,
+                        audioOptions = single?.audioOptions.orEmpty(),
+                    ),
+                )
             } else {
                 _downloadQualityOptions.value = options.map { opt ->
                     DownloadQualityOption(
                         label = opt.height?.let { "${it}p" } ?: "${opt.bandwidth / 1000} kbps",
                         streamUrl = opt.uri,
                         bandwidth = opt.bandwidth,
-                        audioUrl = opt.audioUrl,
+                        audioOptions = opt.audioOptions,
                     )
                 }
             }
         }
     }
 
-    /** Called when the user picks a specific resolution from downloadQualityOptions. */
     fun downloadAtQuality(option: DownloadQualityOption) {
         val variant = pendingDownloadVariant ?: return
-        enqueueDownload(variant, option.streamUrl, option.label, option.audioUrl)
-        pendingDownloadVariant = null
         _downloadQualityOptions.value = emptyList()
+        proceedWithQuality(variant, option)
+    }
+
+    private fun proceedWithQuality(variant: StreamVariant, option: DownloadQualityOption) {
+        if (option.audioOptions.size > 1) {
+            pendingDownloadQuality = option
+            _downloadAudioOptions.value = option.audioOptions
+        } else {
+            pendingDownloadVariant = null
+            val audio = option.audioOptions.firstOrNull()
+            enqueueDownload(variant, option.streamUrl, option.label, audio?.uri, audio?.language?.ifBlank { null })
+        }
+    }
+
+    fun downloadWithAudio(rendition: com.zstream.android.download.HlsAudioRendition) {
+        val variant = pendingDownloadVariant ?: return
+        val option = pendingDownloadQuality ?: return
+        pendingDownloadVariant = null
+        pendingDownloadQuality = null
+        _downloadAudioOptions.value = emptyList()
+        enqueueDownload(variant, option.streamUrl, option.label, rendition.uri, rendition.language.ifBlank { null })
+    }
+
+    fun cancelDownloadAudioPicker() {
+        pendingDownloadVariant = null
+        pendingDownloadQuality = null
+        _downloadAudioOptions.value = emptyList()
     }
 
     fun cancelDownloadQualityPicker() {
         pendingDownloadVariant = null
+        pendingDownloadQuality = null
         _downloadQualityOptions.value = emptyList()
         _downloadQualityLoading.value = false
+        _downloadAudioOptions.value = emptyList()
     }
 
-    private fun enqueueDownload(variant: StreamVariant, streamUrl: String, qualityLabel: String, audioStreamUrl: String? = null) {
+    private fun enqueueDownload(variant: StreamVariant, streamUrl: String, qualityLabel: String, audioStreamUrl: String? = null, audioLanguage: String? = null) {
         val ready = _state.value as? PlayerState.Ready ?: return
         viewModelScope.launch {
             val target = if (mediaType == "tv") {
@@ -974,6 +1017,7 @@ class PlayerViewModel @OptIn(UnstableApi::class)
                 headers = variant.headers.ifEmpty { ready.headers },
                 captions = captions,
                 audioStreamUrl = audioStreamUrl,
+                audioLanguage = audioLanguage,
                 posterPath = poster,
             )
             val downloadId = downloadRepository.enqueue(request)
@@ -1000,15 +1044,14 @@ class PlayerViewModel @OptIn(UnstableApi::class)
                 return@launch
             }
 
-            awaitingRecoveryPlayback = true
-            _recoveryNotice.emit("Auto retrying")
-
             if (errorCode == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS) {
                 when (httpStatus) {
                     403 -> {
                         // Signed URL expired — re-resolve immediately to get fresh URLs.
                         // Pass the currently-playing variant as a hint so the source
                         // can prioritise refreshing that URL.
+                        awaitingRecoveryPlayback = true
+                        _recoveryNotice.emit("Auto retrying")
                         val playingVariantId = current.variants
                             .firstOrNull { it.streamUrl == current.streamUrl }?.id
                         Log.w("PlaybackRecovery", "403 on source ${current.sourceId}; re-resolving (URL expired, variant=$playingVariantId)")
@@ -1016,54 +1059,36 @@ class PlayerViewModel @OptIn(UnstableApi::class)
                         return@launch
                     }
                     429 -> {
-                        // Rate-limited — this variant's URL is being throttled.
-                        // Mark it failed and try the next variant; if exhausted, wait before re-resolving.
-                        Log.w("PlaybackRecovery", "429 on source ${current.sourceId}; variant rate-limited, trying next")
+                        // Rate-limited — this variant's URL is being throttled. Wait it out and
+                        // re-resolve rather than cycling variants (a rate limit tends to apply
+                        // to the whole source, not just this URL).
+                        awaitingRecoveryPlayback = true
+                        _recoveryNotice.emit("Auto retrying")
+                        Log.w("PlaybackRecovery", "429 on source ${current.sourceId}; waiting 5s before re-resolve")
                         failedVariantUrls += current.streamUrl
-                        val nextVariant = nextUnfailedVariantUrl(current.streamUrl, current.variants, failedVariantUrls)
-                        if (nextVariant != null) {
-                            _state.value = current.copy(streamUrl = nextVariant, failedVariantUrls = failedVariantUrls.toSet())
-                            return@launch
-                        }
-                        // All variants rate-limited — wait before re-resolving to let the CDN cool down
-                        Log.w("PlaybackRecovery", "all variants rate-limited; waiting 5s before re-resolve")
                         kotlinx.coroutines.delay(5_000)
                         failedVariantUrls.clear()
                         loadInternal(automaticRecovery = true)
                         return@launch
                     }
                     else -> {
-                        // Unknown HTTP error — fall through to variant cycling below
+                        // Unknown HTTP error — fall through to the plain variant-failure path below.
                     }
                 }
             }
 
             failedVariantUrls += current.streamUrl
 
-            // Try next unfailed variant for any source (not just Artemis)
-            val nextVariant = nextUnfailedVariantUrl(current.streamUrl, current.variants, failedVariantUrls)
-            if (nextVariant != null) {
-                Log.w("PlaybackRecovery", "variant failed; trying $nextVariant")
-                _state.value = current.copy(
-                    streamUrl = nextVariant,
-                    failedVariantUrls = failedVariantUrls.toSet(),
-                )
-                return@launch
-            }
-
-            // All variants exhausted — try next source
-            val sourceId = current.sourceId
-            if (sourceId == null || !failedPlaybackSourceIds.add(sourceId)) {
-                _state.value = current.copy(
-                    playbackFailure = PlaybackFailure(
-                        message = "Playback failed after trying available alternatives: $message",
-                        details = details,
-                    )
-                )
-                return@launch
-            }
-            Log.w("PlaybackRecovery", "source ${current.sourceId} failed; restarting with it last")
-            loadInternal(automaticRecovery = true, deprioritizedSourceId = sourceId)
+            // Mark this variant failed (shows the fail icon beside it in the variant picker) and
+            // toast it — the user picks the next variant themselves.
+            val sourceLabel = current.sourceId.orEmpty().replaceFirstChar { it.uppercase() }
+            val variantLabel = current.variants.find { it.streamUrl == current.streamUrl }?.displayLabel()
+            Log.w("PlaybackRecovery", "variant failed; sourceId=${current.sourceId} variant=$variantLabel")
+            awaitingRecoveryPlayback = false
+            _recoveryNotice.tryEmit(
+                "$sourceLabel${variantLabel?.let { " · $it" }.orEmpty()} source failed! Try another"
+            )
+            _state.value = current.copy(failedVariantUrls = failedVariantUrls.toSet())
         }
     }
 

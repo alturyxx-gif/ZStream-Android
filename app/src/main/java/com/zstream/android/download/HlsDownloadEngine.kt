@@ -21,7 +21,10 @@ import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.SecretKeySpec
 
 private const val TAG = "HlsDownloadEngine"
-private const val SEGMENT_WORKERS = 3
+// Matches the desktop app's segment worker pool sizing (16 workers there); artemis comfortably
+// serves this level of per-download parallelism. Kept slightly below desktop's since phones share
+// the radio/CPU with everything else running on-device, unlike a dedicated desktop machine.
+private const val SEGMENT_WORKERS = 10
 
 data class HlsDownloadProgress(
     val segmentsDone: Int,
@@ -85,6 +88,17 @@ class HlsDownloadEngine(private val client: OkHttpClient) {
         var lastReportedPct = -1
         val progressLock = Any()
 
+        val remuxJob = async(Dispatchers.IO) {
+            remux(
+                videoInitFile = videoSet.initFile,
+                videoSegments = videoFiles.map { it.first to it.second },
+                audioInitFile = audioSet?.initFile,
+                audioSegments = audioFiles.map { it.first to it.second },
+                outputFd = outputFd,
+                onRemuxProgress = onRemuxProgress,
+            )
+        }
+
         val semaphore = Semaphore(SEGMENT_WORKERS)
         val jobs = (videoFiles + audioFiles).map { (segment, dest, key) ->
             async(Dispatchers.IO) {
@@ -114,16 +128,9 @@ class HlsDownloadEngine(private val client: OkHttpClient) {
             }
         }
         jobs.awaitAll()
-        Log.i(TAG, "all segments downloaded: total ${bytes / 1024}KB across $total segments, starting remux")
+        Log.i(TAG, "all segments downloaded: total ${bytes / 1024}KB across $total segments, waiting on remux")
 
-        remux(
-            videoInitFile = videoSet.initFile,
-            videoSegments = videoFiles.map { it.first to it.second },
-            audioInitFile = audioSet?.initFile,
-            audioSegments = audioFiles.map { it.first to it.second },
-            outputFd = outputFd,
-            onRemuxProgress = onRemuxProgress,
-        )
+        remuxJob.await()
         Log.i(TAG, "remux complete")
     }
 
@@ -183,7 +190,9 @@ class HlsDownloadEngine(private val client: OkHttpClient) {
     ): Long {
         val raw = fetchWithRetry(url, headers)
         val plain = if (key != null) decryptAes128(raw, keyMaterial["${key.uri}|${key.iv}"] ?: error("Missing key for segment"), key.iv) else raw
-        dest.writeBytes(plain)
+        val part = File(dest.parentFile, dest.name + ".part")
+        part.writeBytes(plain)
+        if (!part.renameTo(dest)) dest.writeBytes(plain)
         return plain.size.toLong()
     }
 
@@ -229,6 +238,12 @@ class HlsDownloadEngine(private val client: OkHttpClient) {
     private fun hexToBytes(hex: String): ByteArray =
         ByteArray(hex.length / 2) { i -> ((Character.digit(hex[i * 2], 16) shl 4) + Character.digit(hex[i * 2 + 1], 16)).toByte() }
 
+    private suspend fun awaitSegmentReady(file: File) {
+        while (!(file.exists() && file.length() > 0)) {
+            kotlinx.coroutines.delay(40)
+        }
+    }
+
     /**
      * Demuxes each segment file with MediaExtractor and re-writes its samples into a single
      * MediaMuxer output — the Android-native equivalent of `ffmpeg -c copy`. Presentation
@@ -242,6 +257,8 @@ class HlsDownloadEngine(private val client: OkHttpClient) {
         outputFd: FileDescriptor,
         onRemuxProgress: suspend (done: Int, total: Int) -> Unit,
     ) {
+        videoSegments.firstOrNull()?.second?.let { awaitSegmentReady(it) }
+        audioSegments.firstOrNull()?.second?.let { awaitSegmentReady(it) }
         val muxer = MediaMuxer(outputFd, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
         try {
             var videoMuxIndex = -1
@@ -351,6 +368,7 @@ class HlsDownloadEngine(private val client: OkHttpClient) {
 
         for ((index, entry) in segments.withIndex()) {
             val (segment, file) = entry
+            awaitSegmentReady(file)
             var sawVideo = false
             var sawAudio = false
             withExtractor(initBytes, file) { extractor ->

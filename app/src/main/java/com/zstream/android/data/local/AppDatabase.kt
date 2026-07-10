@@ -31,7 +31,8 @@ import com.zstream.android.data.local.entity.SkipSegmentEntity
         LocalFileProgressEntity::class,
         SkipSegmentEntity::class,
     ],
-    version = 9,
+
+    version = 11,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -147,13 +148,36 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE downloads ADD COLUMN segDone INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE downloads ADD COLUMN segTotal INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE downloads ADD COLUMN speedBps INTEGER")
+                db.execSQL("ALTER TABLE downloads ADD COLUMN bytesDownloaded INTEGER")
+                db.execSQL("ALTER TABLE downloads ADD COLUMN estimatedTotalBytes INTEGER")
+                db.execSQL("ALTER TABLE downloads ADD COLUMN streamUrl TEXT")
+                db.execSQL("ALTER TABLE downloads ADD COLUMN streamType TEXT")
+                db.execSQL("ALTER TABLE downloads ADD COLUMN audioStreamUrl TEXT")
+                db.execSQL("ALTER TABLE downloads ADD COLUMN audioLanguage TEXT")
+                db.execSQL("ALTER TABLE downloads ADD COLUMN headersJson TEXT")
+                db.execSQL("ALTER TABLE downloads ADD COLUMN captionsJson TEXT")
+            }
+        }
+
+        private val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE downloads ADD COLUMN remuxDone INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE downloads ADD COLUMN remuxTotal INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
                     "zstream.db"
-                ).addMigrations(MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9).build()
+                ).addMigrations(MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11).build()
                 INSTANCE = instance
                 instance
             }

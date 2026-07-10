@@ -449,6 +449,7 @@ class TvAdbManager private constructor(
 
     fun downloadApk(
         url: String,
+        expectedDigest: String? = null,
         onProgress: (Long, Long) -> Unit = { _, _ -> },
         isCancelled: () -> Boolean = { false },
     ): File {
@@ -483,18 +484,21 @@ class TvAdbManager private constructor(
                     }
                 }
             }
+            verifyApkDigest(partial, expectedDigest)
             if (!partial.renameTo(target)) throw IOException("Could not finalize downloaded APK")
             Log.d(tag, "downloadApk complete size=${target.length()} elapsedMs=${SystemClock.elapsedRealtime() - startedAt}")
             return target
         } catch (t: Throwable) {
             Log.w(tag, "downloadApk failed type=${t.javaClass.simpleName} msg=${t.message}")
             partial.delete()
+            target.delete()
             throw t
         }
     }
 
     fun installFromUrl(
         url: String,
+        expectedDigest: String? = null,
         onProgress: (InstallProgress) -> Unit = {},
         isCancelled: () -> Boolean = { false },
     ): InstallResult {
@@ -527,6 +531,7 @@ class TvAdbManager private constructor(
             Log.d(tag, "installFromUrl downloading APK")
             downloadApk(
                 validatedUrl,
+                expectedDigest = expectedDigest,
                 onProgress = { bytes, total -> onProgress(InstallProgress.Downloading(bytes, total)) },
                 isCancelled = isCancelled,
             )

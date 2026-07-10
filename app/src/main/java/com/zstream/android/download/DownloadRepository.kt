@@ -2,6 +2,8 @@ package com.zstream.android.download
 
 import android.util.Log
 import android.net.Uri
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 import com.zstream.android.data.SkipSegmentRepository
 import com.zstream.android.data.VideoFingerprint
 import com.zstream.android.data.local.dao.DownloadDao
@@ -13,9 +15,11 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -36,12 +40,50 @@ private fun fileExtensionFor(streamUrl: String, streamType: String): String {
 private fun captionExtension(caption: com.zstream.android.plugin.Caption): String =
     caption.type.ifBlank { "srt" }.lowercase().removePrefix(".")
 
+private val requestCodecGson = Gson()
+private val headersMapType = object : TypeToken<Map<String, String>>() {}.type
+private val captionsListType = object : TypeToken<List<Caption>>() {}.type
+
+fun DownloadEntity.toRequest(): DownloadRequest? {
+    val url = streamUrl ?: return null
+    val type = streamType ?: return null
+    val target = if (this.type == "movie") {
+        DownloadTarget.Movie(title = title)
+    } else {
+        DownloadTarget.Episode(showTitle = title, season = season ?: 1, episode = episode ?: 1, episodeTitle = episodeTitle)
+    }
+    val headers: Map<String, String> = headersJson?.let {
+        runCatching { requestCodecGson.fromJson<Map<String, String>>(it, headersMapType) }.getOrNull()
+    }.orEmpty()
+    val captions: List<Caption> = captionsJson?.let {
+        runCatching { requestCodecGson.fromJson<List<Caption>>(it, captionsListType) }.getOrNull()
+    }.orEmpty()
+    return DownloadRequest(
+        tmdbId = tmdbId,
+        target = target,
+        sourceId = sourceId,
+        sourceDisplayName = sourceId,
+        variantId = variantId,
+        qualityLabel = qualityLabel,
+        streamUrl = url,
+        streamType = type,
+        headers = headers,
+        captions = captions,
+        audioStreamUrl = audioStreamUrl,
+        audioLanguage = audioLanguage,
+        posterPath = posterPath,
+    )
+}
+
 /** [bytesDownloaded]/[estimatedTotalBytes] are null during the REMUXING phase (no bytes to report there). */
 data class DownloadProgressInfo(
     val status: DownloadStatus,
     val percent: Int,
     val bytesDownloaded: Long?,
     val estimatedTotalBytes: Long?,
+    val segDone: Int = 0,
+    val segTotal: Int = 0,
+    val speedBps: Long? = null,
 )
 
 @Singleton
@@ -80,6 +122,12 @@ class DownloadRepository @Inject constructor(
             qualityLabel = request.qualityLabel,
             posterPath = request.posterPath,
             status = DownloadStatus.QUEUED,
+            streamUrl = request.streamUrl,
+            streamType = request.streamType,
+            audioStreamUrl = request.audioStreamUrl,
+            audioLanguage = request.audioLanguage,
+            headersJson = requestCodecGson.toJson(request.headers),
+            captionsJson = requestCodecGson.toJson(request.captions),
         )
         return downloadDao.insert(entity)
     }
@@ -115,12 +163,29 @@ class DownloadRepository @Inject constructor(
 
             when (request.streamType) {
                 "file" -> {
+                    var speedLastAtMs = System.currentTimeMillis()
+                    var speedLastBytes = 0L
+                    var speedEwma: Long? = null
                     storage.openOutputStream(videoFile).use { out ->
                         DirectFileDownloader.download(client, request.streamUrl, request.headers, out) { received, total ->
                             val pct = if (total != null && total > 0) ((received * 100) / total).toInt() else 0
-                            latest = entity.copy(status = DownloadStatus.DOWNLOADING, progressPercent = pct)
+                            val now = System.currentTimeMillis()
+                            val deltaMs = now - speedLastAtMs
+                            if (deltaMs > 0) {
+                                val instantaneous = (received - speedLastBytes) * 1000 / deltaMs
+                                speedEwma = speedEwma?.let { (it * 3 + instantaneous) / 4 } ?: instantaneous
+                                speedLastAtMs = now
+                                speedLastBytes = received
+                            }
+                            latest = entity.copy(
+                                status = DownloadStatus.DOWNLOADING,
+                                progressPercent = pct,
+                                speedBps = speedEwma,
+                                bytesDownloaded = received,
+                                estimatedTotalBytes = total,
+                            )
                             update(latest)
-                            onProgress(DownloadProgressInfo(DownloadStatus.DOWNLOADING, pct, received, total))
+                            onProgress(DownloadProgressInfo(DownloadStatus.DOWNLOADING, pct, received, total, speedBps = speedEwma))
                         }
                     }
                 }
@@ -129,6 +194,11 @@ class DownloadRepository @Inject constructor(
                     update(latest)
                     workDir.mkdirs()
                     val pfd = storage.openParcelFileDescriptorForMuxer(videoFile)
+                    var speedLastAtMs = System.currentTimeMillis()
+                    var speedLastBytes = 0L
+                    var speedEwma: Long? = null
+                    var downloadsComplete = false
+                    val stateMutex = kotlinx.coroutines.sync.Mutex()
                     try {
                         HlsDownloadEngine(client).download(
                             videoPlaylistUrl = request.streamUrl,
@@ -137,16 +207,42 @@ class DownloadRepository @Inject constructor(
                             workDir = workDir,
                             outputFd = pfd.fileDescriptor,
                             onProgress = { progress ->
-                                val pct = if (progress.segmentsTotal > 0) (progress.segmentsDone * 100 / progress.segmentsTotal) else 0
-                                latest = entity.copy(status = DownloadStatus.DOWNLOADING, progressPercent = pct)
-                                update(latest)
-                                onProgress(DownloadProgressInfo(DownloadStatus.DOWNLOADING, pct, progress.bytesReceived, progress.estimatedTotalBytes))
+                                stateMutex.withLock {
+                                    val pct = if (progress.segmentsTotal > 0) (progress.segmentsDone * 100 / progress.segmentsTotal) else 0
+                                    val now = System.currentTimeMillis()
+                                    val deltaMs = now - speedLastAtMs
+                                    if (deltaMs > 0) {
+                                        val instantaneous = (progress.bytesReceived - speedLastBytes) * 1000 / deltaMs
+                                        speedEwma = speedEwma?.let { (it * 3 + instantaneous) / 4 } ?: instantaneous
+                                        speedLastAtMs = now
+                                        speedLastBytes = progress.bytesReceived
+                                    }
+                                    if (progress.segmentsTotal > 0 && progress.segmentsDone >= progress.segmentsTotal) downloadsComplete = true
+                                    latest = latest.copy(
+                                        status = DownloadStatus.DOWNLOADING,
+                                        progressPercent = pct,
+                                        segDone = progress.segmentsDone,
+                                        segTotal = progress.segmentsTotal,
+                                        speedBps = speedEwma,
+                                        bytesDownloaded = progress.bytesReceived,
+                                        estimatedTotalBytes = progress.estimatedTotalBytes,
+                                    )
+                                    update(latest)
+                                    onProgress(DownloadProgressInfo(DownloadStatus.DOWNLOADING, pct, progress.bytesReceived, progress.estimatedTotalBytes, progress.segmentsDone, progress.segmentsTotal, speedEwma))
+                                }
                             },
                             onRemuxProgress = { done, remuxTotal ->
-                                val pct = if (remuxTotal > 0) done * 100 / remuxTotal else 0
-                                latest = entity.copy(status = DownloadStatus.REMUXING, progressPercent = pct)
-                                update(latest)
-                                onProgress(DownloadProgressInfo(DownloadStatus.REMUXING, pct, null, null))
+                                stateMutex.withLock {
+                                    if (downloadsComplete) {
+                                        val pct = if (remuxTotal > 0) done * 100 / remuxTotal else 0
+                                        latest = latest.copy(status = DownloadStatus.REMUXING, progressPercent = pct, remuxDone = done, remuxTotal = remuxTotal)
+                                        update(latest)
+                                        onProgress(DownloadProgressInfo(DownloadStatus.REMUXING, pct, null, null))
+                                    } else {
+                                        latest = latest.copy(remuxDone = done, remuxTotal = remuxTotal)
+                                        update(latest)
+                                    }
+                                }
                             },
                         )
                     } finally {
@@ -204,16 +300,18 @@ class DownloadRepository @Inject constructor(
                 )
             }
         } catch (ce: CancellationException) {
-            if (DownloadControl.consumePauseRequested(downloadId)) {
-                Log.i(TAG, "Download $downloadId paused at ${latest.progressPercent}% — segment cache and destination file kept for resume")
-                update(latest.copy(status = DownloadStatus.PAUSED))
-            } else {
-                Log.i(TAG, "Download $downloadId cancelled — cleaning up")
-                fileCache.remove(downloadId)
-                workDir.deleteRecursively()
-                videoFile?.let { runCatching { storage.delete(it); storage.deleteEmptyFolder(it.displayPath) } }
-                subtitleFiles.forEach { (_, dest) -> runCatching { storage.delete(dest) } }
-                downloadDao.delete(entity)
+            withContext(NonCancellable) {
+                if (DownloadControl.consumePauseRequested(downloadId)) {
+                    Log.i(TAG, "Download $downloadId paused at ${latest.progressPercent}% — segment cache and destination file kept for resume")
+                    update(latest.copy(status = DownloadStatus.PAUSED))
+                } else {
+                    Log.i(TAG, "Download $downloadId cancelled — cleaning up")
+                    fileCache.remove(downloadId)
+                    workDir.deleteRecursively()
+                    videoFile?.let { runCatching { storage.delete(it); storage.deleteEmptyFolder(it.displayPath) } }
+                    subtitleFiles.forEach { (_, dest) -> runCatching { storage.delete(dest) } }
+                    downloadDao.delete(entity)
+                }
             }
             throw ce
         } catch (t: Throwable) {
