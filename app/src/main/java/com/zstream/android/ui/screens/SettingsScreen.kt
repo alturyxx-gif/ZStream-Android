@@ -134,6 +134,8 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 
+private val DOUBLE_TAP_SEEK_OPTIONS = listOf(5, 10, 15, 20, 30)
+
 private fun parseGroupLabel(group: String): Pair<String, String> {
     val match = Regex("^\\[([A-Za-z0-9_]+)](.*)$").find(group)
     return if (match != null) {
@@ -1311,6 +1313,18 @@ private fun PreferencesSection(
                     onCheckedChange = vm::setEnableDoubleClickToSeek,
                     modifier = Modifier.padding(horizontal = 16.dp),
                 )
+                if (settings.enableDoubleClickToSeek) {
+                    HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
+                    ZsDropdownRow(
+                        title = "Seek Amount",
+                        options = DOUBLE_TAP_SEEK_OPTIONS.map { "$it seconds" },
+                        selected = "${settings.doubleTapSeekSeconds} seconds",
+                        onSelect = { option ->
+                            option.substringBefore(" ").toIntOrNull()?.let(vm::setDoubleTapSeekSeconds)
+                        },
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                    )
+                }
             }
         }
 

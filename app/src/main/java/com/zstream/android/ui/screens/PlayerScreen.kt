@@ -38,6 +38,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -67,6 +68,8 @@ import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.LiveTv
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material.icons.filled.Schedule
@@ -2555,6 +2558,9 @@ private fun PlayerControls(
     var showSkipSubmissionDialog by remember { mutableStateOf(false) }
     var skipSubmissionSeed by remember { mutableStateOf<SkipSegment?>(null) }
     val enableDoubleTapToSeek = settings.enableDoubleClickToSeek
+    val doubleTapSeekSeconds = settings.doubleTapSeekSeconds
+    var isLocked by remember { mutableStateOf(false) }
+    var showLockHint by remember { mutableStateOf(false) }
     var pendingSingleTapJob by remember { mutableStateOf<Job?>(null) }
     var lastTapTimeMs by remember { mutableLongStateOf(0L) }
     var doubleTapSeekDirection by remember { mutableStateOf<DoubleTapSeekDirection?>(null) }
@@ -2724,11 +2730,24 @@ private fun PlayerControls(
         }
     }
 
+    LaunchedEffect(showLockHint) {
+        if (showLockHint) {
+            delay(1500)
+            showLockHint = false
+        }
+    }
+
     Box(modifier = Modifier
         .fillMaxSize()
         .then(
             if (playbackErrorActive) {
                 Modifier
+            } else if (isLocked) {
+                // Locked: the whole surface ignores normal taps/holds/seeks -- only the
+                // persistent lock pill (double-tap) can get back out.
+                Modifier.pointerInput(Unit) {
+                    detectTapGestures(onTap = { showLockHint = true })
+                }
             } else if (isTv) {
                 Modifier.clickable(
                     indication = null,
@@ -2789,10 +2808,11 @@ private fun PlayerControls(
 
                             if (enableDoubleTapToSeek) {
                                 val oneThird = size.width / 3f
+                                val seekAmountMs = doubleTapSeekSeconds * 1000L
                                 when {
                                     release.position.x < oneThird -> {
                                         player.seekTo(
-                                            (player.currentPosition - 10_000L).coerceAtLeast(
+                                            (player.currentPosition - seekAmountMs).coerceAtLeast(
                                                 0L
                                             )
                                         )
@@ -2802,7 +2822,7 @@ private fun PlayerControls(
 
                                     release.position.x > oneThird * 2f -> {
                                         player.seekTo(
-                                            (player.currentPosition + 10_000L).coerceAtMost(
+                                            (player.currentPosition + seekAmountMs).coerceAtMost(
                                                 durationMs
                                             )
                                         )
@@ -2866,7 +2886,42 @@ private fun PlayerControls(
             )
         }
 
-        AnimatedVisibility(visible = controlsVisible, enter = fadeIn(), exit = fadeOut()) {
+        if (isLocked) {
+            Row(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(24.dp)
+                    .background(Color.Black.copy(alpha = 0.55f), CircleShape)
+                    .pointerInput(Unit) {
+                        detectTapGestures(
+                            onTap = { showLockHint = true },
+                            onDoubleTap = {
+                                isLocked = false
+                                onControlsVisibilityChanged(true)
+                            },
+                        )
+                    }
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Icon(
+                    Icons.Filled.Lock,
+                    contentDescription = "locked",
+                    tint = Color.White,
+                    modifier = Modifier.size(18.dp),
+                )
+                AnimatedVisibility(visible = showLockHint, enter = fadeIn(), exit = fadeOut()) {
+                    Text(
+                        text = "double tap to unlock",
+                        color = Color.White,
+                        fontSize = 13.sp,
+                    )
+                }
+            }
+        }
+
+        AnimatedVisibility(visible = controlsVisible && !isLocked, enter = fadeIn(), exit = fadeOut()) {
             Box(Modifier.fillMaxSize()) {
 
                 Row(
@@ -3422,6 +3477,18 @@ private fun PlayerControls(
                                     Icons.Filled.ClosedCaption,
                                     null,
                                     tint = Color.White,
+                                    modifier = Modifier.size(BOTTOM_BAR_MENU_ICON_SIZE)
+                                )
+                            }
+                            IconButton(onClick = {
+                                isLocked = true
+                                showLockHint = true
+                                onControlsVisibilityChanged(false)
+                            }, modifier = Modifier.size(BOTTOM_BAR_MENU_BUTTON_SIZE)) {
+                                Icon(
+                                    Icons.Filled.LockOpen,
+                                    contentDescription = "lock controls",
+                                    tint = theme.colors.type.emphasis,
                                     modifier = Modifier.size(BOTTOM_BAR_MENU_ICON_SIZE)
                                 )
                             }
