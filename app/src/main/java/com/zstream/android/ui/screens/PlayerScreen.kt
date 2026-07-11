@@ -1561,7 +1561,6 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                             },
                             onReload = vm::reloadCurrentSource,
                             tryNextSourceFocusRequester = tryNextSourceFocusRequester,
-<<<<<<< HEAD
                             sourcesFocusRequester = sourcesFocusRequester,
                             variantsFocusRequester = variantsFocusRequester,
                             hasVariants = s.variants.isNotEmpty(),
@@ -1570,8 +1569,6 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                                 onMenuPageChange(PlayerMenuPage.Variants)
                                 updateActivity()
                             },
-=======
->>>>>>> 97147e1 (Fix more focus bugs on TV)
                             modifier = Modifier.fillMaxSize()
                         )
                     }
@@ -6937,13 +6934,10 @@ private fun PlaybackErrorOverlay(
     onReload: () -> Unit,
     modifier: Modifier = Modifier,
     tryNextSourceFocusRequester: FocusRequester? = null,
-<<<<<<< HEAD
     sourcesFocusRequester: FocusRequester? = null,
     variantsFocusRequester: FocusRequester? = null,
     hasVariants: Boolean = false,
     onOpenVariants: (() -> Unit)? = null,
-=======
->>>>>>> 97147e1 (Fix more focus bugs on TV)
 ) {
     val theme = LocalZStreamTheme.current
     val isTv = LocalIsTv.current
@@ -7019,7 +7013,6 @@ private fun PlaybackErrorOverlay(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-<<<<<<< HEAD
                     var tryNextFocused by remember { mutableStateOf(false) }
                     ZsOutlinedWrapper(visible = isTv && tryNextFocused, shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f)) {
                         Button(
@@ -7034,18 +7027,6 @@ private fun PlaybackErrorOverlay(
                         ) {
                             Text("Try next source")
                         }
-=======
-                    Button(
-                        onClick = onTryNextSource,
-                        modifier = Modifier
-                            .weight(1f)
-                            .then(
-                                if (tryNextSourceFocusRequester != null) Modifier.focusRequester(tryNextSourceFocusRequester) else Modifier
-                            ),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Text("Try next source")
->>>>>>> 97147e1 (Fix more focus bugs on TV)
                     }
                     var sourcesFocused by remember { mutableStateOf(false) }
                     ZsOutlinedWrapper(visible = isTv && sourcesFocused, shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f)) {
