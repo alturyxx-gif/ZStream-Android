@@ -2081,6 +2081,7 @@ fun LocalPlayerScreen(nav: NavController, vm: LocalPlayerViewModel = hiltViewMod
     val tvDetail by vm.tvDetail.collectAsState()
     val currentSeasonDetail by vm.currentSeasonDetail.collectAsState()
     val downloadedEpisodesForShow by vm.downloadedEpisodes.collectAsState()
+    val pendingDownloads by vm.pendingDownloads.collectAsState()
     val context = LocalContext.current
     val activity = LocalActivity.current
     val scope = rememberCoroutineScope()
@@ -2385,6 +2386,8 @@ fun LocalPlayerScreen(nav: NavController, vm: LocalPlayerViewModel = hiltViewMod
                     onSwitchEpisode = { s, e ->
                         downloadedEpisodesForShow["$s|$e"]?.let { entity -> nav.navigate("localPlayer/${entity.id}") }
                     },
+                    onDownloadEpisode = vm::downloadEpisode,
+                    pendingDownloads = pendingDownloads,
                     poster = ready.posterPath?.let { Urls.TMDB_IMAGE + "w500${if (it.startsWith("/")) it else "/$it"}" },
                     nav = nav,
                     tvDetail = tvDetail,
@@ -2590,6 +2593,8 @@ private fun PlayerControls(
     currentEpisode: Int?,
     onLoadSeason: (Int) -> Unit,
     onSwitchEpisode: (Int, Int) -> Unit,
+    onDownloadEpisode: (com.zstream.android.data.model.Episode) -> Unit = {},
+    pendingDownloads: Set<String> = emptySet(),
     poster: String?,
     nav: NavController,
     tvDetail: com.zstream.android.data.model.TvDetail?,
@@ -3945,6 +3950,8 @@ private fun PlayerControls(
                         onSetOverrideCasing = onSetOverrideCasing,
                         localFileInfo = localFileInfo,
                         downloadedEpisodesForShow = downloadedEpisodesForShow,
+                        onDownloadEpisode = onDownloadEpisode,
+                        pendingDownloads = pendingDownloads,
                     )
                 }
             }
@@ -4548,6 +4555,8 @@ private fun PlayerMenuContent(
     currentSeasonDetail: com.zstream.android.data.model.Season?,
     localFileInfo: LocalFileInfo? = null,
     downloadedEpisodesForShow: Map<String, com.zstream.android.data.local.entity.DownloadEntity> = emptyMap(),
+    onDownloadEpisode: (com.zstream.android.data.model.Episode) -> Unit = {},
+    pendingDownloads: Set<String> = emptySet(),
 ) {
     val theme = LocalZStreamTheme.current
     val isTv = LocalIsTv.current
@@ -5888,6 +5897,8 @@ private fun PlayerMenuContent(
                                         onSwitchEpisode(ep.seasonNumber, ep.episodeNumber)
                                     },
                                     downloadEntry = downloadedEpisodesForShow["${ep.seasonNumber}|${ep.episodeNumber}"],
+                                    onDownloadEpisode = { onDownloadEpisode(ep) },
+                                    isDownloadPending = "${ep.seasonNumber}|${ep.episodeNumber}" in pendingDownloads,
                                     isOffline = localFileInfo != null,
                                     compact = true,
                                     horizontalPadding = 0.dp,
