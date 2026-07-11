@@ -7,13 +7,14 @@ import androidx.credentials.GetCredentialRequest
 import androidx.credentials.GetPublicKeyCredentialOption
 import androidx.credentials.PublicKeyCredential
 import org.bouncycastle.crypto.params.Ed25519PrivateKeyParameters
+import org.bouncycastle.crypto.params.KeyParameter
+import org.bouncycastle.crypto.digests.SHA256Digest
+import org.bouncycastle.crypto.generators.PKCS5S2ParametersGenerator
 import org.bouncycastle.crypto.signers.Ed25519Signer
 import org.json.JSONArray
 import org.json.JSONObject
 import java.security.SecureRandom
 import java.security.MessageDigest
-import javax.crypto.SecretKeyFactory
-import javax.crypto.spec.PBEKeySpec
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
 
@@ -24,8 +25,9 @@ object CryptoUtils {
 
     /** PBKDF2-SHA256, 2048 iterations, 32 bytes — mirrors p-stream's seedFromMnemonic */
     fun pbkdf2(passphrase: String, salt: String = "mnemonic"): ByteArray {
-        val spec = PBEKeySpec(passphrase.toCharArray(), salt.toByteArray(), 2048, 256)
-        return SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(spec).encoded
+        val generator = PKCS5S2ParametersGenerator(SHA256Digest())
+        generator.init(passphrase.toByteArray(Charsets.UTF_8), salt.toByteArray(Charsets.UTF_8), 2048)
+        return (generator.generateDerivedParameters(256) as KeyParameter).key
     }
 
     fun keysFromSeed(seed: ByteArray): Ed25519Keys {
