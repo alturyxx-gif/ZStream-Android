@@ -13,6 +13,18 @@
 # Gson model classes — keep fields so Gson can deserialize by name
 -keep class com.zstream.android.data.model.** { *; }
 -keep class com.zstream.android.data.remote.** { *; }
+-keep class com.zstream.android.data.local.entity.** { *; }
+-keep class com.zstream.android.data.SavedProfile { *; }
+-keep class com.zstream.android.data.PairedTv { *; }
+-keep class com.zstream.android.data.PairedPhoneSession { *; }
+-keep class com.zstream.android.data.TraktSessionExport { *; }
+-keep class com.zstream.android.data.TraktRepository$DeviceAuthorization { *; }
+-keep class com.zstream.android.data.TraktRepository$TokenResponse { *; }
+-keep class com.zstream.android.data.adb.SavedTv { *; }
+-keep class com.zstream.android.plugin.PluginMetadata { *; }
+-keep class com.zstream.android.plugin.Caption { *; }
+-keep class com.zstream.android.ui.screens.WyzieSubtitleEntry { *; }
+-keepattributes Signature,*Annotation*
 -keepclassmembers,allowobfuscation class * {
     @com.google.gson.annotations.SerializedName <fields>;
 }
