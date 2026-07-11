@@ -60,6 +60,7 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var watchPartyManager: WatchPartyManager
     @Inject lateinit var releaseUpdateManager: ReleaseUpdateManager
     @Inject lateinit var pluginManager: PluginManager
+    @Inject lateinit var tvSyncRepository: com.zstream.android.data.TvSyncRepository
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -122,6 +123,7 @@ class MainActivity : ComponentActivity() {
                         AppBehaviorEffect(navController, isTv)
                         WatchPartyGlobalEffect(navController, watchPartyManager)
                         OpenDownloadsGlobalEffect(navController)
+                        TvCastGlobalEffect(navController, tvSyncRepository, isTv)
 
                         CompositionLocalProvider(
                             LocalMediaCard provides mediaCard,
@@ -214,6 +216,46 @@ fun WatchPartyGlobalEffect(navController: NavController, manager: WatchPartyMana
     }
 }
 
+
+/**
+ * TV-only: keeps the pairing receiver listening for as long as the TV app is open (not just while
+ * the "Sync from phone" screen is visible), and reacts to an incoming cast command by stopping
+ * whatever is currently playing and clearing the back stack down to Home before opening the new
+ * content -- so pressing back from the cast player lands on Home, not on whatever was playing before.
+ */
+@Composable
+fun TvCastGlobalEffect(
+    navController: NavController,
+    tvSyncRepository: com.zstream.android.data.TvSyncRepository,
+    isTv: Boolean,
+) {
+    LaunchedEffect(isTv) {
+        if (!isTv) return@LaunchedEffect
+        if (!tvSyncRepository.receiverState.value.active) tvSyncRepository.startReceiver()
+    }
+    LaunchedEffect(isTv, tvSyncRepository) {
+        if (!isTv) return@LaunchedEffect
+        tvSyncRepository.pendingCast.collect { pending ->
+            val cast = pending ?: return@collect
+            tvSyncRepository.consumeCast()
+            val encodedTitle = Uri.encode(cast.title)
+            val encodedPoster = Uri.encode(cast.poster ?: "")
+            val season = cast.season ?: -1
+            val episode = cast.episode ?: -1
+            val sId = cast.seasonId ?: ""
+            val eId = cast.episodeId ?: ""
+            val encodedSourceId = Uri.encode(cast.sourceId)
+            val encodedVariantId = Uri.encode(cast.variantId ?: "")
+            navController.navigate(
+                "player/${cast.mediaType}/${cast.tmdbId}?season=$season&episode=$episode&seasonId=$sId&episodeId=$eId" +
+                    "&title=$encodedTitle&year=${cast.year}&poster=$encodedPoster" +
+                    "&castSourceId=$encodedSourceId&castVariantId=$encodedVariantId&castProgressSec=${cast.progressSec}"
+            ) {
+                popUpTo("home")
+            }
+        }
+    }
+}
 
 @Composable
 fun OpenDownloadsGlobalEffect(navController: NavController) {

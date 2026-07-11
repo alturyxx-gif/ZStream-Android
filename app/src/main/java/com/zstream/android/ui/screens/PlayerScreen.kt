@@ -55,6 +55,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Cast
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.ClosedCaption
@@ -953,6 +954,13 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                 // Snapshot initial progress once; playback must not mutate it behind the decision dialog.
                 LaunchedEffect(Unit) {
                     delay(100)
+                    val castResume = vm.castResumeSec
+                    if (castResume != null) {
+                        // Cast launches already carry an explicit resume point from the sender --
+                        // seek straight there, skip the resume-confirmation dialog entirely.
+                        pendingResumeMs = castResume * 1000
+                        return@LaunchedEffect
+                    }
                     val found = progressList.firstOrNull(matchesCurrentMedia)
                     val w = found?.watched?.toLong() ?: 0L
                     val d = found?.duration?.toLong() ?: 0L
@@ -1709,6 +1717,22 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     onToggleBookmark = {
                         vm.toggleBookmark()
                         updateActivity()
+                    },
+                    onCast = {
+                        if (!vm.hasPairedTv()) {
+                            Toast.makeText(context, "No TV paired — pair one first", Toast.LENGTH_SHORT).show()
+                            nav.navigate("tvSync")
+                        } else {
+                            val positionSec = currentPositionMs / 1000
+                            vm.castToTv(positionSec) { result ->
+                                result.onSuccess {
+                                    player.pause()
+                                    Toast.makeText(context, "Casting to TV", Toast.LENGTH_SHORT).show()
+                                }.onFailure {
+                                    Toast.makeText(context, it.message ?: "Cast failed", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        }
                     },
                     controlsVisible = controlsVisible,
                     onControlsVisibilityChanged = { 
@@ -2555,6 +2579,7 @@ private fun PlayerControls(
     pauseMetadata: PauseMetadata?,
     localFileInfo: LocalFileInfo? = null,
     downloadedEpisodesForShow: Map<String, com.zstream.android.data.local.entity.DownloadEntity> = emptyMap(),
+    onCast: (() -> Unit)? = null,
 ) {
     val menuOpen = menuPage != null
     val playbackErrorActive = readyState.playbackFailure != null
@@ -3029,6 +3054,16 @@ private fun PlayerControls(
                                 }
                             else Modifier,
                         )
+                        if (onCast != null && !isTv) {
+                            ZsIconButton(
+                                onClick = onCast,
+                                icon = Icons.Default.Cast,
+                                contentDescription = "Cast to TV",
+                                variant = ZsIconButtonVariant.Ghost,
+                                containerSize = TOP_BAR_BUTTON_SIZE,
+                                iconSize = TOP_BAR_ICON_SIZE,
+                            )
+                        }
                     }
                 }
 

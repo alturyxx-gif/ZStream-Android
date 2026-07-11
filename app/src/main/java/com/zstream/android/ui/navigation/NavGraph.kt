@@ -30,7 +30,7 @@ fun NavGraph(nav: NavHostController) {
             )
         ) { DetailScreen(nav) }
         composable(
-            "player/{mediaType}/{id}?season={season}&episode={episode}&seasonId={seasonId}&episodeId={episodeId}&title={title}&year={year}&poster={poster}&autoplay={autoplay}",
+            "player/{mediaType}/{id}?season={season}&episode={episode}&seasonId={seasonId}&episodeId={episodeId}&title={title}&year={year}&poster={poster}&autoplay={autoplay}&castSourceId={castSourceId}&castVariantId={castVariantId}&castProgressSec={castProgressSec}",
             arguments = listOf(
                 navArgument("mediaType") { type = NavType.StringType },
                 navArgument("id") { type = NavType.IntType },
@@ -42,6 +42,12 @@ fun NavGraph(nav: NavHostController) {
                 navArgument("year") { type = NavType.IntType; defaultValue = 0 },
                 navArgument("poster") { type = NavType.StringType; defaultValue = "" },
                 navArgument("autoplay") { type = NavType.BoolType; defaultValue = false },
+                // Populated only when this screen was opened by an incoming TV cast command (see
+                // TvCastGlobalEffect) -- tells PlayerViewModel to resolve this exact source/variant
+                // directly instead of trying every source in order, and to resume at this progress.
+                navArgument("castSourceId") { type = NavType.StringType; defaultValue = "" },
+                navArgument("castVariantId") { type = NavType.StringType; defaultValue = "" },
+                navArgument("castProgressSec") { type = NavType.LongType; defaultValue = 0L },
             )
         ) { PlayerScreen(nav) }
         dialog(
