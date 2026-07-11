@@ -23,6 +23,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
@@ -430,6 +431,17 @@ private fun TvManageScreen(
                 buttonModifier = Modifier.fillMaxWidth(),
             )
         }
+        ZsIconButton(
+            onClick = { nav.navigate("tvInstaller") },
+            icon = Icons.Default.Add,
+            contentDescription = "Install ZStream on TV",
+            containerSize = 56.dp,
+            iconSize = 28.dp,
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .navigationBarsPadding()
+                .padding(24.dp),
+        )
     }
 }
 
