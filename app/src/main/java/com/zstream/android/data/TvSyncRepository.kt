@@ -23,6 +23,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -110,6 +112,26 @@ data class TvSyncReceiverState(
     val pendingToken: String? = null,
 )
 
+/**
+ * A one-shot "start playing this, right now" command sent from the phone to a paired TV.
+ * Carries the exact source/variant already chosen on the phone plus current progress, so the TV
+ * plays immediately instead of re-running its own source search.
+ */
+data class CastPlaybackRequest(
+    val tmdbId: Int,
+    val mediaType: String,
+    val title: String,
+    val year: Int,
+    val poster: String?,
+    val season: Int?,
+    val episode: Int?,
+    val seasonId: String?,
+    val episodeId: String?,
+    val sourceId: String,
+    val variantId: String?,
+    val progressSec: Long,
+)
+
 @Singleton
 class TvSyncRepository @Inject constructor(
     @ApplicationContext private val context: Context,
@@ -125,6 +147,28 @@ class TvSyncRepository @Inject constructor(
     private val _receiverState = MutableStateFlow(TvSyncReceiverState())
     val receiverState: StateFlow<TvSyncReceiverState> = _receiverState.asStateFlow()
 
+    // Sender (phone) side: the last TV this device successfully paired with, kept in memory only
+    // for this process's lifetime — used so a "Cast" button elsewhere in the app (e.g. the player)
+    // doesn't need the user to re-run discovery every time.
+    private val _activeReceiver = MutableStateFlow<TvSyncDiscoveredReceiver?>(null)
+    val activeReceiver: StateFlow<TvSyncDiscoveredReceiver?> = _activeReceiver.asStateFlow()
+
+    // Receiver (TV) side: a cast command that just arrived and hasn't been consumed by the
+    // navigation observer yet.
+    private val _pendingCast = MutableStateFlow<CastPlaybackRequest?>(null)
+    val pendingCast: StateFlow<CastPlaybackRequest?> = _pendingCast.asStateFlow()
+
+    fun consumeCast(): CastPlaybackRequest? {
+        val request = _pendingCast.value
+        _pendingCast.value = null
+        return request
+    }
+
+    // Guards startReceiver() against concurrent callers (e.g. the app-level auto-start effect and
+    // the "Sync from phone" screen's own start-if-not-active effect both firing around app launch) --
+    // without this, both could race stopReceiver()/socket-creation and leave the UI showing a
+    // pairing code for a socket the other caller already closed.
+    private val receiverStartMutex = Mutex()
     private var serverSocket: ServerSocket? = null
     private var registrationListener: NsdManager.RegistrationListener? = null
     private var currentCode: String? = null
@@ -144,7 +188,12 @@ class TvSyncRepository @Inject constructor(
         _receiverState.value = _receiverState.value.copy(tvName = name.trim().ifBlank { "ZStream TV" })
     }
 
-    suspend fun startReceiver(tvName: String? = null) {
+    suspend fun startReceiver(tvName: String? = null) = receiverStartMutex.withLock {
+        if (_receiverState.value.active && tvName == null) {
+            // Already listening and no explicit rename requested -- treat as a no-op instead of
+            // rotating the code/port out from under a receiver screen that's about to display it.
+            return@withLock
+        }
         stopReceiver()
         val socket = ServerSocket(0)
         serverSocket = socket
@@ -272,7 +321,7 @@ class TvSyncRepository @Inject constructor(
         }
     }
 
-    suspend fun pair(host: String, port: Int, code: String, salt: String, sessionId: String, phoneName: String): String = withContext(Dispatchers.IO) {
+    suspend fun pair(host: String, port: Int, code: String, salt: String, sessionId: String, phoneName: String, tvName: String = "TV"): String = withContext(Dispatchers.IO) {
         Log.d(tag, "pair host=$host port=$port codeLength=${code.length} sessionId=$sessionId phoneName=$phoneName")
         val secret = deriveSecret(code, salt)
         val proof = CryptoUtils.encryptData("pair:$sessionId", secret)
@@ -290,7 +339,31 @@ class TvSyncRepository @Inject constructor(
             val token = JSONObject(raw).getString("token")
             sessionIds["$host:$port"] = token
             pairedSecrets["$host:$port"] = secret
+            _activeReceiver.value = TvSyncDiscoveredReceiver(serviceName = tvName, host = host, port = port, tvName = tvName)
             token
+        }
+    }
+
+    /** True if this phone still holds a live pairing session with the given TV (in-memory only, this process). */
+    fun isPairedWith(host: String, port: Int): Boolean =
+        sessionIds.containsKey("$host:$port") && pairedSecrets.containsKey("$host:$port")
+
+    suspend fun sendCast(host: String, port: Int, request: CastPlaybackRequest) = withContext(Dispatchers.IO) {
+        val key = "$host:$port"
+        val secret = pairedSecrets[key] ?: error("Pair with the TV first")
+        val token = sessionIds[key] ?: error("Pair with the TV first")
+        Log.d(tag, "sendCast host=$host port=$port tmdbId=${request.tmdbId} sourceId=${request.sourceId} progressSec=${request.progressSec}")
+        val encryptedPayload = CryptoUtils.encryptData(castRequestToJson(request), secret)
+        val body = JSONObject()
+            .put("token", token)
+            .put("payload", encryptedPayload)
+            .toString()
+            .toRequestBody(JSON.toMediaType())
+        val httpRequest = Request.Builder().url("http://$host:$port/cast").post(body).build()
+        httpClient.newCall(httpRequest).execute().use { response ->
+            val raw = response.body?.string().orEmpty()
+            Log.d(tag, "sendCast response code=${response.code} body=$raw")
+            if (!response.isSuccessful) error(raw.ifBlank { "Cast failed" })
         }
     }
 
@@ -349,8 +422,10 @@ class TvSyncRepository @Inject constructor(
                 else -> "Synced from your phone"
             },
         )
-        pairedSecrets.clear()
-        sessionIds.clear()
+        // Rotate the code shown for *new* pairing attempts, but deliberately leave this token's
+        // entry in pairedSecrets/sessionIds alone -- wiping it here would kill the just-used
+        // pairing session, breaking the paired phone's ability to cast right after syncing (the
+        // whole point of casting is that it's repeatable for as long as the pairing lives).
         currentCode = (100000..999999).random().toString()
         currentSalt = randomToken(16)
         _receiverState.value = _receiverState.value.copy(code = currentCode.orEmpty())
@@ -394,8 +469,8 @@ class TvSyncRepository @Inject constructor(
             pendingToken = null,
             status = "Transfer rejected. Waiting for your phone",
         )
-        pairedSecrets.clear()
-        sessionIds.clear()
+        // Same reasoning as applyPendingPayload: rejecting the key-sync shouldn't kill the pairing
+        // session itself -- the phone should still be able to cast without re-pairing.
         return token
     }
 
@@ -454,6 +529,7 @@ class TvSyncRepository @Inject constructor(
                 requestLine.startsWith("GET /hello") -> respond(writer, 200, helloJson().toString())
                 requestLine.startsWith("POST /pair") -> handlePair(body, writer)
                 requestLine.startsWith("POST /transfer") -> handleTransfer(body, writer)
+                requestLine.startsWith("POST /cast") -> handleCast(body, writer)
                 requestLine.startsWith("GET /status") -> handleStatus(requestLine, writer)
                 else -> respond(writer, 404, """{"error":"Not found"}""")
             }
@@ -496,7 +572,9 @@ class TvSyncRepository @Inject constructor(
         runCatching {
             val json = JSONObject(body)
             val token = json.getString("token")
-            val secret = pairedSecrets.remove(token) ?: error("Pair again")
+            // Peek, don't consume -- unlike the old single-use-token design, the pairing session
+            // now needs to keep working afterward so the same phone can cast without re-pairing.
+            val secret = pairedSecrets[token] ?: error("Pair again")
             val decrypted = CryptoUtils.decryptData(json.getString("payload"), secret)
             val payload = payloadFromJson(decrypted)
             Log.d(tag, "handleTransfer success token=$token summary=${payload.summaryLines()} tvName=${payload.tvName}")
@@ -509,6 +587,25 @@ class TvSyncRepository @Inject constructor(
         }.onFailure {
             Log.w(tag, "handleTransfer failed error=${it.message}", it)
             respond(writer, 400, JSONObject().put("error", it.message ?: "Transfer failed").toString())
+        }
+    }
+
+    private fun handleCast(body: String, writer: OutputStreamWriter) {
+        runCatching {
+            val json = JSONObject(body)
+            val token = json.getString("token")
+            // Unlike handleTransfer's pairedSecrets.remove(token) (one-time API-key transfer),
+            // casting is meant to be repeatable for as long as this pairing session lives, so the
+            // secret is only peeked, never consumed.
+            val secret = pairedSecrets[token] ?: error("Pair again")
+            val decrypted = CryptoUtils.decryptData(json.getString("payload"), secret)
+            val request = castRequestFromJson(decrypted)
+            Log.d(tag, "handleCast success token=$token tmdbId=${request.tmdbId} sourceId=${request.sourceId}")
+            _pendingCast.value = request
+            respond(writer, 200, """{"ok":true}""")
+        }.onFailure {
+            Log.w(tag, "handleCast failed error=${it.message}", it)
+            respond(writer, 400, JSONObject().put("error", it.message ?: "Cast failed").toString())
         }
     }
 
@@ -561,6 +658,39 @@ class TvSyncRepository @Inject constructor(
             traktSession = obj.optString("traktSession").takeIf { it.isNotBlank() }?.let {
                 gson.fromJson(it, TraktSessionExport::class.java)
             },
+        )
+    }
+
+    private fun castRequestToJson(request: CastPlaybackRequest): String = JSONObject().apply {
+        put("tmdbId", request.tmdbId)
+        put("mediaType", request.mediaType)
+        put("title", request.title)
+        put("year", request.year)
+        request.poster?.let { put("poster", it) }
+        request.season?.let { put("season", it) }
+        request.episode?.let { put("episode", it) }
+        request.seasonId?.let { put("seasonId", it) }
+        request.episodeId?.let { put("episodeId", it) }
+        put("sourceId", request.sourceId)
+        request.variantId?.let { put("variantId", it) }
+        put("progressSec", request.progressSec)
+    }.toString()
+
+    private fun castRequestFromJson(json: String): CastPlaybackRequest {
+        val obj = JSONObject(json)
+        return CastPlaybackRequest(
+            tmdbId = obj.getInt("tmdbId"),
+            mediaType = obj.getString("mediaType"),
+            title = obj.optString("title"),
+            year = obj.optInt("year", 0),
+            poster = obj.optString("poster").takeIf { it.isNotBlank() },
+            season = obj.optInt("season", -1).takeIf { it >= 0 },
+            episode = obj.optInt("episode", -1).takeIf { it >= 0 },
+            seasonId = obj.optString("seasonId").takeIf { it.isNotBlank() },
+            episodeId = obj.optString("episodeId").takeIf { it.isNotBlank() },
+            sourceId = obj.getString("sourceId"),
+            variantId = obj.optString("variantId").takeIf { it.isNotBlank() },
+            progressSec = obj.optLong("progressSec", 0L),
         )
     }
 

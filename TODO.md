@@ -1,5 +1,6 @@
 bugs to fix:
 1. playback speed does not persist across sessions (added, not tested)
+2. add ability to choose between playing local file or from online sources
 
 
 features to add:

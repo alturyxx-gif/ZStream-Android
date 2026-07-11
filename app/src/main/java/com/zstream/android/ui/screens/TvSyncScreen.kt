@@ -107,8 +107,8 @@ class TvSyncViewModel @Inject constructor(
     )
     suspend fun discoverReceivers(): List<TvSyncDiscoveredReceiver> = repo.discoverReceivers()
     suspend fun fetchHello(host: String, port: Int) = repo.fetchHello(host, port)
-    suspend fun pair(host: String, port: Int, code: String, salt: String, sessionId: String, phoneName: String) =
-        repo.pair(host, port, code, salt, sessionId, phoneName)
+    suspend fun pair(host: String, port: Int, code: String, salt: String, sessionId: String, phoneName: String, tvName: String) =
+        repo.pair(host, port, code, salt, sessionId, phoneName, tvName)
 
     suspend fun buildPayload(
         tvName: String,
@@ -417,7 +417,7 @@ private fun TvSyncSenderScreen(
                             scope.launch {
                                 loading = true
                                 Log.d(TV_SYNC_UI_TAG, "pair start host=${receiver.host} port=${receiver.port} codeLength=${pairCode.length}")
-                                runCatching { vm.pair(receiver.host, receiver.port, pairCode, pairSalt, pairSessionId, "Android Phone") }
+                                runCatching { vm.pair(receiver.host, receiver.port, pairCode, pairSalt, pairSessionId, "Android Phone", tvName) }
                                     .onSuccess {
                                         Log.d(TV_SYNC_UI_TAG, "pair success host=${receiver.host} port=${receiver.port}")
                                         page = TvSyncPhonePage.INTEGRATIONS
@@ -706,21 +706,20 @@ private fun TvSyncReceiverScreen(
     var applying by remember { mutableStateOf(false) }
 
     fun returnHome() {
-        vm.stopReceiver()
         nav.navigate("home") {
             popUpTo(0) { inclusive = true }
             launchSingleTop = true
         }
     }
 
+    // The receiver is meant to keep listening for as long as the TV app is open (so casting works
+    // without the user having to keep this screen open) -- only start it if it isn't already
+    // running, since re-starting would reset the pairing code/secrets and kick any paired phone.
     LaunchedEffect(Unit) {
-        vm.startReceiver()
+        if (!vm.receiverState.value.active) vm.startReceiver()
     }
 
-    BackHandler {
-        vm.stopReceiver()
-        onBack()
-    }
+    BackHandler { onBack() }
 
     Surface(color = theme.colors.background.main, modifier = Modifier.fillMaxSize()) {
         Column(
@@ -729,10 +728,7 @@ private fun TvSyncReceiverScreen(
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 ZsIconButton(
-                    onClick = {
-                        vm.stopReceiver()
-                        onBack()
-                    },
+                    onClick = onBack,
                     icon = Icons.AutoMirrored.Filled.ArrowBack,
                     contentDescription = "Back",
                     variant = ZsIconButtonVariant.Ghost,

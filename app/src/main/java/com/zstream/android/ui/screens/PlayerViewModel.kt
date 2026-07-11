@@ -259,6 +259,7 @@ class PlayerViewModel @OptIn(UnstableApi::class)
     val watchPartyManager: WatchPartyManager,
     private val downloadRepository: com.zstream.android.download.DownloadRepository,
     private val skipSegmentRepository: com.zstream.android.data.SkipSegmentRepository,
+    private val tvSyncRepository: com.zstream.android.data.TvSyncRepository,
     @dagger.hilt.android.qualifiers.ApplicationContext private val appContext: android.content.Context,
     savedState: SavedStateHandle,
 ) : ViewModel() {
@@ -280,6 +281,14 @@ class PlayerViewModel @OptIn(UnstableApi::class)
     var episodeId = savedState.get<String>("episodeId")
         private set
     val isAutoplay = savedState.get<Boolean>("autoplay") ?: false
+
+    // Populated only when this player was opened via an incoming TV cast command (see
+    // TvCastGlobalEffect / NavGraph) -- tells load() to resolve this exact source/variant directly
+    // instead of trying every source in order, so a cast TV starts playing immediately.
+    private val castSourceId = savedState.get<String>("castSourceId")?.takeIf { it.isNotBlank() }
+    private val castVariantId = savedState.get<String>("castVariantId")?.takeIf { it.isNotBlank() }
+    /** Progress (seconds) to resume at, from the casting phone. Non-null only for a cast launch. */
+    val castResumeSec = savedState.get<Long>("castProgressSec")?.takeIf { castSourceId != null && it > 0 }
 
     private val _state = MutableStateFlow<PlayerState>(PlayerState.Idle)
     val state = _state.asStateFlow()
@@ -629,7 +638,7 @@ class PlayerViewModel @OptIn(UnstableApi::class)
         }
     }
 
-    fun load() = loadInternal()
+    fun load() = loadInternal(selectedSourceId = castSourceId, preferredVariantId = castVariantId)
 
     private fun loadInternal(
         selectedSourceId: String? = null,
@@ -1299,6 +1308,42 @@ class PlayerViewModel @OptIn(UnstableApi::class)
 
     fun setEnableAutoplay(enabled: Boolean) {
         viewModelScope.launch { settingsPrefs.setEnableAutoplay(enabled) }
+    }
+
+    /** True if a TV is currently paired (in-memory session), so casting is possible right now. */
+    fun hasPairedTv(): Boolean = tvSyncRepository.activeReceiver.value != null
+
+    /**
+     * Sends the currently-playing source/variant/progress to the paired TV so it can start playing
+     * immediately, without having to search through sources itself.
+     */
+    fun castToTv(currentPositionSec: Long, onResult: (Result<Unit>) -> Unit) {
+        val ready = _state.value as? PlayerState.Ready
+        val sourceId = ready?.sourceId
+        val receiver = tvSyncRepository.activeReceiver.value
+        if (receiver == null || sourceId == null) {
+            onResult(Result.failure(IllegalStateException("No TV paired")))
+            return
+        }
+        val variantId = ready.variants.find { it.streamUrl == ready.streamUrl }?.id
+        val request = com.zstream.android.data.CastPlaybackRequest(
+            tmdbId = id,
+            mediaType = mediaType,
+            title = title,
+            year = year,
+            poster = poster,
+            season = season,
+            episode = episode,
+            seasonId = seasonId,
+            episodeId = episodeId,
+            sourceId = sourceId,
+            variantId = variantId,
+            progressSec = currentPositionSec,
+        )
+        viewModelScope.launch {
+            val result = runCatching { tvSyncRepository.sendCast(receiver.host, receiver.port, request) }
+            onResult(result)
+        }
     }
 
     fun setVideoBrightness(value: Int) {
