@@ -242,6 +242,10 @@ data class PauseMetadata(
 
 data class SubtitleCue(val startMs: Long, val endMs: Long, val text: String)
 
+internal fun vttCueBlocks(body: String): List<String> =
+    body.replace(Regex("(\n)(?=\\d{1,2}:\\d{2}(?::\\d{2})?\\.\\d{1,3}\\s*-->)"), "\n\n")
+        .split(Regex("\n\\s*\n"))
+
 data class AutoplayEpisodeTarget(
     val seasonNumber: Int,
     val episodeNumber: Int,
@@ -1567,7 +1571,9 @@ class PlayerViewModel @OptIn(UnstableApi::class)
         val body = text.substringAfter("WEBVTT")
             .substringAfter("\n")
             .trim()
-        val blocks = body.split(Regex("\n\\s*\n"))
+        // Granite's VTT files omit blank lines between cues. Split on each timestamp as well
+        // so all captions do not become one long cue.
+        val blocks = vttCueBlocks(body)
         val cues = mutableListOf<SubtitleCue>()
         val timeRegex = Regex(
             """(\d{1,2}):(\d{2}):(\d{2})[.](\d{1,3})\s*-->\s*(\d{1,2}):(\d{2}):(\d{2})[.](\d{1,3})"""
@@ -1590,12 +1596,12 @@ class PlayerViewModel @OptIn(UnstableApi::class)
             } else {
                 timeToMs(0, timeMatch.groupValues[1].toInt(), timeMatch.groupValues[2].toInt(), timeMatch.groupValues[3].toInt())
             }
-            val endMs = if (timeMatch.groupValues.size >= 17) {
+            val endMs = if (timeMatch.groupValues.size >= 9) {
                 timeToMs(
-                    timeMatch.groupValues[9].toInt(),
-                    timeMatch.groupValues[10].toInt(),
-                    timeMatch.groupValues[11].toInt(),
-                    timeMatch.groupValues[12].toInt()
+                    timeMatch.groupValues[5].toInt(),
+                    timeMatch.groupValues[6].toInt(),
+                    timeMatch.groupValues[7].toInt(),
+                    timeMatch.groupValues[8].toInt()
                 )
             } else {
                 timeToMs(0, timeMatch.groupValues[4].toInt(), timeMatch.groupValues[5].toInt(), timeMatch.groupValues[6].toInt())
