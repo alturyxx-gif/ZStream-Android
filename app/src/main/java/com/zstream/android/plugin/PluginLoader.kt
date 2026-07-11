@@ -6,10 +6,12 @@ import android.os.Build
 import android.util.Log
 import com.zstream.android.BuildConfig
 import dagger.hilt.android.qualifiers.ApplicationContext
+import okhttp3.CacheControl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
 import java.security.MessageDigest
+import java.util.jar.JarFile
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -78,21 +80,33 @@ class PluginLoader @Inject constructor(
         tmp.delete()
 
         try {
-            val request = Request.Builder().url(url).build()
+            val request = Request.Builder()
+                .url(url)
+                .cacheControl(CacheControl.Builder().noCache().noStore().build())
+                .build()
             val response = httpClient.newCall(request).execute()
-            val body = response.body ?: throw IllegalStateException("Empty response body")
+            if (!response.isSuccessful) {
+                response.close()
+                throw IllegalStateException("Plugin download failed: HTTP ${response.code}")
+            }
+            val body = response.body ?: run {
+                response.close()
+                throw IllegalStateException("Empty response body")
+            }
 
-            val totalBytes = body.contentLength().takeIf { it > 0 }
-            var bytesRead = 0L
-            tmp.outputStream().use { out ->
-                body.byteStream().use { input ->
-                    val buf = ByteArray(8192)
-                    var n: Int
-                    while (input.read(buf).also { n = it } != -1) {
-                        out.write(buf, 0, n)
-                        bytesRead += n
-                        if (totalBytes != null) {
-                            onProgress((bytesRead.toFloat() / totalBytes).coerceIn(0f, 0.99f))
+            response.use {
+                val totalBytes = body.contentLength().takeIf { it > 0 }
+                var bytesRead = 0L
+                tmp.outputStream().use { out ->
+                    body.byteStream().use { input ->
+                        val buf = ByteArray(8192)
+                        var n: Int
+                        while (input.read(buf).also { n = it } != -1) {
+                            out.write(buf, 0, n)
+                            bytesRead += n
+                            if (totalBytes != null) {
+                                onProgress((bytesRead.toFloat() / totalBytes).coerceIn(0f, 0.99f))
+                            }
                         }
                     }
                 }
@@ -141,29 +155,12 @@ class PluginLoader @Inject constructor(
 
     /**
      * Returns true if the APK at [file] is signed by the pinned certificate.
-     * Uses PackageManager to extract the signing certificate from the archive.
      */
     fun verifySignature(file: File): Boolean {
         // ponytail: skip cert pin in debug builds — replace PINNED_CERT_SHA256 before release
         if (BuildConfig.DEBUG) return true
         return try {
-            val pm = context.packageManager
-            val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                PackageManager.GET_SIGNING_CERTIFICATES
-            } else {
-                @Suppress("DEPRECATION")
-                PackageManager.GET_SIGNATURES
-            }
-            val info = pm.getPackageArchiveInfo(file.absolutePath, flags)
-                ?: run { Log.w(TAG, "getPackageArchiveInfo returned null"); return false }
-
-            val certs: Array<ByteArray> = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                info.signingInfo?.apkContentsSigners?.map { it.toByteArray() }?.toTypedArray()
-                    ?: emptyArray()
-            } else {
-                @Suppress("DEPRECATION")
-                info.signatures?.map { it.toByteArray() }?.toTypedArray() ?: emptyArray()
-            }
+            val certs = packageManagerCerts(file).ifEmpty { jarCerts(file) }
 
             if (certs.isEmpty()) {
                 Log.w(TAG, "No signing certificates found in plugin APK")
@@ -181,6 +178,48 @@ class PluginLoader @Inject constructor(
         } catch (e: Exception) {
             Log.e(TAG, "Signature verification failed: ${e.message}", e)
             false
+        }
+    }
+
+    private fun packageManagerCerts(file: File): Array<ByteArray> {
+        return try {
+            val pm = context.packageManager
+            val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                PackageManager.GET_SIGNING_CERTIFICATES
+            } else {
+                @Suppress("DEPRECATION")
+                PackageManager.GET_SIGNATURES
+            }
+            val info = pm.getPackageArchiveInfo(file.absolutePath, flags)
+                ?: run { Log.w(TAG, "getPackageArchiveInfo returned null"); return emptyArray() }
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                info.signingInfo?.apkContentsSigners?.map { it.toByteArray() }?.toTypedArray()
+                    ?: emptyArray()
+            } else {
+                @Suppress("DEPRECATION")
+                info.signatures?.map { it.toByteArray() }?.toTypedArray() ?: emptyArray()
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "PackageManager signature read failed: ${e.message}")
+            emptyArray()
+        }
+    }
+
+    private fun jarCerts(file: File): Array<ByteArray> {
+        return JarFile(file, true).use { jar ->
+            val buffer = ByteArray(8192)
+            val entries = jar.entries()
+            while (entries.hasMoreElements()) {
+                val entry = entries.nextElement()
+                if (entry.isDirectory || entry.name.startsWith("META-INF/")) continue
+                jar.getInputStream(entry).use { input ->
+                    while (input.read(buffer) != -1) Unit
+                }
+                val certs = entry.certificates ?: continue
+                return certs.map { it.encoded }.toTypedArray()
+            }
+            emptyArray()
         }
     }
 

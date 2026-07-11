@@ -34,7 +34,7 @@ class PluginUpdateChecker @Inject constructor(
     fun fetchManifest(): PluginManifest {
         val request = Request.Builder()
             .url(PluginConstants.MANIFEST_URL)
-            .cacheControl(CacheControl.Builder().noCache().build())
+            .cacheControl(CacheControl.Builder().noCache().noStore().build())
             .build()
 
         val response = httpClient.newCall(request).execute()
