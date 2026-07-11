@@ -28,7 +28,22 @@ interface TmdbApi {
     ): TvDetail
     @GET("tv/{id}/season/{season}") suspend fun season(@Path("id") id: Int, @Path("season") season: Int): Season
     @GET("collection/{id}") suspend fun collection(@Path("id") id: Int): CollectionDetails
+    @GET("movie/{id}/release_dates") suspend fun movieReleaseDates(@Path("id") id: Int): ReleaseDatesResponse
+    @GET("tv/{id}/content_ratings") suspend fun tvContentRatings(@Path("id") id: Int): ContentRatingsResponse
 }
+
+data class ReleaseDatesResponse(val results: List<ReleaseDatesCountry> = emptyList())
+data class ReleaseDatesCountry(
+    @SerializedName("iso_3166_1") val country: String,
+    @SerializedName("release_dates") val releaseDates: List<ReleaseDateEntry> = emptyList(),
+)
+data class ReleaseDateEntry(val certification: String?)
+
+data class ContentRatingsResponse(val results: List<ContentRatingCountry> = emptyList())
+data class ContentRatingCountry(
+    @SerializedName("iso_3166_1") val country: String,
+    val rating: String?,
+)
 
 data class CollectionDetails(
     val id: Int,

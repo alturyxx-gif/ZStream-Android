@@ -1863,6 +1863,32 @@ private fun AppearanceSection(
         }
 
         Spacer(Modifier.height(16.dp))
+        SectionLabel("Parental Controls", theme)
+        if (isTv) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(theme.colors.settings.card.background)
+            ) {
+                TvSettingsRow(theme, onActivate = { vm.setKidsModeEnabled(!settings.kidsModeEnabled) }) {
+                    TvSwitchContent("Kids Mode", "Hide 17+/mature and unrated content everywhere", settings.kidsModeEnabled)
+                }
+            }
+        } else {
+            SettingsCard(theme) {
+                ZsSwitchRow(
+                    title = "Kids Mode",
+                    subtitle = "Hide 17+/mature and unrated content everywhere",
+                    checked = settings.kidsModeEnabled,
+                    onCheckedChange = vm::setKidsModeEnabled,
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                )
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
         SectionLabel("Player UI", theme)
         if (isTv) {
             Column(

@@ -168,6 +168,10 @@ class SettingsViewModel @Inject constructor(
         update { copy(applicationFont = font) }
     }
 
+    fun setKidsModeEnabled(v: Boolean) {
+        update { copy(kidsModeEnabled = v) }
+    }
+
     fun setEnableThumbnails(v: Boolean) {
         update { copy(enableThumbnails = v) }
     }

@@ -4,6 +4,7 @@ import android.content.Context
 import com.zstream.android.data.local.AppDatabase
 import com.zstream.android.data.local.dao.BookmarkDao
 import com.zstream.android.data.local.dao.CachedEpisodeDao
+import com.zstream.android.data.local.dao.CertificationDao
 import com.zstream.android.data.local.dao.DownloadDao
 import com.zstream.android.data.local.dao.LocalFileProgressDao
 import com.zstream.android.data.local.dao.LocalLibraryDao
@@ -59,5 +60,10 @@ object DatabaseModule {
     @Provides
     fun provideCachedEpisodeDao(database: AppDatabase): CachedEpisodeDao {
         return database.cachedEpisodeDao()
+    }
+
+    @Provides
+    fun provideCertificationDao(database: AppDatabase): CertificationDao {
+        return database.certificationDao()
     }
 }

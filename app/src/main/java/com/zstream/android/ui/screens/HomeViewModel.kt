@@ -74,6 +74,7 @@ data class HomeState(
     val bookmarkEntities: Map<String, BookmarkEntity> = emptyMap(),
     val progressMap: Map<String, ProgressEntity> = emptyMap(),
     val enableDiscover: Boolean = false,
+    val kidsModeEnabled: Boolean = false,
     val enableFeatured: Boolean = true,
     val enableImageLogos: Boolean = true,
     val enableLowPerformanceMode: Boolean = false,
@@ -166,6 +167,7 @@ class HomeViewModel @Inject constructor(
     private val traktRepo: com.zstream.android.data.TraktRepository,
     private val downloadDao: DownloadDao,
     private val connectivityObserver: ConnectivityObserver,
+    private val certRepo: com.zstream.android.data.CertificationRepository,
 ) : ViewModel() {
     private val discoverSourcePages = mutableMapOf<MediaSectionSource, Int>()
     private var replenishDiscoverJob: Job? = null
@@ -239,6 +241,7 @@ class HomeViewModel @Inject constructor(
     private fun observeSettings() {
         viewModelScope.launch {
             settingsPrefs.settings.collect { s ->
+                val kidsModeChanged = _state.value.kidsModeEnabled != s.kidsModeEnabled
                 _state.update { it.copy(
                     enableDiscover = s.enableDiscover,
                     enableFeatured = s.enableFeatured,
@@ -247,8 +250,14 @@ class HomeViewModel @Inject constructor(
                     enableCarouselView = s.enableCarouselView,
                     homeSectionCarouselLimit = s.homeSectionCarouselLimit,
                     gridRows = s.gridRows,
+                    kidsModeEnabled = s.kidsModeEnabled,
                 ) }
-                scheduleDiscoverReplenish()
+                if (kidsModeChanged) {
+                    discoverSourcePages.clear()
+                    load()
+                } else {
+                    scheduleDiscoverReplenish()
+                }
             }
         }
     }
@@ -500,15 +509,19 @@ class HomeViewModel @Inject constructor(
         userIds: Set<Int>,
         target: Int,
     ): List<MediaSection> = supervisorScope {
+        val kidsMode = _state.value.kidsModeEnabled
         sections.map { section ->
             async {
-                val candidates = section.items.distinctBy { it.id }.toMutableList()
+                val candidates = certRepo.filterForKids(section.items.distinctBy { it.id }, kidsMode).toMutableList()
                 while (candidates.count { it.id !in userIds } < target + DISCOVER_REPLACEMENT_RESERVE) {
                     val source = section.source ?: break
                     val page = (discoverSourcePages[source] ?: 1) + 1
                     val result = runCatching { loadDiscoverPage(source, page) }.getOrNull() ?: break
                     discoverSourcePages[source] = page
-                    val additions = result.filterNot { item -> candidates.any { it.id == item.id } }
+                    val additions = certRepo.filterForKids(
+                        result.filterNot { item -> candidates.any { it.id == item.id } },
+                        kidsMode,
+                    )
                     if (additions.isEmpty()) break
                     candidates += additions
                 }
@@ -571,7 +584,7 @@ class HomeViewModel @Inject constructor(
                     }
                 }
                 if (searchGeneration != generation) return@launch
-                _searchResults.value = firstResults
+                _searchResults.value = certRepo.filterForKids(firstResults, _state.value.kidsModeEnabled)
             }
         }
     }
@@ -592,7 +605,7 @@ class HomeViewModel @Inject constructor(
                         }
                     }
                     if (searchGeneration == generation) {
-                        _searchResults.value = _searchResults.value + nextResults
+                        _searchResults.value = _searchResults.value + certRepo.filterForKids(nextResults, _state.value.kidsModeEnabled)
                     }
                 }.onFailure {
                     if (searchGeneration == generation) {
