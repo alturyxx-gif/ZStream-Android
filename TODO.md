@@ -1,6 +1,7 @@
 bugs to fix:
-1. playback speed does not persist across sessions (added, not tested)
-2. add ability to choose between playing local file or from online sources
+1. add ability to choose between playing local file or from online sources
+2. kids mode
+3. multiple user accounts on TV
 
 
 features to add:
