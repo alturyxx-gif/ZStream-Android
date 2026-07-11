@@ -1149,6 +1149,7 @@ private fun AccountSection(
                     TextButton(onClick = {
                         accountVm.logout()
                         onLogoutConfirmChange(false)
+                        if (isTv) nav.navigate("profileSwitcher") { popUpTo("home") }
                     }) {
                         Text("Yes, Log out", color = theme.colors.buttons.danger)
                     }

@@ -32,6 +32,7 @@ data class SavedProfile(
     val deviceName: String,
     val usesPasskey: Boolean,
     val lastActiveAt: Long,
+    val kidsModeEnabled: Boolean = false,
 )
 
 @Singleton
@@ -83,10 +84,22 @@ class AccountRepository @Inject constructor(
         ctx.accountStore.edit { it[KEY_SAVED_PROFILES] = gson.toJson(current) }
     }
 
+    /** TV-only: persists the Kids Mode flag against a specific cached profile, keyed by userId. */
+    suspend fun setProfileKidsMode(userId: String, enabled: Boolean) {
+        val current = savedProfilesSnapshot().toMutableList()
+        val idx = current.indexOfFirst { it.userId == userId }
+        if (idx < 0) return
+        current[idx] = current[idx].copy(kidsModeEnabled = enabled)
+        ctx.accountStore.edit { it[KEY_SAVED_PROFILES] = gson.toJson(current) }
+    }
+
     private suspend fun upsertSavedProfile(account: AccountSession) {
         val current = savedProfilesSnapshot().toMutableList()
         val idx = current.indexOfFirst { it.userId == account.userId }
-        val entry = SavedProfile(account.userId, account.userId, account.token, account.nickname, account.deviceName, account.usesPasskey, System.currentTimeMillis())
+        // Preserve the existing kidsModeEnabled flag on re-login/reactivation -- only brand-new
+        // entries start with Kids Mode off, so switching back to an existing profile never resets it.
+        val existingKidsMode = if (idx >= 0) current[idx].kidsModeEnabled else false
+        val entry = SavedProfile(account.userId, account.userId, account.token, account.nickname, account.deviceName, account.usesPasskey, System.currentTimeMillis(), existingKidsMode)
         if (idx >= 0) current[idx] = entry else current.add(entry)
         ctx.accountStore.edit { it[KEY_SAVED_PROFILES] = gson.toJson(current) }
     }
@@ -126,7 +139,19 @@ class AccountRepository @Inject constructor(
         return challengeRegister(keys.publicKey.toBase64Url(), keys.privateKey, keys.seed, deviceName, true)
     }
 
-    suspend fun logout() = ctx.accountStore.edit { it.clear() }
+    /** Signs out of the active session only -- other cached profiles on this device are left intact. */
+    suspend fun logout() {
+        val activeUserId = currentSession?.userId
+        ctx.accountStore.edit { prefs ->
+            prefs.remove(KEY_TOKEN)
+            prefs.remove(KEY_USER_ID)
+            prefs.remove(KEY_NICKNAME)
+            prefs.remove(KEY_DEVICE)
+            prefs.remove(KEY_PASSKEY)
+        }
+        currentSession = null
+        if (activeUserId != null) removeProfile(activeUserId)
+    }
 
     /**
      * Get a persistent guest ID for anonymous watch party participation.

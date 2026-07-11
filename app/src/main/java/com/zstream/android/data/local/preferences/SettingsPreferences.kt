@@ -448,6 +448,12 @@ class SettingsPreferences @Inject constructor(
         }
     }
 
+    suspend fun setKidsModeEnabled(enabled: Boolean) {
+        context.settingsStore.edit { prefs ->
+            prefs[KEY_KIDS_MODE_ENABLED] = enabled
+        }
+    }
+
     suspend fun setCustomTheme(customTheme: CustomThemeSettings?) {
         context.settingsStore.edit { prefs ->
             if (customTheme == null) {

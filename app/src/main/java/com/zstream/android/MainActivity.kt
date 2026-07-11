@@ -51,6 +51,7 @@ import dagger.hilt.android.AndroidEntryPoint
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import javax.inject.Inject
@@ -61,6 +62,7 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var releaseUpdateManager: ReleaseUpdateManager
     @Inject lateinit var pluginManager: PluginManager
     @Inject lateinit var tvSyncRepository: com.zstream.android.data.TvSyncRepository
+    @Inject lateinit var accountRepository: com.zstream.android.data.AccountRepository
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -124,6 +126,7 @@ class MainActivity : ComponentActivity() {
                         WatchPartyGlobalEffect(navController, watchPartyManager)
                         OpenDownloadsGlobalEffect(navController)
                         TvCastGlobalEffect(navController, tvSyncRepository, isTv)
+                        ProfilePickerGlobalEffect(navController, isTv, accountRepository)
 
                         CompositionLocalProvider(
                             LocalMediaCard provides mediaCard,
@@ -216,6 +219,30 @@ fun WatchPartyGlobalEffect(navController: NavController, manager: WatchPartyMana
     }
 }
 
+
+/**
+ * TV-only: shows the Netflix-style "who's watching" picker once on launch when this TV has more
+ * than one cached profile, instead of silently resuming whichever was last active.
+ */
+@Composable
+fun ProfilePickerGlobalEffect(
+    navController: NavController,
+    isTv: Boolean,
+    accountRepository: com.zstream.android.data.AccountRepository,
+) {
+    var shown by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(isTv) {
+        if (!isTv || shown) return@LaunchedEffect
+        shown = true
+        val profiles = accountRepository.savedProfilesSnapshot()
+        val hasActiveSession = accountRepository.session.first() != null
+        // Multiple cached profiles: always let the user pick (Netflix-style). No active session
+        // but at least one cached login: land on the picker instead of a bare "Sync to Cloud" home.
+        if (profiles.size > 1 || (!hasActiveSession && profiles.isNotEmpty())) {
+            navController.navigate("profileSwitcher")
+        }
+    }
+}
 
 /**
  * TV-only: keeps the pairing receiver listening for as long as the TV app is open (not just while

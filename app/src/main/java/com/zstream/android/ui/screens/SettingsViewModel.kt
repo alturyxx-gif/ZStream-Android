@@ -50,6 +50,7 @@ class SettingsViewModel @Inject constructor(
     private val releaseUpdateManager: ReleaseUpdateManager,
     private val pluginManager: PluginManager,
     private val sourceOrderStore: SourceOrderStore,
+    private val accountRepo: com.zstream.android.data.AccountRepository,
 ) : ViewModel() {
     val traktState = traktRepo.state
     val releaseChecksEnabled = releaseUpdateManager.enabled
@@ -170,6 +171,11 @@ class SettingsViewModel @Inject constructor(
 
     fun setKidsModeEnabled(v: Boolean) {
         update { copy(kidsModeEnabled = v) }
+        // Kids Mode is scoped per-profile on TV; keep the saved profile's flag in sync so the
+        // picker can show which profiles are kids profiles and switching restores the right value.
+        viewModelScope.launch {
+            accountRepo.currentSession?.userId?.let { accountRepo.setProfileKidsMode(it, v) }
+        }
     }
 
     fun setEnableThumbnails(v: Boolean) {
