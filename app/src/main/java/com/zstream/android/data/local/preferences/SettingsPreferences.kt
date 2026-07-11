@@ -141,7 +141,7 @@ class SettingsPreferences @Inject constructor(
             enableLowPerformanceMode = prefs[KEY_ENABLE_LOW_PERFORMANCE_MODE] ?: false,
             enablePauseOverlay = prefs[KEY_ENABLE_PAUSE_OVERLAY] ?: false,
             enableAutoplay = prefs[KEY_ENABLE_AUTOPLAY] ?: true,
-            enableSkipCredits = prefs[KEY_ENABLE_SKIP_CREDITS] ?: true,
+            enableSkipCredits = prefs[KEY_ENABLE_SKIP_CREDITS] ?: false,
             enableAutoSkipSegments = prefs[KEY_ENABLE_AUTO_SKIP_SEGMENTS] ?: false,
             enableNativeSubtitles = prefs[KEY_ENABLE_NATIVE_SUBTITLES] ?: false,
             subtitlesEnabled = prefs[KEY_SUBTITLES_ENABLED] ?: false,
@@ -156,7 +156,7 @@ class SettingsPreferences @Inject constructor(
             volumeBoost = prefs[KEY_VOLUME_BOOST] ?: 100,
             videoScaleMode = prefs[KEY_VIDEO_SCALE_MODE] ?: "fit",
             tvPipPosition = prefs[KEY_TV_PIP_POSITION] ?: "bottom_end",
-            autoPipEnabled = prefs[KEY_AUTO_PIP_ENABLED] ?: false,
+            autoPipEnabled = prefs[KEY_AUTO_PIP_ENABLED] ?: true,
             trailersOpenInApp = prefs[KEY_TRAILERS_OPEN_IN_APP] ?: true,
             defaultPlaybackSpeed = prefs[KEY_DEFAULT_PLAYBACK_SPEED]?.toFloatOrNull() ?: 1f,
             enableDiscover = prefs[KEY_ENABLE_DISCOVER] ?: false,
@@ -321,7 +321,7 @@ class SettingsPreferences @Inject constructor(
             val currentVolumeBoost = current[KEY_VOLUME_BOOST] ?: 100
             val currentVideoScaleMode = current[KEY_VIDEO_SCALE_MODE] ?: "fit"
             val currentTvPipPosition = current[KEY_TV_PIP_POSITION] ?: "bottom_end"
-            val currentAutoPipEnabled = current[KEY_AUTO_PIP_ENABLED] ?: false
+            val currentAutoPipEnabled = current[KEY_AUTO_PIP_ENABLED] ?: true
             val currentTrailersOpenInApp = current[KEY_TRAILERS_OPEN_IN_APP] ?: true
             val currentDefaultPlaybackSpeed = current[KEY_DEFAULT_PLAYBACK_SPEED]?.toFloatOrNull() ?: 1f
             val currentDoubleTapSeekSeconds = current[KEY_DOUBLE_TAP_SEEK_SECONDS] ?: 10
@@ -351,7 +351,7 @@ class SettingsPreferences @Inject constructor(
                 enableLowPerformanceMode = remote.enableLowPerformanceMode ?: false,
                 enablePauseOverlay = remote.enablePauseOverlay ?: false,
                 enableAutoplay = remote.enableAutoplay ?: true,
-                enableSkipCredits = remote.enableSkipCredits ?: true,
+                enableSkipCredits = remote.enableSkipCredits ?: false,
                 enableAutoSkipSegments = remote.enableAutoSkipSegments ?: false,
                 enableNativeSubtitles = remote.enableNativeSubtitles ?: false,
                 subtitlesEnabled = currentSubtitlesEnabled,

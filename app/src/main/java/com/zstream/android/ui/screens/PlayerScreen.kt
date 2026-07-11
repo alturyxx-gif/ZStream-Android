@@ -1667,12 +1667,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                         "Border" -> Shadow(Color.Black.copy(alpha = 1f), offset = androidx.compose.ui.geometry.Offset(0f, 0f), blurRadius = settings.subtitleBorderThickness * 2)
                         else -> Shadow(Color.Black.copy(alpha = 0.5f), offset = androidx.compose.ui.geometry.Offset(0f, 4f), blurRadius = 8f)
                     }
-                    val fontFamily = when (settings.subtitleFont) {
-                        "serif" -> androidx.compose.ui.text.font.FontFamily.Serif
-                        "monospace" -> androidx.compose.ui.text.font.FontFamily.Monospace
-                        "sans-serif-condensed" -> androidx.compose.ui.text.font.FontFamily(android.graphics.Typeface.create("sans-serif-condensed", android.graphics.Typeface.NORMAL))
-                        else -> androidx.compose.ui.text.font.FontFamily.SansSerif
-                    }
+                    val fontFamily = com.zstream.android.ui.theme.subtitleFontFamily(settings.subtitleFont)
 
                     Box(
                         Modifier

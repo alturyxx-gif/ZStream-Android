@@ -199,13 +199,14 @@ private fun TvSettingsScreen(
         }
     }
 
-    val tabs = listOf("Account", "Preferences", "Appearance", "Player", "Subtitles", "Connections")
+    val tabs = listOf("Account", "Preferences", "Appearance", "Subtitles", "Connections")
+    val selectedTab = currentTab.coerceIn(0, tabs.lastIndex)
     val tabFocusRequesters = remember { List(tabs.size) { FocusRequester() } }
     val contentFirstItemFocusRequester = remember { FocusRequester() }
     var isContentFocused by remember { mutableStateOf(false) }
 
     BackHandler(enabled = isContentFocused) {
-        tabFocusRequesters[currentTab].requestFocus()
+        tabFocusRequesters[selectedTab].requestFocus()
     }
 
     LaunchedEffect(Unit) {
@@ -221,7 +222,7 @@ private fun TvSettingsScreen(
                 Modifier
                     .width(220.dp)
                     .fillMaxHeight()
-                    .focusRestorer(tabFocusRequesters[currentTab])
+                    .focusRestorer(tabFocusRequesters[selectedTab])
                     .background(
                         Brush.verticalGradient(
                             listOf(
@@ -282,7 +283,7 @@ private fun TvSettingsScreen(
                 tabs.forEachIndexed { index, title ->
                     TvSettingsTabItem(
                         title = title,
-                        selected = currentTab == index,
+                        selected = selectedTab == index,
                         theme = theme,
                         onSelect = { vm.setTab(index) },
                         focusRequester = tabFocusRequesters[index],
@@ -302,14 +303,14 @@ private fun TvSettingsScreen(
             )
 
             // ── Right content area ─────────────────────────────────────────
-            val subtitlesSettingsTabIndex = 4
+            val subtitlesSettingsTabIndex = 3
             Box(
                 Modifier
                     .weight(1f)
                     .fillMaxHeight()
                     .onFocusChanged { isContentFocused = it.hasFocus }
             ) {
-                if (currentTab == subtitlesSettingsTabIndex) {
+                if (selectedTab == subtitlesSettingsTabIndex) {
                     Column(Modifier.fillMaxSize()) {
                         SubtitlePreview(settings, theme, vm, isTv = true)
                         Column(Modifier
@@ -331,7 +332,7 @@ private fun TvSettingsScreen(
                             .fillMaxSize()
                             .verticalScroll(rememberScrollState())
                     ) {
-                        when (currentTab) {
+                        when (selectedTab) {
                             0 -> AccountSection(
                                 session, theme, vm, accountVm, showLogoutConfirm,
                                 { showLogoutConfirm = it }, nav,
@@ -341,8 +342,7 @@ private fun TvSettingsScreen(
                             )
                             1 -> PreferencesSection(settings, bookmarks, theme, vm, isTv = true, firstItemFocusRequester = contentFirstItemFocusRequester)
                             2 -> AppearanceSection(settings, theme, vm, nav, isTv = true, firstItemFocusRequester = contentFirstItemFocusRequester)
-                            3 -> PlayerSection(settings, theme, vm, isTv = true, firstItemFocusRequester = contentFirstItemFocusRequester)
-                            5 -> ConnectionsSection(settings, theme, vm, isTv = true, firstItemFocusRequester = contentFirstItemFocusRequester)
+                            4 -> ConnectionsSection(settings, theme, vm, isTv = true, firstItemFocusRequester = contentFirstItemFocusRequester)
                         }
                     }
                 }
@@ -2037,14 +2037,7 @@ private fun SubtitlePreview(settings: SettingsEntity, theme: ZStreamTheme, vm: S
 
     val fontSize   = (settings.subtitleSize * 18).sp
     val lineHeight = (fontSize.value * settings.subtitleLineHeight).sp
-    val fontFamily = when (settings.subtitleFont) {
-        "serif"              -> androidx.compose.ui.text.font.FontFamily.Serif
-        "monospace"          -> androidx.compose.ui.text.font.FontFamily.Monospace
-        "sans-serif-condensed" -> androidx.compose.ui.text.font.FontFamily(
-            android.graphics.Typeface.create("sans-serif-condensed", android.graphics.Typeface.NORMAL)
-        )
-        else -> androidx.compose.ui.text.font.FontFamily.SansSerif
-    }
+    val fontFamily = com.zstream.android.ui.theme.subtitleFontFamily(settings.subtitleFont)
 
     val isBorder = settings.subtitleFontStyle == "Border"
     val borderThick = settings.subtitleBorderThickness.dp
@@ -2393,7 +2386,7 @@ private fun SubtitlesSettingsContent(
                         TvSliderRow("Border Thickness", settings.subtitleBorderThickness, 0f, 10f, { "${it.toInt()}px" }, { vm.setSubtitleBorderThickness(it) }, theme)
                     }
                     HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
-                    TvDropdownRow("Font Family", listOf("sans-serif", "sans-serif-condensed", "serif", "monospace"), settings.subtitleFont, vm::setSubtitleFont, theme)
+                    TvDropdownRow("Font Family", com.zstream.android.ui.theme.SubtitleFontOptions, com.zstream.android.ui.theme.subtitleFontLabel(settings.subtitleFont), { vm.setSubtitleFont(com.zstream.android.ui.theme.subtitleFontId(it)) }, theme)
                     HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                     TvSettingsRow(theme, onActivate = { vm.setSubtitleBold(!settings.subtitleBold) }) {
                         TvSwitchContent("Bold", null, settings.subtitleBold)
@@ -2588,7 +2581,7 @@ private fun SubtitlesSettingsContent(
                         SliderRow("Border Thickness", settings.subtitleBorderThickness, 0f, 10f, { "${it.toInt()}px" }, { vm.setSubtitleBorderThickness(it) }, theme)
                     }
                     HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
-                    ZsDropdownRow("Font Family", listOf("sans-serif", "sans-serif-condensed", "serif", "monospace"), settings.subtitleFont, vm::setSubtitleFont)
+                    ZsDropdownRow("Font Family", com.zstream.android.ui.theme.SubtitleFontOptions, com.zstream.android.ui.theme.subtitleFontLabel(settings.subtitleFont), { vm.setSubtitleFont(com.zstream.android.ui.theme.subtitleFontId(it)) })
                     HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                     ZsSwitchRow(
                         title = "Bold",
