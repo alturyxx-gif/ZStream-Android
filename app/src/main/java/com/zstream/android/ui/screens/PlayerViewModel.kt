@@ -37,6 +37,9 @@ import java.util.UUID
 import javax.inject.Inject
 import com.zstream.android.data.local.preferences.SettingsPreferences
 import com.zstream.android.data.local.entity.SettingsEntity
+import com.zstream.android.data.local.dao.DownloadDao
+import com.zstream.android.data.local.dao.LocalLibraryDao
+import com.zstream.android.data.local.entity.DownloadStatus
 import com.zstream.android.data.model.airedEpisodes
 import com.google.gson.Gson
 import com.zstream.android.data.WatchPartyManager
@@ -85,6 +88,7 @@ data class SkipSegmentSubmission(
 
 sealed class PlayerState {
     object Idle : PlayerState()
+    data class LocalChoice(val route: String) : PlayerState()
     data class Scraping(val sources: List<SourceResult>) : PlayerState()
     data class ManualSourceSelection(
         val sources: List<SourceResult>,
@@ -258,6 +262,8 @@ class PlayerViewModel @OptIn(UnstableApi::class)
     val playerCache: SimpleCache,
     val watchPartyManager: WatchPartyManager,
     private val downloadRepository: com.zstream.android.download.DownloadRepository,
+    private val downloadDao: DownloadDao,
+    private val localLibraryDao: LocalLibraryDao,
     private val skipSegmentRepository: com.zstream.android.data.SkipSegmentRepository,
     private val tvSyncRepository: com.zstream.android.data.TvSyncRepository,
     @dagger.hilt.android.qualifiers.ApplicationContext private val appContext: android.content.Context,
@@ -393,7 +399,7 @@ class PlayerViewModel @OptIn(UnstableApi::class)
     val downloadAudioOptions = _downloadAudioOptions.asStateFlow()
 
     init {
-        load()
+        checkLocalPlayback()
         observeWatchParty()
         reportLoadingState()
         if (mediaType == "tv") {
@@ -402,6 +408,29 @@ class PlayerViewModel @OptIn(UnstableApi::class)
             loadMovieDetail()
         }
     }
+
+    private fun checkLocalPlayback() {
+        if (isAutoplay || castSourceId != null) {
+            load()
+            return
+        }
+        viewModelScope.launch {
+            val route = withContext(Dispatchers.IO) {
+                val download = downloadDao.getAllSync().firstOrNull {
+                    it.status == DownloadStatus.DONE &&
+                        it.tmdbId == tmdbId &&
+                        it.type == (if (mediaType == "movie") "movie" else "show") &&
+                        (mediaType == "movie" || (it.season == season && it.episode == episode))
+                }
+                download?.let { "localPlayer/${it.id}" }
+                    ?: localLibraryDao.findPlayableMedia(tmdbId, mediaType, season, episode)
+                        ?.let { "localFilePlayer/${it.id}" }
+            }
+            if (route == null) load() else _state.value = PlayerState.LocalChoice(route)
+        }
+    }
+
+    fun playOnline() = load()
 
     private fun loadMovieDetail() {
         viewModelScope.launch {
@@ -464,7 +493,7 @@ class PlayerViewModel @OptIn(UnstableApi::class)
             }
 
             _state.value = PlayerState.Idle
-            load()
+            checkLocalPlayback()
         }
     }
 

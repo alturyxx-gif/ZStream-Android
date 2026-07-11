@@ -75,6 +75,7 @@ fun DetailScreen(nav: NavController, vm: DetailViewModel = hiltViewModel()) {
                 onMarkMovieWatched = vm::markMovieWatched,
                 onClearMovieWatchHistory = vm::clearMovieWatchHistory,
                 downloadedMovieId = downloadedEpisodes["null|null"]?.id,
+                isOffline = isOffline,
                 onDownloadMovie = vm::downloadMovie,
                 isMovieDownloadPending = "null|null" in pendingDownloads,
                 onBookmarkCollection = vm::bookmarkCollection,

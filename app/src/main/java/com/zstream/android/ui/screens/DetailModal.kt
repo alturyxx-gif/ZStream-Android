@@ -137,6 +137,7 @@ fun MovieDetailModal(
     onBack: () -> Unit,
     onMarkMovieWatched: () -> Unit,
     downloadedMovieId: Long? = null,
+    isOffline: Boolean = false,
     onDownloadMovie: () -> Unit = {},
     isMovieDownloadPending: Boolean = false,
     onClearMovieWatchHistory: () -> Unit,
@@ -239,7 +240,7 @@ fun MovieDetailModal(
                     ) {
                         Button(
                             onClick = {
-                                if (downloadedMovieId != null) nav.navigate("localPlayer/$downloadedMovieId")
+                                if (isOffline && downloadedMovieId != null) nav.navigate("localPlayer/$downloadedMovieId")
                                 else nav.navigate("player/movie/${detail.id}?title=${detail.title.encode()}&year=${detail.releaseDate?.take(4)?.toIntOrNull() ?: 0}&poster=${detail.posterPath?.encode() ?: ""}")
                             },
                             colors = ButtonDefaults.buttonColors(
@@ -775,15 +776,16 @@ fun TvDetailModal(
                                 .minWithOrNull(compareBy({ it.season }, { it.episode }))
 
                             when {
-                                progressDownload != null -> nav.navigate("localPlayer/${progressDownload.id}")
+                                progressDownload != null && isOffline -> nav.navigate("localPlayer/${progressDownload.id}")
                                 hasProgress && resumeProgress != null && !isOffline -> {
                                     val sNum = resumeProgress.seasonNumber ?: selectedSeason?.seasonNumber ?: 1
                                     val eNum = resumeProgress.episodeNumber ?: 1
                                     nav.navigate("player/tv/${detail.id}?season=$sNum&episode=$eNum&title=${detail.name.encode()}&year=${detail.firstAirDate?.take(4)?.toIntOrNull() ?: 0}&poster=${detail.posterPath?.encode() ?: ""}")
                                 }
-                                firstEpDownload != null -> nav.navigate("localPlayer/${firstEpDownload.id}")
+                                firstEpDownload != null && isOffline -> nav.navigate("localPlayer/${firstEpDownload.id}")
                                 !isOffline && firstEp != null -> nav.navigate("player/tv/${detail.id}?season=${firstEp.seasonNumber}&episode=${firstEp.episodeNumber}&title=${detail.name.encode()}&year=${detail.firstAirDate?.take(4)?.toIntOrNull() ?: 0}&poster=${detail.posterPath?.encode() ?: ""}")
-                                anyDownload != null -> nav.navigate("localPlayer/${anyDownload.id}")
+                                anyDownload != null && isOffline -> nav.navigate("localPlayer/${anyDownload.id}")
+                                anyDownload != null -> nav.navigate("player/tv/${detail.id}?season=${anyDownload.season}&episode=${anyDownload.episode}&title=${detail.name.encode()}&year=${detail.firstAirDate?.take(4)?.toIntOrNull() ?: 0}&poster=${detail.posterPath?.encode() ?: ""}")
                             }
                         },
                         colors = ButtonDefaults.buttonColors(
@@ -1034,7 +1036,13 @@ internal fun SharedEpisodeRow(
                     .onFocusChanged { isFocused = it.isFocused }
                     .clickable(enabled = !rowDisabled) {
                         if (isDownloaded) {
-                            nav.navigate("localPlayer/${downloadEntry?.id}")
+                            if (isOffline) nav.navigate("localPlayer/${downloadEntry?.id}")
+                            else if (onEpisodeClick != null) onEpisodeClick()
+                            else {
+                                val encodedTitle = java.net.URLEncoder.encode(title, "UTF-8").replace("+", "%20")
+                                val encodedPoster = posterPath?.let { java.net.URLEncoder.encode(it, "UTF-8").replace("+", "%20") } ?: ""
+                                nav.navigate("player/tv/$showId?season=${ep.seasonNumber}&episode=${ep.episodeNumber}&title=$encodedTitle&year=${ep.airDate?.take(4)?.toIntOrNull() ?: 0}&poster=$encodedPoster")
+                            }
                         } else if (onEpisodeClick != null) {
                             onEpisodeClick()
                         } else {
