@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -39,6 +40,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -64,6 +67,12 @@ fun ProfileSwitcherScreen(nav: NavController, vm: AccountViewModel = hiltViewMod
     val session by vm.session.collectAsStateWithLifecycle()
     val savedProfiles by vm.savedProfiles.collectAsStateWithLifecycle()
     var removing by remember { mutableStateOf<String?>(null) }
+    val firstProfileFocusRequester = remember { FocusRequester() }
+    val profiles = savedProfiles.sortedByDescending { it.lastActiveAt }
+
+    LaunchedEffect(profiles) {
+        firstProfileFocusRequester.requestFocus()
+    }
 
     BackHandler { onBack() }
 
@@ -87,7 +96,7 @@ fun ProfileSwitcherScreen(nav: NavController, vm: AccountViewModel = hiltViewMod
                 contentPadding = PaddingValues(horizontal = 8.dp),
                 modifier = Modifier.fillMaxWidth().wrapContentWidth(Alignment.CenterHorizontally),
             ) {
-                items(savedProfiles.sortedByDescending { it.lastActiveAt }) { profile ->
+                items(profiles) { profile ->
                     val isActive = profile.userId == session?.userId
                     ProfileCard(
                         profile = profile,
@@ -101,10 +110,15 @@ fun ProfileSwitcherScreen(nav: NavController, vm: AccountViewModel = hiltViewMod
                         onConfirmRemove = { vm.removeProfile(profile.id); removing = null },
                         onCancelRemove = { removing = null },
                         theme = theme,
+                        modifier = if (profile == profiles.firstOrNull()) Modifier.focusRequester(firstProfileFocusRequester) else Modifier,
                     )
                 }
                 item {
-                    AddProfileCard(theme = theme, onClick = { nav.navigate("login") })
+                    AddProfileCard(
+                        theme = theme,
+                        onClick = { nav.navigate("login") },
+                        modifier = if (profiles.isEmpty()) Modifier.focusRequester(firstProfileFocusRequester) else Modifier,
+                    )
                 }
             }
         }
@@ -121,6 +135,7 @@ private fun ProfileCard(
     onConfirmRemove: () -> Unit,
     onCancelRemove: () -> Unit,
     theme: com.zstream.android.theme.ZStreamTheme,
+    modifier: Modifier = Modifier,
 ) {
     val displayName = profile.nickname.ifBlank { profile.deviceName.ifBlank { "Profile" } }
     val initial = displayName.take(1).uppercase()
@@ -138,7 +153,7 @@ private fun ProfileCard(
             gap = 3.dp,
         ) {
         Box(
-            Modifier
+            modifier
                 .fillMaxWidth()
                 .aspectRatio(2f / 3f)
                 .clip(RoundedCornerShape(10.dp))
@@ -206,7 +221,7 @@ private fun ProfileCard(
 }
 
 @Composable
-private fun AddProfileCard(theme: com.zstream.android.theme.ZStreamTheme, onClick: () -> Unit) {
+private fun AddProfileCard(theme: com.zstream.android.theme.ZStreamTheme, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
     Column(
@@ -220,7 +235,7 @@ private fun AddProfileCard(theme: com.zstream.android.theme.ZStreamTheme, onClic
             gap = 3.dp,
         ) {
         Box(
-            Modifier
+            modifier
                 .fillMaxWidth()
                 .aspectRatio(2f / 3f)
                 .clip(RoundedCornerShape(10.dp))
