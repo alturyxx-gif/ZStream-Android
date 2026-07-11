@@ -780,8 +780,11 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                 val clipboardManager = LocalClipboardManager.current
 
                 val context = LocalContext.current
-                fun mimeTypeFor(streamType: String): String =
-                    if (streamType.equals("file", ignoreCase = true)) MimeTypes.VIDEO_MP4 else MimeTypes.APPLICATION_M3U8
+                fun mimeTypeFor(streamType: String): String = when {
+                    streamType.equals("file", ignoreCase = true) -> MimeTypes.VIDEO_MP4
+                    streamType.equals("dash", ignoreCase = true) -> MimeTypes.APPLICATION_MPD
+                    else -> MimeTypes.APPLICATION_M3U8
+                }
 
                 fun mediaSourceFactory(headers: Map<String, String>) = DefaultMediaSourceFactory(
                     CacheDataSource.Factory()
