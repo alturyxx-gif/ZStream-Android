@@ -4,6 +4,7 @@ import android.util.Log
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,6 +28,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
@@ -38,6 +40,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -45,6 +48,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -94,6 +98,13 @@ class TvSyncViewModel @Inject constructor(
     @dagger.hilt.android.qualifiers.ApplicationContext private val appContext: android.content.Context,
 ) : ViewModel() {
     val receiverState: StateFlow<TvSyncReceiverState> = repo.receiverState
+    val pairedTvs: StateFlow<List<com.zstream.android.data.PairedTv>> = repo.pairedTvs
+    val activeReceiverState: StateFlow<TvSyncDiscoveredReceiver?> = repo.activeReceiver
+    suspend fun renamePairedTv(id: String, nickname: String) = repo.renamePairedTv(id, nickname)
+    suspend fun forgetPairedTv(id: String) = repo.forgetPairedTv(id)
+    suspend fun pingTv(host: String, port: Int): Boolean = repo.pingTv(host, port)
+    suspend fun reconcilePairedHosts(discovered: List<TvSyncDiscoveredReceiver>) = repo.reconcilePairedHosts(discovered)
+    fun setActiveReceiver(tv: com.zstream.android.data.PairedTv) = repo.setActiveReceiver(tv)
     val settings: StateFlow<SettingsEntity> = settingsPreferences.settings.stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5_000),
@@ -107,8 +118,8 @@ class TvSyncViewModel @Inject constructor(
     )
     suspend fun discoverReceivers(): List<TvSyncDiscoveredReceiver> = repo.discoverReceivers()
     suspend fun fetchHello(host: String, port: Int) = repo.fetchHello(host, port)
-    suspend fun pair(host: String, port: Int, code: String, salt: String, sessionId: String, phoneName: String, tvName: String) =
-        repo.pair(host, port, code, salt, sessionId, phoneName, tvName)
+    suspend fun pair(host: String, port: Int, code: String, salt: String, sessionId: String, phoneName: String, tvName: String, tvDeviceId: String?) =
+        repo.pair(host, port, code, salt, sessionId, phoneName, tvName, tvDeviceId)
 
     suspend fun buildPayload(
         tvName: String,
@@ -167,14 +178,276 @@ class TvSyncViewModel @Inject constructor(
 fun TvSyncScreen(
     nav: NavController,
     vm: TvSyncViewModel = hiltViewModel(),
-    settingsVm: SettingsViewModel = hiltViewModel(),
 ) {
     val isTv = LocalIsTv.current
     if (isTv) {
         TvSyncReceiverScreen(nav, vm)
     } else {
-        TvSyncSenderScreen(nav, vm, settingsVm)
+        TvManageScreen(nav, vm)
     }
+}
+
+private data class TvOnlineStatus(val checking: Boolean, val online: Boolean)
+
+@Composable
+private fun TvManageScreen(
+    nav: NavController,
+    vm: TvSyncViewModel,
+) {
+    val theme = LocalZStreamTheme.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val onBack = rememberSafeNavigateBack(nav, scope)
+    val pairedTvs by vm.pairedTvs.collectAsStateWithLifecycle()
+    val activeReceiver by vm.activeReceiverState.collectAsStateWithLifecycle()
+
+    var scanning by remember { mutableStateOf(false) }
+    var discovered by remember { mutableStateOf<List<TvSyncDiscoveredReceiver>>(emptyList()) }
+    var hasScanned by remember { mutableStateOf(false) }
+    val statuses = remember { mutableStateMapOf<String, TvOnlineStatus>() }
+    val renaming = remember { mutableStateMapOf<String, String>() }
+
+    fun keyOf(host: String, port: Int) = "$host:$port"
+
+    fun pingAllPaired(list: List<com.zstream.android.data.PairedTv> = pairedTvs) {
+        list.forEach { tv ->
+            val key = keyOf(tv.host, tv.port)
+            statuses[key] = TvOnlineStatus(checking = true, online = statuses[key]?.online == true)
+            scope.launch {
+                val online = vm.pingTv(tv.host, tv.port)
+                statuses[key] = TvOnlineStatus(checking = false, online = online)
+            }
+        }
+    }
+
+    fun refresh() {
+        scope.launch {
+            scanning = true
+            discovered = vm.discoverReceivers()
+            // A paired TV's port changes every time its app restarts -- catch that before pinging
+            // so a merely-restarted TV shows Online instead of looking permanently lost. Read
+            // pairedTvs.value directly (not the Compose snapshot) since reconcile just mutated it
+            // and the snapshot won't reflect that until the next recomposition.
+            vm.reconcilePairedHosts(discovered)
+            pingAllPaired(vm.pairedTvs.value)
+            hasScanned = true
+            scanning = false
+        }
+    }
+
+    LaunchedEffect(Unit) { pingAllPaired() }
+
+    val pairedKeys = remember(pairedTvs) { pairedTvs.map { keyOf(it.host, it.port) }.toSet() }
+    val pairedDeviceIds = remember(pairedTvs) { pairedTvs.mapNotNull { it.tvDeviceId }.toSet() }
+    val unpairedDiscovered = discovered.filterNot {
+        keyOf(it.host, it.port) in pairedKeys || (it.tvDeviceId != null && it.tvDeviceId in pairedDeviceIds)
+    }
+
+    BackHandler { onBack() }
+
+    Box(Modifier.fillMaxSize().background(theme.colors.background.main)) {
+        Column(
+            Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().verticalScroll(rememberScrollState()).padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                ZsIconButton(onClick = onBack, icon = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", variant = ZsIconButtonVariant.Ghost)
+                Spacer(Modifier.width(8.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("Manage TVs", color = theme.colors.type.emphasis, fontSize = 26.sp, fontWeight = FontWeight.Bold)
+                    Text("Pair, sync, and update your TVs", color = theme.colors.type.secondary, fontSize = 13.sp)
+                }
+                ZsIconButton(
+                    onClick = { refresh() },
+                    icon = Icons.Default.Refresh,
+                    contentDescription = "Refresh",
+                    variant = ZsIconButtonVariant.Ghost,
+                )
+            }
+
+            if (pairedTvs.isEmpty() && !hasScanned) {
+                ZsCard(variant = ZsCardVariant.Elevated, modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Icon(Icons.Default.Tv, null, tint = theme.colors.global.accentA, modifier = Modifier.size(48.dp))
+                        Text("No TVs yet", color = theme.colors.type.emphasis, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                        Text(
+                            "Open ZStream on your TV, choose \"Sync from phone\", then scan here to find it.",
+                            color = theme.colors.type.secondary,
+                            fontSize = 13.sp,
+                        )
+                        ZsButton(text = "Scan for TVs", leadingIcon = Icons.Default.Refresh, onClick = { refresh() }, loading = scanning)
+                    }
+                }
+            }
+
+            if (pairedTvs.isNotEmpty()) {
+                Text("Paired", color = theme.colors.type.emphasis, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                pairedTvs.forEach { tv ->
+                    key(tv.id) {
+                        val status = statuses[keyOf(tv.host, tv.port)]
+                        val editingName = renaming[tv.id]
+                        val isActiveTv = (tv.tvDeviceId != null && activeReceiver?.tvDeviceId == tv.tvDeviceId) || (activeReceiver?.host == tv.host && activeReceiver?.port == tv.port)
+                        ZsCard(variant = ZsCardVariant.Elevated, modifier = Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Box(
+                                        Modifier
+                                            .size(9.dp)
+                                            .clip(RoundedCornerShape(50))
+                                            .background(
+                                                when {
+                                                    status?.checking == true -> theme.colors.type.dimmed
+                                                    status?.online == true -> theme.colors.type.success
+                                                    else -> theme.colors.type.danger
+                                                }
+                                            )
+                                    )
+                                    Text(
+                                        when {
+                                            status?.checking == true -> "Checking…"
+                                            status?.online == true -> "Online"
+                                            else -> "Offline"
+                                        },
+                                        color = theme.colors.type.secondary,
+                                        fontSize = 12.sp,
+                                    )
+                                    if (isActiveTv) {
+                                        Spacer(Modifier.width(4.dp))
+                                        Text("• Default for Cast", color = theme.colors.global.accentA, fontSize = 12.sp)
+                                    }
+                                }
+                                if (editingName != null) {
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        OutlinedTextField(
+                                            value = editingName,
+                                            onValueChange = { renaming[tv.id] = it },
+                                            singleLine = true,
+                                            modifier = Modifier.weight(1f),
+                                        )
+                                        ZsIconButton(
+                                            onClick = {
+                                                scope.launch { vm.renamePairedTv(tv.id, editingName) }
+                                                renaming.remove(tv.id)
+                                            },
+                                            icon = Icons.Default.Check,
+                                            contentDescription = "Save name",
+                                            variant = ZsIconButtonVariant.Ghost,
+                                        )
+                                        ZsIconButton(
+                                            onClick = { renaming.remove(tv.id) },
+                                            icon = Icons.Default.Close,
+                                            contentDescription = "Cancel",
+                                            variant = ZsIconButtonVariant.Ghost,
+                                        )
+                                    }
+                                } else {
+                                    Text(
+                                        tv.nickname,
+                                        color = theme.colors.type.emphasis,
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontSize = 16.sp,
+                                        modifier = Modifier.clickable { renaming[tv.id] = tv.nickname },
+                                    )
+                                }
+                                Text("${tv.host}:${tv.port}", color = theme.colors.type.secondary, fontSize = 12.sp)
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    ZsButton(
+                                        text = "Sync",
+                                        variant = ZsButtonVariant.Secondary,
+                                        onClick = { nav.navigate("tvSyncPair?tvId=${tv.id}") },
+                                        modifier = Modifier.weight(1f),
+                                        buttonModifier = Modifier.fillMaxWidth(),
+                                    )
+                                    ZsButton(
+                                        text = "Update",
+                                        variant = ZsButtonVariant.Secondary,
+                                        onClick = { nav.navigate("tvInstaller") },
+                                        modifier = Modifier.weight(1f),
+                                        buttonModifier = Modifier.fillMaxWidth(),
+                                    )
+                                }
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    ZsButton(
+                                        text = if (isActiveTv) "Default set" else "Make default",
+                                        variant = ZsButtonVariant.Secondary,
+                                        enabled = !isActiveTv,
+                                        onClick = { vm.setActiveReceiver(tv) },
+                                        modifier = Modifier.weight(1f),
+                                        buttonModifier = Modifier.fillMaxWidth(),
+                                    )
+                                    ZsButton(
+                                        text = "Forget",
+                                        variant = ZsButtonVariant.Secondary,
+                                        onClick = { scope.launch { vm.forgetPairedTv(tv.id) } },
+                                        modifier = Modifier.weight(1f),
+                                        buttonModifier = Modifier.fillMaxWidth(),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (hasScanned) {
+                Spacer(Modifier.height(4.dp))
+                Text("Nearby", color = theme.colors.type.emphasis, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                if (unpairedDiscovered.isEmpty()) {
+                    Text(
+                        if (scanning) "Scanning…" else "No unpaired TVs found on this network.",
+                        color = theme.colors.type.secondary,
+                        fontSize = 13.sp,
+                    )
+                } else {
+                    unpairedDiscovered.forEach { receiver ->
+                        ZsCard(variant = ZsCardVariant.Elevated, modifier = Modifier.fillMaxWidth()) {
+                            Row(
+                                Modifier.fillMaxWidth().padding(16.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Column {
+                                    Text(receiver.tvName, color = theme.colors.type.emphasis, fontWeight = FontWeight.SemiBold)
+                                    Text("${receiver.host}:${receiver.port}", color = theme.colors.type.secondary, fontSize = 12.sp)
+                                }
+                                ZsButton(
+                                    text = "Pair",
+                                    onClick = {
+                                        nav.navigate("tvSyncPair?host=${receiver.host}&port=${receiver.port}&tvName=${java.net.URLEncoder.encode(receiver.tvName, "UTF-8")}")
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            ZsButton(
+                text = "Add TV manually",
+                variant = ZsButtonVariant.Secondary,
+                leadingIcon = Icons.Default.Fingerprint,
+                onClick = { nav.navigate("tvSyncPair") },
+                modifier = Modifier.fillMaxWidth(),
+                buttonModifier = Modifier.fillMaxWidth(),
+            )
+        }
+    }
+}
+
+@Composable
+fun TvSyncPairScreen(
+    nav: NavController,
+    vm: TvSyncViewModel = hiltViewModel(),
+    settingsVm: SettingsViewModel = hiltViewModel(),
+) {
+    val args = nav.currentBackStackEntry?.arguments
+    val tvId = args?.getString("tvId")?.takeIf { it.isNotBlank() }
+    val host = args?.getString("host")?.takeIf { it.isNotBlank() }
+    val port = args?.getInt("port") ?: 0
+    val discoveredTvName = args?.getString("tvName")?.takeIf { it.isNotBlank() }
+    val presetDiscovered = if (host != null && port > 0) {
+        TvSyncDiscoveredReceiver(serviceName = discoveredTvName ?: host, host = host, port = port, tvName = discoveredTvName ?: "ZStream TV")
+    } else null
+    TvSyncSenderScreen(nav, vm, settingsVm, presetTvId = tvId, presetDiscoveredReceiver = presetDiscovered)
 }
 
 @Composable
@@ -182,6 +455,8 @@ private fun TvSyncSenderScreen(
     nav: NavController,
     vm: TvSyncViewModel,
     settingsVm: SettingsViewModel,
+    presetTvId: String? = null,
+    presetDiscoveredReceiver: TvSyncDiscoveredReceiver? = null,
 ) {
     val theme = LocalZStreamTheme.current
     val scope = androidx.compose.runtime.rememberCoroutineScope()
@@ -209,6 +484,35 @@ private fun TvSyncSenderScreen(
     var transferResult by remember { mutableStateOf<String?>(null) }
     val selected = remember { mutableStateMapOf<String, Boolean>() }
     val available = remember { mutableStateMapOf<String, Pair<Boolean, String>>() }
+    val pairedTvs by vm.pairedTvs.collectAsStateWithLifecycle()
+
+    // Entered from Manage TVs with an already-paired device -- skip discovery/pairing entirely
+    // and jump straight to picking what to sync, since the token/secret are already live.
+    LaunchedEffect(presetTvId, pairedTvs) {
+        if (presetTvId == null || selectedReceiver != null) return@LaunchedEffect
+        val preset = pairedTvs.find { it.id == presetTvId } ?: return@LaunchedEffect
+        selectedReceiver = TvSyncDiscoveredReceiver(serviceName = preset.tvName, host = preset.host, port = preset.port, tvName = preset.nickname, tvDeviceId = preset.tvDeviceId)
+        tvName = preset.nickname
+        page = TvSyncPhonePage.INTEGRATIONS
+    }
+
+    // Entered from Manage TVs' "nearby" list -- fetch its pairing salt/session and go straight to
+    // entering the code, skipping the discovery scan since we already know where it is.
+    LaunchedEffect(presetDiscoveredReceiver) {
+        val receiver = presetDiscoveredReceiver ?: return@LaunchedEffect
+        if (selectedReceiver != null) return@LaunchedEffect
+        loading = true
+        runCatching { vm.fetchHello(receiver.host, receiver.port) }
+            .onSuccess { hello ->
+                selectedReceiver = receiver.copy(tvDeviceId = hello.optString("tvDeviceId").takeIf { it.isNotBlank() } ?: receiver.tvDeviceId)
+                pairSalt = hello.optString("salt")
+                pairSessionId = hello.optString("sessionId")
+                tvName = hello.optString("tvName", receiver.tvName)
+                page = TvSyncPhonePage.PAIR
+            }
+            .onFailure { status = it.message ?: "Could not reach that TV" }
+        loading = false
+    }
 
     LaunchedEffect(accountSession?.usesPasskey) {
         if (accountSession?.usesPasskey == true) {
@@ -266,8 +570,8 @@ private fun TvSyncSenderScreen(
         when (page) {
             TvSyncPhonePage.INTRO -> onBack()
             TvSyncPhonePage.DISCOVER -> page = TvSyncPhonePage.INTRO
-            TvSyncPhonePage.PAIR -> page = TvSyncPhonePage.DISCOVER
-            TvSyncPhonePage.INTEGRATIONS -> page = TvSyncPhonePage.PAIR
+            TvSyncPhonePage.PAIR -> if (presetDiscoveredReceiver != null) onBack() else page = TvSyncPhonePage.DISCOVER
+            TvSyncPhonePage.INTEGRATIONS -> if (presetTvId != null) onBack() else page = TvSyncPhonePage.PAIR
             TvSyncPhonePage.PASSPHRASE -> page = TvSyncPhonePage.INTEGRATIONS
             TvSyncPhonePage.ACCOUNT_DEVICE -> page = TvSyncPhonePage.PASSPHRASE
             TvSyncPhonePage.REVIEW -> page = if (passphraseEnabled) TvSyncPhonePage.ACCOUNT_DEVICE else TvSyncPhonePage.PASSPHRASE
@@ -357,7 +661,7 @@ private fun TvSyncSenderScreen(
                                             runCatching { vm.fetchHello(receiver.host, receiver.port) }
                                                 .onSuccess { hello ->
                                                     Log.d(TV_SYNC_UI_TAG, "discovered hello success host=${receiver.host} port=${receiver.port} hello=$hello")
-                                                    selectedReceiver = receiver
+                                                    selectedReceiver = receiver.copy(tvDeviceId = hello.optString("tvDeviceId").takeIf { it.isNotBlank() } ?: receiver.tvDeviceId)
                                                     pairSalt = hello.optString("salt")
                                                     pairSessionId = hello.optString("sessionId")
                                                     tvName = hello.optString("tvName", receiver.tvName)
@@ -389,7 +693,13 @@ private fun TvSyncSenderScreen(
                                 runCatching { vm.fetchHello(manualHost, manualPort.toInt()) }
                                     .onSuccess { hello ->
                                         Log.d(TV_SYNC_UI_TAG, "manual hello success host=$manualHost port=$manualPort hello=$hello")
-                                        selectedReceiver = TvSyncDiscoveredReceiver(manualHost, manualHost, manualPort.toInt(), hello.optString("tvName", "ZStream TV"))
+                                        selectedReceiver = TvSyncDiscoveredReceiver(
+                                            serviceName = manualHost,
+                                            host = manualHost,
+                                            port = manualPort.toInt(),
+                                            tvName = hello.optString("tvName", "ZStream TV"),
+                                            tvDeviceId = hello.optString("tvDeviceId").takeIf { it.isNotBlank() },
+                                        )
                                         pairSalt = hello.optString("salt")
                                         pairSessionId = hello.optString("sessionId")
                                         tvName = hello.optString("tvName", "ZStream TV")
@@ -417,7 +727,7 @@ private fun TvSyncSenderScreen(
                             scope.launch {
                                 loading = true
                                 Log.d(TV_SYNC_UI_TAG, "pair start host=${receiver.host} port=${receiver.port} codeLength=${pairCode.length}")
-                                runCatching { vm.pair(receiver.host, receiver.port, pairCode, pairSalt, pairSessionId, "Android Phone", tvName) }
+                                runCatching { vm.pair(receiver.host, receiver.port, pairCode, pairSalt, pairSessionId, "Android Phone", tvName, receiver.tvDeviceId) }
                                     .onSuccess {
                                         Log.d(TV_SYNC_UI_TAG, "pair success host=${receiver.host} port=${receiver.port}")
                                         page = TvSyncPhonePage.INTEGRATIONS
