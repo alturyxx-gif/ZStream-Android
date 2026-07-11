@@ -6,6 +6,8 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 import com.zstream.android.data.CryptoUtils.toBase64Url
 import com.zstream.android.data.remote.*
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -21,6 +23,17 @@ private val Context.accountStore by preferencesDataStore("account")
 
 data class AccountSession(val userId: String, val token: String, val nickname: String, val deviceName: String = "", val usesPasskey: Boolean = false)
 
+/** A cached login, kept around so a TV can switch between multiple accounts without re-authenticating. */
+data class SavedProfile(
+    val id: String,
+    val userId: String,
+    val token: String,
+    val nickname: String,
+    val deviceName: String,
+    val usesPasskey: Boolean,
+    val lastActiveAt: Long,
+)
+
 @Singleton
 class AccountRepository @Inject constructor(
     @ApplicationContext private val ctx: Context,
@@ -32,6 +45,8 @@ class AccountRepository @Inject constructor(
     private val KEY_DEVICE   = stringPreferencesKey("device_name")
     private val KEY_PASSKEY  = booleanPreferencesKey("uses_passkey")
     private val KEY_GUEST_ID = stringPreferencesKey("guest_id")
+    private val KEY_SAVED_PROFILES = stringPreferencesKey("saved_profiles")
+    private val gson = Gson()
 
     // Current session (can be null)
     var currentSession: AccountSession? = null
@@ -45,6 +60,35 @@ class AccountRepository @Inject constructor(
         val account = AccountSession(userId, token, nickname, deviceName, prefs[KEY_PASSKEY] ?: false)
         currentSession = account
         account
+    }
+
+    /** Cached logins available for a fast profile switch. TV-only feature; harmless if unused on phone. */
+    val savedProfiles: Flow<List<SavedProfile>> = ctx.accountStore.data.map { prefs ->
+        val raw = prefs[KEY_SAVED_PROFILES] ?: return@map emptyList()
+        runCatching {
+            val type = object : TypeToken<List<SavedProfile>>() {}.type
+            gson.fromJson<List<SavedProfile>>(raw, type) ?: emptyList()
+        }.getOrDefault(emptyList())
+    }
+
+    suspend fun savedProfilesSnapshot(): List<SavedProfile> = savedProfiles.first()
+
+    /** Switches the active session to an already-saved profile without re-authenticating. */
+    suspend fun activateProfile(profile: SavedProfile) {
+        persist(AccountSession(profile.userId, profile.token, profile.nickname, profile.deviceName, profile.usesPasskey))
+    }
+
+    suspend fun removeProfile(id: String) {
+        val current = savedProfilesSnapshot().filterNot { it.id == id }
+        ctx.accountStore.edit { it[KEY_SAVED_PROFILES] = gson.toJson(current) }
+    }
+
+    private suspend fun upsertSavedProfile(account: AccountSession) {
+        val current = savedProfilesSnapshot().toMutableList()
+        val idx = current.indexOfFirst { it.userId == account.userId }
+        val entry = SavedProfile(account.userId, account.userId, account.token, account.nickname, account.deviceName, account.usesPasskey, System.currentTimeMillis())
+        if (idx >= 0) current[idx] = entry else current.add(entry)
+        ctx.accountStore.edit { it[KEY_SAVED_PROFILES] = gson.toJson(current) }
     }
 
     //  Passphrase auth 
@@ -143,12 +187,15 @@ class AccountRepository @Inject constructor(
         return AccountSession(resp.session.userId, resp.token, resp.user.nickname, device, usesPasskey).also { persist(it) }
     }
 
-    private suspend fun persist(account: AccountSession) = ctx.accountStore.edit { prefs ->
-        prefs[KEY_TOKEN]    = account.token
-        prefs[KEY_USER_ID]  = account.userId
-        prefs[KEY_NICKNAME] = account.nickname
-        prefs[KEY_DEVICE]   = account.deviceName
-        prefs[KEY_PASSKEY]  = account.usesPasskey
+    private suspend fun persist(account: AccountSession) {
+        ctx.accountStore.edit { prefs ->
+            prefs[KEY_TOKEN]    = account.token
+            prefs[KEY_USER_ID]  = account.userId
+            prefs[KEY_NICKNAME] = account.nickname
+            prefs[KEY_DEVICE]   = account.deviceName
+            prefs[KEY_PASSKEY]  = account.usesPasskey
+        }
+        upsertSavedProfile(account)
     }
 
     private fun AccountSession.bearer() = "Bearer $token"

@@ -60,7 +60,11 @@ fun LoginScreen(nav: NavController, vm: AccountViewModel = hiltViewModel()) {
     var generatedMnemonic by remember { mutableStateOf("") }
 
     LaunchedEffect(authState) {
-        if (authState is AuthState.Success) onBack()
+        if (authState is AuthState.Success) {
+            // TV can have multiple cached logins; swap local progress/bookmarks to the newly active one.
+            if (isTv) vm.onProfileActivated()
+            onBack()
+        }
     }
 
     Box(Modifier.fillMaxSize().background(bg.main)) {
