@@ -12,6 +12,7 @@ import javax.inject.Singleton
 
 private val KEY_SOURCE_ORDER = stringPreferencesKey("source_order_json")
 private val KEY_DOWNLOAD_SOURCE_ORDER = stringPreferencesKey("download_source_order_json")
+private val DEFAULT_SOURCE_ORDER_IDS = listOf("stellar", "nesterov", "magnolia", "tokyo", "cosmic", "aspera", "aphrodite")
 private val DOWNLOAD_PRIORITY_SOURCE_IDS = listOf("stellar", "nesterov")
 
 @Singleton
@@ -21,7 +22,7 @@ class SourceOrderStore @Inject constructor(
 
     suspend fun getOrderedSources(pluginSources: List<SourceInfo>): List<SourceInfo> {
         val stored = readStoredOrder(KEY_SOURCE_ORDER)
-        if (stored.isEmpty()) return pluginSources
+        if (stored.isEmpty()) return mergeOrder(DEFAULT_SOURCE_ORDER_IDS, pluginSources)
         return mergeOrder(stored, pluginSources)
     }
 
@@ -63,4 +64,3 @@ class SourceOrderStore @Inject constructor(
         }
     }
 }
-
