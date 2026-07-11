@@ -52,6 +52,77 @@ val ZalandoSansSemiExpandedFontFamily = FontFamily(
     Font(R.font.zalandosans_bold, weight = FontWeight.Bold),
 )
 
+val CaudexFontFamily = FontFamily(
+    Font(R.font.caudex_regular, weight = FontWeight.Normal),
+    Font(R.font.caudex_italic, weight = FontWeight.Normal, style = FontStyle.Italic),
+    Font(R.font.caudex_bold, weight = FontWeight.Bold),
+    Font(R.font.caudex_bolditalic, weight = FontWeight.Bold, style = FontStyle.Italic),
+)
+
+val ExpletusSansFontFamily = FontFamily(
+    Font(R.font.expletussans_regular, weight = FontWeight.Normal),
+    Font(R.font.expletussans_italic, weight = FontWeight.Normal, style = FontStyle.Italic),
+    Font(R.font.expletussans_medium, weight = FontWeight.Medium),
+    Font(R.font.expletussans_mediumitalic, weight = FontWeight.Medium, style = FontStyle.Italic),
+    Font(R.font.expletussans_semibold, weight = FontWeight.SemiBold),
+    Font(R.font.expletussans_semibolditalic, weight = FontWeight.SemiBold, style = FontStyle.Italic),
+    Font(R.font.expletussans_bold, weight = FontWeight.Bold),
+    Font(R.font.expletussans_bolditalic, weight = FontWeight.Bold, style = FontStyle.Italic),
+)
+
+val FacultyGlyphicFontFamily = FontFamily(
+    Font(R.font.facultyglyphic_regular, weight = FontWeight.Normal),
+)
+
+val ModernAntiquaFontFamily = FontFamily(
+    Font(R.font.modernantiqua_regular, weight = FontWeight.Normal),
+)
+
+val OverlockFontFamily = FontFamily(
+    Font(R.font.overlock_regular, weight = FontWeight.Normal),
+    Font(R.font.overlock_italic, weight = FontWeight.Normal, style = FontStyle.Italic),
+    Font(R.font.overlock_bold, weight = FontWeight.Bold),
+    Font(R.font.overlock_bolditalic, weight = FontWeight.Bold, style = FontStyle.Italic),
+    Font(R.font.overlock_black, weight = FontWeight.Black),
+    Font(R.font.overlock_blackitalic, weight = FontWeight.Black, style = FontStyle.Italic),
+)
+
+val OpenSansFontFamily = FontFamily(
+    Font(R.font.opensans_light, weight = FontWeight.Light),
+    Font(R.font.opensans_lightitalic, weight = FontWeight.Light, style = FontStyle.Italic),
+    Font(R.font.opensans_regular, weight = FontWeight.Normal),
+    Font(R.font.opensans_italic, weight = FontWeight.Normal, style = FontStyle.Italic),
+    Font(R.font.opensans_medium, weight = FontWeight.Medium),
+    Font(R.font.opensans_mediumitalic, weight = FontWeight.Medium, style = FontStyle.Italic),
+    Font(R.font.opensans_semibold, weight = FontWeight.SemiBold),
+    Font(R.font.opensans_semibolditalic, weight = FontWeight.SemiBold, style = FontStyle.Italic),
+    Font(R.font.opensans_bold, weight = FontWeight.Bold),
+    Font(R.font.opensans_bolditalic, weight = FontWeight.Bold, style = FontStyle.Italic),
+    Font(R.font.opensans_extrabold, weight = FontWeight.ExtraBold),
+    Font(R.font.opensans_extrabolditalic, weight = FontWeight.ExtraBold, style = FontStyle.Italic),
+)
+
+val ScopeOneFontFamily = FontFamily(
+    Font(R.font.scopeone_regular, weight = FontWeight.Normal),
+)
+
+val VictorMonoFontFamily = FontFamily(
+    Font(R.font.victormono_thin, weight = FontWeight.Thin),
+    Font(R.font.victormono_thinitalic, weight = FontWeight.Thin, style = FontStyle.Italic),
+    Font(R.font.victormono_extralight, weight = FontWeight.ExtraLight),
+    Font(R.font.victormono_extralightitalic, weight = FontWeight.ExtraLight, style = FontStyle.Italic),
+    Font(R.font.victormono_light, weight = FontWeight.Light),
+    Font(R.font.victormono_lightitalic, weight = FontWeight.Light, style = FontStyle.Italic),
+    Font(R.font.victormono_regular, weight = FontWeight.Normal),
+    Font(R.font.victormono_italic, weight = FontWeight.Normal, style = FontStyle.Italic),
+    Font(R.font.victormono_medium, weight = FontWeight.Medium),
+    Font(R.font.victormono_mediumitalic, weight = FontWeight.Medium, style = FontStyle.Italic),
+    Font(R.font.victormono_semibold, weight = FontWeight.SemiBold),
+    Font(R.font.victormono_semibolditalic, weight = FontWeight.SemiBold, style = FontStyle.Italic),
+    Font(R.font.victormono_bold, weight = FontWeight.Bold),
+    Font(R.font.victormono_bolditalic, weight = FontWeight.Bold, style = FontStyle.Italic),
+)
+
 data class AppFontOption(val id: String, val displayName: String, val family: FontFamily)
 
 object AppFonts {
@@ -61,6 +132,14 @@ object AppFonts {
         AppFontOption("specialgothic", "Special Gothic Expanded One", SpecialGothicExpandedOneFontFamily),
         AppFontOption("zalandosans", "Zalando Sans SemiExpanded", ZalandoSansSemiExpandedFontFamily),
         AppFontOption("lato", "Lato", LatoFontFamily),
+        AppFontOption("caudex", "Caudex", CaudexFontFamily),
+        AppFontOption("expletussans", "Expletus Sans", ExpletusSansFontFamily),
+        AppFontOption("facultyglyphic", "Faculty Glyphic", FacultyGlyphicFontFamily),
+        AppFontOption("modernantiqua", "Modern Antiqua", ModernAntiquaFontFamily),
+        AppFontOption("overlock", "Overlock", OverlockFontFamily),
+        AppFontOption("opensans", "Open Sans", OpenSansFontFamily),
+        AppFontOption("scopeone", "Scope One", ScopeOneFontFamily),
+        AppFontOption("victormono", "Victor Mono", VictorMonoFontFamily),
     )
     val default = options.first()
 
