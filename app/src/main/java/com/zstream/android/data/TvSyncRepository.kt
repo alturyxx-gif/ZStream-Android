@@ -57,6 +57,7 @@ data class TvSyncDiscoveredReceiver(
     val host: String,
     val port: Int,
     val tvName: String,
+    val tvDeviceId: String? = null,
 )
 
 data class TvSyncIntegrationAvailability(
@@ -100,6 +101,31 @@ data class TvSyncPayload(
         if (passkeyKeySeed != null) add("Account login via passkey")
     }
 }
+
+/**
+ * A TV this phone has successfully paired with, persisted to disk so casting/syncing keeps
+ * working across app restarts without re-pairing (as long as the TV process itself hasn't also
+ * restarted and dropped its side of the session).
+ */
+data class PairedTv(
+    val id: String,
+    val tvDeviceId: String? = null,
+    val tvName: String,
+    val nickname: String,
+    val host: String,
+    val port: Int,
+    val token: String,
+    val secretBase64: String,
+    val pairedAt: Long,
+)
+
+/** TV-side record of a phone that paired with it, persisted so the session survives a TV app restart. */
+private data class PairedPhoneSession(
+    val token: String,
+    val secretBase64: String,
+    val phoneName: String,
+    val pairedAt: Long,
+)
 
 data class TvSyncReceiverState(
     val active: Boolean = false,
@@ -164,6 +190,36 @@ class TvSyncRepository @Inject constructor(
         return request
     }
 
+    // Sender (phone) side: every TV this phone has ever paired with, persisted to disk.
+    private val _pairedTvs = MutableStateFlow<List<PairedTv>>(emptyList())
+    val pairedTvs: StateFlow<List<PairedTv>> = _pairedTvs.asStateFlow()
+
+    init {
+        scope.launch {
+            _pairedTvs.value = loadPairedTvsFromDisk()
+            // Repopulate the in-memory sender-side maps so cast/sync keep working after a phone
+            // app restart without the user having to re-pair.
+            _pairedTvs.value.forEach { tv ->
+                sessionIds["${tv.host}:${tv.port}"] = tv.token
+                pairedSecrets["${tv.host}:${tv.port}"] = secretFromBase64(tv.secretBase64)
+            }
+            _pairedTvs.value.maxByOrNull { it.pairedAt }?.let {
+                _activeReceiver.value = TvSyncDiscoveredReceiver(serviceName = it.tvName, host = it.host, port = it.port, tvName = it.nickname, tvDeviceId = it.tvDeviceId)
+            }
+        }
+        scope.launch {
+            loadPhoneSessionsFromDisk().forEach { session ->
+                pairedSecrets[session.token] = secretFromBase64(session.secretBase64)
+            }
+        }
+    }
+
+    @OptIn(ExperimentalEncodingApi::class)
+    private fun secretToBase64(bytes: ByteArray): String = Base64.Default.encode(bytes)
+
+    @OptIn(ExperimentalEncodingApi::class)
+    private fun secretFromBase64(value: String): ByteArray = Base64.Default.decode(value)
+
     // Guards startReceiver() against concurrent callers (e.g. the app-level auto-start effect and
     // the "Sync from phone" screen's own start-if-not-active effect both firing around app launch) --
     // without this, both could race stopReceiver()/socket-creation and leave the UI showing a
@@ -173,12 +229,16 @@ class TvSyncRepository @Inject constructor(
     private var registrationListener: NsdManager.RegistrationListener? = null
     private var currentCode: String? = null
     private var currentSalt: String? = null
+    private var currentTvDeviceId: String? = null
     private val pairedSecrets = ConcurrentHashMap<String, ByteArray>()
     private val sessionIds = ConcurrentHashMap<String, String>()
     private val transferResults = ConcurrentHashMap<String, String>()
     private val deliveredResults = ConcurrentHashMap.newKeySet<String>()
 
     private val keyTvName = stringPreferencesKey("tv_name")
+    private val keyTvDeviceId = stringPreferencesKey("tv_device_id")
+    private val keyPairedTvs = stringPreferencesKey("paired_tvs")
+    private val keyPhoneSessions = stringPreferencesKey("paired_phone_sessions")
 
     suspend fun defaultTvName(): String =
         context.tvSyncStore.data.first()[keyTvName] ?: "${Build.MODEL.takeIf { it.isNotBlank() } ?: "ZStream"} TV"
@@ -186,6 +246,139 @@ class TvSyncRepository @Inject constructor(
     suspend fun setDefaultTvName(name: String) {
         context.tvSyncStore.edit { it[keyTvName] = name.trim().ifBlank { "ZStream TV" } }
         _receiverState.value = _receiverState.value.copy(tvName = name.trim().ifBlank { "ZStream TV" })
+    }
+
+    private suspend fun tvDeviceId(): String {
+        context.tvSyncStore.data.first()[keyTvDeviceId]?.let { return it }
+        val id = randomToken(18)
+        context.tvSyncStore.edit { it[keyTvDeviceId] = id }
+        return id
+    }
+
+    private suspend fun loadPairedTvsFromDisk(): List<PairedTv> = runCatching {
+        val raw = context.tvSyncStore.data.first()[keyPairedTvs] ?: return emptyList()
+        val type = com.google.gson.reflect.TypeToken.getParameterized(List::class.java, PairedTv::class.java).type
+        gson.fromJson<List<PairedTv>>(raw, type) ?: emptyList()
+    }.getOrElse {
+        Log.w(tag, "loadPairedTvsFromDisk failed", it)
+        emptyList()
+    }
+
+    private suspend fun savePairedTvsToDisk(list: List<PairedTv>) {
+        context.tvSyncStore.edit { it[keyPairedTvs] = gson.toJson(list) }
+    }
+
+    private suspend fun upsertPairedTv(host: String, port: Int, tvName: String, tvDeviceId: String?, token: String, secret: ByteArray) {
+        val existing = _pairedTvs.value.find {
+            (tvDeviceId != null && it.tvDeviceId == tvDeviceId) || (it.host == host && it.port == port)
+        }
+        val updated = PairedTv(
+            id = existing?.id ?: randomToken(12),
+            tvDeviceId = tvDeviceId ?: existing?.tvDeviceId,
+            tvName = tvName,
+            nickname = existing?.nickname?.takeIf { it.isNotBlank() } ?: tvName,
+            host = host,
+            port = port,
+            token = token,
+            secretBase64 = secretToBase64(secret),
+            pairedAt = System.currentTimeMillis(),
+        )
+        val next = _pairedTvs.value.filterNot { it.id == updated.id } + updated
+        _pairedTvs.value = next
+        savePairedTvsToDisk(next)
+    }
+
+    suspend fun renamePairedTv(id: String, nickname: String) {
+        val next = _pairedTvs.value.map { if (it.id == id) it.copy(nickname = nickname.trim().ifBlank { it.tvName }) else it }
+        _pairedTvs.value = next
+        savePairedTvsToDisk(next)
+    }
+
+    /** Picks which paired TV the quick "Cast" button in the player targets. */
+    fun setActiveReceiver(tv: PairedTv) {
+        _activeReceiver.value = TvSyncDiscoveredReceiver(serviceName = tv.tvName, host = tv.host, port = tv.port, tvName = tv.nickname, tvDeviceId = tv.tvDeviceId)
+    }
+
+    suspend fun forgetPairedTv(id: String) {
+        val removed = _pairedTvs.value.find { it.id == id }
+        val next = _pairedTvs.value.filterNot { it.id == id }
+        _pairedTvs.value = next
+        savePairedTvsToDisk(next)
+        if (removed != null) {
+            val key = "${removed.host}:${removed.port}"
+            sessionIds.remove(key)
+            pairedSecrets.remove(key)
+            if (_activeReceiver.value?.host == removed.host && _activeReceiver.value?.port == removed.port) {
+                _activeReceiver.value = _pairedTvs.value.maxByOrNull { it.pairedAt }?.let {
+                    TvSyncDiscoveredReceiver(serviceName = it.tvName, host = it.host, port = it.port, tvName = it.nickname, tvDeviceId = it.tvDeviceId)
+                }
+            }
+        }
+    }
+
+    /** Pings a TV at its last known address. True if it responded (i.e. is currently reachable). */
+    suspend fun pingTv(host: String, port: Int): Boolean = runCatching { fetchHello(host, port) }.isSuccess
+
+    /**
+     * A TV's port is a fresh ServerSocket(0) pick every time its app process restarts, so a
+     * previously-paired TV can go "offline" simply because it's now listening on a different port
+     * at the same name. Called after a discovery scan: if a discovered receiver shares a paired
+     * TV's stable device ID but a different host/port, silently relocate the paired entry to it
+     * (same token/secret -- the TV persists those across its own restarts too) instead of making
+     * the user re-pair. Name matching is only a legacy fallback for already-saved TVs without IDs.
+     */
+    suspend fun reconcilePairedHosts(discovered: List<TvSyncDiscoveredReceiver>) {
+        var changed = false
+        val next = _pairedTvs.value.map { tv ->
+            val match = discovered.find {
+                val sameDevice = tv.tvDeviceId != null && it.tvDeviceId == tv.tvDeviceId
+                val legacySameName = tv.tvDeviceId == null && it.tvName == tv.tvName
+                (sameDevice || legacySameName) && (it.host != tv.host || it.port != tv.port)
+            }
+            if (match == null) {
+                tv
+            } else {
+                changed = true
+                val oldKey = "${tv.host}:${tv.port}"
+                val secret = pairedSecrets.remove(oldKey)
+                sessionIds.remove(oldKey)
+                if (secret != null) {
+                    val newKey = "${match.host}:${match.port}"
+                    sessionIds[newKey] = tv.token
+                    pairedSecrets[newKey] = secret
+                }
+                tv.copy(host = match.host, port = match.port, tvDeviceId = tv.tvDeviceId ?: match.tvDeviceId)
+            }
+        }
+        if (changed) {
+            val active = _activeReceiver.value
+            val activeMatch = next.find {
+                it.host == active?.host ||
+                    (it.tvDeviceId != null && it.tvDeviceId == active?.tvDeviceId) ||
+                    (active?.tvDeviceId == null && it.tvName == active?.serviceName)
+            }
+            _pairedTvs.value = next
+            savePairedTvsToDisk(next)
+            activeMatch?.let { setActiveReceiver(it) }
+        }
+    }
+
+    private suspend fun loadPhoneSessionsFromDisk(): List<PairedPhoneSession> = runCatching {
+        val raw = context.tvSyncStore.data.first()[keyPhoneSessions] ?: return emptyList()
+        val type = com.google.gson.reflect.TypeToken.getParameterized(List::class.java, PairedPhoneSession::class.java).type
+        gson.fromJson<List<PairedPhoneSession>>(raw, type) ?: emptyList()
+    }.getOrElse {
+        Log.w(tag, "loadPhoneSessionsFromDisk failed", it)
+        emptyList()
+    }
+
+    private fun persistPhoneSession(token: String, secret: ByteArray, phoneName: String) {
+        scope.launch {
+            val current = loadPhoneSessionsFromDisk()
+            val next = current.filterNot { it.token == token } +
+                PairedPhoneSession(token, secretToBase64(secret), phoneName, System.currentTimeMillis())
+            context.tvSyncStore.edit { it[keyPhoneSessions] = gson.toJson(next) }
+        }
     }
 
     suspend fun startReceiver(tvName: String? = null) = receiverStartMutex.withLock {
@@ -201,11 +394,14 @@ class TvSyncRepository @Inject constructor(
         val salt = randomToken(16)
         currentCode = code
         currentSalt = salt
-        pairedSecrets.clear()
-        sessionIds.clear()
+        // Deliberately NOT clearing pairedSecrets/sessionIds here -- they hold persisted phone
+        // sessions (reloaded from disk in init{}) that must survive a receiver restart, otherwise
+        // every TV app relaunch would silently invalidate every previously-paired phone.
         transferResults.clear()
         deliveredResults.clear()
         val actualName = (tvName ?: defaultTvName()).trim().ifBlank { "ZStream TV" }
+        val deviceId = tvDeviceId()
+        currentTvDeviceId = deviceId
         setDefaultTvName(actualName)
         _receiverState.value = TvSyncReceiverState(
             active = true,
@@ -215,8 +411,8 @@ class TvSyncRepository @Inject constructor(
             localIps = localIpv4Addresses(),
             status = "Waiting for your phone",
         )
-        Log.d(tag, "startReceiver tvName=$actualName port=${socket.localPort} ips=${_receiverState.value.localIps}")
-        registerService(actualName, socket.localPort)
+        Log.d(tag, "startReceiver tvName=$actualName tvDeviceId=$deviceId port=${socket.localPort} ips=${_receiverState.value.localIps}")
+        registerService(actualName, deviceId, socket.localPort)
         scope.launch {
             while (!socket.isClosed) {
                 try {
@@ -245,10 +441,9 @@ class TvSyncRepository @Inject constructor(
         } catch (_: Exception) {
         }
         serverSocket = null
-        pairedSecrets.clear()
-        sessionIds.clear()
         currentCode = null
         currentSalt = null
+        currentTvDeviceId = null
         _receiverState.value = TvSyncReceiverState()
     }
 
@@ -285,12 +480,14 @@ class TvSyncRepository @Inject constructor(
                             val host = resolved.host?.hostAddress ?: return
                             val attrs = resolved.attributes
                             val tvName = attrs["tvName"]?.decodeToString()?.ifBlank { resolved.serviceName } ?: resolved.serviceName
-                            Log.d(tag, "resolve success service=${resolved.serviceName} host=$host port=${resolved.port} tvName=$tvName attrs=${attrs.keys}")
+                            val tvDeviceId = attrs["tvDeviceId"]?.decodeToString()?.takeIf { it.isNotBlank() }
+                            Log.d(tag, "resolve success service=${resolved.serviceName} host=$host port=${resolved.port} tvName=$tvName tvDeviceId=$tvDeviceId attrs=${attrs.keys}")
                             found["$host:${resolved.port}"] = TvSyncDiscoveredReceiver(
                                 serviceName = resolved.serviceName,
                                 host = host,
                                 port = resolved.port,
                                 tvName = tvName,
+                                tvDeviceId = tvDeviceId,
                             )
                         }
                     })
@@ -321,7 +518,7 @@ class TvSyncRepository @Inject constructor(
         }
     }
 
-    suspend fun pair(host: String, port: Int, code: String, salt: String, sessionId: String, phoneName: String, tvName: String = "TV"): String = withContext(Dispatchers.IO) {
+    suspend fun pair(host: String, port: Int, code: String, salt: String, sessionId: String, phoneName: String, tvName: String = "TV", tvDeviceId: String? = null): String = withContext(Dispatchers.IO) {
         Log.d(tag, "pair host=$host port=$port codeLength=${code.length} sessionId=$sessionId phoneName=$phoneName")
         val secret = deriveSecret(code, salt)
         val proof = CryptoUtils.encryptData("pair:$sessionId", secret)
@@ -339,12 +536,13 @@ class TvSyncRepository @Inject constructor(
             val token = JSONObject(raw).getString("token")
             sessionIds["$host:$port"] = token
             pairedSecrets["$host:$port"] = secret
-            _activeReceiver.value = TvSyncDiscoveredReceiver(serviceName = tvName, host = host, port = port, tvName = tvName)
+            _activeReceiver.value = TvSyncDiscoveredReceiver(serviceName = tvName, host = host, port = port, tvName = tvName, tvDeviceId = tvDeviceId)
+            upsertPairedTv(host, port, tvName, tvDeviceId, token, secret)
             token
         }
     }
 
-    /** True if this phone still holds a live pairing session with the given TV (in-memory only, this process). */
+    /** True if this phone still holds a live pairing session with the given TV, in-memory or persisted to disk. */
     fun isPairedWith(host: String, port: Int): Boolean =
         sessionIds.containsKey("$host:$port") && pairedSecrets.containsKey("$host:$port")
 
@@ -481,12 +679,13 @@ class TvSyncRepository @Inject constructor(
         }
     }
 
-    private fun registerService(tvName: String, port: Int) {
+    private fun registerService(tvName: String, tvDeviceId: String, port: Int) {
         val serviceInfo = NsdServiceInfo().apply {
             serviceType = NSD_SERVICE_TYPE
             serviceName = "ZStream $tvName"
             setPort(port)
             setAttribute("tvName", tvName)
+            setAttribute("tvDeviceId", tvDeviceId)
         }
         val listener = object : NsdManager.RegistrationListener {
             override fun onRegistrationFailed(serviceInfo: NsdServiceInfo?, errorCode: Int) {
@@ -494,14 +693,14 @@ class TvSyncRepository @Inject constructor(
             }
             override fun onUnregistrationFailed(serviceInfo: NsdServiceInfo?, errorCode: Int) = Unit
             override fun onServiceRegistered(serviceInfo: NsdServiceInfo?) {
-                Log.d(tag, "register success service=${serviceInfo?.serviceName} port=$port tvName=$tvName")
+                Log.d(tag, "register success service=${serviceInfo?.serviceName} port=$port tvName=$tvName tvDeviceId=$tvDeviceId")
             }
             override fun onServiceUnregistered(serviceInfo: NsdServiceInfo?) {
                 Log.d(tag, "unregister service=${serviceInfo?.serviceName}")
             }
         }
         registrationListener = listener
-        Log.d(tag, "register request serviceName=ZStream $tvName type=$NSD_SERVICE_TYPE port=$port")
+        Log.d(tag, "register request serviceName=ZStream $tvName type=$NSD_SERVICE_TYPE port=$port tvDeviceId=$tvDeviceId")
         nsdManager.registerService(serviceInfo, NsdManager.PROTOCOL_DNS_SD, listener)
     }
 
@@ -538,6 +737,7 @@ class TvSyncRepository @Inject constructor(
 
     private fun helloJson(): JSONObject = JSONObject()
         .put("tvName", _receiverState.value.tvName)
+        .put("tvDeviceId", currentTvDeviceId)
         .put("salt", currentSalt)
         .put("codeLength", 6)
         .put("port", _receiverState.value.port)
@@ -559,6 +759,7 @@ class TvSyncRepository @Inject constructor(
             require(decrypted == "pair:$sessionId") { "Wrong pairing code" }
             val token = randomToken(24)
             pairedSecrets[token] = secret
+            persistPhoneSession(token, secret, json.optString("clientName").ifBlank { "phone" })
             Log.d(tag, "handlePair success sessionId=$sessionId token=$token client=${json.optString("clientName")}")
             _receiverState.value = _receiverState.value.copy(status = "Paired with ${json.optString("clientName").ifBlank { "phone" }}")
             respond(writer, 200, JSONObject().put("token", token).toString())

@@ -434,7 +434,6 @@ fun HomeScreen(
     var showNotifications by remember { mutableStateOf(false) }
     var showTipJar by remember { mutableStateOf(false) }
     var showTvInstaller by remember { mutableStateOf(false) }
-    var showTvActions by remember { mutableStateOf(false) }
     var showReleaseUpdatePrompt by remember { mutableStateOf(false) }
     var editingGroup by remember { mutableStateOf<String?>(null) }
     var sectionSettings by remember { mutableStateOf<String?>(null) }
@@ -550,29 +549,6 @@ fun HomeScreen(
     {
         if (showTvInstaller) {
             TvInstallerScreen(onDismiss = { showTvInstaller = false })
-        }
-        if (showTvActions) {
-            AlertDialog(
-                onDismissRequest = { showTvActions = false },
-                containerColor = theme.colors.modal.background,
-                title = { Text("TV actions", color = theme.colors.type.emphasis) },
-                text = { Text("Choose what you want to do with your TV.", color = theme.colors.type.text) },
-                confirmButton = {
-                    TextButton(onClick = {
-                        showTvActions = false
-                        nav.navigate("tvSync")
-                    }) { Text("Sync to TV", color = theme.colors.global.accentA) }
-                },
-                dismissButton = {
-                    Row {
-                        TextButton(onClick = {
-                            showTvActions = false
-                            showTvInstaller = true
-                        }) { Text("Install APK", color = theme.colors.global.accentA) }
-                        TextButton(onClick = { showTvActions = false }) { Text("Cancel", color = theme.colors.type.secondary) }
-                    }
-                },
-            )
         }
         if (showReleaseUpdatePrompt) {
             if (isTv) {
@@ -1305,7 +1281,7 @@ fun HomeScreen(
                                 onDiscord = { uriHandler.openUri(Urls.DISCORD_LINK) },
                                 onNotifications = { showNotifications = true },
                                 onTipJar = { showTipJar = true },
-                                onTvInstaller = { showTvActions = true },
+                                onTvInstaller = { nav.navigate("tvSync") },
                                 showTvInstaller = !isTv,
                                 collapseActionsIntoMenu = state.enableFeatured,
                                 unreadCount = unreadCount,

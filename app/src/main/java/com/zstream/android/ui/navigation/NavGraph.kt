@@ -75,5 +75,16 @@ fun NavGraph(nav: NavHostController) {
             arguments = listOf(navArgument("localMediaId") { type = NavType.StringType }),
         ) { LocalPlayerScreen(nav) }
         composable("tvSync") { TvSyncScreen(nav) }
+        composable(
+            "tvSyncPair?tvId={tvId}&host={host}&port={port}&tvName={tvName}",
+            arguments = listOf(
+                navArgument("tvId") { type = NavType.StringType; defaultValue = "" },
+                // Populated only when pairing a freshly-discovered (not-yet-paired) TV from Manage TVs.
+                navArgument("host") { type = NavType.StringType; defaultValue = "" },
+                navArgument("port") { type = NavType.IntType; defaultValue = 0 },
+                navArgument("tvName") { type = NavType.StringType; defaultValue = "" },
+            ),
+        ) { TvSyncPairScreen(nav) }
+        composable("tvInstaller") { TvInstallerScreen(onDismiss = { nav.popBackStack() }) }
     }
 }
