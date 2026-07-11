@@ -6,6 +6,7 @@ import android.os.Build
 import android.util.Log
 import com.zstream.android.BuildConfig
 import dagger.hilt.android.qualifiers.ApplicationContext
+import okhttp3.CacheControl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
@@ -78,21 +79,33 @@ class PluginLoader @Inject constructor(
         tmp.delete()
 
         try {
-            val request = Request.Builder().url(url).build()
+            val request = Request.Builder()
+                .url(url)
+                .cacheControl(CacheControl.Builder().noCache().noStore().build())
+                .build()
             val response = httpClient.newCall(request).execute()
-            val body = response.body ?: throw IllegalStateException("Empty response body")
+            if (!response.isSuccessful) {
+                response.close()
+                throw IllegalStateException("Plugin download failed: HTTP ${response.code}")
+            }
+            val body = response.body ?: run {
+                response.close()
+                throw IllegalStateException("Empty response body")
+            }
 
-            val totalBytes = body.contentLength().takeIf { it > 0 }
-            var bytesRead = 0L
-            tmp.outputStream().use { out ->
-                body.byteStream().use { input ->
-                    val buf = ByteArray(8192)
-                    var n: Int
-                    while (input.read(buf).also { n = it } != -1) {
-                        out.write(buf, 0, n)
-                        bytesRead += n
-                        if (totalBytes != null) {
-                            onProgress((bytesRead.toFloat() / totalBytes).coerceIn(0f, 0.99f))
+            response.use {
+                val totalBytes = body.contentLength().takeIf { it > 0 }
+                var bytesRead = 0L
+                tmp.outputStream().use { out ->
+                    body.byteStream().use { input ->
+                        val buf = ByteArray(8192)
+                        var n: Int
+                        while (input.read(buf).also { n = it } != -1) {
+                            out.write(buf, 0, n)
+                            bytesRead += n
+                            if (totalBytes != null) {
+                                onProgress((bytesRead.toFloat() / totalBytes).coerceIn(0f, 0.99f))
+                            }
                         }
                     }
                 }
