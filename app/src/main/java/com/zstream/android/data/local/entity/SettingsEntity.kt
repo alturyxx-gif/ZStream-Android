@@ -31,7 +31,7 @@ data class SettingsEntity(
     // Playback Settings
     val defaultSubtitleLanguage: String? = null,
     val enableAutoplay: Boolean = true,
-    val enableSkipCredits: Boolean = true,
+    val enableSkipCredits: Boolean = false,
     val enableAutoSkipSegments: Boolean = false,
     val enableNativeSubtitles: Boolean = false,
     val subtitlesEnabled: Boolean = false,
@@ -49,7 +49,7 @@ data class SettingsEntity(
     val tvPipPosition: String = "bottom_end",
     // When leaving the app (home/recents) while a video is playing: false = pause playback,
     // true = automatically enter system Picture-in-Picture instead. Local-only, not synced.
-    val autoPipEnabled: Boolean = false,
+    val autoPipEnabled: Boolean = true,
     // Phone only: whether trailers play in the in-app player or launch externally. Local-only, not synced.
     val trailersOpenInApp: Boolean = true,
     // Playback speed carried over to the next video played. Local-only, not synced.

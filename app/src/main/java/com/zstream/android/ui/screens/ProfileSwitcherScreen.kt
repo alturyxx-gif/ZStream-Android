@@ -35,7 +35,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -54,7 +53,6 @@ import com.zstream.android.theme.LocalZStreamTheme
 import com.zstream.android.ui.components.themed.ZsIconButton
 import com.zstream.android.ui.components.themed.ZsIconButtonVariant
 import com.zstream.android.ui.components.themed.ZsOutlinedWrapper
-import com.zstream.android.ui.navigation.rememberSafeNavigateBack
 
 private val PROFILE_CARD_WIDTH = 160.dp
 
@@ -62,8 +60,6 @@ private val PROFILE_CARD_WIDTH = 160.dp
 @Composable
 fun ProfileSwitcherScreen(nav: NavController, vm: AccountViewModel = hiltViewModel()) {
     val theme = LocalZStreamTheme.current
-    val scope = rememberCoroutineScope()
-    val onBack = rememberSafeNavigateBack(nav, scope)
     val session by vm.session.collectAsStateWithLifecycle()
     val savedProfiles by vm.savedProfiles.collectAsStateWithLifecycle()
     var removing by remember { mutableStateOf<String?>(null) }
@@ -74,7 +70,7 @@ fun ProfileSwitcherScreen(nav: NavController, vm: AccountViewModel = hiltViewMod
         firstProfileFocusRequester.requestFocus()
     }
 
-    BackHandler { onBack() }
+    BackHandler { }
 
     Box(Modifier.fillMaxSize().background(theme.colors.background.main)) {
         Column(
@@ -104,7 +100,9 @@ fun ProfileSwitcherScreen(nav: NavController, vm: AccountViewModel = hiltViewMod
                         removing = removing == profile.id,
                         onClick = {
                             if (!isActive) vm.switchProfile(profile.id)
-                            onBack()
+                            nav.navigate("home") {
+                                popUpTo("profileSwitcher") { inclusive = true }
+                            }
                         },
                         onRequestRemove = { removing = profile.id },
                         onConfirmRemove = { vm.removeProfile(profile.id); removing = null },

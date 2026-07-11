@@ -239,7 +239,9 @@ fun ProfilePickerGlobalEffect(
         // Multiple cached profiles: always let the user pick (Netflix-style). No active session
         // but at least one cached login: land on the picker instead of a bare "Sync to Cloud" home.
         if (profiles.size > 1 || (!hasActiveSession && profiles.isNotEmpty())) {
-            navController.navigate("profileSwitcher")
+            navController.navigate("profileSwitcher") {
+                popUpTo("home") { inclusive = true }
+            }
         }
     }
 }

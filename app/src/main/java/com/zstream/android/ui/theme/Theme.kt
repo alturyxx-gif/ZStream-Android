@@ -146,6 +146,20 @@ object AppFonts {
     fun byId(id: String?): AppFontOption = options.find { it.id == id } ?: default
 }
 
+val SubtitleFontOptions = listOf("sans-serif", "sans-serif-condensed", "serif", "monospace") + AppFonts.options.map { it.displayName }
+
+fun subtitleFontId(option: String): String = AppFonts.options.find { it.displayName == option }?.id ?: option
+
+fun subtitleFontLabel(font: String): String = AppFonts.options.find { it.id == font }?.displayName ?: font
+
+fun subtitleFontFamily(font: String): FontFamily = when (font) {
+    "serif" -> FontFamily.Serif
+    "monospace" -> FontFamily.Monospace
+    "sans-serif-condensed" -> FontFamily(android.graphics.Typeface.create("sans-serif-condensed", android.graphics.Typeface.NORMAL))
+    "sans-serif" -> FontFamily.SansSerif
+    else -> AppFonts.options.find { it.id == font || it.displayName == font }?.family ?: FontFamily.SansSerif
+}
+
 val LocalAppFontFamily = compositionLocalOf { AppFonts.default.family }
 
 private fun colorSchemeFor(theme: ZStreamTheme) = darkColorScheme(
