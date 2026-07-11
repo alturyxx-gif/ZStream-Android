@@ -421,8 +421,8 @@ class HlsDownloadEngine(private val client: OkHttpClient) {
     private class TrackOffsets {
         var videoTimeOffsetUs = 0L
         var audioTimeOffsetUs = 0L
-        var videoLastWrittenPtsUs = -1L
-        var audioLastWrittenPtsUs = -1L
+        var videoMaxPtsUs = -1L
+        var audioMaxPtsUs = -1L
     }
 
     /**
@@ -510,6 +510,25 @@ class HlsDownloadEngine(private val client: OkHttpClient) {
                 }
                 if (tracks.isEmpty()) return@withExtractor
 
+                // Bump this segment's start forward just enough to clear the previous segment's
+                // true max PTS -- guards only against cross-segment drift (a segment's declared
+                // EXTINF duration can be slightly off from its actual decoded span, so the next
+                // segment's first sample can otherwise land at or before the previous segment's
+                // last one). Deliberately NOT applied per-sample: B-frame content legitimately has
+                // samples whose presentation time dips below a preceding reference frame's within
+                // the same segment (decode order != display order), which MediaMuxer handles
+                // correctly via its own composition-time-offset bookkeeping. An earlier version of
+                // this clamped every sample forward to be > the previous one written, which
+                // destroyed that ordering and collapsed multiple distinct B-frames onto the same
+                // output tick -- playing back as choppy, reduced-frame-rate video since the player
+                // only ever saw one of each group of squashed-together frames.
+                if (sawVideo && offsets.videoTimeOffsetUs <= offsets.videoMaxPtsUs) {
+                    offsets.videoTimeOffsetUs = offsets.videoMaxPtsUs + 1
+                }
+                if (sawAudio && offsets.audioTimeOffsetUs <= offsets.audioMaxPtsUs) {
+                    offsets.audioTimeOffsetUs = offsets.audioMaxPtsUs + 1
+                }
+
                 val firstPtsPerTrack = mutableMapOf<Int, Long>()
                 while (true) {
                     buffer.clear()
@@ -525,15 +544,12 @@ class HlsDownloadEngine(private val client: OkHttpClient) {
                     val pts = extractor.sampleTime
                     val firstPts = firstPtsPerTrack.getOrPut(extractorTrack) { pts }
                     val baseOffset = if (isVideo) offsets.videoTimeOffsetUs else offsets.audioTimeOffsetUs
-                    val lastWritten = if (isVideo) offsets.videoLastWrittenPtsUs else offsets.audioLastWrittenPtsUs
-
-                    // MediaMuxer requires strictly non-decreasing presentationTimeUs per track. A
-                    // segment's declared EXTINF duration (what baseOffset advances by) can be
-                    // slightly off from its actual decoded span, so the next segment's first sample
-                    // can land at or before the previous segment's last sample -- silently corrupting
-                    // (or truncating decode of) every sample after the first violation. Clamp forward.
-                    val safePts = maxOf(baseOffset + (pts - firstPts), lastWritten + 1)
-                    if (isVideo) offsets.videoLastWrittenPtsUs = safePts else offsets.audioLastWrittenPtsUs = safePts
+                    val safePts = baseOffset + (pts - firstPts)
+                    if (isVideo) {
+                        offsets.videoMaxPtsUs = maxOf(offsets.videoMaxPtsUs, safePts)
+                    } else {
+                        offsets.audioMaxPtsUs = maxOf(offsets.audioMaxPtsUs, safePts)
+                    }
 
                     // Some sources hand MediaExtractor raw ADTS-framed AAC segments that don't get
                     // their 7/9-byte ADTS header stripped during extraction -- the mp4a/esds track
