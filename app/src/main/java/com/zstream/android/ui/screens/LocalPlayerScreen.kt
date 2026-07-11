@@ -50,6 +50,7 @@ import com.zstream.android.data.local.dao.DownloadDao
 import com.zstream.android.data.local.entity.DownloadEntity
 import com.zstream.android.data.local.preferences.SettingsPreferences
 import com.zstream.android.download.DownloadStorage
+import com.zstream.android.download.DownloadResolver
 import com.zstream.android.ui.LocalIsTv
 import com.zstream.android.ui.components.themed.ZsStatusBanner
 import com.zstream.android.ui.components.themed.ZsStatusBannerVariant
@@ -103,6 +104,7 @@ class LocalPlayerViewModel @Inject constructor(
     private val localFileProgressRepository: LocalFileProgressRepository,
     private val skipSegmentRepository: com.zstream.android.data.SkipSegmentRepository,
     private val cachedEpisodeDao: CachedEpisodeDao,
+    private val downloadResolver: DownloadResolver,
 ) : ViewModel() {
     private val downloadId: Long? = savedState.get<String>("downloadId")?.toLongOrNull()
     private val localMediaId: Long? = savedState.get<String>("localMediaId")?.toLongOrNull()
@@ -126,6 +128,8 @@ class LocalPlayerViewModel @Inject constructor(
     val currentSeasonDetail: StateFlow<com.zstream.android.data.model.Season?> = _currentSeasonDetail.asStateFlow()
     private val _downloadedEpisodes = MutableStateFlow<Map<String, DownloadEntity>>(emptyMap())
     val downloadedEpisodes: StateFlow<Map<String, DownloadEntity>> = _downloadedEpisodes.asStateFlow()
+    private val _pendingDownloads = MutableStateFlow<Set<String>>(emptySet())
+    val pendingDownloads: StateFlow<Set<String>> = _pendingDownloads.asStateFlow()
 
     init {
         viewModelScope.launch {
@@ -188,6 +192,38 @@ class LocalPlayerViewModel @Inject constructor(
                     )
                 },
             )
+        }
+    }
+
+    fun downloadEpisode(episode: com.zstream.android.data.model.Episode) {
+        val ready = _source.value as? LocalPlaybackSource.Ready ?: return
+        val tmdbId = ready.tmdbId ?: return
+        val key = "${episode.seasonNumber}|${episode.episodeNumber}"
+        if (key in _pendingDownloads.value || key in _downloadedEpisodes.value) return
+        viewModelScope.launch {
+            _pendingDownloads.value += key
+            try {
+                val downloadId = downloadResolver.resolveAndEnqueue(
+                    mediaType = "tv",
+                    tmdbId = tmdbId,
+                    title = ready.showTitle,
+                    posterPath = ready.posterPath,
+                    season = episode.seasonNumber,
+                    episode = episode.episodeNumber,
+                    episodeTitle = episode.name,
+                ).onFailure { android.util.Log.e("LocalPlayerVM", "Episode download failed", it) }.getOrNull()
+                if (downloadId != null) {
+                    downloadDao.observeById(downloadId).first { entity ->
+                        entity == null || entity.status in setOf(
+                            com.zstream.android.data.local.entity.DownloadStatus.DONE,
+                            com.zstream.android.data.local.entity.DownloadStatus.FAILED,
+                            com.zstream.android.data.local.entity.DownloadStatus.CANCELLED,
+                        )
+                    }
+                }
+            } finally {
+                _pendingDownloads.value -= key
+            }
         }
     }
 
