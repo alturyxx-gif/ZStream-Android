@@ -25,3 +25,6 @@
 # Gson TypeToken subclasses
 -keep class com.google.gson.reflect.TypeToken { *; }
 -keep class * extends com.google.gson.reflect.TypeToken
+
+# The TV ADB client registers Bouncy Castle at runtime to generate its RSA certificate.
+-keep class org.bouncycastle.** { *; }
