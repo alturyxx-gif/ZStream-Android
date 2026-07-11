@@ -7000,7 +7000,7 @@ private fun PlaybackErrorOverlay(
                         }
                     }
                 }
-                if (hasVariants && onOpenVariants != null) {
+                if (isTv && hasVariants && onOpenVariants != null) {
                     Spacer(Modifier.height(12.dp))
                     var variantsFocused by remember { mutableStateOf(false) }
                     ZsOutlinedWrapper(visible = isTv && variantsFocused, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
