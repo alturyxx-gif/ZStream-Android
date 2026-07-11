@@ -122,6 +122,7 @@ class AccountViewModel @Inject constructor(
             val target = repo.savedProfilesSnapshot().find { it.id == id } ?: return@launch
             if (target.userId == session.value?.userId) return@launch
             repo.activateProfile(target)
+            settingsPrefs.setKidsModeEnabled(target.kidsModeEnabled)
             clearLocalAndResync()
         }
     }
@@ -142,7 +143,12 @@ class AccountViewModel @Inject constructor(
 
     /** TV-only: called after logging into a new profile (e.g. via "Add Profile") to swap out local data for the new account's. */
     fun onProfileActivated() {
-        viewModelScope.launch { clearLocalAndResync() }
+        viewModelScope.launch {
+            val userId = session.value?.userId
+            val saved = userId?.let { id -> repo.savedProfilesSnapshot().find { it.userId == id } }
+            settingsPrefs.setKidsModeEnabled(saved?.kidsModeEnabled ?: false)
+            clearLocalAndResync()
+        }
     }
 
     private suspend fun clearLocalAndResync() {
