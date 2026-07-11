@@ -86,5 +86,6 @@ fun NavGraph(nav: NavHostController) {
             ),
         ) { TvSyncPairScreen(nav) }
         composable("tvInstaller") { TvInstallerScreen(onDismiss = { nav.popBackStack() }) }
+        composable("profileSwitcher") { ProfileSwitcherScreen(nav) }
     }
 }

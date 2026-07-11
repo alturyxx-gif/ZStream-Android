@@ -31,6 +31,10 @@ class AccountViewModel @Inject constructor(
     val session: StateFlow<AccountSession?> = repo.session
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
+    /** TV-only: cached logins available for a fast profile switch. */
+    val savedProfiles: StateFlow<List<SavedProfile>> = repo.savedProfiles
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     // Observe bookmarks and progress from persistent local storage (Room)
     val bookmarks = bookmarkRepo.observeAllBookmarks()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -111,6 +115,41 @@ class AccountViewModel @Inject constructor(
     }
 
     fun clearError() { if (authState.value is AuthState.Error) authState.value = AuthState.Idle }
+
+    /** TV-only: switches to an already-saved login without re-authenticating, swapping local progress/bookmarks for the new profile's synced data. */
+    fun switchProfile(id: String) {
+        viewModelScope.launch {
+            val target = repo.savedProfilesSnapshot().find { it.id == id } ?: return@launch
+            if (target.userId == session.value?.userId) return@launch
+            repo.activateProfile(target)
+            clearLocalAndResync()
+        }
+    }
+
+    /** TV-only: forgets a saved login. If it was the active one, also signs out of it locally. */
+    fun removeProfile(id: String) {
+        viewModelScope.launch {
+            val wasActive = repo.savedProfilesSnapshot().find { it.id == id }?.userId == session.value?.userId
+            repo.removeProfile(id)
+            if (wasActive) {
+                progressRepo.clearProgress()
+                bookmarkRepo.clearBookmarks()
+                repo.logout()
+                authState.value = AuthState.Idle
+            }
+        }
+    }
+
+    /** TV-only: called after logging into a new profile (e.g. via "Add Profile") to swap out local data for the new account's. */
+    fun onProfileActivated() {
+        viewModelScope.launch { clearLocalAndResync() }
+    }
+
+    private suspend fun clearLocalAndResync() {
+        progressRepo.clearProgress()
+        bookmarkRepo.clearBookmarks()
+        runCatching { syncManager.syncAllFromRemote() }
+    }
 
     /** Called from PlayerScreen every 3s and on exit — mirrors p-stream ProgressSaver */
     suspend fun syncProgress(

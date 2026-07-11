@@ -2887,16 +2887,12 @@ private fun SandwichMenuDialog(
                 ) {
                     if (session != null) {
                         val displayName = session.nickname.ifBlank { session.deviceName.ifBlank { "Synced" } }
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 8.dp, vertical = 2.dp)
-                                .padding(horizontal = 12.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        SandwichItem(
+                            Icons.Default.Person, "Profile: $displayName", theme = theme, tint = theme.colors.global.accentA,
+                            modifier = Modifier.focusRequester(firstItemFocusRequester)
                         ) {
-                            Icon(Icons.Default.CheckCircle, null, tint = theme.colors.type.success, modifier = Modifier.size(16.dp))
-                            Text("Synced: $displayName", color = theme.colors.type.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                            nav.navigate("profileSwitcher")
+                            onDismiss()
                         }
                     } else {
                         SandwichItem(
