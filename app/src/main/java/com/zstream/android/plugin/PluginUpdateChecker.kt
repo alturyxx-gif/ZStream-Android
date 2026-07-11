@@ -1,6 +1,7 @@
 package com.zstream.android.plugin
 
 import android.util.Log
+import okhttp3.CacheControl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
@@ -33,6 +34,7 @@ class PluginUpdateChecker @Inject constructor(
     fun fetchManifest(): PluginManifest {
         val request = Request.Builder()
             .url(PluginConstants.MANIFEST_URL)
+            .cacheControl(CacheControl.Builder().noCache().build())
             .build()
 
         val response = httpClient.newCall(request).execute()
