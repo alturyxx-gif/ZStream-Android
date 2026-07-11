@@ -22,6 +22,21 @@ interface LocalLibraryDao {
     @Query("SELECT * FROM local_media WHERE id = :id")
     suspend fun getMedia(id: Long): LocalMediaEntity?
 
+    @Query("""
+        SELECT * FROM local_media
+        WHERE tmdbId = :tmdbId AND tmdbType = :tmdbType
+          AND (:season IS NULL OR season = :season)
+          AND (:episode IS NULL OR episode = :episode)
+        ORDER BY modifiedAt DESC
+        LIMIT 1
+    """)
+    suspend fun findPlayableMedia(
+        tmdbId: String,
+        tmdbType: String,
+        season: Int?,
+        episode: Int?,
+    ): LocalMediaEntity?
+
     @Query("SELECT * FROM local_media WHERE folderId = :folderId")
     suspend fun getMediaForFolder(folderId: Long): List<LocalMediaEntity>
 

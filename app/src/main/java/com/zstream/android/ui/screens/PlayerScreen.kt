@@ -622,6 +622,28 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = theme.colors.type.emphasis)
                 }
             }
+            is PlayerState.LocalChoice -> {
+                Column(
+                    Modifier.align(Alignment.Center).padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Text("Available on this device", color = theme.colors.type.emphasis, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                    Text("How would you like to play it?", color = theme.colors.type.secondary, fontSize = 14.sp)
+                    Button(onClick = {
+                        val playerRoute = nav.currentDestination?.route
+                        nav.navigate(s.route) {
+                            playerRoute?.let { popUpTo(it) { inclusive = true } }
+                        }
+                    }) { Text("Play on device") }
+                    OutlinedButton(onClick = vm::playOnline) { Text("Use online sources") }
+                }
+                IconButton(onClick = onBack, modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(4.dp)) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = theme.colors.type.emphasis)
+                }
+            }
             is PlayerState.ManualSourceSelection -> {
                 val theme = LocalZStreamTheme.current
                 Surface(
@@ -2093,6 +2115,10 @@ fun LocalPlayerScreen(nav: NavController, vm: LocalPlayerViewModel = hiltViewMod
         onDispose {
             if (window != null) WindowInsetsControllerCompat(window, window.decorView).show(WindowInsetsCompat.Type.systemBars())
         }
+    }
+
+    LaunchedEffect(ready) {
+        activity?.window?.let { WindowInsetsControllerCompat(it, it.decorView).hide(WindowInsetsCompat.Type.systemBars()) }
     }
 
     val subtitleTracks = remember(ready) {
