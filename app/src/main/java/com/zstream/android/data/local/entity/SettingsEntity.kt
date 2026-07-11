@@ -16,6 +16,8 @@ data class SettingsEntity(
     val applicationTheme: String = "classic",
     // Local-only, not synced to backend.
     val applicationFont: String = "onest",
+    // Local-only, not synced to backend.
+    val kidsModeEnabled: Boolean = false,
     val applicationLanguage: String = "en",
     val enableThumbnails: Boolean = false,
     val enableImageLogos: Boolean = true,

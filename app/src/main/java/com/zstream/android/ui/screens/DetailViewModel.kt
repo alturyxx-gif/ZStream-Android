@@ -25,6 +25,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -54,6 +55,8 @@ class DetailViewModel @Inject constructor(
     private val downloadDao: DownloadDao,
     private val connectivityObserver: ConnectivityObserver,
     private val downloadResolver: DownloadResolver,
+    private val certRepo: com.zstream.android.data.CertificationRepository,
+    private val settingsPrefs: com.zstream.android.data.local.preferences.SettingsPreferences,
     savedState: SavedStateHandle,
 ) : ViewModel() {
     private val id = savedState.get<Int>("id") ?: 0
@@ -206,6 +209,7 @@ class DetailViewModel @Inject constructor(
             _state.value = DetailState.Loading
             _trailers.value = emptyList()
             val offline = !connectivityObserver.isOnlineNow()
+            val kidsModeEnabled = runCatching { settingsPrefs.settings.first().kidsModeEnabled }.getOrDefault(false)
             runCatching {
                 if (mediaType == "movie") {
                     val detail = if (offline) {
@@ -214,7 +218,10 @@ class DetailViewModel @Inject constructor(
                         runCatching { repo.movieDetail(id) }.getOrNull() ?: buildOfflineMovieDetail()
                     }
                     requireNotNull(detail) { "No connection and nothing cached for this title" }
-                    _state.value = DetailState.Movie(detail)
+                    val filteredDetail = detail.similar?.results?.let { similarItems ->
+                        detail.copy(similar = detail.similar.copy(results = certRepo.filterForKids(similarItems, kidsModeEnabled)))
+                    } ?: detail
+                    _state.value = DetailState.Movie(filteredDetail)
                     if (!offline) loadImdbTrailers(detail.imdbId)
                 } else {
                     val detail = if (offline) {
@@ -223,13 +230,16 @@ class DetailViewModel @Inject constructor(
                         runCatching { repo.tvDetail(id) }.getOrNull() ?: buildOfflineTvDetail()
                     }
                     requireNotNull(detail) { "No connection and nothing cached for this title" }
+                    val filteredDetail = detail.similar?.results?.let { similarItems ->
+                        detail.copy(similar = detail.similar.copy(results = certRepo.filterForKids(similarItems, kidsModeEnabled)))
+                    } ?: detail
                     val preferredSeasonNumber = pendingInitialSeasonNumber ?: progress.value?.seasonNumber
                     val firstSeason = preferredSeasonNumber?.let { seasonNumber ->
-                        detail.seasons?.firstOrNull { it.seasonNumber == seasonNumber }?.let { fetchOrCachedSeason(seasonNumber) }
-                    } ?: detail.seasons
+                        filteredDetail.seasons?.firstOrNull { it.seasonNumber == seasonNumber }?.let { fetchOrCachedSeason(seasonNumber) }
+                    } ?: filteredDetail.seasons
                         ?.firstOrNull { it.seasonNumber > 0 }
                         ?.let { fetchOrCachedSeason(it.seasonNumber) }
-                    _state.value = DetailState.Tv(detail, firstSeason)
+                    _state.value = DetailState.Tv(filteredDetail, firstSeason)
                     applyPendingInitialSeason()
                     if (!offline) loadImdbTrailers(detail.imdbId ?: detail.externalIds?.imdbId)
                 }

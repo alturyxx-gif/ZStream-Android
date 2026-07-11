@@ -2,7 +2,9 @@ package com.zstream.android.ui.screens
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.zstream.android.data.CertificationRepository
 import com.zstream.android.data.TmdbRepository
+import com.zstream.android.data.local.preferences.SettingsPreferences
 import com.zstream.android.data.model.Media
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.FlowPreview
@@ -13,7 +15,12 @@ import javax.inject.Inject
 
 @OptIn(FlowPreview::class)
 @HiltViewModel
-class SearchViewModel @Inject constructor(private val repo: TmdbRepository) : ViewModel() {
+class SearchViewModel @Inject constructor(
+    private val repo: TmdbRepository,
+    private val certRepo: CertificationRepository,
+    private val settingsPrefs: SettingsPreferences,
+) : ViewModel() {
+    private var kidsModeEnabled = false
     val query = MutableStateFlow("")
     private val _results = MutableStateFlow<List<Media>>(emptyList())
     val results = _results.asStateFlow()
@@ -31,7 +38,11 @@ class SearchViewModel @Inject constructor(private val repo: TmdbRepository) : Vi
 
     init {
         viewModelScope.launch {
-            runCatching { _popular.value = repo.popularMovies() }
+            settingsPrefs.settings.collectLatest { s -> kidsModeEnabled = s.kidsModeEnabled }
+        }
+
+        viewModelScope.launch {
+            runCatching { _popular.value = certRepo.filterForKids(repo.popularMovies(), kidsModeEnabled) }
         }
 
         viewModelScope.launch {
@@ -51,7 +62,8 @@ class SearchViewModel @Inject constructor(private val repo: TmdbRepository) : Vi
                         return@collectLatest
                     }
                 if (token != requestToken) return@collectLatest
-                _results.value = response.results.filter { it.mediaType == "movie" || it.mediaType == "tv" }
+                val filtered = response.results.filter { it.mediaType == "movie" || it.mediaType == "tv" }
+                _results.value = certRepo.filterForKids(filtered, kidsModeEnabled)
                 canLoadMore.value = response.page < response.totalPages
                 loading.value = false
             }
@@ -66,7 +78,8 @@ class SearchViewModel @Inject constructor(private val repo: TmdbRepository) : Vi
             val nextPage = currentPage + 1
             runCatching {
                 val response = repo.searchPaged(q, nextPage)
-                _results.value = _results.value + response.results.filter { it.mediaType == "movie" || it.mediaType == "tv" }
+                val filtered = response.results.filter { it.mediaType == "movie" || it.mediaType == "tv" }
+                _results.value = _results.value + certRepo.filterForKids(filtered, kidsModeEnabled)
                 currentPage = nextPage
                 canLoadMore.value = response.page < response.totalPages
             }.onFailure {

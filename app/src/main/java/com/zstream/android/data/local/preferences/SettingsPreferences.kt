@@ -36,6 +36,7 @@ class SettingsPreferences @Inject constructor(
     // UI/Display Settings
     private val KEY_APPLICATION_THEME = stringPreferencesKey("application_theme")
     private val KEY_APPLICATION_FONT = stringPreferencesKey("application_font")
+    private val KEY_KIDS_MODE_ENABLED = booleanPreferencesKey("kids_mode_enabled")
     private val KEY_CUSTOM_THEME = stringPreferencesKey("custom_theme")
     private val KEY_APPLICATION_LANGUAGE = stringPreferencesKey("application_language")
     private val KEY_ENABLE_THUMBNAILS = booleanPreferencesKey("enable_thumbnails")
@@ -126,6 +127,7 @@ class SettingsPreferences @Inject constructor(
         SettingsEntity(
             applicationTheme = prefs[KEY_APPLICATION_THEME] ?: "classic",
             applicationFont = prefs[KEY_APPLICATION_FONT] ?: "onest",
+            kidsModeEnabled = prefs[KEY_KIDS_MODE_ENABLED] ?: false,
             customTheme = decodeCustomTheme(prefs[KEY_CUSTOM_THEME]),
             applicationLanguage = prefs[KEY_APPLICATION_LANGUAGE] ?: "en",
             defaultSubtitleLanguage = prefs[KEY_DEFAULT_SUBTITLE_LANGUAGE]
@@ -200,6 +202,7 @@ class SettingsPreferences @Inject constructor(
         context.settingsStore.edit { prefs ->
             prefs[KEY_APPLICATION_THEME] = entity.applicationTheme
             prefs[KEY_APPLICATION_FONT] = entity.applicationFont
+            prefs[KEY_KIDS_MODE_ENABLED] = entity.kidsModeEnabled
             if (entity.customTheme != null) {
                 prefs[KEY_CUSTOM_THEME] = gson.toJson(entity.customTheme)
             } else {
@@ -324,6 +327,7 @@ class SettingsPreferences @Inject constructor(
             val currentDoubleTapSeekSeconds = current[KEY_DOUBLE_TAP_SEEK_SECONDS] ?: 10
             val currentGridRows = (current[KEY_GRID_ROWS] ?: 2).coerceIn(1, 8)
             val currentApplicationFont = current[KEY_APPLICATION_FONT] ?: "onest"
+            val currentKidsModeEnabled = current[KEY_KIDS_MODE_ENABLED] ?: false
 
             val mappedHomeSectionOrder = remote.homeSectionOrder?.map { section ->
                 when (section) {
@@ -335,6 +339,7 @@ class SettingsPreferences @Inject constructor(
             updateSettings(SettingsEntity(
                 applicationTheme = remote.applicationTheme ?: "classic",
                 applicationFont = currentApplicationFont,
+                kidsModeEnabled = currentKidsModeEnabled,
                 customTheme = remote.customTheme?.toEntity(),
                 applicationLanguage = remote.applicationLanguage ?: "en",
                 defaultSubtitleLanguage = remote.defaultSubtitleLanguage,
