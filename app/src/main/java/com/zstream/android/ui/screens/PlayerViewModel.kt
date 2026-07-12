@@ -260,6 +260,7 @@ class PlayerViewModel @OptIn(UnstableApi::class)
     private val pluginManager: PluginManager,
     private val sourceOrderStore: SourceOrderStore,
     private val settingsPrefs: SettingsPreferences,
+    private val auroraKeyManager: com.zstream.android.data.AuroraKeyManager,
     private val bookmarkRepo: BookmarkRepository,
     private val traktRepository: com.zstream.android.data.TraktRepository,
     private val tmdbRepo: TmdbRepository,
@@ -595,6 +596,9 @@ class PlayerViewModel @OptIn(UnstableApi::class)
     }
 
     private suspend fun buildPluginMediaRequest(preferredVariantId: String? = null): PluginMediaRequest {
+        // Rotate off an exhausted/invalid Aurora key before scraping, so a fresh key with
+        // bandwidth left is used automatically instead of failing the whole source.
+        auroraKeyManager.ensureActiveKey()
         val current = settingsPrefs.settings.first()
         return PluginMediaRequest(
             type = if (mediaType == "tv") PluginMediaRequest.Type.SHOW else PluginMediaRequest.Type.MOVIE,
