@@ -12,7 +12,7 @@ import javax.inject.Singleton
 
 private val KEY_SOURCE_ORDER = stringPreferencesKey("source_order_json")
 private val KEY_DOWNLOAD_SOURCE_ORDER = stringPreferencesKey("download_source_order_json")
-private val DEFAULT_SOURCE_ORDER_IDS = listOf("tokyo", "stellar", "nesterov", "magnolia", "cosmic", "aphrodite", "aspera")
+private val DEFAULT_SOURCE_ORDER_IDS = listOf("tokyo", "shibuya", "stellar", "nesterov", "magnolia", "cosmic", "aphrodite", "aspera")
 private val DOWNLOAD_PRIORITY_SOURCE_IDS = listOf("stellar", "nesterov")
 
 @Singleton

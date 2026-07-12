@@ -200,8 +200,19 @@ class DownloadRepository @Inject constructor(
                     var downloadsComplete = false
                     val stateMutex = kotlinx.coroutines.sync.Mutex()
                     val parallelDownload = settingsPrefs.settings.first().allowParallelDownload
-                    val segmentWorkers = if (parallelDownload) PARALLEL_MODE_SEGMENT_WORKERS else DEFAULT_SEGMENT_WORKERS
-                    val maxSegmentWorkers = if (parallelDownload) ADAPTIVE_MAX_WORKERS_PARALLEL else ADAPTIVE_MAX_WORKERS_SINGLE
+                    val isMagnolia = request.sourceId.equals("magnolia", ignoreCase = true)
+                    val segmentWorkers = when {
+                        isMagnolia && parallelDownload -> MAGNOLIA_PARALLEL_MODE_SEGMENT_WORKERS
+                        isMagnolia -> MAGNOLIA_SEGMENT_WORKERS
+                        parallelDownload -> PARALLEL_MODE_SEGMENT_WORKERS
+                        else -> DEFAULT_SEGMENT_WORKERS
+                    }
+                    val maxSegmentWorkers = when {
+                        isMagnolia && parallelDownload -> MAGNOLIA_ADAPTIVE_MAX_WORKERS_PARALLEL
+                        isMagnolia -> MAGNOLIA_ADAPTIVE_MAX_WORKERS_SINGLE
+                        parallelDownload -> ADAPTIVE_MAX_WORKERS_PARALLEL
+                        else -> ADAPTIVE_MAX_WORKERS_SINGLE
+                    }
                     try {
                         HlsDownloadEngine(client).download(
                             videoPlaylistUrl = request.streamUrl,
