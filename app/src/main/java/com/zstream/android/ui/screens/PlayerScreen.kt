@@ -310,11 +310,11 @@ private fun SubtitleTrackBadges(track: SubtitleTrack) {
     }
 }
 
-private enum class PlayerMenuPage {
+internal enum class PlayerMenuPage {
     Root, Captions, CaptionLanguage, CaptionSettings, Playback, Sources, Quality, Audio, Download, DownloadQuality, DownloadAudio, WatchParty, SkipSegments, Seasons, Episodes, Variants, LocalFile
 }
 
-private data class LocalFileInfo(
+internal data class LocalFileInfo(
     val fileName: String,
     val relativePath: String?,
     val size: Long?,
@@ -2487,7 +2487,7 @@ fun LocalPlayerScreen(nav: NavController, vm: LocalPlayerViewModel = hiltViewMod
 }
 
 @OptIn(UnstableApi::class)
-private fun applyNativeSubtitleStyle(
+internal fun applyNativeSubtitleStyle(
     subtitleView: androidx.media3.ui.SubtitleView?,
     settings: com.zstream.android.data.local.entity.SettingsEntity,
     controlsVisible: Boolean,
@@ -2538,7 +2538,7 @@ private fun volumeBoostToMillibels(volumeBoost: Int): Int {
  * for whatever Android actually rendered, for every resize mode, with no assumptions.
  */
 @Composable
-private fun VideoBrightnessOverlay(playerView: PlayerView?, brightness: Int, modifier: Modifier = Modifier) {
+internal fun VideoBrightnessOverlay(playerView: PlayerView?, brightness: Int, modifier: Modifier = Modifier) {
     if (brightness == 100 || playerView == null) return
     var boxPositionInWindow by remember { mutableStateOf(Offset.Zero) }
     var contentRect by remember { mutableStateOf<Rect?>(null) }
@@ -2587,7 +2587,7 @@ private fun VideoBrightnessOverlay(playerView: PlayerView?, brightness: Int, mod
 }
 
 @OptIn(UnstableApi::class)
-private fun nativeResizeMode(mode: String) = when (mode.lowercase()) {
+internal fun nativeResizeMode(mode: String) = when (mode.lowercase()) {
     "stretch" -> androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FILL
     "fill" -> androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM
     else -> androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
@@ -2603,7 +2603,7 @@ private fun String.slugify(): String {
 
 @OptIn(ExperimentalComposeUiApi::class, UnstableApi::class)
 @Composable
-private fun PlayerControls(
+internal fun PlayerControls(
     player: ExoPlayer,
     title: String,
     episodeLabel: String?,

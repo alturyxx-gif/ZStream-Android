@@ -1309,6 +1309,7 @@ private fun AccountSection(
         if (versionTapCount < 6) return@onVersionTap
         versionTapCount = 0
         Toast.makeText(context, "started with a spark now we're on fire", Toast.LENGTH_LONG).show()
+        nav.navigate("devVideo")
     }
 
     Column(Modifier
