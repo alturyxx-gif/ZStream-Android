@@ -67,8 +67,12 @@ class SettingsViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            pluginState.collect {
-                refreshSourceOrder()
+            combine(pluginState, settingsPrefs.settings) { _, current -> current }.collect { current ->
+                _sourceOrder.value = sourceOrderStore.getOrderedSources(
+                    pluginManager.availableSources(),
+                    hasArtemisVipKey = !current.artemisVipKey.isNullOrBlank(),
+                    hasAuroraKey = !current.febboxKey.isNullOrBlank(),
+                )
                 refreshDownloadSourceOrder()
             }
         }
@@ -76,7 +80,12 @@ class SettingsViewModel @Inject constructor(
 
     private fun refreshSourceOrder() {
         viewModelScope.launch {
-            _sourceOrder.value = sourceOrderStore.getOrderedSources(pluginManager.availableSources())
+            val current = settingsPrefs.settings.first()
+            _sourceOrder.value = sourceOrderStore.getOrderedSources(
+                pluginManager.availableSources(),
+                hasArtemisVipKey = !current.artemisVipKey.isNullOrBlank(),
+                hasAuroraKey = !current.febboxKey.isNullOrBlank(),
+            )
         }
     }
 
@@ -280,6 +289,10 @@ class SettingsViewModel @Inject constructor(
 
     fun setFebboxKey(key: String?) {
         update { copy(febboxKey = key) }
+    }
+
+    fun setArtemisVipKey(key: String?) {
+        update { copy(artemisVipKey = key) }
     }
 
     fun setTidbKey(key: String?) {
