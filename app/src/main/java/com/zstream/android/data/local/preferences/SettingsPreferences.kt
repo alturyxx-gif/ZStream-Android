@@ -85,6 +85,7 @@ class SettingsPreferences @Inject constructor(
     // External Services
     private val KEY_PROXY_URLS = stringPreferencesKey("proxy_urls")
     private val KEY_FEBBOX_KEY = stringPreferencesKey("febbox_key")
+    private val KEY_FEBBOX_KEYS = stringPreferencesKey("febbox_keys")
     private val KEY_ARTEMIS_VIP_KEY = stringPreferencesKey("artemis_vip_key")
     private val KEY_DEBRID_TOKEN = stringPreferencesKey("debrid_token")
     private val KEY_DEBRID_SERVICE = stringPreferencesKey("debrid_service")
@@ -170,6 +171,7 @@ class SettingsPreferences @Inject constructor(
             enableSourceOrder = prefs[KEY_ENABLE_SOURCE_ORDER] ?: false,
             proxyUrls = prefs[KEY_PROXY_URLS]?.split(",")?.filter { it.isNotBlank() } ?: emptyList(),
             febboxKey = prefs[KEY_FEBBOX_KEY],
+            febboxKeys = decodeFebboxKeys(prefs[KEY_FEBBOX_KEYS]),
             artemisVipKey = prefs[KEY_ARTEMIS_VIP_KEY],
             debridToken = prefs[KEY_DEBRID_TOKEN],
             debridService = prefs[KEY_DEBRID_SERVICE] ?: "realdebrid",
@@ -257,6 +259,7 @@ class SettingsPreferences @Inject constructor(
             prefs[KEY_ENABLE_SOURCE_ORDER] = entity.enableSourceOrder
             prefs[KEY_PROXY_URLS] = entity.proxyUrls.joinToString(",")
             if (entity.febboxKey != null) prefs[KEY_FEBBOX_KEY] = entity.febboxKey else prefs.remove(KEY_FEBBOX_KEY)
+            prefs[KEY_FEBBOX_KEYS] = encodeFebboxKeys(entity.febboxKeys)
             if (entity.artemisVipKey != null) prefs[KEY_ARTEMIS_VIP_KEY] = entity.artemisVipKey else prefs.remove(KEY_ARTEMIS_VIP_KEY)
             if (entity.debridToken != null) prefs[KEY_DEBRID_TOKEN] = entity.debridToken else prefs.remove(KEY_DEBRID_TOKEN)
             prefs[KEY_DEBRID_SERVICE] = entity.debridService
@@ -316,6 +319,7 @@ class SettingsPreferences @Inject constructor(
             val currentFont = current[KEY_SUBTITLE_FONT] ?: "sans-serif"
             val currentTmdbApiKey = current[KEY_TMDB_API_KEY]
             val currentWyzieKey = current[KEY_WYZIE_KEY]
+            val currentFebboxKeys = decodeFebboxKeys(current[KEY_FEBBOX_KEYS])
             val currentSubtitlesEnabled = current[KEY_SUBTITLES_ENABLED] ?: false
             val currentVideoBrightness = current[KEY_VIDEO_BRIGHTNESS] ?: 100
             val currentVideoContrast = current[KEY_VIDEO_CONTRAST] ?: 100
@@ -381,6 +385,7 @@ class SettingsPreferences @Inject constructor(
                 enableSourceOrder = remote.enableSourceOrder ?: false,
                 proxyUrls = remote.proxyUrls ?: emptyList(),
                 febboxKey = remote.febboxKey,
+                febboxKeys = currentFebboxKeys,
                 artemisVipKey = current[KEY_ARTEMIS_VIP_KEY],
                 debridToken = remote.debridToken,
                 debridService = remote.debridService ?: "realdebrid",
@@ -759,6 +764,23 @@ class SettingsPreferences @Inject constructor(
             gson.fromJson(raw, CustomThemeSettings::class.java)
         } catch (_: JsonSyntaxException) {
             null
+        }
+    }
+
+    /**
+     * JSON-encodes the Aurora key list so blank entries (an in-progress row the user just added
+     * and hasn't typed into yet) round-trip correctly. A plain comma-join/split would silently
+     * drop those blank entries on read, making "Add key" look like it did nothing.
+     */
+    private fun encodeFebboxKeys(keys: List<String>): String = gson.toJson(keys)
+
+    private fun decodeFebboxKeys(raw: String?): List<String> {
+        if (raw.isNullOrBlank()) return emptyList()
+        return try {
+            gson.fromJson(raw, Array<String>::class.java)?.toList() ?: emptyList()
+        } catch (_: JsonSyntaxException) {
+            // Legacy comma-separated format from before this was JSON-encoded.
+            raw.split(",").filter { it.isNotBlank() }
         }
     }
 }

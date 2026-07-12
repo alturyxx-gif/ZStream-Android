@@ -103,6 +103,8 @@ import androidx.navigation.NavController
 import com.zstream.android.BuildConfig
 import com.zstream.android.Urls
 import com.zstream.android.data.AccountSession
+import com.zstream.android.data.AuroraKeyInfo
+import com.zstream.android.data.AuroraKeyStatus
 import com.zstream.android.data.TraktState
 import com.zstream.android.data.adb.ReleaseCheckInterval
 import com.zstream.android.data.local.entity.BookmarkEntity
@@ -830,6 +832,265 @@ private fun SettingsCard(theme: ZStreamTheme, content: @Composable ColumnScope.(
             .background(theme.colors.settings.card.background),
         content = content
     )
+}
+
+@Composable
+private fun FebboxAuroraSection(
+    vm: SettingsViewModel,
+    settings: SettingsEntity,
+    theme: ZStreamTheme,
+    isTv: Boolean,
+) {
+    val scope = rememberCoroutineScope()
+
+    // One-time migration: fold the legacy single febboxKey into the multi-key list.
+    LaunchedEffect(Unit) {
+        if (settings.febboxKeys.isEmpty() && !settings.febboxKey.isNullOrBlank()) {
+            vm.setFebboxKeys(listOf(settings.febboxKey))
+        }
+    }
+
+    SectionLabel("Febbox / Aurora API", theme)
+    SettingsCard(theme) {
+        var showKeys by remember {
+            mutableStateOf(settings.febboxKeys.isNotEmpty() || settings.febboxKey != null)
+        }
+
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.Top,
+        ) {
+            Column(Modifier.weight(1f).padding(end = 12.dp)) {
+                Text("Aurora API (4K)", color = theme.colors.type.text, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "Bring your own FREE Febbox account(s) to unlock Aurora API — the best sources with " +
+                        "4K quality, Dolby Atmos, and the fastest load times. Add multiple keys and ZStream " +
+                        "automatically switches to the next one once a key's daily bandwidth runs out.",
+                    color = theme.colors.type.dimmed, fontSize = 11.sp, lineHeight = 16.sp,
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "Your tokens are never stored on our servers — they are sent directly from your device to Febbox.",
+                    color = theme.colors.type.dimmed, fontSize = 10.sp, lineHeight = 14.sp,
+                )
+            }
+            Switch(
+                checked = showKeys,
+                onCheckedChange = { showKeys = it },
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = theme.colors.type.emphasis,
+                    checkedTrackColor = theme.colors.global.accentA,
+                    uncheckedThumbColor = theme.colors.type.dimmed,
+                    uncheckedTrackColor = theme.colors.background.secondary,
+                ),
+            )
+        }
+
+        if (showKeys) {
+            HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
+
+            ZsBottomSheetSectionCard(
+                title = "To get a Febbox token",
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            ) {
+                val steps = listOf(
+                    "Go to febbox.com and log in with Google (use a fresh account!)",
+                    "Open DevTools or inspect the page",
+                    "Go to Application tab → Cookies",
+                    "Copy the 'ui' cookie's value",
+                    "Close the tab, but do NOT logout!",
+                )
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    steps.forEachIndexed { i, step ->
+                        Text(
+                            "${i + 1}. $step",
+                            color = theme.colors.type.text, fontSize = 11.sp, lineHeight = 16.sp,
+                        )
+                    }
+                }
+            }
+
+            HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
+
+            ZsBottomSheetSectionCard(
+                title = "Keys",
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            ) {
+                Spacer(Modifier.height(8.dp))
+                if (settings.febboxKeys.isEmpty()) {
+                    Text("No keys added yet.", color = theme.colors.type.dimmed, fontSize = 11.sp)
+                    Spacer(Modifier.height(8.dp))
+                }
+                settings.febboxKeys.forEachIndexed { index, key ->
+                    AuroraKeyRow(
+                        index = index,
+                        value = key,
+                        isActive = key.isNotBlank() && key == settings.febboxKey,
+                        isTv = isTv,
+                        theme = theme,
+                        onValueChange = { vm.updateFebboxKeyAt(index, it) },
+                        onRemove = { vm.removeFebboxKeyAt(index) },
+                        onChecked = { scope.launch { vm.ensureActiveAuroraKey() } },
+                        checkKey = { vm.checkAuroraKey(it) },
+                    )
+                    if (index != settings.febboxKeys.lastIndex) Spacer(Modifier.height(12.dp))
+                }
+                Spacer(Modifier.height(10.dp))
+                IntegrationActionOutline(theme) {
+                    TextButton(onClick = { vm.addFebboxKey() }) {
+                        Text(
+                            if (settings.febboxKeys.isEmpty()) "+ Add key" else "+ Add another key",
+                            color = theme.colors.global.accentA,
+                            fontSize = 11.sp,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AuroraKeyRow(
+    index: Int,
+    value: String,
+    isActive: Boolean,
+    isTv: Boolean,
+    theme: ZStreamTheme,
+    onValueChange: (String) -> Unit,
+    onRemove: () -> Unit,
+    onChecked: (AuroraKeyInfo) -> Unit,
+    checkKey: suspend (String) -> AuroraKeyInfo,
+) {
+    var tokenVisible by remember { mutableStateOf(false) }
+    var info by remember(index) { mutableStateOf<AuroraKeyInfo?>(null) }
+    var checking by remember(index) { mutableStateOf(false) }
+
+    LaunchedEffect(value) {
+        if (value.isBlank()) {
+            info = null
+            checking = false
+            return@LaunchedEffect
+        }
+        checking = true
+        delay(600)
+        val result = checkKey(value)
+        info = result
+        checking = false
+        onChecked(result)
+    }
+
+    Column(Modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            val dotColor = when {
+                checking || info == null -> theme.colors.type.dimmed
+                info?.status == AuroraKeyStatus.VALID && info?.exhausted == false -> theme.colors.type.success
+                else -> theme.colors.type.danger
+            }
+            Box(
+                Modifier
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(dotColor)
+            )
+            Spacer(Modifier.width(8.dp))
+            Box(Modifier.weight(1f)) {
+                if (isTv) {
+                    TvTextField(
+                        value = value,
+                        onValueChange = onValueChange,
+                        placeholder = "eyJ0eXAiOiJKV1QiLCJhbGciOi...",
+                        visualTransformation = if (tokenVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                        theme = theme,
+                    )
+                } else {
+                    BasicTextField(
+                        value = value,
+                        onValueChange = onValueChange,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(theme.colors.background.secondary)
+                            .border(1.dp, theme.colors.type.divider.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        textStyle = TextStyle(color = theme.colors.type.text, fontSize = 12.sp),
+                        visualTransformation = if (tokenVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                        singleLine = true,
+                        decorationBox = { innerTextField ->
+                            Box {
+                                if (value.isEmpty()) {
+                                    Text(
+                                        "eyJ0eXAiOiJKV1QiLCJhbGciOi...",
+                                        color = theme.colors.type.dimmed,
+                                        fontSize = 12.sp,
+                                    )
+                                }
+                                innerTextField()
+                            }
+                        },
+                    )
+                }
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = { tokenVisible = !tokenVisible }) {
+                Text(if (tokenVisible) "Hide" else "Show", color = theme.colors.global.accentA, fontSize = 11.sp)
+            }
+            TextButton(onClick = onRemove) {
+                Text("Remove", color = theme.colors.buttons.danger, fontSize = 11.sp)
+            }
+            if (isActive) {
+                Text(
+                    "ACTIVE",
+                    color = theme.colors.type.success,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(start = 4.dp),
+                )
+            }
+        }
+        val currentInfo = info
+        when {
+            checking -> Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 2.dp)) {
+                CircularProgressIndicator(modifier = Modifier.size(12.dp), strokeWidth = 2.dp, color = theme.colors.global.accentA)
+                Spacer(Modifier.width(8.dp))
+                Text("Checking key…", color = theme.colors.type.dimmed, fontSize = 11.sp)
+            }
+            currentInfo?.status == AuroraKeyStatus.VALID -> {
+                val message = if (currentInfo.usedLabel != null && currentInfo.limitLabel != null) {
+                    if (currentInfo.exhausted) {
+                        "${currentInfo.usedLabel} / ${currentInfo.limitLabel} used — bandwidth exhausted for today"
+                    } else {
+                        "${currentInfo.usedLabel} / ${currentInfo.limitLabel} used" +
+                            (currentInfo.resetLabel?.let { " (resets $it)" } ?: "")
+                    }
+                } else {
+                    "Key is valid."
+                }
+                ZsStatusBanner(
+                    message = message,
+                    variant = if (currentInfo.exhausted) ZsStatusBannerVariant.Error else ZsStatusBannerVariant.Success,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
+            currentInfo?.status == AuroraKeyStatus.INVALID -> ZsStatusBanner(
+                message = "Invalid or expired token.",
+                variant = ZsStatusBannerVariant.Error,
+                modifier = Modifier.padding(top = 2.dp),
+            )
+            currentInfo?.status == AuroraKeyStatus.API_DOWN -> ZsStatusBanner(
+                message = "Cannot reach Aurora API. Try again later.",
+                variant = ZsStatusBannerVariant.Error,
+                modifier = Modifier.padding(top = 2.dp),
+            )
+            else -> Unit
+        }
+    }
 }
 
 @Composable
@@ -3380,166 +3641,7 @@ private fun ConnectionsSection(
             }
 
             Spacer(Modifier.height(16.dp))
-            SectionLabel("Febbox / Aurora API", theme)
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(theme.colors.settings.card.background)
-            ) {
-                var showInstructions by remember { mutableStateOf(settings.febboxKey != null) }
-                var instrFocused by remember { mutableStateOf(false) }
-
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.Top,
-                ) {
-                    Column(Modifier
-                        .weight(1f)
-                        .padding(end = 12.dp)) {
-                        Text("Aurora API (4K)", color = theme.colors.type.text, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            "Bring your own FREE Febbox account to unlock Aurora API — the best sources with 4K quality, Dolby Atmos, and the fastest load times.",
-                            color = theme.colors.type.dimmed, fontSize = 11.sp, lineHeight = 16.sp,
-                        )
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            "Your token is never stored on our servers — it is sent directly from your device to Febbox.",
-                            color = theme.colors.type.dimmed, fontSize = 10.sp, lineHeight = 14.sp,
-                        )
-                    }
-                    ZsOutlinedWrapper(
-                        shape = CircleShape,
-                        outlineColor = Color.White,
-                        outlineWidth = 2.dp,
-                        gap = 2.dp,
-                        visible = instrFocused,
-                    ) {
-                    Switch(
-                        checked = showInstructions,
-                        onCheckedChange = { showInstructions = it },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = theme.colors.type.emphasis,
-                            checkedTrackColor = theme.colors.global.accentA,
-                            uncheckedThumbColor = theme.colors.type.dimmed,
-                            uncheckedTrackColor = theme.colors.background.secondary,
-                        ),
-                        modifier = Modifier
-                            .onFocusChanged { instrFocused = it.isFocused }
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null,
-                                role = Role.Switch,
-                                onClick = { showInstructions = !showInstructions },
-                            ),
-                    )
-                }
-                }
-
-                if (showInstructions) {
-                    HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
-
-                    ZsBottomSheetSectionCard(
-                        title = "To get your Febbox token",
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                    ) {
-                        val steps = listOf(
-                            "Go to febbox.com and log in with Google (use a fresh account!)",
-                            "Open DevTools or inspect the page",
-                            "Go to Application tab → Cookies",
-                            "Copy the 'ui' cookie's value.",
-                            "Close the tab, but do NOT logout!",
-                        )
-                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            steps.forEachIndexed { i, step ->
-                                Text(
-                                    "${i + 1}. $step",
-                                    color = theme.colors.type.text, fontSize = 11.sp, lineHeight = 16.sp,
-                                )
-                            }
-                        }
-                    }
-
-                    HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
-
-                    ZsBottomSheetSectionCard(
-                        title = "Token",
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                    ) {
-                        Spacer(Modifier.height(8.dp))
-                        var tokenVisible by remember { mutableStateOf(false) }
-                        val febboxValue = settings.febboxKey ?: ""
-                        TvTextField(
-                            value = febboxValue,
-                            onValueChange = { vm.setFebboxKey(it.ifEmpty { null }) },
-                            placeholder = "eyJ0eXAiOiJKV1QiLCJhbGciOi...",
-                            visualTransformation = if (tokenVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                            theme = theme,
-                        )
-                        Spacer(Modifier.height(6.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            var showFocused by remember { mutableStateOf(false) }
-                            ZsOutlinedWrapper(
-                                shape = RoundedCornerShape(6.dp),
-                                outlineColor = Color.White,
-                                outlineWidth = 2.dp,
-                                gap = 2.dp,
-                                visible = showFocused,
-                            ) {
-                                Box(
-                                    Modifier
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .onFocusChanged { showFocused = it.isFocused }
-                                        .focusable()
-                                        .onKeyEvent { event ->
-                                            if (event.key == Key.DirectionCenter || event.key == Key.Enter) {
-                                                tokenVisible = !tokenVisible
-                                                true
-                                            } else false
-                                        }
-                                        .clickable { tokenVisible = !tokenVisible }
-                                        .padding(horizontal = 8.dp, vertical = 6.dp),
-                                ) {
-                                    Text(if (tokenVisible) "Hide" else "Show",
-                                        color = theme.colors.global.accentA, fontSize = 11.sp)
-                                }
-                            }
-                            var clearFocused by remember { mutableStateOf(false) }
-                            ZsOutlinedWrapper(
-                                shape = RoundedCornerShape(6.dp),
-                                outlineColor = Color.White,
-                                outlineWidth = 2.dp,
-                                gap = 2.dp,
-                                visible = clearFocused,
-                            ) {
-                                Box(
-                                    Modifier
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .onFocusChanged { clearFocused = it.isFocused }
-                                        .focusable()
-                                        .onKeyEvent { event ->
-                                            if ((event.key == Key.DirectionCenter || event.key == Key.Enter) && febboxValue.isNotEmpty()) {
-                                                vm.setFebboxKey(null)
-                                                true
-                                            } else false
-                                        }
-                                        .clickable { vm.setFebboxKey(null) }
-                                        .padding(horizontal = 8.dp, vertical = 6.dp),
-                                ) {
-                                    Text("Clear",
-                                        color = if (febboxValue.isNotEmpty()) theme.colors.buttons.danger else theme.colors.type.dimmed,
-                                        fontSize = 11.sp)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+            FebboxAuroraSection(vm, settings, theme, isTv = true)
 
             Spacer(Modifier.height(16.dp))
             ArtemisVipKeySection(vm, settings, theme, isTv = true)
@@ -3855,135 +3957,7 @@ private fun ConnectionsSection(
             }
 
             Spacer(Modifier.height(16.dp))
-            SectionLabel("Febbox / Aurora API", theme)
-            SettingsCard(theme) {
-                var showInstructions by remember { mutableStateOf(settings.febboxKey != null) }
-
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.Top,
-                ) {
-                    Column(Modifier
-                        .weight(1f)
-                        .padding(end = 12.dp)) {
-                        Text("Aurora API (4K)", color = theme.colors.type.text, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            "Bring your own FREE Febbox account to unlock Aurora API — the best sources with 4K quality, Dolby Atmos, and the fastest load times.",
-                            color = theme.colors.type.dimmed, fontSize = 11.sp, lineHeight = 16.sp,
-                        )
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            "Your token is never stored on our servers — it is sent directly from your device to Febbox.",
-                            color = theme.colors.type.dimmed, fontSize = 10.sp, lineHeight = 14.sp,
-                        )
-                    }
-                    Switch(
-                        checked = showInstructions,
-                        onCheckedChange = { showInstructions = it },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = theme.colors.type.emphasis,
-                            checkedTrackColor = theme.colors.global.accentA,
-                            uncheckedThumbColor = theme.colors.type.dimmed,
-                            uncheckedTrackColor = theme.colors.background.secondary,
-                        ),
-                    )
-                }
-
-                if (showInstructions) {
-                    HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
-
-                    ZsBottomSheetSectionCard(
-                        title = "To get your Febbox token",
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                    ) {
-                        val steps = listOf(
-                            "Go to febbox.com and log in with Google (use a fresh account!)",
-                            "Open DevTools or inspect the page",
-                            "Go to Application tab → Cookies",
-                            "Copy the 'ui' cookie's value.",
-                            "Close the tab, but do NOT logout!",
-                        )
-                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            steps.forEachIndexed { i, step ->
-                                Text(
-                                    "${i + 1}. $step",
-                                    color = theme.colors.type.text,
-                                    fontSize = 11.sp,
-                                    lineHeight = 16.sp,
-                                )
-                            }
-                        }
-                    }
-
-                    HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
-
-                    ZsBottomSheetSectionCard(
-                        title = "Token",
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                    ) {
-                        Spacer(Modifier.height(8.dp))
-                        var tokenVisible by remember { mutableStateOf(false) }
-                        val febboxValue = settings.febboxKey ?: ""
-                        val textStyle = TextStyle(
-                            color = theme.colors.type.text, fontSize = 12.sp,
-                        )
-                        BasicTextField(
-                            value = febboxValue,
-                            onValueChange = { vm.setFebboxKey(it.ifEmpty { null }) },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(theme.colors.background.secondary)
-                                .border(
-                                    1.dp,
-                                    theme.colors.type.divider.copy(alpha = 0.3f),
-                                    RoundedCornerShape(8.dp)
-                                )
-                                .padding(horizontal = 12.dp, vertical = 10.dp),
-                            textStyle = textStyle,
-                            visualTransformation = if (tokenVisible) VisualTransformation.None
-                                else PasswordVisualTransformation(),
-                            singleLine = true,
-                            decorationBox = { innerTextField ->
-                                Box {
-                                    if (febboxValue.isEmpty()) {
-                                        Text(
-                                            "eyJ0eXAiOiJKV1QiLCJhbGciOi...",
-                                            color = theme.colors.type.dimmed,
-                                            fontSize = 12.sp,
-                                        )
-                                    }
-                                    innerTextField()
-                                }
-                            },
-                        )
-                        Spacer(Modifier.height(6.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                            TextButton(onClick = { tokenVisible = !tokenVisible }) {
-                                Text(
-                                    if (tokenVisible) "Hide" else "Show",
-                                    color = theme.colors.global.accentA,
-                                    fontSize = 11.sp,
-                                )
-                            }
-                            TextButton(
-                                onClick = { vm.setFebboxKey(null) },
-                                enabled = febboxValue.isNotEmpty(),
-                            ) {
-                                Text(
-                                    "Clear",
-                                    color = if (febboxValue.isNotEmpty()) theme.colors.buttons.danger else theme.colors.type.dimmed,
-                                    fontSize = 11.sp,
-                                )
-                            }
-                        }
-                    }
-                }
-            }
+            FebboxAuroraSection(vm, settings, theme, isTv = false)
 
             Spacer(Modifier.height(16.dp))
             ArtemisVipKeySection(vm, settings, theme, isTv = false)
