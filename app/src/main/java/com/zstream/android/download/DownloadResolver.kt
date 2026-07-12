@@ -31,7 +31,7 @@ class DownloadResolver @Inject constructor(
         episodeTitle: String? = null,
     ): Result<Long> = runCatching {
         val pluginSources = pluginManager.availableSources()
-        val ordered = sourceOrderStore.getDownloadOrder(pluginSources)
+        val ordered = sourceOrderStore.getDownloadOrder()
         check(ordered.isNotEmpty()) { "No sources available" }
 
         auroraKeyManager.ensureActiveKey()

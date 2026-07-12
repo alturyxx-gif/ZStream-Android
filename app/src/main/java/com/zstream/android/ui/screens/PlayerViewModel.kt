@@ -804,9 +804,7 @@ class PlayerViewModel @OptIn(UnstableApi::class)
             val previousReady = _state.value as? PlayerState.Ready
             runCatching {
                 val settingsValue = settingsPrefs.settings.first()
-                val pluginSources = pluginManager.availableSources()
                 val displaySources = sourceOrderStore.getOrderedSources(
-                    pluginSources,
                     hasArtemisVipKey = !settingsValue.artemisVipKey.isNullOrBlank(),
                     hasAuroraKey = !settingsValue.febboxKey.isNullOrBlank(),
                 )
