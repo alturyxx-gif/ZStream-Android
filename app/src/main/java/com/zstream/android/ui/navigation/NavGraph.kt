@@ -87,5 +87,14 @@ fun NavGraph(nav: NavHostController) {
         ) { TvSyncPairScreen(nav) }
         composable("tvInstaller") { TvInstallerScreen(onDismiss = { nav.popBackStack() }) }
         composable("profileSwitcher") { ProfileSwitcherScreen(nav) }
+        composable("devVideo") { DevVideoScreen(nav) }
+        composable(
+            "devPlayer?url={url}&type={type}&headers={headers}",
+            arguments = listOf(
+                navArgument("url") { type = NavType.StringType; defaultValue = "" },
+                navArgument("type") { type = NavType.StringType; defaultValue = "mp4" },
+                navArgument("headers") { type = NavType.StringType; nullable = true; defaultValue = null },
+            ),
+        ) { DevPlayerScreen(nav) }
     }
 }
