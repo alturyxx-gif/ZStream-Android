@@ -1164,14 +1164,15 @@ class PlayerViewModel @OptIn(UnstableApi::class)
                     year = year.takeIf { it > 0 },
                 )
             }
-            // Multiple providers can offer the same language (source/plugin, Wyzie, OpenSubtitles,
-            // Granite). Keep both source-provided and Wyzie captions for a language when either is
-            // available; only fall back to a lower-priority provider (OpenSubtitles/Granite) if
-            // neither of those two exist for that language, so the folder isn't cluttered with
-            // near-duplicate captions from every provider at once.
+            // Multiple providers can offer the same language (source/plugin, Wyzie, Natsuki,
+            // OpenSubtitles, Granite). Keep source-provided/Wyzie/Natsuki captions for a language
+            // when any of those are available; only fall back to a lower-priority provider
+            // (OpenSubtitles/Granite) if none of those exist for that language, so the folder
+            // isn't cluttered with near-duplicate captions from every provider at once.
             fun subtitlePriority(source: String?): Int = when {
                 source.equals("plugin", ignoreCase = true) -> 0
                 source?.contains("wyzie", ignoreCase = true) == true -> 0
+                source?.contains("natsuki", ignoreCase = true) == true -> 0
                 else -> 1
             }
             val captions = ready.subtitles
@@ -1297,13 +1298,14 @@ class PlayerViewModel @OptIn(UnstableApi::class)
         external = false,
     )
 
-    /** Fetches Wyzie external subtitles and merges into [tracks]. */
+    /** Fetches Wyzie/OpenSubtitles/Granite/Natsuki external subtitles and merges into [tracks]. */
     private suspend fun fetchExternalSubtitles(tracks: MutableList<SubtitleTrack>) = coroutineScope {
         val language = settings.value.defaultSubtitleLanguage ?: "en"
         val external = listOf(
             async { fetchWyzieSubtitles(language) },
             async { fetchOpenSubtitles(language) },
             async { fetchGraniteSubtitles(language) },
+            async { fetchNatsukiSubtitles(language) },
         ).flatMap { it.await() }.distinctBy { it.id }
         tracks.addAll(external)
     }
@@ -1315,6 +1317,7 @@ class PlayerViewModel @OptIn(UnstableApi::class)
                 async { fetchWyzieSubtitles(language) },
                 async { fetchOpenSubtitles(language) },
                 async { fetchGraniteSubtitles(language) },
+                async { fetchNatsukiSubtitles(language) },
             ).flatMap { it.await() }
         }.distinctBy { it.id }
         _state.value = current.copy(subtitles = (current.subtitles.filterNot { it.external } + external).distinctBy { it.id })
@@ -1436,6 +1439,7 @@ class PlayerViewModel @OptIn(UnstableApi::class)
         val tracks = (_state.value as? PlayerState.Ready)?.subtitles.orEmpty()
         val candidates = subtitleCandidates(tracks, subtitleSearchLanguage)
         val pick = candidates.firstOrNull { it.source?.contains("wyzie", true) == true }
+            ?: candidates.firstOrNull { it.source?.contains("natsuki", true) == true }
             ?: candidates.firstOrNull { it.source?.contains("opensubs", true) == true }
             ?: candidates.firstOrNull { it.source?.contains("granite", true) == true }
             ?: candidates.firstOrNull()
@@ -1639,11 +1643,19 @@ class PlayerViewModel @OptIn(UnstableApi::class)
     }
 
     private suspend fun downloadSubtitleText(url: String): String = withContext(Dispatchers.IO) {
-        val request = Request.Builder()
+        val builder = Request.Builder()
             .url(url)
             .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36")
-            .build()
-        val response = httpClient.newCall(request).execute()
+        // Natsuki's file-serving endpoint gates on Origin/Referer the same way its search
+        // endpoint does (see fetchNatsukiSubtitles) -- without these the .srt/.vtt download
+        // 403s with a short "forbidden" body that silently parses to zero cues instead of
+        // erroring, which is exactly what looked like "subtitle selected but nothing shows".
+        if (url.contains("fontaine.lol", ignoreCase = true)) {
+            builder.header("Origin", "https://zstream.mov")
+            builder.header("Referer", "https://zstream.mov/")
+        }
+        val response = httpClient.newCall(builder.build()).execute()
+        if (!response.isSuccessful) throw Exception("Subtitle download failed: HTTP ${response.code}")
         response.body?.string() ?: throw Exception("Empty subtitle response")
     }
 
@@ -1820,6 +1832,75 @@ class PlayerViewModel @OptIn(UnstableApi::class)
                 }
             }
         }.onFailure { Log.w("PlayerVM", "Granite subtitle lookup failed", it) }.getOrDefault(emptyList())
+    }
+
+    /**
+     * Natsuki's real contract (website source: p-stream/src/utils/externalSubtitles/natsuki.ts)
+     * differs from the standalone snippet this was first built against: base path is `/subs` (not
+     * `/search`), the query key is `tmdbId`/`imdbId` (not a single `id`), the response is a
+     * `{subtitles: [...]}` object (not a bare array) with `sid`/`langCode`/`fileName` fields (not
+     * `id`/`language`/`display`), and — the actual reason plain requests 403 — the origin server
+     * gates on an `Origin`/`Referer` matching the real site, not on a User-Agent string.
+     * Tries by tmdbId first, then imdbId, same fallback order the website uses.
+     */
+    private suspend fun fetchNatsukiSubtitles(language: String): List<SubtitleTrack> = withContext(Dispatchers.IO) {
+        val imdbId = runCatching {
+            if (mediaType == "tv") {
+                tmdbRepo.tvDetail(id).let { it.imdbId ?: it.externalIds?.imdbId }
+            } else {
+                tmdbRepo.movieDetail(id).imdbId
+            }
+        }.getOrNull()?.takeIf(String::isNotBlank)
+
+        val attempts = buildList {
+            if (tmdbId.isNotBlank()) add("tmdbId" to tmdbId)
+            if (imdbId != null) add("imdbId" to imdbId)
+        }
+
+        for ((key, value) in attempts) {
+            val url = "https://natsuki.fontaine.lol/subs".toHttpUrl().newBuilder()
+                .addQueryParameter(key, value)
+                .apply {
+                    if (mediaType == "tv" && season != null && episode != null) {
+                        addQueryParameter("season", season.toString())
+                        addQueryParameter("episode", episode.toString())
+                    }
+                }
+                .build()
+            val result = runCatching {
+                httpClient.newCall(
+                    Request.Builder().url(url)
+                        .header("Origin", "https://zstream.mov")
+                        .header("Referer", "https://zstream.mov/")
+                        .build()
+                ).execute().use { response ->
+                    if (!response.isSuccessful) return@use emptyList()
+                    val root = org.json.JSONObject(response.body?.string().orEmpty())
+                    val entries = root.optJSONArray("subtitles") ?: return@use emptyList()
+                    (0 until entries.length()).mapNotNull { index ->
+                        val entry = entries.optJSONObject(index) ?: return@mapNotNull null
+                        val subUrl = entry.optString("url").takeIf(String::isNotBlank) ?: return@mapNotNull null
+                        val fileName = entry.optString("fileName").takeIf(String::isNotBlank)
+                        val lang = entry.optString("langCode").takeIf(String::isNotBlank)
+                            ?: entry.optString("language").takeIf(String::isNotBlank)?.let(::normalizeLanguageCode)
+                            ?: "unknown"
+                        val fmt = if ((fileName ?: subUrl).contains(".vtt", ignoreCase = true)) "vtt" else "srt"
+                        SubtitleTrack(
+                            label = fileName ?: entry.optString("language").ifBlank { lang },
+                            url = subUrl,
+                            language = lang,
+                            type = fmt,
+                            id = entry.optString("sid").takeIf(String::isNotBlank) ?: subUrl,
+                            source = "natsuki",
+                            hearingImpaired = entry.optBoolean("hearingImpaired", false),
+                            external = true,
+                        )
+                    }
+                }
+            }.onFailure { Log.w("PlayerVM", "Natsuki subtitle lookup failed ($key)", it) }.getOrDefault(emptyList())
+            if (result.isNotEmpty()) return@withContext result
+        }
+        emptyList()
     }
 
 }
