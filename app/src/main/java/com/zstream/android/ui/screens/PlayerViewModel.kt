@@ -17,7 +17,9 @@ import com.zstream.android.plugin.MediaRequest as PluginMediaRequest
 import com.zstream.android.plugin.StreamResult
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
@@ -389,6 +391,14 @@ class PlayerViewModel @OptIn(UnstableApi::class)
     private val _recoveryNotice = MutableSharedFlow<String>(extraBufferCapacity = 1)
     val recoveryNotice = _recoveryNotice.asSharedFlow()
     private var awaitingRecoveryPlayback = false
+    private val _bandwidthNotice = MutableSharedFlow<String>(extraBufferCapacity = 1)
+    val bandwidthNotice = _bandwidthNotice.asSharedFlow()
+    private val _bandwidthAlert = MutableStateFlow<String?>(null)
+    val bandwidthAlert: StateFlow<String?> = _bandwidthAlert.asStateFlow()
+    private var bandwidthWatchJob: Job? = null
+    private var bandwidthWatchKey: String? = null
+    private val notifiedBandwidthThresholds = mutableSetOf<Int>()
+    private var exhaustionHandledForKey: String? = null
     private val localStateOwner = UUID.randomUUID().toString()
     private var lastPlaybackPosition = 0L
     private var lastPlaybackDuration = 0L
@@ -413,6 +423,95 @@ class PlayerViewModel @OptIn(UnstableApi::class)
         } else if (mediaType == "movie") {
             loadMovieDetail()
         }
+        viewModelScope.launch {
+            state.collect { s ->
+                if ((s as? PlayerState.Ready)?.sourceId == "aurora") startBandwidthWatch() else stopBandwidthWatch()
+            }
+        }
+    }
+
+    /**
+     * Aurora/Febbox throttles rather than hard-fails once a key's daily bandwidth runs out so
+     * there's no playback error to react to. Instead, poll the active key's quota periodically
+     * while playing from Aurora and surface a heads-up before it degrades into buffering, at
+     * 50/25/10% remaining. Only runs while the current source is aurora, so idle/other-source
+     * playback never pings this endpoint.
+     */
+    private fun startBandwidthWatch() {
+        if (bandwidthWatchJob?.isActive == true) return
+        bandwidthWatchJob = viewModelScope.launch {
+            // Check once right away — if the key is already low (e.g. used up elsewhere before
+            // this session started), we shouldn't wait 5 minutes to say so — then every 5 min.
+            while (true) {
+                val current = _state.value as? PlayerState.Ready ?: break
+                if (current.sourceId != "aurora") break
+                val key = settingsPrefs.settings.first().febboxKey?.takeIf(String::isNotBlank) ?: break
+                if (key != bandwidthWatchKey) {
+                    bandwidthWatchKey = key
+                    notifiedBandwidthThresholds.clear()
+                    exhaustionHandledForKey = null
+                    _bandwidthAlert.value = null
+                }
+                val info = auroraKeyManager.checkKey(key)
+                val percent = info.percentRemaining
+                if (percent != null) {
+                    if (info.exhausted) {
+                        if (exhaustionHandledForKey != key) {
+                            exhaustionHandledForKey = key
+                            handleKeyExhausted(key)
+                        }
+                    } else {
+                        // Claim every threshold this check crosses at once, not just the first —
+                        // otherwise a key that's already at e.g. 9% trickles out one notice per
+                        // poll (50%, then 25%, then 10%, each 5 min apart) instead of a single one.
+                        val crossed = listOf(50, 25, 10).filter { percent <= it && it !in notifiedBandwidthThresholds }
+                        if (crossed.isNotEmpty()) {
+                            notifiedBandwidthThresholds += crossed
+                            _bandwidthNotice.emit("Aurora key: $percent% bandwidth left today")
+                        }
+                    }
+                }
+                delay(5 * 60_000L)
+            }
+        }
+    }
+
+    /**
+     * Called once per key the first time it's seen fully exhausted. If another key with
+     * bandwidth exists, shows a persistent (non-auto-dismissing) countdown and force-switches
+     * onto it after 15s — a deliberate brief rebuffer/source-switch instead of staying on a
+     * throttled key indefinitely. If no other key is available, shows an explanation for 10s
+     * instead (nothing to switch to, so no countdown — just a heads-up that clears itself).
+     */
+    private suspend fun handleKeyExhausted(exhaustedKey: String) {
+        val settingsNow = settingsPrefs.settings.first()
+        val freshKey = auroraKeyManager.findFreshKey(settingsNow.febboxKeys, excluding = exhaustedKey)
+        if (freshKey == null) {
+            _bandwidthAlert.value = "No more Aurora keys available to switch to. Either switch to " +
+                "another source, or this source will start buffering or lower quality."
+            delay(10_000)
+            if (_bandwidthAlert.value != null) _bandwidthAlert.value = null
+            return
+        }
+        for (secondsLeft in 15 downTo 1) {
+            val current = _state.value as? PlayerState.Ready ?: return
+            if (current.sourceId != "aurora") {
+                _bandwidthAlert.value = null
+                return
+            }
+            _bandwidthAlert.value = "Switching to a different Aurora key in ${secondsLeft}s…"
+            delay(1000)
+        }
+        _bandwidthAlert.value = null
+        settingsPrefs.updateSettings(settingsNow.copy(febboxKey = freshKey), syncToRemote = false)
+        _recoveryNotice.emit("Auto retrying")
+        loadInternal(automaticRecovery = true, prioritizedSourceId = "aurora")
+    }
+
+    private fun stopBandwidthWatch() {
+        bandwidthWatchJob?.cancel()
+        bandwidthWatchJob = null
+        _bandwidthAlert.value = null
     }
 
     private fun checkLocalPlayback() {
@@ -589,6 +688,7 @@ class PlayerViewModel @OptIn(UnstableApi::class)
         traktRepository.stopPlayback(mediaType, tmdbId, season, episode, lastPlaybackPosition, lastPlaybackDuration)
         super.onCleared()
         watchPartyManager.clearLocalState(localStateOwner)
+        stopBandwidthWatch()
     }
 
     fun reorderSources(newOrder: List<String>) {
@@ -690,6 +790,12 @@ class PlayerViewModel @OptIn(UnstableApi::class)
         automaticRecovery: Boolean = false,
         deprioritizedSourceId: String? = null,
         preferredVariantId: String? = null,
+        // One-off override: boost this source to the very front of the try order for just this
+        // resolve, regardless of the user's saved source order/last-successful-source/dedupe
+        // logic below. Used by the Aurora bandwidth-switch countdown so the fresh key gets
+        // tried first even if Aurora isn't the user's preferred source — still falls back to
+        // the rest of the order if it fails, unlike selectedSourceId which excludes everything else.
+        prioritizedSourceId: String? = null,
     ) {
         sources.clear()
         failedVariantUrls.clear()
@@ -738,6 +844,11 @@ class PlayerViewModel @OptIn(UnstableApi::class)
                         val deprioritizedIds = failedPlaybackSourceIds + deprioritizedSourceId
                         ordered = ordered.filter { it.id !in deprioritizedIds } +
                             ordered.filter { it.id in deprioritizedIds }
+                    }
+                    if (prioritizedSourceId != null) {
+                        val boosted = ordered.filter { it.id == prioritizedSourceId }
+                        val rest = ordered.filter { it.id != prioritizedSourceId }
+                        ordered = boosted + rest
                     }
                     ordered
                 }
