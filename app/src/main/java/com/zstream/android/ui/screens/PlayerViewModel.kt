@@ -67,6 +67,7 @@ data class ResolvedSourceCandidate(
 data class PlaybackFailure(
     val message: String,
     val details: String,
+    val title: String = "Source error",
 )
 
 private fun playbackFailureDetails(message: String): String = Throwable(message).stackTraceToString()
@@ -1094,6 +1095,7 @@ class PlayerViewModel @OptIn(UnstableApi::class)
     }
 
     fun onPlaybackError(
+        title: String = "Playback error",
         message: String,
         errorCode: Int = 0,
         httpStatus: Int = 0,
@@ -1106,6 +1108,7 @@ class PlayerViewModel @OptIn(UnstableApi::class)
                     playbackFailure = PlaybackFailure(
                         message = "Playback failed: $message",
                         details = details,
+                        title = title,
                     )
                 )
                 return@launch
@@ -1146,16 +1149,19 @@ class PlayerViewModel @OptIn(UnstableApi::class)
 
             failedVariantUrls += current.streamUrl
 
-            // Mark this variant failed (shows the fail icon beside it in the variant picker) and
-            // toast it — the user picks the next variant themselves.
-            val sourceLabel = current.sourceId.orEmpty().replaceFirstChar { it.uppercase() }
+            // Mark this URL failed and surface the same diagnosis used by the error overlay.
             val variantLabel = current.variants.find { it.streamUrl == current.streamUrl }?.displayLabel()
             Log.w("PlaybackRecovery", "variant failed; sourceId=${current.sourceId} variant=$variantLabel")
             awaitingRecoveryPlayback = false
-            _recoveryNotice.tryEmit(
-                "$sourceLabel${variantLabel?.let { " · $it" }.orEmpty()} source failed! Try another"
+            _recoveryNotice.tryEmit("$title: $message")
+            _state.value = current.copy(
+                failedVariantUrls = failedVariantUrls.toSet(),
+                playbackFailure = PlaybackFailure(
+                    message = message,
+                    details = details,
+                    title = title,
+                ),
             )
-            _state.value = current.copy(failedVariantUrls = failedVariantUrls.toSet())
         }
     }
 
