@@ -84,10 +84,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.painterResource
@@ -305,7 +311,7 @@ private fun SubtitleTrackBadges(track: SubtitleTrack) {
 }
 
 private enum class PlayerMenuPage {
-    Root, Captions, CaptionLanguage, CaptionSettings, Playback, AdvancedColor, Sources, Quality, Audio, Download, DownloadQuality, DownloadAudio, WatchParty, SkipSegments, Seasons, Episodes, Variants, LocalFile
+    Root, Captions, CaptionLanguage, CaptionSettings, Playback, Sources, Quality, Audio, Download, DownloadQuality, DownloadAudio, WatchParty, SkipSegments, Seasons, Episodes, Variants, LocalFile
 }
 
 private data class LocalFileInfo(
@@ -1350,6 +1356,13 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     onDispose { player.removeListener(listener) }
                 }
 
+                // Explicit reactive apply, independent of AndroidView's update{} interop timing --
+                // the video-mode buttons only worked once (first apply from factory{}) without
+                // this, since the update{} callback wasn't reliably re-invoked on later changes.
+                LaunchedEffect(settings.videoScaleMode, playerViewRef.value) {
+                    playerViewRef.value?.resizeMode = nativeResizeMode(settings.videoScaleMode)
+                }
+
                 LaunchedEffect(controlsVisible, isPlaying, menuPage, lastInteractionTime, showInfoSheet) {
                     if (controlsVisible && isPlaying && !showInfoSheet) {
                         val waitTime = PLAYER_AUTO_HIDE_DURATION
@@ -1562,6 +1575,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                             },
                             modifier = Modifier.fillMaxSize()
                         )
+                        VideoBrightnessOverlay(playerViewRef.value, settings.videoBrightness, Modifier.fillMaxSize())
                     } else {
                         PlaybackErrorOverlay(
                             failure = playbackFailure,
@@ -1644,29 +1658,6 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                         )
                     subtitleOverride?.let(builder::addOverride)
                     player.trackSelectionParameters = builder.build()
-                }
-
-                val hadVideoEffects = remember { mutableStateOf(false) }
-                LaunchedEffect(player, settings.videoBrightness, settings.videoContrast, settings.videoSaturation, settings.videoHueRotate) {
-                    // setVideoEffects() switches ExoPlayer onto the heavier GL effects pipeline,
-                    // which stalls seeking/segment loads -- so skip it entirely at neutral
-                    // defaults (unless we need to clear a previously-applied adjustment), and
-                    // debounce so a slider drag doesn't reconfigure the pipeline on every
-                    // intermediate tick (that reconfigure was what looked like a freeze).
-                    val effects = buildVideoColorEffects(
-                        brightness = settings.videoBrightness,
-                        contrast = settings.videoContrast,
-                        saturation = settings.videoSaturation,
-                        hueRotate = settings.videoHueRotate,
-                    )
-                    if (effects.isEmpty()) {
-                        if (hadVideoEffects.value) player.setVideoEffects(effects)
-                        hadVideoEffects.value = false
-                    } else {
-                        delay(150)
-                        player.setVideoEffects(effects)
-                        hadVideoEffects.value = true
-                    }
                 }
 
                 if (!isPlaybackFailed && (!settings.enableNativeSubtitles || selectedTrackIsExternal) && subtitlesEnabled && selectedLang != null && visibleCues.isNotEmpty()) {
@@ -1790,10 +1781,6 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     overrideCasing = overrideCasing,
                     onSetEnableAutoplay = vm::setEnableAutoplay,
                     onSetVideoBrightness = vm::setVideoBrightness,
-                    onSetVideoContrast = vm::setVideoContrast,
-                    onSetVideoSaturation = vm::setVideoSaturation,
-                    onSetVideoHueRotate = vm::setVideoHueRotate,
-                    onResetAdvancedColor = vm::resetAdvancedColor,
                     onSetVolumeBoost = vm::setVolumeBoost,
                     onSetVideoScaleMode = { mode ->
                         vm.setVideoScaleMode(mode)
@@ -2307,37 +2294,29 @@ fun LocalPlayerScreen(nav: NavController, vm: LocalPlayerViewModel = hiltViewMod
                 }
             }
             ready != null && player != null -> {
+                val localPlayerViewRef = remember { androidx.compose.runtime.mutableStateOf<PlayerView?>(null) }
                 AndroidView(
                     factory = { ctx ->
                         PlayerView(ctx).apply {
                             this.player = player
                             useController = false
+                            resizeMode = nativeResizeMode(settings.videoScaleMode)
                             layoutParams = FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT)
+                            localPlayerViewRef.value = this
                         }
                     },
+                    update = { view -> view.resizeMode = nativeResizeMode(settings.videoScaleMode) },
                     modifier = Modifier.fillMaxSize(),
                 )
+                // Explicit reactive apply, independent of AndroidView's update{} interop timing.
+                LaunchedEffect(settings.videoScaleMode, localPlayerViewRef.value) {
+                    localPlayerViewRef.value?.resizeMode = nativeResizeMode(settings.videoScaleMode)
+                }
+                VideoBrightnessOverlay(localPlayerViewRef.value, settings.videoBrightness, Modifier.fillMaxSize())
                 LaunchedEffect(ready.tmdbId, ready.season, ready.episode, player.duration) {
                     val duration = player.duration.coerceAtLeast(0L)
                     if (duration > 0) {
                         vm.loadSkipSegments(ready, duration)
-                    }
-                }
-                val hadVideoEffectsLocal = remember { mutableStateOf(false) }
-                LaunchedEffect(player, settings.videoBrightness, settings.videoContrast, settings.videoSaturation, settings.videoHueRotate) {
-                    val effects = buildVideoColorEffects(
-                        brightness = settings.videoBrightness,
-                        contrast = settings.videoContrast,
-                        saturation = settings.videoSaturation,
-                        hueRotate = settings.videoHueRotate,
-                    )
-                    if (effects.isEmpty()) {
-                        if (hadVideoEffectsLocal.value) player.setVideoEffects(effects)
-                        hadVideoEffectsLocal.value = false
-                    } else {
-                        delay(150)
-                        player.setVideoEffects(effects)
-                        hadVideoEffectsLocal.value = true
                     }
                 }
                 val readyState = PlayerState.Ready(
@@ -2411,10 +2390,6 @@ fun LocalPlayerScreen(nav: NavController, vm: LocalPlayerViewModel = hiltViewMod
                     overrideCasing = overrideCasing,
                     onSetEnableAutoplay = { vm.updateSettings(settings.copy(enableAutoplay = it)) },
                     onSetVideoBrightness = { vm.updateSettings(settings.copy(videoBrightness = it)) },
-                    onSetVideoContrast = { vm.updateSettings(settings.copy(videoContrast = it)) },
-                    onSetVideoSaturation = { vm.updateSettings(settings.copy(videoSaturation = it)) },
-                    onSetVideoHueRotate = { vm.updateSettings(settings.copy(videoHueRotate = it)) },
-                    onResetAdvancedColor = { vm.updateSettings(settings.copy(videoBrightness = 100, videoContrast = 100, videoSaturation = 100, videoHueRotate = 0)) },
                     onSetVolumeBoost = { vm.updateSettings(settings.copy(volumeBoost = it)) },
                     onSetVideoScaleMode = { vm.updateSettings(settings.copy(videoScaleMode = it)) },
                     onSelectSource = {},
@@ -2548,43 +2523,67 @@ private fun volumeBoostToMillibels(volumeBoost: Int): Int {
 }
 
 /**
- * Brightness/contrast/saturation/hue settings were persisted and shown in the sliders but never
- * actually applied to the decoded video -- nothing in the codebase called
- * ExoPlayer.setVideoEffects(). All four settings use a 100 = "no change" scale (0-200, except
- * hue which is 0-360 degrees) to match the slider UI already built around that convention.
+ * Brightness uses a 100 = "no change" scale (10-200) to match the slider UI. Drawn as a Compose
+ * overlay (black scrim to darken, white with BlendMode.Screen to brighten) directly on top of
+ * the PlayerView's surface, rather than via ExoPlayer.setVideoEffects()/RgbAdjustment -- the GL
+ * effects pipeline requires VideoFrameProcessor support that doesn't reliably engage on all
+ * devices/surface types, and silently no-ops rather than erroring when it doesn't, which is
+ * exactly what made the slider look broken. A Compose draw call has no such dependency.
+ *
+ * Only paints over the actual video content rect, not the letterbox/pillarbox bars a mode like
+ * "fit" leaves around it. Rather than re-deriving that rect ourselves from the video's aspect
+ * ratio (fragile -- has to exactly match AspectRatioFrameLayout's own scaling math and the
+ * fit/fill/stretch -> RESIZE_MODE mapping, and silently drifts if either changes), read the real
+ * on-screen bounds of PlayerView's own video surface directly via View APIs. That's ground truth
+ * for whatever Android actually rendered, for every resize mode, with no assumptions.
  */
-@OptIn(UnstableApi::class)
-private fun buildVideoColorEffects(
-    brightness: Int,
-    contrast: Int,
-    saturation: Int,
-    hueRotate: Int,
-): List<androidx.media3.common.Effect> {
-    val effects = mutableListOf<androidx.media3.common.Effect>()
-    if (contrast != 100) {
-        val contrastValue = ((contrast - 100) / 100f).coerceIn(-1f, 1f)
-        effects.add(androidx.media3.effect.Contrast(contrastValue))
-    }
-    if (brightness != 100) {
-        val scale = (brightness / 100f).coerceIn(0.1f, 2f)
-        effects.add(
-            androidx.media3.effect.RgbAdjustment.Builder()
-                .setRedScale(scale)
-                .setGreenScale(scale)
-                .setBlueScale(scale)
-                .build()
+@Composable
+private fun VideoBrightnessOverlay(playerView: PlayerView?, brightness: Int, modifier: Modifier = Modifier) {
+    if (brightness == 100 || playerView == null) return
+    var boxPositionInWindow by remember { mutableStateOf(Offset.Zero) }
+    var contentRect by remember { mutableStateOf<Rect?>(null) }
+    val surfaceView = playerView.videoSurfaceView
+
+    fun recompute() {
+        val sv = surfaceView ?: run { contentRect = null; return }
+        val loc = IntArray(2)
+        sv.getLocationInWindow(loc)
+        contentRect = Rect(
+            Offset(loc[0] - boxPositionInWindow.x, loc[1] - boxPositionInWindow.y),
+            Size(sv.width.toFloat(), sv.height.toFloat()),
         )
     }
-    if (saturation != 100 || hueRotate != 0) {
-        val saturationAdjustment = ((saturation - 100) / 100f).coerceIn(-1f, 1f)
-        effects.add(
-            androidx.media3.effect.HslAdjustment.Builder()
-                .adjustHue(hueRotate.toFloat())
-                .adjustSaturation(saturationAdjustment)
-                .build()
-        )
+
+    DisposableEffect(surfaceView) {
+        val listener = android.view.View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> recompute() }
+        surfaceView?.addOnLayoutChangeListener(listener)
+        recompute()
+        onDispose { surfaceView?.removeOnLayoutChangeListener(listener) }
     }
-    return effects
+
+    Box(
+        modifier = modifier
+            .onGloballyPositioned { coords ->
+                boxPositionInWindow = coords.positionInWindow()
+                recompute()
+            }
+            .drawBehind {
+                val rect = contentRect ?: return@drawBehind
+                // A 1px overscan on every edge absorbs any sub-pixel rounding gap between this
+                // rect and the real surface bounds, so a sliver of unmodified video can't peek
+                // through at the edge.
+                val overscan = 1f
+                val topLeft = Offset(rect.left - overscan, rect.top - overscan)
+                val overscanSize = Size(rect.width + overscan * 2, rect.height + overscan * 2)
+                if (brightness < 100) {
+                    val alpha = ((100 - brightness) / 90f).coerceIn(0f, 1f) * 0.85f
+                    drawRect(Color.Black.copy(alpha = alpha), topLeft = topLeft, size = overscanSize)
+                } else {
+                    val alpha = ((brightness - 100) / 100f).coerceIn(0f, 1f) * 0.6f
+                    drawRect(Color.White.copy(alpha = alpha), topLeft = topLeft, size = overscanSize, blendMode = BlendMode.Screen)
+                }
+            }
+    )
 }
 
 @OptIn(UnstableApi::class)
@@ -2628,10 +2627,6 @@ private fun PlayerControls(
     overrideCasing: Boolean,
     onSetEnableAutoplay: (Boolean) -> Unit,
     onSetVideoBrightness: (Int) -> Unit,
-    onSetVideoContrast: (Int) -> Unit,
-    onSetVideoSaturation: (Int) -> Unit,
-    onSetVideoHueRotate: (Int) -> Unit,
-    onResetAdvancedColor: () -> Unit,
     onSetVolumeBoost: (Int) -> Unit,
     onSetVideoScaleMode: (String) -> Unit,
     onSelectSource: (String) -> Unit,
@@ -3959,10 +3954,6 @@ private fun PlayerControls(
                         onAutoSelectSubtitle = onAutoSelectSubtitle,
                         onSetEnableAutoplay = onSetEnableAutoplay,
                         onSetVideoBrightness = onSetVideoBrightness,
-                        onSetVideoContrast = onSetVideoContrast,
-                        onSetVideoSaturation = onSetVideoSaturation,
-                        onSetVideoHueRotate = onSetVideoHueRotate,
-                        onResetAdvancedColor = onResetAdvancedColor,
                         onSetVolumeBoost = onSetVolumeBoost,
                         onSetVideoScaleMode = onSetVideoScaleMode,
                         onSetPlaybackSpeed = { speed ->
@@ -4090,19 +4081,6 @@ private fun localSubtitleMimeType(path: String): String = when (path.substringAf
 private fun localSubtitleLanguageTag(path: String): String {
     val name = path.substringAfterLast('/').substringBeforeLast('.')
     return name.substringAfterLast('.', "").ifBlank { "und" }
-}
-
-private fun advancedColorSummary(settings: com.zstream.android.data.local.entity.SettingsEntity): String {
-    return if (
-        settings.videoBrightness == 100 &&
-        settings.videoContrast == 100 &&
-        settings.videoSaturation == 100 &&
-        settings.videoHueRotate == 0
-    ) {
-        "Default"
-    } else {
-        "Adjusted"
-    }
 }
 
 private fun videoScaleModeLabel(mode: String): String = when (mode.lowercase()) {
@@ -4595,10 +4573,6 @@ private fun PlayerMenuContent(
     onAutoSelectSubtitle: () -> Unit,
     onSetEnableAutoplay: (Boolean) -> Unit,
     onSetVideoBrightness: (Int) -> Unit,
-    onSetVideoContrast: (Int) -> Unit,
-    onSetVideoSaturation: (Int) -> Unit,
-    onSetVideoHueRotate: (Int) -> Unit,
-    onResetAdvancedColor: () -> Unit,
     onSetVolumeBoost: (Int) -> Unit,
     onSetVideoScaleMode: (String) -> Unit,
     onSetPlaybackSpeed: (Float) -> Unit,
@@ -4683,7 +4657,6 @@ private fun PlayerMenuContent(
                     PlayerMenuPage.CaptionLanguage -> captionLanguage?.let(::subtitleLanguageName) ?: "Subtitles"
                     PlayerMenuPage.CaptionSettings -> "Subtitle Settings"
                     PlayerMenuPage.Playback -> "Playback"
-                    PlayerMenuPage.AdvancedColor -> "Advanced Color"
                     PlayerMenuPage.Sources -> "Source"
                     PlayerMenuPage.Quality -> "Quality"
                     PlayerMenuPage.Audio -> "Audio"
@@ -5123,9 +5096,6 @@ private fun PlayerMenuContent(
                                     tickStep = 10f,
                                 )
                             }
-                            PlayerMenuChevronRow("Advanced color", advancedColorSummary(settings)) {
-                                onOpenPage(PlayerMenuPage.AdvancedColor)
-                            }
                             PlayerMenuFieldTitle("Video mode")
                             Spacer(Modifier.height(12.dp))
                             PlayerMenuSegmentedOptions(
@@ -5137,84 +5107,6 @@ private fun PlayerMenuContent(
                                 selected = settings.videoScaleMode,
                                 onSelect = onSetVideoScaleMode
                             )
-                        }
-                    }
-
-                    PlayerMenuPage.AdvancedColor -> {
-                        PlayerMenuSection {
-                            PlayerMenuSliderRow(
-                                label = "Brightness",
-                                value = settings.videoBrightness.toFloat(),
-                                valueText = { "${it.toInt()}%" },
-                                range = 10f..200f,
-                                steps = 0,
-                                onValueChange = { onSetVideoBrightness((it / 5f).roundToInt() * 5) },
-                                onReset = { onSetVideoBrightness(100) },
-                                isDefault = settings.videoBrightness == 100,
-                                tickStep = 5f,
-                                focusRequester = firstItemFocusRequester
-                            )
-                            PlayerMenuSliderRow(
-                                label = "Contrast",
-                                value = settings.videoContrast.toFloat(),
-                                valueText = { "${it.toInt()}%" },
-                                range = 50f..200f,
-                                steps = 0,
-                                onValueChange = { onSetVideoContrast((it / 5f).roundToInt() * 5) },
-                                onReset = { onSetVideoContrast(100) },
-                                isDefault = settings.videoContrast == 100,
-                                tickStep = 5f,
-                            )
-                            PlayerMenuSliderRow(
-                                label = "Saturation",
-                                value = settings.videoSaturation.toFloat(),
-                                valueText = { "${it.toInt()}%" },
-                                range = 0f..200f,
-                                steps = 0,
-                                onValueChange = { onSetVideoSaturation((it / 5f).roundToInt() * 5) },
-                                onReset = { onSetVideoSaturation(100) },
-                                isDefault = settings.videoSaturation == 100,
-                                tickStep = 5f,
-                            )
-                            PlayerMenuSliderRow(
-                                label = "Hue",
-                                value = settings.videoHueRotate.toFloat(),
-                                valueText = { "${it.toInt()}°" },
-                                range = -180f..180f,
-                                steps = 0,
-                                onValueChange = { onSetVideoHueRotate((it / 5f).roundToInt() * 5) },
-                                onReset = { onSetVideoHueRotate(0) },
-                                isDefault = settings.videoHueRotate == 0,
-                                tickStep = 5f,
-                            )
-
-                            val isTv = LocalIsTv.current
-                            var isResetFocused by remember { mutableStateOf(false) }
-                            ZsOutlinedWrapper(
-                                visible = isResetFocused && isTv,
-                                shape = RoundedCornerShape(12.dp),
-                                outlineColor = Color.White,
-                                gap = 2.dp,
-                            ) {
-                                TextButton(
-                                    onClick = onResetAdvancedColor,
-                                    contentPadding = PaddingValues(
-                                        horizontal = 16.dp,
-                                        vertical = 8.dp
-                                    ),
-                                    modifier = Modifier
-                                        .align(Alignment.CenterHorizontally)
-                                        .onFocusChanged { isResetFocused = it.isFocused }
-                                        .focusProperties {
-                                            if (isTv) {
-                                                left = FocusRequester.Cancel
-                                                right = FocusRequester.Cancel
-                                            }
-                                        }
-                                ) {
-                                    Text("Reset all", color = playerMenuMutedText())
-                                }
-                            }
                         }
                     }
 

@@ -1521,27 +1521,6 @@ class PlayerViewModel @OptIn(UnstableApi::class)
         viewModelScope.launch { settingsPrefs.setVideoBrightness(value.coerceIn(10, 200)) }
     }
 
-    fun setVideoContrast(value: Int) {
-        viewModelScope.launch { settingsPrefs.setVideoContrast(value.coerceIn(50, 200)) }
-    }
-
-    fun setVideoSaturation(value: Int) {
-        viewModelScope.launch { settingsPrefs.setVideoSaturation(value.coerceIn(0, 200)) }
-    }
-
-    fun setVideoHueRotate(value: Int) {
-        viewModelScope.launch { settingsPrefs.setVideoHueRotate(value.coerceIn(-180, 180)) }
-    }
-
-    fun resetAdvancedColor() {
-        viewModelScope.launch {
-            settingsPrefs.setVideoBrightness(100)
-            settingsPrefs.setVideoContrast(100)
-            settingsPrefs.setVideoSaturation(100)
-            settingsPrefs.setVideoHueRotate(0)
-        }
-    }
-
     fun setVolumeBoost(value: Int) {
         viewModelScope.launch { settingsPrefs.setVolumeBoost(value.coerceIn(100, 300)) }
     }
