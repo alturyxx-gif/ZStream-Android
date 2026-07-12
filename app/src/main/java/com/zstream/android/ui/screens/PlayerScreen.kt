@@ -482,6 +482,19 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
         vm.recoveryNotice.collect { Toast.makeText(context, it, Toast.LENGTH_SHORT).show() }
     }
 
+    val bandwidthNotices = remember { mutableStateListOf<BandwidthNoticeItem>() }
+    LaunchedEffect(vm) {
+        vm.bandwidthNotice.collect { message ->
+            val id = System.currentTimeMillis()
+            bandwidthNotices.add(BandwidthNoticeItem(id, message))
+            launch {
+                delay(5000)
+                bandwidthNotices.removeAll { it.id == id }
+            }
+        }
+    }
+    val bandwidthAlert by vm.bandwidthAlert.collectAsState()
+
     DisposableEffect(Unit) {
         val window = activity?.window
         if (window != null) {
@@ -2072,6 +2085,79 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
             modifier = Modifier.align(Alignment.CenterStart),
         )
     }
+    BandwidthNoticeOverlay(
+        persistentAlert = bandwidthAlert,
+        notices = bandwidthNotices,
+        theme = theme,
+        modifier = Modifier
+            .align(Alignment.TopEnd)
+            .statusBarsPadding()
+            .padding(top = 32.dp, end = 12.dp),
+    )
+    }
+}
+
+private data class BandwidthNoticeItem(val id: Long, val message: String)
+
+@Composable
+private fun BandwidthNoticeOverlay(
+    persistentAlert: String?,
+    notices: List<BandwidthNoticeItem>,
+    theme: ZStreamTheme,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.End,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        // Persistent — sticks around (with a live countdown, or the no-keys-left explanation)
+        // until the ViewModel clears it; unlike the transient notices below, it never
+        // auto-dismisses on its own.
+        AnimatedVisibility(
+            visible = persistentAlert != null,
+            enter = slideInHorizontally(initialOffsetX = { it }) + fadeIn(),
+            exit = slideOutHorizontally(targetOffsetX = { it }) + fadeOut(),
+        ) {
+            Surface(
+                color = theme.colors.type.danger.copy(alpha = 0.16f),
+                shape = RoundedCornerShape(10.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.type.danger.copy(alpha = 0.35f)),
+            ) {
+                Text(
+                    persistentAlert.orEmpty(),
+                    color = theme.colors.type.text,
+                    fontSize = 12.sp,
+                    modifier = Modifier
+                        .widthIn(max = 260.dp)
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                )
+            }
+        }
+        notices.forEach { notice ->
+            key(notice.id) {
+                var visible by remember { mutableStateOf(false) }
+                LaunchedEffect(notice.id) { visible = true }
+                AnimatedVisibility(
+                    visible = visible,
+                    enter = slideInHorizontally(initialOffsetX = { it }) + fadeIn(),
+                    exit = slideOutHorizontally(targetOffsetX = { it }) + fadeOut(),
+                ) {
+                    Surface(
+                        color = theme.colors.background.secondary.copy(alpha = 0.95f),
+                        shape = RoundedCornerShape(10.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.type.divider.copy(alpha = 0.25f)),
+                    ) {
+                        Text(
+                            notice.message,
+                            color = theme.colors.type.text,
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 

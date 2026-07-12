@@ -20,10 +20,20 @@ data class AuroraKeyInfo(
     val limitLabel: String? = null,
     val resetLabel: String? = null,
     val remainingBytes: Long? = null,
+    val totalBytes: Long? = null,
 ) {
     // If we can't parse the usage numbers we fail open (don't treat as exhausted) so a
     // formatting change on the Aurora side never locks working keys out of rotation.
     val exhausted: Boolean get() = remainingBytes != null && remainingBytes <= 0L
+
+    /** 0-100, or null if we couldn't parse usage/limit for this key. */
+    val percentRemaining: Int?
+        get() {
+            val remaining = remainingBytes ?: return null
+            val total = totalBytes ?: return null
+            if (total <= 0L) return null
+            return ((remaining.toDouble() / total) * 100).toInt().coerceIn(0, 100)
+        }
 }
 
 /**
@@ -77,6 +87,7 @@ class AuroraKeyManager @Inject constructor(
                     limitLabel = limit,
                     resetLabel = resetAt,
                     remainingBytes = remainingBytes(used, limit),
+                    totalBytes = parseSize(limit),
                 )
             }
         }.getOrElse {
@@ -87,6 +98,17 @@ class AuroraKeyManager @Inject constructor(
 
     suspend fun checkKeys(keys: List<String>): List<AuroraKeyInfo> =
         keys.filter { it.isNotBlank() }.map { checkKey(it) }
+
+    /**
+     * Looks for a usable key other than [excluding] without touching the active key in
+     * preferences — used to check "is there anywhere to switch to" before committing to a
+     * mid-playback re-resolve (see PlayerViewModel's exhausted-key countdown).
+     */
+    suspend fun findFreshKey(keys: List<String>, excluding: String?): String? =
+        keys.filter { it.isNotBlank() && it != excluding }.firstNotNullOfOrNull { key ->
+            val info = checkKey(key)
+            key.takeIf { info.status == AuroraKeyStatus.VALID && !info.exhausted }
+        }
 
     /**
      * Re-checks the configured keys and, if the currently active key is invalid or has
