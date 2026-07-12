@@ -28,6 +28,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -116,6 +117,18 @@ fun ProfileSwitcherScreen(nav: NavController, vm: AccountViewModel = hiltViewMod
                         theme = theme,
                         onClick = { nav.navigate("login") },
                         modifier = if (profiles.isEmpty()) Modifier.focusRequester(firstProfileFocusRequester) else Modifier,
+                    )
+                }
+                item {
+                    // Escape hatch — this screen's BackHandler is a no-op, so without this card
+                    // there's no way off it besides picking/creating a profile.
+                    ContinueWithoutProfileCard(
+                        theme = theme,
+                        onClick = {
+                            nav.navigate("home") {
+                                popUpTo("profileSwitcher") { inclusive = true }
+                            }
+                        },
                     )
                 }
             }
@@ -251,5 +264,42 @@ private fun AddProfileCard(theme: com.zstream.android.theme.ZStreamTheme, onClic
         }
         Spacer(Modifier.height(10.dp))
         Text("Add Profile", color = theme.colors.type.secondary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+    }
+}
+
+/** Lets you dismiss the picker and use the app with no profile/account at all. */
+@Composable
+private fun ContinueWithoutProfileCard(theme: com.zstream.android.theme.ZStreamTheme, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isFocused by interactionSource.collectIsFocusedAsState()
+    Column(
+        modifier = Modifier.width(PROFILE_CARD_WIDTH),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        ZsOutlinedWrapper(
+            visible = isFocused,
+            shape = RoundedCornerShape(10.dp),
+            outlineColor = theme.colors.global.accentA,
+            gap = 3.dp,
+        ) {
+        Box(
+            modifier
+                .fillMaxWidth()
+                .aspectRatio(2f / 3f)
+                .clip(RoundedCornerShape(10.dp))
+                .background(theme.colors.background.secondary.copy(alpha = 0.6f))
+                .clickable(interactionSource = interactionSource, indication = null) { onClick() },
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(
+                Modifier.size(48.dp).clip(CircleShape).background(theme.colors.background.main),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Default.PlayArrow, null, tint = theme.colors.type.secondary, modifier = Modifier.size(24.dp))
+            }
+        }
+        }
+        Spacer(Modifier.height(10.dp))
+        Text("Continue without\nprofile", color = theme.colors.type.secondary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
     }
 }

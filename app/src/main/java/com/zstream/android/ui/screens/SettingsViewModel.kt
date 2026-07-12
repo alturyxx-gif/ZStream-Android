@@ -2,6 +2,8 @@ package com.zstream.android.ui.screens
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.zstream.android.data.AuroraKeyInfo
+import com.zstream.android.data.AuroraKeyManager
 import com.zstream.android.data.BookmarkRepository
 import com.zstream.android.data.ProgressRepository
 import com.zstream.android.data.TraktRepository
@@ -51,6 +53,7 @@ class SettingsViewModel @Inject constructor(
     private val pluginManager: PluginManager,
     private val sourceOrderStore: SourceOrderStore,
     private val accountRepo: com.zstream.android.data.AccountRepository,
+    private val auroraKeyManager: AuroraKeyManager,
 ) : ViewModel() {
     val traktState = traktRepo.state
     val releaseChecksEnabled = releaseUpdateManager.enabled
@@ -67,8 +70,12 @@ class SettingsViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            pluginState.collect {
-                refreshSourceOrder()
+            combine(pluginState, settingsPrefs.settings) { _, current -> current }.collect { current ->
+                _sourceOrder.value = sourceOrderStore.getOrderedSources(
+                    pluginManager.availableSources(),
+                    hasArtemisVipKey = !current.artemisVipKey.isNullOrBlank(),
+                    hasAuroraKey = !current.febboxKey.isNullOrBlank(),
+                )
                 refreshDownloadSourceOrder()
             }
         }
@@ -76,7 +83,12 @@ class SettingsViewModel @Inject constructor(
 
     private fun refreshSourceOrder() {
         viewModelScope.launch {
-            _sourceOrder.value = sourceOrderStore.getOrderedSources(pluginManager.availableSources())
+            val current = settingsPrefs.settings.first()
+            _sourceOrder.value = sourceOrderStore.getOrderedSources(
+                pluginManager.availableSources(),
+                hasArtemisVipKey = !current.artemisVipKey.isNullOrBlank(),
+                hasAuroraKey = !current.febboxKey.isNullOrBlank(),
+            )
         }
     }
 
@@ -280,6 +292,48 @@ class SettingsViewModel @Inject constructor(
 
     fun setFebboxKey(key: String?) {
         update { copy(febboxKey = key) }
+    }
+
+    /** Replaces the whole Aurora key list (add/remove/edit rows all go through this). */
+    fun setFebboxKeys(keys: List<String>) {
+        update { copy(febboxKeys = keys) }
+    }
+
+    fun addFebboxKey() {
+        update { copy(febboxKeys = febboxKeys + "") }
+    }
+
+    fun updateFebboxKeyAt(index: Int, value: String) {
+        update {
+            val keys = febboxKeys.toMutableList()
+            if (index !in keys.indices) return@update this
+            keys[index] = value
+            copy(febboxKeys = keys)
+        }
+    }
+
+    fun removeFebboxKeyAt(index: Int) {
+        update {
+            val keys = febboxKeys.toMutableList()
+            if (index !in keys.indices) return@update this
+            val removed = keys.removeAt(index)
+            val nextActive = if (febboxKey == removed) keys.firstOrNull { it.isNotBlank() } else febboxKey
+            copy(febboxKeys = keys, febboxKey = nextActive)
+        }
+    }
+
+    /** Validates a single Aurora key and reports its status + remaining daily bandwidth. */
+    suspend fun checkAuroraKey(key: String): AuroraKeyInfo = auroraKeyManager.checkKey(key)
+
+    /**
+     * Re-picks the active Aurora key from the configured list, rotating away from any key
+     * that's invalid or out of bandwidth. Called after the key list changes and before every
+     * scrape/download attempt (see PlayerViewModel/DownloadResolver).
+     */
+    suspend fun ensureActiveAuroraKey(): String? = auroraKeyManager.ensureActiveKey()
+
+    fun setArtemisVipKey(key: String?) {
+        update { copy(artemisVipKey = key) }
     }
 
     fun setTidbKey(key: String?) {
