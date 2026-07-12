@@ -54,6 +54,7 @@ class SettingsViewModel @Inject constructor(
     private val sourceOrderStore: SourceOrderStore,
     private val accountRepo: com.zstream.android.data.AccountRepository,
     private val auroraKeyManager: AuroraKeyManager,
+    @dagger.hilt.android.qualifiers.ApplicationContext private val appContext: android.content.Context,
 ) : ViewModel() {
     val traktState = traktRepo.state
     val releaseChecksEnabled = releaseUpdateManager.enabled
@@ -72,7 +73,6 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             combine(pluginState, settingsPrefs.settings) { _, current -> current }.collect { current ->
                 _sourceOrder.value = sourceOrderStore.getOrderedSources(
-                    pluginManager.availableSources(),
                     hasArtemisVipKey = !current.artemisVipKey.isNullOrBlank(),
                     hasAuroraKey = !current.febboxKey.isNullOrBlank(),
                 )
@@ -85,7 +85,6 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             val current = settingsPrefs.settings.first()
             _sourceOrder.value = sourceOrderStore.getOrderedSources(
-                pluginManager.availableSources(),
                 hasArtemisVipKey = !current.artemisVipKey.isNullOrBlank(),
                 hasAuroraKey = !current.febboxKey.isNullOrBlank(),
             )
@@ -101,7 +100,7 @@ class SettingsViewModel @Inject constructor(
 
     private fun refreshDownloadSourceOrder() {
         viewModelScope.launch {
-            _downloadSourceOrder.value = sourceOrderStore.getDownloadOrder(pluginManager.availableSources())
+            _downloadSourceOrder.value = sourceOrderStore.getDownloadOrder()
         }
     }
 
@@ -567,17 +566,37 @@ class SettingsViewModel @Inject constructor(
         val settings = settings.value
         val progress = progressRepo.observeAllProgress().first()
         val bookmarks = bookmarkRepo.observeAllBookmarks().first()
-        
-        // Construct the export map. Gson will automatically omit null fields 
+
+        // The user's manually-saved source order lives in SourceOrderStore's own DataStore
+        // (plugin_prefs), not in SettingsEntity — settings.sourceOrder is a legacy backend-sync
+        // field nothing actually writes anymore. Pull the real saved order in separately so a
+        // backup captures it too.
+        val sourceOrder = sourceOrderStore.getSavedOrderIds()
+        val downloadSourceOrder = sourceOrderStore.getSavedDownloadOrderIds()
+
+        // Trakt access/refresh tokens live in TraktRepository's own DataStore, not SettingsEntity.
+        val traktSession = traktRepo.exportSession()
+
+        // Paired TV connection info (host/model/ports) lives in TvAdbManager's SharedPreferences,
+        // not SettingsEntity.
+        val pairedTvs = com.zstream.android.data.adb.TvAdbManager.get(appContext).getSavedTvs()
+
+        // Construct the export map. Gson will automatically omit null fields
         // like tmdbApiKey or febboxKey if they haven't been set by the user.
+        // Note: API keys (TMDB, febbox/Aurora, Artemis VIP, debrid, tidb, wyzie) are already
+        // inside `settings` — SettingsEntity is dumped whole, not field-by-field.
         val exportMap = mapOf(
             "settings" to settings,
             "progress" to progress,
             "bookmarks" to bookmarks,
+            "sourceOrder" to sourceOrder,
+            "downloadSourceOrder" to downloadSourceOrder,
+            "traktSession" to traktSession,
+            "pairedTvs" to pairedTvs,
             "exportDate" to System.currentTimeMillis(),
-            "version" to 1
+            "version" to 3
         )
-        
+
         return Gson().toJson(exportMap)
     }
 

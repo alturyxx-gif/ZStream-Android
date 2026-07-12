@@ -337,6 +337,60 @@ class PluginManager @Inject constructor(
         }
     }
 
+    /**
+     * Returns the plugin's playback source order: the app only passes in [storedOrder] (the raw
+     * id list persisted from the user's manual drag-reorder, empty if never set) and the VIP-key
+     * flags — default priority and VIP preference logic lives entirely in the plugin's
+     * Entry.orderedSourcesJson(), so it can be retuned via a plugin update alone.
+     */
+    fun orderedSources(storedOrder: List<String>, hasArtemisVipKey: Boolean, hasAuroraKey: Boolean): List<SourceInfo> {
+        val plugin = readyPlugin() ?: return emptyList()
+        return try {
+            val method = plugin.javaClass.methods.firstOrNull {
+                it.name == "orderedSourcesJson" &&
+                    it.parameterTypes.size == 3 &&
+                    it.parameterTypes[0] == String::class.java
+            } ?: run {
+                Log.e(TAG, "Plugin has no orderedSourcesJson() — incompatible plugin build")
+                return emptyList()
+            }
+            val json = method.invoke(plugin, storedOrder.toJsonArray(), hasArtemisVipKey, hasAuroraKey) as? String
+                ?: return emptyList()
+            parseSourcesJson(json)
+        } catch (t: Throwable) {
+            Log.e(TAG, "orderedSourcesJson() threw: ${t.message}", t)
+            emptyList()
+        }
+    }
+
+    /** Same as [orderedSources] but for the download flow's priority order. */
+    fun downloadOrderedSources(storedOrder: List<String>): List<SourceInfo> {
+        val plugin = readyPlugin() ?: return emptyList()
+        return try {
+            val method = plugin.javaClass.methods.firstOrNull {
+                it.name == "downloadOrderedSourcesJson" &&
+                    it.parameterTypes.size == 1 &&
+                    it.parameterTypes[0] == String::class.java
+            } ?: run {
+                Log.e(TAG, "Plugin has no downloadOrderedSourcesJson() — incompatible plugin build")
+                return emptyList()
+            }
+            val json = method.invoke(plugin, storedOrder.toJsonArray()) as? String ?: return emptyList()
+            parseSourcesJson(json)
+        } catch (t: Throwable) {
+            Log.e(TAG, "downloadOrderedSourcesJson() threw: ${t.message}", t)
+            emptyList()
+        }
+    }
+
+    private fun readyPlugin(): Any? = when (val s = pluginState.value) {
+        is PluginState.Ready -> s.plugin
+        is PluginState.UpdateAvailable -> s.plugin
+        else -> null
+    }
+
+    private fun List<String>.toJsonArray(): String = org.json.JSONArray(this).toString()
+
     suspend fun resolve(media: MediaRequest, sourceId: String): StreamResult = withContext(Dispatchers.IO) {
         val plugin: Any = when (val s = pluginState.value) {
             is PluginState.Ready -> s.plugin
