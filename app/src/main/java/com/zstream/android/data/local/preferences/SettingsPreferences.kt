@@ -60,9 +60,6 @@ class SettingsPreferences @Inject constructor(
     private val KEY_ENABLE_NUMBER_KEY_SEEKING = booleanPreferencesKey("enable_number_key_seeking")
     private val KEY_ENABLE_HOLD_TO_BOOST = booleanPreferencesKey("enable_hold_to_boost")
     private val KEY_VIDEO_BRIGHTNESS = intPreferencesKey("video_brightness")
-    private val KEY_VIDEO_CONTRAST = intPreferencesKey("video_contrast")
-    private val KEY_VIDEO_SATURATION = intPreferencesKey("video_saturation")
-    private val KEY_VIDEO_HUE_ROTATE = intPreferencesKey("video_hue_rotate")
     private val KEY_VOLUME_BOOST = intPreferencesKey("volume_boost")
     private val KEY_VIDEO_SCALE_MODE = stringPreferencesKey("video_scale_mode")
     private val KEY_TV_PIP_POSITION = stringPreferencesKey("tv_pip_position")
@@ -152,9 +149,6 @@ class SettingsPreferences @Inject constructor(
             enableNumberKeySeeking = prefs[KEY_ENABLE_NUMBER_KEY_SEEKING] ?: false,
             enableHoldToBoost = prefs[KEY_ENABLE_HOLD_TO_BOOST] ?: false,
             videoBrightness = prefs[KEY_VIDEO_BRIGHTNESS] ?: 100,
-            videoContrast = prefs[KEY_VIDEO_CONTRAST] ?: 100,
-            videoSaturation = prefs[KEY_VIDEO_SATURATION] ?: 100,
-            videoHueRotate = prefs[KEY_VIDEO_HUE_ROTATE] ?: 0,
             volumeBoost = prefs[KEY_VOLUME_BOOST] ?: 100,
             videoScaleMode = prefs[KEY_VIDEO_SCALE_MODE] ?: "fit",
             tvPipPosition = prefs[KEY_TV_PIP_POSITION] ?: "bottom_end",
@@ -236,9 +230,6 @@ class SettingsPreferences @Inject constructor(
             prefs[KEY_ENABLE_NUMBER_KEY_SEEKING] = entity.enableNumberKeySeeking
             prefs[KEY_ENABLE_HOLD_TO_BOOST] = entity.enableHoldToBoost
             prefs[KEY_VIDEO_BRIGHTNESS] = entity.videoBrightness
-            prefs[KEY_VIDEO_CONTRAST] = entity.videoContrast
-            prefs[KEY_VIDEO_SATURATION] = entity.videoSaturation
-            prefs[KEY_VIDEO_HUE_ROTATE] = entity.videoHueRotate
             prefs[KEY_VOLUME_BOOST] = entity.volumeBoost
             prefs[KEY_VIDEO_SCALE_MODE] = entity.videoScaleMode
             prefs[KEY_TV_PIP_POSITION] = entity.tvPipPosition
@@ -322,9 +313,6 @@ class SettingsPreferences @Inject constructor(
             val currentFebboxKeys = decodeFebboxKeys(current[KEY_FEBBOX_KEYS])
             val currentSubtitlesEnabled = current[KEY_SUBTITLES_ENABLED] ?: false
             val currentVideoBrightness = current[KEY_VIDEO_BRIGHTNESS] ?: 100
-            val currentVideoContrast = current[KEY_VIDEO_CONTRAST] ?: 100
-            val currentVideoSaturation = current[KEY_VIDEO_SATURATION] ?: 100
-            val currentVideoHueRotate = current[KEY_VIDEO_HUE_ROTATE] ?: 0
             val currentVolumeBoost = current[KEY_VOLUME_BOOST] ?: 100
             val currentVideoScaleMode = current[KEY_VIDEO_SCALE_MODE] ?: "fit"
             val currentTvPipPosition = current[KEY_TV_PIP_POSITION] ?: "bottom_end"
@@ -367,9 +355,6 @@ class SettingsPreferences @Inject constructor(
                 enableNumberKeySeeking = remote.enableNumberKeySeeking ?: false,
                 enableHoldToBoost = remote.enableHoldToBoost ?: false,
                 videoBrightness = currentVideoBrightness,
-                videoContrast = currentVideoContrast,
-                videoSaturation = currentVideoSaturation,
-                videoHueRotate = currentVideoHueRotate,
                 volumeBoost = currentVolumeBoost,
                 videoScaleMode = currentVideoScaleMode,
                 tvPipPosition = currentTvPipPosition,
@@ -576,24 +561,6 @@ class SettingsPreferences @Inject constructor(
     suspend fun setVideoBrightness(value: Int) {
         context.settingsStore.edit { prefs ->
             prefs[KEY_VIDEO_BRIGHTNESS] = value
-        }
-    }
-
-    suspend fun setVideoContrast(value: Int) {
-        context.settingsStore.edit { prefs ->
-            prefs[KEY_VIDEO_CONTRAST] = value
-        }
-    }
-
-    suspend fun setVideoSaturation(value: Int) {
-        context.settingsStore.edit { prefs ->
-            prefs[KEY_VIDEO_SATURATION] = value
-        }
-    }
-
-    suspend fun setVideoHueRotate(value: Int) {
-        context.settingsStore.edit { prefs ->
-            prefs[KEY_VIDEO_HUE_ROTATE] = value
         }
     }
 
