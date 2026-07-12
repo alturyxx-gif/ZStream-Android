@@ -343,7 +343,7 @@ class PluginManager @Inject constructor(
             is PluginState.UpdateAvailable -> s.plugin
             else -> return@withContext StreamResult.Error("Plugin not ready")
         }
-        Log.d(TAG, "resolve() sourceId=$sourceId media=$media")
+        Log.d(TAG, "resolve() sourceId=$sourceId tmdbId=${media.tmdbId} type=${media.type}")
         try {
             resolveReflective(plugin, media, sourceId).also {
                 Log.d(TAG, "resolve() sourceId=$sourceId -> ${it::class.simpleName}")
@@ -383,7 +383,7 @@ class PluginManager @Inject constructor(
             } ?: return StreamResult.Error("Plugin has no resolveJson() — incompatible plugin build")
 
             val mediaJson = media.toJson()
-            Log.d(TAG, "resolveJson() request sourceId=$sourceId mediaJson=$mediaJson")
+            Log.d(TAG, "resolveJson() request sourceId=$sourceId")
             suspendCoroutineUninterceptedOrReturn<StreamResult> { continuation ->
                 val jsonContinuation = object : Continuation<String> {
                     override val context = continuation.context

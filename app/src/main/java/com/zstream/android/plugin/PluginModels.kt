@@ -23,6 +23,10 @@ data class MediaRequest(
     val season: Int? = null,
     val episode: Int? = null,
     val preferredVariantId: String? = null,
+    val title: String = "",
+    val year: Int? = null,
+    val febboxKey: String? = null,
+    val artemisVipKey: String? = null,
 ) {
     enum class Type { MOVIE, SHOW }
 }

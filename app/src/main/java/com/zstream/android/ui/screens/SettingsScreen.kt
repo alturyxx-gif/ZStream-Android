@@ -833,6 +833,69 @@ private fun SettingsCard(theme: ZStreamTheme, content: @Composable ColumnScope.(
 }
 
 @Composable
+private fun ArtemisVipKeySection(
+    vm: SettingsViewModel,
+    settings: SettingsEntity,
+    theme: ZStreamTheme,
+    isTv: Boolean,
+) {
+    SectionLabel("Artemis VIP", theme)
+    SettingsCard(theme) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+            Text("API Key", color = theme.colors.type.text, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "Enter the API key supplied with your Artemis VIP subscription.",
+                color = theme.colors.type.dimmed,
+                fontSize = 11.sp,
+                lineHeight = 16.sp,
+            )
+            Spacer(Modifier.height(10.dp))
+            var visible by remember { mutableStateOf(false) }
+            val value = settings.artemisVipKey.orEmpty()
+            val transformation = if (visible) VisualTransformation.None else PasswordVisualTransformation()
+            if (isTv) {
+                TvTextField(
+                    value = value,
+                    onValueChange = { vm.setArtemisVipKey(it.ifBlank { null }) },
+                    placeholder = "Artemis VIP API key",
+                    visualTransformation = transformation,
+                    theme = theme,
+                )
+            } else {
+                BasicTextField(
+                    value = value,
+                    onValueChange = { vm.setArtemisVipKey(it.ifBlank { null }) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(theme.colors.background.secondary)
+                        .border(1.dp, theme.colors.type.divider.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    textStyle = TextStyle(color = theme.colors.type.text, fontSize = 12.sp),
+                    visualTransformation = transformation,
+                    singleLine = true,
+                    decorationBox = { field ->
+                        Box {
+                            if (value.isEmpty()) Text("Artemis VIP API key", color = theme.colors.type.dimmed, fontSize = 12.sp)
+                            field()
+                        }
+                    },
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                TextButton(onClick = { visible = !visible }) {
+                    Text(if (visible) "Hide" else "Show", color = theme.colors.global.accentA, fontSize = 11.sp)
+                }
+                TextButton(onClick = { vm.setArtemisVipKey(null) }, enabled = value.isNotEmpty()) {
+                    Text("Clear", color = if (value.isNotEmpty()) theme.colors.buttons.danger else theme.colors.type.dimmed, fontSize = 11.sp)
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun PluginVersionSection(vm: SettingsViewModel, theme: ZStreamTheme, isTv: Boolean) {
     val pluginState by vm.pluginState.collectAsStateWithLifecycle()
     val updateMessage by vm.pluginUpdateMessage.collectAsStateWithLifecycle()
@@ -3338,7 +3401,7 @@ private fun ConnectionsSection(
                     Column(Modifier
                         .weight(1f)
                         .padding(end = 12.dp)) {
-                        Text("Aurora API (4K) (unimplemented)", color = theme.colors.type.text, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        Text("Aurora API (4K)", color = theme.colors.type.text, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                         Spacer(Modifier.height(4.dp))
                         Text(
                             "Bring your own FREE Febbox account to unlock Aurora API — the best sources with 4K quality, Dolby Atmos, and the fastest load times.",
@@ -3477,6 +3540,9 @@ private fun ConnectionsSection(
                     }
                 }
             }
+
+            Spacer(Modifier.height(16.dp))
+            ArtemisVipKeySection(vm, settings, theme, isTv = true)
 
             Spacer(Modifier.height(16.dp))
             SectionLabel("External Services", theme)
@@ -3803,7 +3869,7 @@ private fun ConnectionsSection(
                     Column(Modifier
                         .weight(1f)
                         .padding(end = 12.dp)) {
-                        Text("Aurora API (4K) (unimplemented)", color = theme.colors.type.text, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        Text("Aurora API (4K)", color = theme.colors.type.text, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                         Spacer(Modifier.height(4.dp))
                         Text(
                             "Bring your own FREE Febbox account to unlock Aurora API — the best sources with 4K quality, Dolby Atmos, and the fastest load times.",
@@ -3918,6 +3984,9 @@ private fun ConnectionsSection(
                     }
                 }
             }
+
+            Spacer(Modifier.height(16.dp))
+            ArtemisVipKeySection(vm, settings, theme, isTv = false)
 
             Spacer(Modifier.height(16.dp))
             SectionLabel("Integrations", theme)

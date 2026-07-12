@@ -593,13 +593,20 @@ class PlayerViewModel @OptIn(UnstableApi::class)
         viewModelScope.launch { sourceOrderStore.saveOrder(newOrder) }
     }
 
-    private fun buildPluginMediaRequest(preferredVariantId: String? = null) = PluginMediaRequest(
-        type = if (mediaType == "tv") PluginMediaRequest.Type.SHOW else PluginMediaRequest.Type.MOVIE,
-        tmdbId = id.toString(),
-        season = season,
-        episode = episode,
-        preferredVariantId = preferredVariantId,
-    )
+    private suspend fun buildPluginMediaRequest(preferredVariantId: String? = null): PluginMediaRequest {
+        val current = settingsPrefs.settings.first()
+        return PluginMediaRequest(
+            type = if (mediaType == "tv") PluginMediaRequest.Type.SHOW else PluginMediaRequest.Type.MOVIE,
+            tmdbId = id.toString(),
+            season = season,
+            episode = episode,
+            preferredVariantId = preferredVariantId,
+            title = title,
+            year = year.takeIf { it > 0 },
+            febboxKey = current.febboxKey,
+            artemisVipKey = current.artemisVipKey,
+        )
+    }
 
     fun loadSkipSegments(durationMs: Long) {
         val cacheKey = buildSkipSegmentsCacheKey() ?: return
@@ -687,7 +694,11 @@ class PlayerViewModel @OptIn(UnstableApi::class)
             runCatching {
                 val settingsValue = settingsPrefs.settings.first()
                 val pluginSources = pluginManager.availableSources()
-                val displaySources = sourceOrderStore.getOrderedSources(pluginSources)
+                val displaySources = sourceOrderStore.getOrderedSources(
+                    pluginSources,
+                    hasArtemisVipKey = !settingsValue.artemisVipKey.isNullOrBlank(),
+                    hasAuroraKey = !settingsValue.febboxKey.isNullOrBlank(),
+                )
                 cachedDisplaySources = displaySources
 
                 if (selectedSourceId == null && settingsValue.manualSourceSelection && !automaticRecovery) {
@@ -698,10 +709,17 @@ class PlayerViewModel @OptIn(UnstableApi::class)
                     return@runCatching
                 }
 
+                val automaticSources = displaySources.filter { source ->
+                    when (source.id) {
+                        "artemis" -> !settingsValue.artemisVipKey.isNullOrBlank()
+                        "aurora" -> !settingsValue.febboxKey.isNullOrBlank()
+                        else -> true
+                    }
+                }
                 val orderedSources = if (selectedSourceId != null) {
                     displaySources.filter { it.id == selectedSourceId }
                 } else {
-                    var ordered = displaySources
+                    var ordered = automaticSources
                     // Boost last successful source to front if setting enabled
                     if (settingsValue.enableLastSuccessfulSource) {
                         val lastId = settingsValue.lastSuccessfulSource
@@ -729,7 +747,8 @@ class PlayerViewModel @OptIn(UnstableApi::class)
                     return@runCatching
                 }
 
-                val initialSources = displaySources.map { SourceResult(it.id, SourceStatus.IDLE) }
+                val initialSources = (if (selectedSourceId == null) automaticSources else displaySources)
+                    .map { SourceResult(it.id, SourceStatus.IDLE) }
                 sources.clear()
                 sources.addAll(initialSources)
                 _state.value = PlayerState.Scraping(sources.toList())

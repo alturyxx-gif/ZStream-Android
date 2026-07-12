@@ -85,6 +85,7 @@ class SettingsPreferences @Inject constructor(
     // External Services
     private val KEY_PROXY_URLS = stringPreferencesKey("proxy_urls")
     private val KEY_FEBBOX_KEY = stringPreferencesKey("febbox_key")
+    private val KEY_ARTEMIS_VIP_KEY = stringPreferencesKey("artemis_vip_key")
     private val KEY_DEBRID_TOKEN = stringPreferencesKey("debrid_token")
     private val KEY_DEBRID_SERVICE = stringPreferencesKey("debrid_service")
     private val KEY_TIDB_KEY = stringPreferencesKey("tidb_key")
@@ -169,6 +170,7 @@ class SettingsPreferences @Inject constructor(
             enableSourceOrder = prefs[KEY_ENABLE_SOURCE_ORDER] ?: false,
             proxyUrls = prefs[KEY_PROXY_URLS]?.split(",")?.filter { it.isNotBlank() } ?: emptyList(),
             febboxKey = prefs[KEY_FEBBOX_KEY],
+            artemisVipKey = prefs[KEY_ARTEMIS_VIP_KEY],
             debridToken = prefs[KEY_DEBRID_TOKEN],
             debridService = prefs[KEY_DEBRID_SERVICE] ?: "realdebrid",
             tidbKey = prefs[KEY_TIDB_KEY],
@@ -255,6 +257,7 @@ class SettingsPreferences @Inject constructor(
             prefs[KEY_ENABLE_SOURCE_ORDER] = entity.enableSourceOrder
             prefs[KEY_PROXY_URLS] = entity.proxyUrls.joinToString(",")
             if (entity.febboxKey != null) prefs[KEY_FEBBOX_KEY] = entity.febboxKey else prefs.remove(KEY_FEBBOX_KEY)
+            if (entity.artemisVipKey != null) prefs[KEY_ARTEMIS_VIP_KEY] = entity.artemisVipKey else prefs.remove(KEY_ARTEMIS_VIP_KEY)
             if (entity.debridToken != null) prefs[KEY_DEBRID_TOKEN] = entity.debridToken else prefs.remove(KEY_DEBRID_TOKEN)
             prefs[KEY_DEBRID_SERVICE] = entity.debridService
             if (entity.tidbKey != null) prefs[KEY_TIDB_KEY] = entity.tidbKey else prefs.remove(KEY_TIDB_KEY)
@@ -378,6 +381,7 @@ class SettingsPreferences @Inject constructor(
                 enableSourceOrder = remote.enableSourceOrder ?: false,
                 proxyUrls = remote.proxyUrls ?: emptyList(),
                 febboxKey = remote.febboxKey,
+                artemisVipKey = current[KEY_ARTEMIS_VIP_KEY],
                 debridToken = remote.debridToken,
                 debridService = remote.debridService ?: "realdebrid",
                 tidbKey = remote.tidbKey,

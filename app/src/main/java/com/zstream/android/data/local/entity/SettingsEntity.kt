@@ -70,6 +70,8 @@ data class SettingsEntity(
     // External Services
     val proxyUrls: List<String> = emptyList(),
     val febboxKey: String? = null,
+    // Local-only API credential; the current backend settings schema does not expose it.
+    val artemisVipKey: String? = null,
     val debridToken: String? = null,
     val debridService: String = "realdebrid",
     val tidbKey: String? = null,
