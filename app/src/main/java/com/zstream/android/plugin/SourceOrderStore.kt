@@ -20,9 +20,20 @@ class SourceOrderStore @Inject constructor(
     @PluginDataStore private val dataStore: DataStore<Preferences>,
 ) {
 
-    suspend fun getOrderedSources(pluginSources: List<SourceInfo>): List<SourceInfo> {
+    suspend fun getOrderedSources(
+        pluginSources: List<SourceInfo>,
+        hasArtemisVipKey: Boolean = false,
+        hasAuroraKey: Boolean = false,
+    ): List<SourceInfo> {
         val stored = readStoredOrder(KEY_SOURCE_ORDER)
-        if (stored.isEmpty()) return mergeOrder(DEFAULT_SOURCE_ORDER_IDS, pluginSources)
+        if (stored.isEmpty()) {
+            val preferred = when {
+                hasArtemisVipKey -> listOf("artemis") + DEFAULT_SOURCE_ORDER_IDS + "aurora"
+                hasAuroraKey -> listOf("aurora") + DEFAULT_SOURCE_ORDER_IDS + "artemis"
+                else -> DEFAULT_SOURCE_ORDER_IDS + listOf("artemis", "aurora")
+            }
+            return mergeOrder(preferred, pluginSources)
+        }
         return mergeOrder(stored, pluginSources)
     }
 

@@ -17,7 +17,9 @@ import com.zstream.android.plugin.MediaRequest as PluginMediaRequest
 import com.zstream.android.plugin.StreamResult
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
@@ -67,6 +69,7 @@ data class ResolvedSourceCandidate(
 data class PlaybackFailure(
     val message: String,
     val details: String,
+    val title: String = "Source error",
 )
 
 private fun playbackFailureDetails(message: String): String = Throwable(message).stackTraceToString()
@@ -259,6 +262,7 @@ class PlayerViewModel @OptIn(UnstableApi::class)
     private val pluginManager: PluginManager,
     private val sourceOrderStore: SourceOrderStore,
     private val settingsPrefs: SettingsPreferences,
+    private val auroraKeyManager: com.zstream.android.data.AuroraKeyManager,
     private val bookmarkRepo: BookmarkRepository,
     private val traktRepository: com.zstream.android.data.TraktRepository,
     private val tmdbRepo: TmdbRepository,
@@ -387,6 +391,14 @@ class PlayerViewModel @OptIn(UnstableApi::class)
     private val _recoveryNotice = MutableSharedFlow<String>(extraBufferCapacity = 1)
     val recoveryNotice = _recoveryNotice.asSharedFlow()
     private var awaitingRecoveryPlayback = false
+    private val _bandwidthNotice = MutableSharedFlow<String>(extraBufferCapacity = 1)
+    val bandwidthNotice = _bandwidthNotice.asSharedFlow()
+    private val _bandwidthAlert = MutableStateFlow<String?>(null)
+    val bandwidthAlert: StateFlow<String?> = _bandwidthAlert.asStateFlow()
+    private var bandwidthWatchJob: Job? = null
+    private var bandwidthWatchKey: String? = null
+    private val notifiedBandwidthThresholds = mutableSetOf<Int>()
+    private var exhaustionHandledForKey: String? = null
     private val localStateOwner = UUID.randomUUID().toString()
     private var lastPlaybackPosition = 0L
     private var lastPlaybackDuration = 0L
@@ -411,6 +423,95 @@ class PlayerViewModel @OptIn(UnstableApi::class)
         } else if (mediaType == "movie") {
             loadMovieDetail()
         }
+        viewModelScope.launch {
+            state.collect { s ->
+                if ((s as? PlayerState.Ready)?.sourceId == "aurora") startBandwidthWatch() else stopBandwidthWatch()
+            }
+        }
+    }
+
+    /**
+     * Aurora/Febbox throttles rather than hard-fails once a key's daily bandwidth runs out so
+     * there's no playback error to react to. Instead, poll the active key's quota periodically
+     * while playing from Aurora and surface a heads-up before it degrades into buffering, at
+     * 50/25/10% remaining. Only runs while the current source is aurora, so idle/other-source
+     * playback never pings this endpoint.
+     */
+    private fun startBandwidthWatch() {
+        if (bandwidthWatchJob?.isActive == true) return
+        bandwidthWatchJob = viewModelScope.launch {
+            // Check once right away — if the key is already low (e.g. used up elsewhere before
+            // this session started), we shouldn't wait 5 minutes to say so — then every 5 min.
+            while (true) {
+                val current = _state.value as? PlayerState.Ready ?: break
+                if (current.sourceId != "aurora") break
+                val key = settingsPrefs.settings.first().febboxKey?.takeIf(String::isNotBlank) ?: break
+                if (key != bandwidthWatchKey) {
+                    bandwidthWatchKey = key
+                    notifiedBandwidthThresholds.clear()
+                    exhaustionHandledForKey = null
+                    _bandwidthAlert.value = null
+                }
+                val info = auroraKeyManager.checkKey(key)
+                val percent = info.percentRemaining
+                if (percent != null) {
+                    if (info.exhausted) {
+                        if (exhaustionHandledForKey != key) {
+                            exhaustionHandledForKey = key
+                            handleKeyExhausted(key)
+                        }
+                    } else {
+                        // Claim every threshold this check crosses at once, not just the first —
+                        // otherwise a key that's already at e.g. 9% trickles out one notice per
+                        // poll (50%, then 25%, then 10%, each 5 min apart) instead of a single one.
+                        val crossed = listOf(50, 25, 10).filter { percent <= it && it !in notifiedBandwidthThresholds }
+                        if (crossed.isNotEmpty()) {
+                            notifiedBandwidthThresholds += crossed
+                            _bandwidthNotice.emit("Aurora key: $percent% bandwidth left today")
+                        }
+                    }
+                }
+                delay(5 * 60_000L)
+            }
+        }
+    }
+
+    /**
+     * Called once per key the first time it's seen fully exhausted. If another key with
+     * bandwidth exists, shows a persistent (non-auto-dismissing) countdown and force-switches
+     * onto it after 15s — a deliberate brief rebuffer/source-switch instead of staying on a
+     * throttled key indefinitely. If no other key is available, shows an explanation for 10s
+     * instead (nothing to switch to, so no countdown — just a heads-up that clears itself).
+     */
+    private suspend fun handleKeyExhausted(exhaustedKey: String) {
+        val settingsNow = settingsPrefs.settings.first()
+        val freshKey = auroraKeyManager.findFreshKey(settingsNow.febboxKeys, excluding = exhaustedKey)
+        if (freshKey == null) {
+            _bandwidthAlert.value = "No more Aurora keys available to switch to. Either switch to " +
+                "another source, or this source will start buffering or lower quality."
+            delay(10_000)
+            if (_bandwidthAlert.value != null) _bandwidthAlert.value = null
+            return
+        }
+        for (secondsLeft in 15 downTo 1) {
+            val current = _state.value as? PlayerState.Ready ?: return
+            if (current.sourceId != "aurora") {
+                _bandwidthAlert.value = null
+                return
+            }
+            _bandwidthAlert.value = "Switching to a different Aurora key in ${secondsLeft}s…"
+            delay(1000)
+        }
+        _bandwidthAlert.value = null
+        settingsPrefs.updateSettings(settingsNow.copy(febboxKey = freshKey), syncToRemote = false)
+        _recoveryNotice.emit("Auto retrying")
+        loadInternal(automaticRecovery = true, prioritizedSourceId = "aurora")
+    }
+
+    private fun stopBandwidthWatch() {
+        bandwidthWatchJob?.cancel()
+        bandwidthWatchJob = null
+        _bandwidthAlert.value = null
     }
 
     private fun checkLocalPlayback() {
@@ -587,19 +688,30 @@ class PlayerViewModel @OptIn(UnstableApi::class)
         traktRepository.stopPlayback(mediaType, tmdbId, season, episode, lastPlaybackPosition, lastPlaybackDuration)
         super.onCleared()
         watchPartyManager.clearLocalState(localStateOwner)
+        stopBandwidthWatch()
     }
 
     fun reorderSources(newOrder: List<String>) {
         viewModelScope.launch { sourceOrderStore.saveOrder(newOrder) }
     }
 
-    private fun buildPluginMediaRequest(preferredVariantId: String? = null) = PluginMediaRequest(
-        type = if (mediaType == "tv") PluginMediaRequest.Type.SHOW else PluginMediaRequest.Type.MOVIE,
-        tmdbId = id.toString(),
-        season = season,
-        episode = episode,
-        preferredVariantId = preferredVariantId,
-    )
+    private suspend fun buildPluginMediaRequest(preferredVariantId: String? = null): PluginMediaRequest {
+        // Rotate off an exhausted/invalid Aurora key before scraping, so a fresh key with
+        // bandwidth left is used automatically instead of failing the whole source.
+        auroraKeyManager.ensureActiveKey()
+        val current = settingsPrefs.settings.first()
+        return PluginMediaRequest(
+            type = if (mediaType == "tv") PluginMediaRequest.Type.SHOW else PluginMediaRequest.Type.MOVIE,
+            tmdbId = id.toString(),
+            season = season,
+            episode = episode,
+            preferredVariantId = preferredVariantId,
+            title = title,
+            year = year.takeIf { it > 0 },
+            febboxKey = current.febboxKey,
+            artemisVipKey = current.artemisVipKey,
+        )
+    }
 
     fun loadSkipSegments(durationMs: Long) {
         val cacheKey = buildSkipSegmentsCacheKey() ?: return
@@ -678,6 +790,12 @@ class PlayerViewModel @OptIn(UnstableApi::class)
         automaticRecovery: Boolean = false,
         deprioritizedSourceId: String? = null,
         preferredVariantId: String? = null,
+        // One-off override: boost this source to the very front of the try order for just this
+        // resolve, regardless of the user's saved source order/last-successful-source/dedupe
+        // logic below. Used by the Aurora bandwidth-switch countdown so the fresh key gets
+        // tried first even if Aurora isn't the user's preferred source — still falls back to
+        // the rest of the order if it fails, unlike selectedSourceId which excludes everything else.
+        prioritizedSourceId: String? = null,
     ) {
         sources.clear()
         failedVariantUrls.clear()
@@ -687,7 +805,11 @@ class PlayerViewModel @OptIn(UnstableApi::class)
             runCatching {
                 val settingsValue = settingsPrefs.settings.first()
                 val pluginSources = pluginManager.availableSources()
-                val displaySources = sourceOrderStore.getOrderedSources(pluginSources)
+                val displaySources = sourceOrderStore.getOrderedSources(
+                    pluginSources,
+                    hasArtemisVipKey = !settingsValue.artemisVipKey.isNullOrBlank(),
+                    hasAuroraKey = !settingsValue.febboxKey.isNullOrBlank(),
+                )
                 cachedDisplaySources = displaySources
 
                 if (selectedSourceId == null && settingsValue.manualSourceSelection && !automaticRecovery) {
@@ -698,10 +820,17 @@ class PlayerViewModel @OptIn(UnstableApi::class)
                     return@runCatching
                 }
 
+                val automaticSources = displaySources.filter { source ->
+                    when (source.id) {
+                        "artemis" -> !settingsValue.artemisVipKey.isNullOrBlank()
+                        "aurora" -> !settingsValue.febboxKey.isNullOrBlank()
+                        else -> true
+                    }
+                }
                 val orderedSources = if (selectedSourceId != null) {
                     displaySources.filter { it.id == selectedSourceId }
                 } else {
-                    var ordered = displaySources
+                    var ordered = automaticSources
                     // Boost last successful source to front if setting enabled
                     if (settingsValue.enableLastSuccessfulSource) {
                         val lastId = settingsValue.lastSuccessfulSource
@@ -716,6 +845,11 @@ class PlayerViewModel @OptIn(UnstableApi::class)
                         ordered = ordered.filter { it.id !in deprioritizedIds } +
                             ordered.filter { it.id in deprioritizedIds }
                     }
+                    if (prioritizedSourceId != null) {
+                        val boosted = ordered.filter { it.id == prioritizedSourceId }
+                        val rest = ordered.filter { it.id != prioritizedSourceId }
+                        ordered = boosted + rest
+                    }
                     ordered
                 }
 
@@ -729,7 +863,8 @@ class PlayerViewModel @OptIn(UnstableApi::class)
                     return@runCatching
                 }
 
-                val initialSources = displaySources.map { SourceResult(it.id, SourceStatus.IDLE) }
+                val initialSources = (if (selectedSourceId == null) automaticSources else displaySources)
+                    .map { SourceResult(it.id, SourceStatus.IDLE) }
                 sources.clear()
                 sources.addAll(initialSources)
                 _state.value = PlayerState.Scraping(sources.toList())
@@ -1075,6 +1210,7 @@ class PlayerViewModel @OptIn(UnstableApi::class)
     }
 
     fun onPlaybackError(
+        title: String = "Playback error",
         message: String,
         errorCode: Int = 0,
         httpStatus: Int = 0,
@@ -1087,6 +1223,7 @@ class PlayerViewModel @OptIn(UnstableApi::class)
                     playbackFailure = PlaybackFailure(
                         message = "Playback failed: $message",
                         details = details,
+                        title = title,
                     )
                 )
                 return@launch
@@ -1127,16 +1264,19 @@ class PlayerViewModel @OptIn(UnstableApi::class)
 
             failedVariantUrls += current.streamUrl
 
-            // Mark this variant failed (shows the fail icon beside it in the variant picker) and
-            // toast it — the user picks the next variant themselves.
-            val sourceLabel = current.sourceId.orEmpty().replaceFirstChar { it.uppercase() }
+            // Mark this URL failed and surface the same diagnosis used by the error overlay.
             val variantLabel = current.variants.find { it.streamUrl == current.streamUrl }?.displayLabel()
             Log.w("PlaybackRecovery", "variant failed; sourceId=${current.sourceId} variant=$variantLabel")
             awaitingRecoveryPlayback = false
-            _recoveryNotice.tryEmit(
-                "$sourceLabel${variantLabel?.let { " · $it" }.orEmpty()} source failed! Try another"
+            _recoveryNotice.tryEmit("$title: $message")
+            _state.value = current.copy(
+                failedVariantUrls = failedVariantUrls.toSet(),
+                playbackFailure = PlaybackFailure(
+                    message = message,
+                    details = details,
+                    title = title,
+                ),
             )
-            _state.value = current.copy(failedVariantUrls = failedVariantUrls.toSet())
         }
     }
 

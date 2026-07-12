@@ -8,6 +8,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import okhttp3.OkHttpClient
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.flow.first
 
 @Singleton
 class DownloadResolver @Inject constructor(
@@ -15,12 +16,15 @@ class DownloadResolver @Inject constructor(
     private val sourceOrderStore: SourceOrderStore,
     private val downloadRepository: DownloadRepository,
     private val httpClient: OkHttpClient,
+    private val settingsPreferences: com.zstream.android.data.local.preferences.SettingsPreferences,
+    private val auroraKeyManager: com.zstream.android.data.AuroraKeyManager,
     @ApplicationContext private val appContext: android.content.Context,
 ) {
     suspend fun resolveAndEnqueue(
         mediaType: String,
         tmdbId: String,
         title: String,
+        year: Int? = null,
         posterPath: String?,
         season: Int? = null,
         episode: Int? = null,
@@ -30,11 +34,17 @@ class DownloadResolver @Inject constructor(
         val ordered = sourceOrderStore.getDownloadOrder(pluginSources)
         check(ordered.isNotEmpty()) { "No sources available" }
 
+        auroraKeyManager.ensureActiveKey()
+        val settings = settingsPreferences.settings.first()
         val media = MediaRequest(
             type = if (mediaType == "tv") MediaRequest.Type.SHOW else MediaRequest.Type.MOVIE,
             tmdbId = tmdbId,
             season = season,
             episode = episode,
+            title = title,
+            year = year,
+            febboxKey = settings.febboxKey,
+            artemisVipKey = settings.artemisVipKey,
         )
 
         var success: StreamResult.Success? = null
@@ -86,4 +96,3 @@ class DownloadResolver @Inject constructor(
         downloadId
     }
 }
-

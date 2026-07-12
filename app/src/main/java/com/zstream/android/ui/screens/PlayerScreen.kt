@@ -482,6 +482,19 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
         vm.recoveryNotice.collect { Toast.makeText(context, it, Toast.LENGTH_SHORT).show() }
     }
 
+    val bandwidthNotices = remember { mutableStateListOf<BandwidthNoticeItem>() }
+    LaunchedEffect(vm) {
+        vm.bandwidthNotice.collect { message ->
+            val id = System.currentTimeMillis()
+            bandwidthNotices.add(BandwidthNoticeItem(id, message))
+            launch {
+                delay(5000)
+                bandwidthNotices.removeAll { it.id == id }
+            }
+        }
+    }
+    val bandwidthAlert by vm.bandwidthAlert.collectAsState()
+
     DisposableEffect(Unit) {
         val window = activity?.window
         if (window != null) {
@@ -863,19 +876,20 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                                 val httpStatus = generateSequence(error.cause) { it.cause }
                                     .filterIsInstance<androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException>()
                                     .firstOrNull()?.responseCode ?: 0
-                                val friendlyMessage = when {
-                                    error.errorCode == PlaybackException.ERROR_CODE_DECODING_FAILED ||
-                                    error.message?.contains("EXCEEDS_CAPABILITIES", ignoreCase = true) == true ||
-                                    error.message?.contains("MediaCodec", ignoreCase = true) == true ->
-                                        "This stream format isn't supported by your device"
-                                    else -> error.message ?: error.errorCodeName
-                                }
+                                val presentation = playbackErrorPresentation(
+                                    errorCodeName = error.errorCodeName,
+                                    message = error.message,
+                                    causeMessages = generateSequence(error.cause) { it.cause }.mapNotNull { it.message }.toList(),
+                                    httpStatus = httpStatus,
+                                )
                                 vm.onPlaybackError(
-                                    message = friendlyMessage,
+                                    title = presentation.title,
+                                    message = presentation.message,
                                     errorCode = error.errorCode,
                                     httpStatus = httpStatus,
                                     details = buildPlaybackErrorDetails(
                                         error = error,
+                                        presentation = presentation,
                                         httpStatus = httpStatus,
                                         sourceId = s.sourceId,
                                         title = vm.title,
@@ -2071,6 +2085,79 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
             modifier = Modifier.align(Alignment.CenterStart),
         )
     }
+    BandwidthNoticeOverlay(
+        persistentAlert = bandwidthAlert,
+        notices = bandwidthNotices,
+        theme = theme,
+        modifier = Modifier
+            .align(Alignment.TopEnd)
+            .statusBarsPadding()
+            .padding(top = 32.dp, end = 12.dp),
+    )
+    }
+}
+
+private data class BandwidthNoticeItem(val id: Long, val message: String)
+
+@Composable
+private fun BandwidthNoticeOverlay(
+    persistentAlert: String?,
+    notices: List<BandwidthNoticeItem>,
+    theme: ZStreamTheme,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.End,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        // Persistent — sticks around (with a live countdown, or the no-keys-left explanation)
+        // until the ViewModel clears it; unlike the transient notices below, it never
+        // auto-dismisses on its own.
+        AnimatedVisibility(
+            visible = persistentAlert != null,
+            enter = slideInHorizontally(initialOffsetX = { it }) + fadeIn(),
+            exit = slideOutHorizontally(targetOffsetX = { it }) + fadeOut(),
+        ) {
+            Surface(
+                color = theme.colors.type.danger.copy(alpha = 0.16f),
+                shape = RoundedCornerShape(10.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.type.danger.copy(alpha = 0.35f)),
+            ) {
+                Text(
+                    persistentAlert.orEmpty(),
+                    color = theme.colors.type.text,
+                    fontSize = 12.sp,
+                    modifier = Modifier
+                        .widthIn(max = 260.dp)
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                )
+            }
+        }
+        notices.forEach { notice ->
+            key(notice.id) {
+                var visible by remember { mutableStateOf(false) }
+                LaunchedEffect(notice.id) { visible = true }
+                AnimatedVisibility(
+                    visible = visible,
+                    enter = slideInHorizontally(initialOffsetX = { it }) + fadeIn(),
+                    exit = slideOutHorizontally(targetOffsetX = { it }) + fadeOut(),
+                ) {
+                    Surface(
+                        color = theme.colors.background.secondary.copy(alpha = 0.95f),
+                        shape = RoundedCornerShape(10.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.type.divider.copy(alpha = 0.25f)),
+                    ) {
+                        Text(
+                            notice.message,
+                            color = theme.colors.type.text,
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -6996,7 +7083,7 @@ private fun PlaybackErrorOverlay(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(
-                    text = "Source error",
+                    text = failure?.title ?: "Playback error",
                     color = theme.colors.type.emphasis,
                     fontSize = 24.sp,
                     fontWeight = FontWeight.Bold,
@@ -7105,6 +7192,7 @@ private fun PlaybackErrorOverlay(
 
 private fun buildPlaybackErrorDetails(
     error: PlaybackException,
+    presentation: PlaybackErrorPresentation,
     httpStatus: Int,
     sourceId: String?,
     title: String,
@@ -7127,6 +7215,8 @@ private fun buildPlaybackErrorDetails(
         mediaType = mediaType,
         tmdbId = tmdbId,
         extra = buildString {
+            appendLine("Category: ${presentation.title}")
+            appendLine("User Message: ${presentation.message}")
             appendLine("Error Code: ${error.errorCodeName} (${error.errorCode})")
             if (httpStatus > 0) appendLine("HTTP Status: $httpStatus")
             appendLine()
@@ -7134,6 +7224,45 @@ private fun buildPlaybackErrorDetails(
             appendLine(stack)
         }.trim(),
     )
+}
+
+internal data class PlaybackErrorPresentation(val title: String, val message: String)
+
+internal fun playbackErrorPresentation(
+    errorCodeName: String,
+    message: String?,
+    causeMessages: List<String> = emptyList(),
+    httpStatus: Int = 0,
+): PlaybackErrorPresentation {
+    val diagnostic = (listOfNotNull(message) + causeMessages).joinToString(" ")
+    val isAudio = diagnostic.contains("AudioRenderer", ignoreCase = true) || diagnostic.contains("audio/", ignoreCase = true)
+    return when {
+        diagnostic.contains("EXCEEDS_CAPABILITIES", ignoreCase = true) && isAudio ->
+            PlaybackErrorPresentation("Unsupported audio", "This audio format exceeds your device's playback capabilities.")
+        diagnostic.contains("EXCEEDS_CAPABILITIES", ignoreCase = true) ||
+            errorCodeName == "ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES" ->
+            PlaybackErrorPresentation("Unsupported video", "This video exceeds your device's playback capabilities. Try a lower quality.")
+        errorCodeName.contains("AUDIO_TRACK", ignoreCase = true) ||
+            isAudio ->
+            PlaybackErrorPresentation("Audio playback error", "Your device could not play this audio format.")
+        errorCodeName.contains("DECODER", ignoreCase = true) ||
+            errorCodeName.contains("DECODING", ignoreCase = true) ||
+            diagnostic.contains("MediaCodecVideoRenderer", ignoreCase = true) ->
+            PlaybackErrorPresentation("Video decoder error", "Your device could not decode this video. Try a different quality or source.")
+        errorCodeName == "ERROR_CODE_IO_BAD_HTTP_STATUS" ->
+            PlaybackErrorPresentation("Stream unavailable", if (httpStatus > 0) "The stream server returned HTTP $httpStatus." else "The stream server rejected the request.")
+        errorCodeName.contains("TIMEOUT", ignoreCase = true) ->
+            PlaybackErrorPresentation("Connection timed out", "The stream took too long to respond.")
+        errorCodeName.contains("NETWORK", ignoreCase = true) ->
+            PlaybackErrorPresentation("Connection error", "The stream connection failed. Check your network and try again.")
+        errorCodeName.contains("PARSING", ignoreCase = true) ->
+            PlaybackErrorPresentation("Invalid stream", "The stream manifest or media data could not be read.")
+        errorCodeName.contains("DRM", ignoreCase = true) ->
+            PlaybackErrorPresentation("Protected content error", "This device could not open the stream's content protection.")
+        errorCodeName.startsWith("ERROR_CODE_IO_") ->
+            PlaybackErrorPresentation("Stream error", "The player could not read this stream. Try reloading or use another source.")
+        else -> PlaybackErrorPresentation("Playback error", message ?: errorCodeName)
+    }
 }
 
 private fun buildGenericPlaybackErrorDetails(

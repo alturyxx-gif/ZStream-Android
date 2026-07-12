@@ -489,6 +489,7 @@ class DetailViewModel @Inject constructor(
                     mediaType = "movie",
                     tmdbId = id.toString(),
                     title = current.detail.title,
+                    year = current.detail.releaseDate?.take(4)?.toIntOrNull(),
                     posterPath = current.detail.posterPath,
                 )
             } finally {
@@ -508,6 +509,7 @@ class DetailViewModel @Inject constructor(
                     mediaType = "tv",
                     tmdbId = id.toString(),
                     title = current.detail.name,
+                    year = current.detail.firstAirDate?.take(4)?.toIntOrNull(),
                     posterPath = current.detail.posterPath,
                     season = episode.seasonNumber,
                     episode = episode.episodeNumber,
@@ -535,6 +537,7 @@ class DetailViewModel @Inject constructor(
                         mediaType = "tv",
                         tmdbId = id.toString(),
                         title = current.detail.name,
+                        year = current.detail.firstAirDate?.take(4)?.toIntOrNull(),
                         posterPath = current.detail.posterPath,
                         season = episode.seasonNumber,
                         episode = episode.episodeNumber,
