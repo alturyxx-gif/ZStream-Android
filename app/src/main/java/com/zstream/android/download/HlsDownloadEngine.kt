@@ -23,14 +23,7 @@ import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.SecretKeySpec
 
 private const val TAG = "HlsDownloadEngine"
-// Starting point for AdaptiveConcurrencyController, not a fixed cap -- it ramps up from here
-// toward the per-source MAX below as long as segments keep succeeding, and instantly cuts back on
-// any 429. Empirically probed against nesterov's CDN (see _tmp/nesterov_ratelimit_probe*.js): a
-// clean burst of 19 concurrent segment requests succeeded, 20 got 4/20 rejected with a 429 and an
-// explicit "Retry-After: 10" header (confirmed by measurement -- recovery landed at ~10.5s). Kept
-// deliberately conservative below that ~19-20 ceiling since a real download shares the same per-IP
-// budget with retries, key/init fetches, and (in parallel-download mode) a second concurrent
-// download, none of which the isolated probe had to contend with.
+
 const val DEFAULT_SEGMENT_WORKERS = 6
 const val PARALLEL_MODE_SEGMENT_WORKERS = 5
 const val ADAPTIVE_MAX_WORKERS_SINGLE = 14
@@ -38,12 +31,13 @@ const val ADAPTIVE_MAX_WORKERS_PARALLEL = 10
 private const val ADAPTIVE_MIN_WORKERS = 3
 private const val ADAPTIVE_RAMP_UP_STREAK = 15
 
-/**
- * Concurrency limiter that starts at [startLimit] and adapts toward the CDN's real limit instead
- * of guessing a fixed number: ramps up by +1 after [ADAPTIVE_RAMP_UP_STREAK] consecutive clean
- * segments, and immediately halves on any 429 (loses far faster than it gains, since a burst of
- * 429s costs way more retry/backoff time than a slower ramp-up costs in throughput).
- */
+
+const val MAGNOLIA_SEGMENT_WORKERS = 10
+const val MAGNOLIA_PARALLEL_MODE_SEGMENT_WORKERS = 8
+const val MAGNOLIA_ADAPTIVE_MAX_WORKERS_SINGLE = 24
+const val MAGNOLIA_ADAPTIVE_MAX_WORKERS_PARALLEL = 16
+
+
 private class AdaptiveConcurrencyController(startLimit: Int, private val maxLimit: Int) {
     private val mutex = kotlinx.coroutines.sync.Mutex()
     private var limit = startLimit.coerceIn(ADAPTIVE_MIN_WORKERS, maxLimit)
@@ -100,12 +94,7 @@ data class HlsDownloadProgress(
     val estimatedTotalBytes: Long?,
 )
 
-/**
- * Downloads an HLS video (+ optional separate audio) stream to local segment files, decrypting
- * AES-128 segments as needed, then remuxes them into a single output file via MediaMuxer —
- * no re-encode, no ffmpeg, matching the desktop app's ffmpeg "-c copy" step but using Android's
- * own demux/mux APIs (MediaExtractor to read each segment's samples, MediaMuxer to write them).
- */
+
 class HlsDownloadEngine(private val client: OkHttpClient) {
 
     suspend fun download(
@@ -124,9 +113,6 @@ class HlsDownloadEngine(private val client: OkHttpClient) {
         val videoFetch = fetchAndParseHlsPlaylist(client, videoPlaylistUrl, headers)
         val videoPlaylist = videoFetch.playlist
         check(videoPlaylist.segments.isNotEmpty()) { "Video playlist has no segments" }
-        // A caller-supplied audioPlaylistUrl (resolved when the user picked a quality, from the
-        // master playlist's #EXT-X-MEDIA audio group) takes priority; fall back to whatever
-        // fetchAndParseHlsPlaylist itself discovered in case videoPlaylistUrl was a master too.
         val resolvedAudioUrl = audioPlaylistUrl ?: videoFetch.audioPlaylistUrl
         val audioPlaylist = resolvedAudioUrl?.let { fetchAndParseHlsPlaylist(client, it, headers).playlist }
         Log.i(TAG, "playlists parsed: video segments=${videoPlaylist.segments.size} fmp4=${videoPlaylist.initUri != null} " +
@@ -217,13 +203,7 @@ class HlsDownloadEngine(private val client: OkHttpClient) {
         return out
     }
 
-    /**
-     * [initUrl]/[initFile] are kept separate from [segments] (rather than treated as just another
-     * segment) because a fragmented-MP4 (CMAF) init segment is only a bare ftyp+moov box — it has
-     * no samples of its own, and each subsequent media segment is only a moof+mdat fragment that
-     * MediaExtractor cannot open standalone. The init bytes get prepended to each fragment's bytes
-     * at extraction time instead (see writeTrack/registerTrack).
-     */
+    
     private data class SegmentFileSet(
         val initUrl: String?,
         val initFile: File?,
@@ -261,9 +241,6 @@ class HlsDownloadEngine(private val client: OkHttpClient) {
         val raw = fetchWithRetry(url, headers, onRateLimited = onRateLimited)
         if (raw.isEmpty()) error("Empty segment body: $url")
         val plain = if (key != null) decryptAes128(raw, keyMaterial["${key.uri}|${key.iv}"] ?: error("Missing key for segment"), key.iv) else raw
-        // A 0-byte file here would silently satisfy nothing downstream and hang remux's
-        // awaitSegmentReady() forever (it waits for length() > 0, which never becomes true) --
-        // fail loudly instead so this segment retries/fails visibly like any other error.
         if (plain.isEmpty()) error("Segment decrypted to 0 bytes: $url")
         val part = File(dest.parentFile, dest.name + ".part")
         part.writeBytes(plain)
@@ -273,13 +250,7 @@ class HlsDownloadEngine(private val client: OkHttpClient) {
 
     private class RateLimited(val retryAfterMs: Long?) : Exception()
 
-    /**
-     * Segment CDNs commonly rate-limit (HTTP 429) under our parallel-worker load. 429s get their
-     * own much more patient retry budget than genuine errors (5xx/network) — honoring the
-     * upstream's own Retry-After header when it sends one, falling back to capped exponential
-     * backoff otherwise — instead of giving up on the whole download the first time a segment
-     * gets throttled.
-     */
+  
     private suspend fun fetchWithRetry(
         url: String,
         headers: Map<String, String>,
@@ -364,11 +335,7 @@ class HlsDownloadEngine(private val client: OkHttpClient) {
         }
     }
 
-    /**
-     * Demuxes each segment file with MediaExtractor and re-writes its samples into a single
-     * MediaMuxer output — the Android-native equivalent of `ffmpeg -c copy`. Presentation
-     * timestamps are offset per track so segments play back-to-back without resetting to zero.
-     */
+   
     private suspend fun remux(
         videoInitFile: File?,
         videoSegments: List<Pair<HlsSegment, File>>,
@@ -457,21 +424,7 @@ class HlsDownloadEngine(private val client: OkHttpClient) {
         }
     }
 
-    /**
-     * Writes every segment file's samples into the muxer, selecting whichever of video/audio
-     * tracks are actually present and registered (a segment file may contain both, one, or —
-     * for a genuinely separate audio-only playlist — just audio).
-     *
-     * Each segment's start position is anchored to the playlist's own declared EXTINF duration
-     * rather than the extractor's decoded max-PTS from the previous segment. Video and audio are
-     * independent HLS renditions here and can have completely different segment counts/boundaries
-     * for the same runtime (e.g. 974 video segments vs 1565 audio segments) — chaining off decoded
-     * timestamps means any small rounding difference between a segment's real duration and what
-     * the extractor reports compounds every segment, and compounds *differently* for video vs
-     * audio since they have different segment counts, so the two tracks drift apart over a long
-     * file even though each individually looks fine. Anchoring to EXTINF keeps both tracks tied to
-     * the same real timeline regardless of how each was segmented.
-     */
+  
     private suspend fun writeSegments(
         muxer: MediaMuxer,
         initBytes: ByteArray?,
@@ -489,10 +442,6 @@ class HlsDownloadEngine(private val client: OkHttpClient) {
         val buffer = java.nio.ByteBuffer.allocate(8 shl 20)
 
         for ((index, entry) in segments.withIndex()) {
-            // awaitSegmentReady() only suspends when it actually has to wait, so a backlog-catchup
-            // phase (segments already downloaded, remux lagging behind) can run this loop with zero
-            // suspension points and be uncancellable -- making a pause/cancel take however long that
-            // backlog takes to drain. ensureActive() adds a cheap cancellation checkpoint every iteration.
             coroutineContext.ensureActive()
             val (segment, file) = entry
             awaitSegmentReady(file)
@@ -510,18 +459,6 @@ class HlsDownloadEngine(private val client: OkHttpClient) {
                 }
                 if (tracks.isEmpty()) return@withExtractor
 
-                // Bump this segment's start forward just enough to clear the previous segment's
-                // true max PTS -- guards only against cross-segment drift (a segment's declared
-                // EXTINF duration can be slightly off from its actual decoded span, so the next
-                // segment's first sample can otherwise land at or before the previous segment's
-                // last one). Deliberately NOT applied per-sample: B-frame content legitimately has
-                // samples whose presentation time dips below a preceding reference frame's within
-                // the same segment (decode order != display order), which MediaMuxer handles
-                // correctly via its own composition-time-offset bookkeeping. An earlier version of
-                // this clamped every sample forward to be > the previous one written, which
-                // destroyed that ordering and collapsed multiple distinct B-frames onto the same
-                // output tick -- playing back as choppy, reduced-frame-rate video since the player
-                // only ever saw one of each group of squashed-together frames.
                 if (sawVideo && offsets.videoTimeOffsetUs <= offsets.videoMaxPtsUs) {
                     offsets.videoTimeOffsetUs = offsets.videoMaxPtsUs + 1
                 }
@@ -551,11 +488,6 @@ class HlsDownloadEngine(private val client: OkHttpClient) {
                         offsets.audioMaxPtsUs = maxOf(offsets.audioMaxPtsUs, safePts)
                     }
 
-                    // Some sources hand MediaExtractor raw ADTS-framed AAC segments that don't get
-                    // their 7/9-byte ADTS header stripped during extraction -- the mp4a/esds track
-                    // this muxer writes requires headerless AAC per sample, so a leftover header
-                    // makes every sample fail to decode on strict (non-permissive) AAC decoders even
-                    // though lenient decoders silently resync past it. Strip it if present.
                     var sampleOffset = 0
                     var effectiveSize = sampleSize
                     if (!isVideo && sampleSize > 7 &&
@@ -579,12 +511,7 @@ class HlsDownloadEngine(private val client: OkHttpClient) {
                     extractor.advance()
                 }
             }
-            // Anchor to this segment's own declared duration rather than the previous segment's
-            // decoded max-PTS (see class-level doc comment). Advance whichever track type(s) this
-            // particular segment file actually contained — covers both a single muxed stream
-            // (advances both, since one duration spans both tracks for that segment) and separate
-            // video-only/audio-only renditions with independently different segmentation (advances
-            // only the one that applies).
+       
             val durationUs = (segment.duration * 1_000_000).toLong()
             if (sawVideo) offsets.videoTimeOffsetUs += durationUs
             if (sawAudio) offsets.audioTimeOffsetUs += durationUs
