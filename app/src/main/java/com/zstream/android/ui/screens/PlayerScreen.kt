@@ -823,7 +823,8 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                                 DefaultHttpDataSource.Factory()
                                     .setDefaultRequestProperties(headers)
                                     .setConnectTimeoutMs(30_000)
-                                    .setReadTimeoutMs(30_000),
+                                    .setReadTimeoutMs(30_000)
+                                    .setAllowCrossProtocolRedirects(true),
                             )
                         )
                         .setEventListener(object : EventListener {
