@@ -132,6 +132,7 @@ fun DevPlayerScreen(nav: NavController, vm: DevPlayerViewModel = hiltViewModel()
         ready?.let { r ->
             val mimeType = when (r.type.lowercase()) {
                 "hls" -> MimeTypes.APPLICATION_M3U8
+                "mkv" -> MimeTypes.VIDEO_MATROSKA
                 else -> MimeTypes.VIDEO_MP4
             }
             val mediaSourceFactory = DefaultMediaSourceFactory(
@@ -143,6 +144,7 @@ fun DevPlayerScreen(nav: NavController, vm: DevPlayerViewModel = hiltViewModel()
                         .setReadTimeoutMs(30_000),
                 )
             )
+            android.util.Log.i("DevPlayback", "building player url=${r.url} type=${r.type} mimeType=$mimeType headers=${r.headers.keys}")
             ExoPlayer.Builder(context, DefaultRenderersFactory(context).setEnableDecoderFallback(true))
                 .setMediaSourceFactory(mediaSourceFactory)
                 .build()
@@ -151,11 +153,34 @@ fun DevPlayerScreen(nav: NavController, vm: DevPlayerViewModel = hiltViewModel()
                     setMediaItem(mediaItem)
                     addListener(object : Player.Listener {
                         override fun onPlayerError(error: PlaybackException) {
-                            android.util.Log.e("DevPlayback", "${error.errorCodeName}: ${error.message}", error)
+                            android.util.Log.e(
+                                "DevPlayback",
+                                "${error.errorCodeName}: ${error.message} cause=${error.cause?.javaClass?.name}: ${error.cause?.message}",
+                                error,
+                            )
                             playbackError = error.message ?: error.errorCodeName
                         }
                         override fun onPlaybackStateChanged(state: Int) {
+                            val stateName = when (state) {
+                                Player.STATE_IDLE -> "IDLE"
+                                Player.STATE_BUFFERING -> "BUFFERING"
+                                Player.STATE_READY -> "READY"
+                                Player.STATE_ENDED -> "ENDED"
+                                else -> state.toString()
+                            }
+                            android.util.Log.i("DevPlayback", "onPlaybackStateChanged: $stateName")
                             if (state != Player.STATE_IDLE) playbackError = null
+                        }
+                        override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
+                            tracks.groups.forEach { group ->
+                                for (i in 0 until group.length) {
+                                    val fmt = group.getTrackFormat(i)
+                                    android.util.Log.i(
+                                        "DevPlayback",
+                                        "track mime=${fmt.sampleMimeType} codecs=${fmt.codecs} selected=${group.isTrackSelected(i)} supported=${group.isTrackSupported(i)}",
+                                    )
+                                }
+                            }
                         }
                     })
                     playWhenReady = true
