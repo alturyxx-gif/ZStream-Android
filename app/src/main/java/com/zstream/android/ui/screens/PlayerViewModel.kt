@@ -239,6 +239,15 @@ data class PauseMetadata(
 
 data class SubtitleCue(val startMs: Long, val endMs: Long, val text: String)
 
+/** Mirrors p-stream's TranslateTask (stores/player/slices/source.ts) -- tracks one in-flight
+ * "translate this caption to X" request so the UI can show loading/done/error per target language. */
+data class TranslateTask(
+    val sourceTrack: SubtitleTrack,
+    val targetLanguage: String,
+    val done: Boolean = false,
+    val error: Boolean = false,
+)
+
 internal fun vttCueBlocks(body: String): List<String> =
     body.replace(Regex("(\n)(?=\\d{1,2}:\\d{2}(?::\\d{2})?\\.\\d{1,3}\\s*-->)"), "\n\n")
         .split(Regex("\n\\s*\n"))
@@ -314,6 +323,9 @@ class PlayerViewModel @OptIn(UnstableApi::class)
     val selectedSubtitleId = _selectedSubtitleId.asStateFlow()
     private val _subtitleDelay = MutableStateFlow(0f)
     val subtitleDelay = _subtitleDelay.asStateFlow()
+    private val _translateTask = MutableStateFlow<TranslateTask?>(null)
+    val translateTask = _translateTask.asStateFlow()
+    private var translateJob: Job? = null
     private val _overrideCasing = MutableStateFlow(false)
     val overrideCasing = _overrideCasing.asStateFlow()
 
@@ -1589,6 +1601,70 @@ class PlayerViewModel @OptIn(UnstableApi::class)
         }.getOrElse {
             Log.e("PlayerVM", "Failed to resolve autoplay episode target", it)
             null
+        }
+    }
+
+    /** Ports p-stream's translateCaption (stores/player/slices/source.ts): fetches the source
+     * track's cues, translates each cue's text via Google Translate, and exposes the result as a
+     * new selectable, virtual subtitle track appended to the current stream's subtitle list. */
+    fun translateCaption(track: SubtitleTrack, targetLanguage: String) {
+        if (_translateTask.value != null) return
+        translateJob = viewModelScope.launch {
+            _translateTask.value = TranslateTask(track, targetLanguage)
+            try {
+                val cues = cuesFor(track)
+                if (cues.isEmpty()) throw Exception("Fetching failed")
+                val translated = withContext(Dispatchers.IO) {
+                    com.zstream.android.subtitle.SubtitleTranslator(httpClient).translateCues(cues, targetLanguage)
+                }
+
+                val targetLangName = java.util.Locale.forLanguageTag(targetLanguage).getDisplayLanguage(java.util.Locale.getDefault())
+                    .takeIf { it.isNotBlank() } ?: targetLanguage
+                val newTrack = SubtitleTrack(
+                    label = "$targetLangName (translated)",
+                    url = "${track.url}#translated-$targetLanguage",
+                    language = targetLanguage,
+                    type = "srt",
+                    id = "${track.id}-translated-$targetLanguage",
+                    source = "translated",
+                    external = true,
+                )
+                subtitleCache["${newTrack.id}:${newTrack.url}"] = translated
+
+                val ready = _state.value as? PlayerState.Ready
+                if (ready != null && ready.subtitles.none { it.id == newTrack.id }) {
+                    _state.value = ready.copy(subtitles = ready.subtitles + newTrack)
+                }
+
+                settingsPrefs.setSubtitlesEnabled(true)
+                _selectedSubtitleId.value = newTrack.id
+                _selectedSubtitleLang.value = newTrack.language
+                _subtitleCues.value = translated
+
+                _translateTask.value = _translateTask.value?.copy(done = true)
+            } catch (ce: kotlinx.coroutines.CancellationException) {
+                throw ce
+            } catch (e: Exception) {
+                Log.e("PlayerVM", "translateCaption failed: ${e.message}", e)
+                _translateTask.value = _translateTask.value?.copy(error = true)
+            }
+        }
+    }
+
+    fun clearTranslateTask() {
+        translateJob?.cancel()
+        translateJob = null
+        _translateTask.value = null
+    }
+
+    private suspend fun cuesFor(track: SubtitleTrack): List<SubtitleCue> {
+        val cacheKey = "${track.id}:${track.url}"
+        subtitleCache[cacheKey]?.let { return it }
+        return withContext(Dispatchers.IO) {
+            val raw = downloadSubtitleText(track.url)
+            val parsed = parseSubtitleText(raw)
+            subtitleCache[cacheKey] = parsed
+            parsed
         }
     }
 
