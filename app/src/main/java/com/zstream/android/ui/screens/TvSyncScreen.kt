@@ -135,6 +135,8 @@ class TvSyncViewModel @Inject constructor(
             tvName = tvName,
             tmdbApiKey = current.tmdbApiKey.takeIf { selected["tmdb"] == true },
             febboxKey = current.febboxKey.takeIf { selected["febbox"] == true },
+            febboxKeys = current.febboxKeys.takeIf { selected["febbox"] == true },
+            artemisVipKey = current.artemisVipKey.takeIf { selected["artemis"] == true },
             debridToken = current.debridToken.takeIf { selected["debrid"] == true },
             debridService = current.debridService.takeIf { selected["debrid"] == true },
             tidbKey = current.tidbKey.takeIf { selected["tidb"] == true },
@@ -562,6 +564,7 @@ private fun TvSyncSenderScreen(
                 )
             } ?: (false to "No key on this phone")
         available["febbox"] = (!settings.febboxKey.isNullOrBlank()) to if (settings.febboxKey.isNullOrBlank()) "No key on this phone" else "Saved on this phone"
+        available["artemis"] = (!settings.artemisVipKey.isNullOrBlank()) to if (settings.artemisVipKey.isNullOrBlank()) "No key on this phone" else "Saved on this phone"
         available["debrid"] = (!settings.debridToken.isNullOrBlank()) to if (settings.debridToken.isNullOrBlank()) "No token on this phone" else "Saved on this phone"
         available["trakt"] = trakt.connected to if (trakt.connected) "Connected on this phone" else "Not connected on this phone"
         available.forEach { (key, value) ->
@@ -763,6 +766,7 @@ private fun TvSyncSenderScreen(
                     IntegrationRow("TMDB", available["tmdb"], selected["tmdb"] == true) { selected["tmdb"] = it }
                     IntegrationRow("Trakt", available["trakt"], selected["trakt"] == true) { selected["trakt"] = it }
                     IntegrationRow("Febbox", available["febbox"], selected["febbox"] == true) { selected["febbox"] = it }
+                    IntegrationRow("Artemis VIP", available["artemis"], selected["artemis"] == true) { selected["artemis"] = it }
                     IntegrationRow("Debrid", available["debrid"], selected["debrid"] == true) { selected["debrid"] = it }
                     IntegrationRow("TheIntroDB", available["tidb"], selected["tidb"] == true) { selected["tidb"] = it }
                     IntegrationRow("Wyzie", available["wyzie"], selected["wyzie"] == true) { selected["wyzie"] = it }
@@ -895,6 +899,7 @@ private fun TvSyncSenderScreen(
                             "tmdb" to "TMDB API key",
                             "trakt" to "Trakt session",
                             "febbox" to "Febbox key",
+                            "artemis" to "Artemis VIP key",
                             "debrid" to "Debrid token",
                             "tidb" to "TheIntroDB key",
                             "wyzie" to "Wyzie key",
