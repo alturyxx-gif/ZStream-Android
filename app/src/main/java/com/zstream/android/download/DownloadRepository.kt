@@ -85,6 +85,7 @@ data class DownloadProgressInfo(
     val segDone: Int = 0,
     val segTotal: Int = 0,
     val speedBps: Long? = null,
+    val statusMessage: String? = null,
 )
 
 @Singleton
@@ -252,13 +253,19 @@ class DownloadRepository @Inject constructor(
                                 stateMutex.withLock {
                                     if (downloadsComplete) {
                                         val pct = if (remuxTotal > 0) done * 100 / remuxTotal else 0
-                                        latest = latest.copy(status = DownloadStatus.REMUXING, progressPercent = pct, remuxDone = done, remuxTotal = remuxTotal)
+                                        latest = latest.copy(status = DownloadStatus.REMUXING, progressPercent = pct, remuxDone = done, remuxTotal = remuxTotal, statusMessage = null)
                                         update(latest)
                                         onProgress(DownloadProgressInfo(DownloadStatus.REMUXING, pct, null, null))
                                     } else {
                                         latest = latest.copy(remuxDone = done, remuxTotal = remuxTotal)
                                         update(latest)
                                     }
+                                }
+                            },
+                            onStall = { message ->
+                                stateMutex.withLock {
+                                    latest = latest.copy(statusMessage = message)
+                                    update(latest)
                                 }
                             },
                             segmentWorkers = segmentWorkers,

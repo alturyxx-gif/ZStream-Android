@@ -847,7 +847,7 @@ private fun localMediaTitle(media: LocalMediaEntity): String {
 
 private fun statusLabel(entity: DownloadEntity): String = when (entity.status) {
     DownloadStatus.QUEUED -> "Queued"
-    DownloadStatus.DOWNLOADING -> "Downloading ${entity.progressPercent}%"
+    DownloadStatus.DOWNLOADING -> entity.statusMessage?.let { "Stalled at ${entity.progressPercent}%: $it" } ?: "Downloading ${entity.progressPercent}%"
     DownloadStatus.REMUXING -> "Remuxing ${entity.progressPercent}%"
     DownloadStatus.PAUSED -> "Paused at ${entity.progressPercent}%"
     DownloadStatus.DONE -> "Downloaded"
@@ -887,6 +887,7 @@ private fun leftProgressLineFor(entity: DownloadEntity): String {
 }
 
 private fun rightProgressLineFor(entity: DownloadEntity): String {
+    entity.statusMessage?.let { return it }
     val parts = mutableListOf<String>()
     if (entity.segTotal > 0) {
         parts.add("${entity.segDone}/${entity.segTotal} segments")
