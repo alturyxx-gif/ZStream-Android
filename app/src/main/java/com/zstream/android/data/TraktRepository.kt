@@ -70,7 +70,13 @@ class TraktRepository @Inject constructor(
     private val gson = Gson()
     private val http = OkHttpClient()
     private val requestMutex = Mutex()
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    // A stray exception here (expired token, DNS hiccup, non-2xx Trakt response) must never take
+    // down the whole app -- this scope lives for the app's lifetime, outside any UI lifecycle, so
+    // an uncaught exception on it kills the process instead of just failing a screen.
+    private val exceptionHandler = kotlinx.coroutines.CoroutineExceptionHandler { _, error ->
+        android.util.Log.e("TraktRepository", "Unhandled error in background sync", error)
+    }
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO + exceptionHandler)
     private val _state = MutableStateFlow(TraktState())
     val state: StateFlow<TraktState> = _state
     private var lastRequestAt = 0L
@@ -95,9 +101,11 @@ class TraktRepository @Inject constructor(
         }
         scope.launch {
             if (isAuthenticated()) {
-                pullHistory()
-                pullPlaybackProgress()
-                importPlaybackProgressOnce()
+                runCatching {
+                    pullHistory()
+                    pullPlaybackProgress()
+                    importPlaybackProgressOnce()
+                }.onFailure { android.util.Log.w("TraktRepository", "Initial Trakt pull failed", it) }
             }
             while (true) {
                 delay(15 * 60_000L)

@@ -178,11 +178,13 @@ class HomeViewModel @Inject constructor(
     private var searchGeneration = 0
 
     init {
+        com.zstream.android.CrashLog.breadcrumb("HomeVM", "init start")
         load()
         observeUserContent()
         observeDownloaded()
         observeSettings()
         observeConnectivityRecovery()
+        com.zstream.android.CrashLog.breadcrumb("HomeVM", "init done")
     }
 
     val watchPartyRoomCode = watchPartyManager.roomCode

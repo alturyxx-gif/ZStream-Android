@@ -17,8 +17,11 @@ class ZStreamApp : Application(), ImageLoaderFactory {
     override fun onCreate() {
         super.onCreate()
         CrashLog.install(this)
+        CrashLog.breadcrumb("App", "onCreate start")
         traktRepository.start()
+        CrashLog.breadcrumb("App", "traktRepository.start() done")
         releaseUpdateManager.start()
+        CrashLog.breadcrumb("App", "releaseUpdateManager.start() done")
     }
 
     @EntryPoint

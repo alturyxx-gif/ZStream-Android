@@ -17,6 +17,23 @@ private const val TAG = "CrashLog"
 
 object CrashLog {
     private val formatter = SimpleDateFormat("yyyy-MM-dd-HH-mm-ss", Locale.US)
+    private val breadcrumbFormatter = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
+
+    // Ring buffer of recent lifecycle events -- a raw stack trace only tells us where the crash
+    // landed, not what launch stage led up to it (plugin init, account/session load, home data
+    // sync, etc). Bundling this trail into the crash report lets us diagnose "crashes a few
+    // seconds after launch" bugs without needing a live logcat session on the user's device.
+    private val breadcrumbs = ArrayDeque<String>()
+    private const val MAX_BREADCRUMBS = 200
+
+    fun breadcrumb(tag: String, message: String) {
+        val line = "${breadcrumbFormatter.format(Date())} [$tag] $message"
+        Log.d(TAG, line)
+        synchronized(breadcrumbs) {
+            breadcrumbs.addLast(line)
+            while (breadcrumbs.size > MAX_BREADCRUMBS) breadcrumbs.removeFirst()
+        }
+    }
 
     fun install(context: Context) {
         val appContext = context.applicationContext
@@ -38,6 +55,10 @@ object CrashLog {
             appendLine("android=${Build.VERSION.RELEASE} sdk=${Build.VERSION.SDK_INT}")
             appendLine("thread=${thread.name}")
             appendLine()
+            appendLine("-- recent events --")
+            synchronized(breadcrumbs) { breadcrumbs.forEach { appendLine(it) } }
+            appendLine()
+            appendLine("-- stack trace --")
             append(stackTrace(throwable))
         }
 
