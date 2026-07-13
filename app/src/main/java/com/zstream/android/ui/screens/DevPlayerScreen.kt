@@ -141,7 +141,11 @@ fun DevPlayerScreen(nav: NavController, vm: DevPlayerViewModel = hiltViewModel()
                     DefaultHttpDataSource.Factory()
                         .setDefaultRequestProperties(r.headers)
                         .setConnectTimeoutMs(30_000)
-                        .setReadTimeoutMs(30_000),
+                        .setReadTimeoutMs(30_000)
+                        // Many CDN links (pixeldrain, etc) 302 to a different host and/or
+                        // http<->https -- ExoPlayer refuses to follow those by default and
+                        // throws instead, so the test tool needs this on to actually load them.
+                        .setAllowCrossProtocolRedirects(true),
                 )
             )
             android.util.Log.i("DevPlayback", "building player url=${r.url} type=${r.type} mimeType=$mimeType headers=${r.headers.keys}")
