@@ -640,19 +640,17 @@ class HomeViewModel @Inject constructor(
         val kidsMode = _state.value.kidsModeEnabled
         val query = _state.value.searchQuery
 
-        val effectiveGenreId = if (tab == HomeTab.TV && genreId != null) mapMovieGenreToTv(genreId) else genreId
-
-        val typeFiltered = if (query.isNotBlank()) {
-            val targetType = if (tab == HomeTab.MOVIES) "movie" else "tv"
-            raw.filter { it.type == targetType }
-        } else {
+        val filtered = if (query.isNotBlank()) {
+            // Search Mode: Global mixed search (Movies + TV), ignore tabs/genres
             raw
-        }
-
-        val filtered = if (effectiveGenreId == null) {
-            typeFiltered
         } else {
-            typeFiltered.filter { it.genreIds?.contains(effectiveGenreId) == true }
+            // Discover Mode: Strict filtering by Tab and Genre
+            val effectiveGenreId = if (tab == HomeTab.TV && genreId != null) mapMovieGenreToTv(genreId) else genreId
+            if (effectiveGenreId == null) {
+                raw
+            } else {
+                raw.filter { it.genreIds?.contains(effectiveGenreId) == true }
+            }
         }
         _searchResults.value = certRepo.filterForKids(filtered, kidsMode)
     }
@@ -666,7 +664,13 @@ class HomeViewModel @Inject constructor(
         searchJob?.cancel()
         _rawSearchResults.value = emptyList()
         _searchResults.value = emptyList()
-        _state.update { it.copy(canLoadMore = false, isDiscoverMode = q.isBlank() && _state.value.selectedSearchGenreId != null) }
+
+        if (q.isNotBlank()) {
+            // Visual reset of genres when searching
+            _state.update { it.copy(selectedSearchGenreId = null, isDiscoverMode = false, canLoadMore = false) }
+        } else {
+            _state.update { it.copy(canLoadMore = false, isDiscoverMode = _state.value.selectedSearchGenreId != null) }
+        }
 
         if (q.isBlank() && _state.value.selectedSearchGenreId == null) {
             return
@@ -692,7 +696,7 @@ class HomeViewModel @Inject constructor(
                     _rawSearchResults.value = result.items
                     applySearchFiltering()
                 } else {
-                    // Search mode
+                    // Search mode (Global Mixed)
                     val firstResults = repo.search(q, currentSearchPage) { total ->
                         if (searchGeneration == generation) {
                             _state.update { it.copy(canLoadMore = currentSearchPage < total) }
