@@ -65,6 +65,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        CrashLog.breadcrumb("MainActivity", "onCreate start")
         WindowCompat.setDecorFitsSystemWindows(window, false)
         window.statusBarColor = android.graphics.Color.TRANSPARENT
         window.navigationBarColor = android.graphics.Color.TRANSPARENT
@@ -73,6 +74,7 @@ class MainActivity : ComponentActivity() {
         }
         // Kick off plugin load + background update check
         pluginManager.initialize()
+        CrashLog.breadcrumb("MainActivity", "pluginManager.initialize() dispatched")
         handleReleaseUpdateIntent(intent)
         handleOpenDownloadsIntent(intent)
         val uiModeManager = getSystemService(UI_MODE_SERVICE) as UiModeManager
@@ -93,6 +95,10 @@ class MainActivity : ComponentActivity() {
             val showDebugSideloadGate = BuildConfig.DEBUG && !debugGateDismissed &&
                 (pluginState is PluginState.Ready || pluginState is PluginState.UpdateAvailable)
 
+            LaunchedEffect(pluginState::class) {
+                CrashLog.breadcrumb("MainActivity", "pluginState=${pluginState::class.simpleName}")
+            }
+
             ZStreamTheme {
                 when {
                     pluginState is PluginState.NotInstalled ||
@@ -108,6 +114,7 @@ class MainActivity : ComponentActivity() {
                     pluginState is PluginState.Ready ||
                         pluginState is PluginState.UpdateAvailable -> {
                         // Plugin is present — initialize the normal app chrome
+                        CrashLog.breadcrumb("MainActivity", "entering app chrome (plugin ready)")
                         val navController = rememberNavController()
                         val chromeVm: AppChromeViewModel = hiltViewModel()
                         val useMinimalCards by chromeVm.useMinimalCards.collectAsStateWithLifecycle()
