@@ -49,4 +49,7 @@ data class DownloadEntity(
     // that). Non-null = a SAF tree the user picked (see DownloadDestinationBroker) -- filePath/
     // subtitlePaths are still relative paths, but resolved against this tree instead of Downloads.
     val storageTreeUri: String? = null,
+    // Transient, non-fatal: set while a segment is stuck retrying (rate limit/throttle/error)
+    // so the UI can explain a stalled percentage; cleared once forward progress resumes.
+    val statusMessage: String? = null,
 )
