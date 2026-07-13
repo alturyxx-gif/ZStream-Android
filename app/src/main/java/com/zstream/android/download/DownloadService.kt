@@ -152,8 +152,9 @@ class DownloadService : Service() {
             job.cancelAndJoin()
         } else {
             val entity = downloadDao.getById(downloadId) ?: return
-            entity.filePath?.let { runCatching { storage.deleteByDisplayPath(it); storage.deleteEmptyFolder(it) } }
-            entity.subtitlePaths?.forEach { path -> runCatching { storage.deleteByDisplayPath(path) } }
+            val treeUri = entity.storageTreeUri?.let(android.net.Uri::parse)
+            entity.filePath?.let { runCatching { storage.deleteByDisplayPath(it, treeUri); storage.deleteEmptyFolder(it, treeUri) } }
+            entity.subtitlePaths?.forEach { path -> runCatching { storage.deleteByDisplayPath(path, treeUri) } }
             DownloadQueue.remove(downloadId)
             downloadDao.delete(entity)
         }

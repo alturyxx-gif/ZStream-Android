@@ -72,6 +72,7 @@ fun DownloadEntity.toRequest(): DownloadRequest? {
         audioStreamUrl = audioStreamUrl,
         audioLanguage = audioLanguage,
         posterPath = posterPath,
+        destinationTreeUri = storageTreeUri,
     )
 }
 
@@ -128,6 +129,7 @@ class DownloadRepository @Inject constructor(
             audioLanguage = request.audioLanguage,
             headersJson = requestCodecGson.toJson(request.headers),
             captionsJson = requestCodecGson.toJson(request.captions),
+            storageTreeUri = request.destinationTreeUri,
         )
         return downloadDao.insert(entity)
     }
@@ -152,11 +154,12 @@ class DownloadRepository @Inject constructor(
                 subtitleFiles = cached.second
                 Log.i(TAG, "Download $downloadId resuming with existing destination file: ${videoFile.displayPath}")
             } else {
+                val treeUri = request.destinationTreeUri?.let(Uri::parse)
                 val extension = fileExtensionFor(request.streamUrl, request.streamType)
-                videoFile = storage.createVideoFile(request.target, extension)
+                videoFile = storage.createVideoFile(request.target, extension, treeUri)
                 subtitleFiles = request.captions.map { caption ->
                     val providerLabel = if (caption.source.contains("wyzie", ignoreCase = true)) "Wyzie" else null
-                    caption to storage.createSubtitleFile(request.target, caption.langIso.ifBlank { "und" }, captionExtension(caption), providerLabel)
+                    caption to storage.createSubtitleFile(request.target, caption.langIso.ifBlank { "und" }, captionExtension(caption), providerLabel, treeUri)
                 }
                 fileCache[downloadId] = videoFile to subtitleFiles
             }
@@ -324,7 +327,7 @@ class DownloadRepository @Inject constructor(
                     Log.i(TAG, "Download $downloadId cancelled — cleaning up")
                     fileCache.remove(downloadId)
                     workDir.deleteRecursively()
-                    videoFile?.let { runCatching { storage.delete(it); storage.deleteEmptyFolder(it.displayPath) } }
+                    videoFile?.let { runCatching { storage.delete(it); storage.deleteEmptyFolder(it.displayPath, request.destinationTreeUri?.let(Uri::parse)) } }
                     subtitleFiles.forEach { (_, dest) -> runCatching { storage.delete(dest) } }
                     downloadDao.delete(entity)
                 }
@@ -350,5 +353,6 @@ class DownloadRepository @Inject constructor(
     private fun DownloadFile.playableUri(): Uri = when (this) {
         is DownloadFile.MediaStoreFile -> uri
         is DownloadFile.LegacyFile -> Uri.fromFile(file)
+        is DownloadFile.TreeFile -> uri
     }
 }

@@ -20,4 +20,7 @@ data class DownloadRequest(
     val audioLanguage: String? = null,
     /** Raw TMDB poster path (e.g. "/abc123.jpg"), shown in the Downloads list. */
     val posterPath: String? = null,
+    /** Null = the app's own Downloads/ZStream folder. Non-null = a SAF tree URI the user picked
+     * via DownloadDestinationBroker (e.g. an SD card). */
+    val destinationTreeUri: String? = null,
 )

@@ -29,6 +29,7 @@ class DownloadResolver @Inject constructor(
         season: Int? = null,
         episode: Int? = null,
         episodeTitle: String? = null,
+        destinationTreeUri: String? = null,
     ): Result<Long> = runCatching {
         val pluginSources = pluginManager.availableSources()
         val ordered = sourceOrderStore.getDownloadOrder()
@@ -90,6 +91,7 @@ class DownloadResolver @Inject constructor(
             headers = result.headers,
             captions = captions,
             posterPath = posterPath,
+            destinationTreeUri = destinationTreeUri,
         )
         val downloadId = downloadRepository.enqueue(request)
         DownloadService.enqueue(appContext, downloadId, request)

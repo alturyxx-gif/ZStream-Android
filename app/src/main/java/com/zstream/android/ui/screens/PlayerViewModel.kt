@@ -1145,6 +1145,7 @@ class PlayerViewModel @OptIn(UnstableApi::class)
     private fun enqueueDownload(variant: StreamVariant, streamUrl: String, qualityLabel: String, audioStreamUrl: String? = null, audioLanguage: String? = null) {
         val ready = _state.value as? PlayerState.Ready ?: return
         viewModelScope.launch {
+            val destination = com.zstream.android.download.DownloadDestinationBroker.chooseTreeUri() ?: return@launch
             val target = if (mediaType == "tv") {
                 com.zstream.android.download.DownloadTarget.Episode(
                     showTitle = title,
@@ -1194,6 +1195,7 @@ class PlayerViewModel @OptIn(UnstableApi::class)
                 audioStreamUrl = audioStreamUrl,
                 audioLanguage = audioLanguage,
                 posterPath = poster,
+                destinationTreeUri = destination.treeUri,
             )
             val downloadId = downloadRepository.enqueue(request)
             com.zstream.android.download.DownloadService.enqueue(appContext, downloadId, request)
