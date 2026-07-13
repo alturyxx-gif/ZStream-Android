@@ -1932,7 +1932,6 @@ private fun GenrePills(
     val isTv = LocalIsTv.current
     LazyRow(
         modifier = modifier,
-        contentPadding = PaddingValues(horizontal = 16.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -1956,6 +1955,11 @@ private fun GenrePills(
                             if (selected) theme.colors.global.accentA else theme.colors.background.secondary.copy(
                                 alpha = 0.5f
                             )
+                        )
+                        .border(
+                            1.dp,
+                            theme.colors.type.divider.copy(alpha = if (selected) 0.4f else 0.2f),
+                            RoundedCornerShape(50)
                         )
                         .onFocusChanged { isFocused = it.isFocused }
                         .clickable { onSelect(if (selected) null else id) }
@@ -4613,7 +4617,10 @@ private fun SearchOverlay(
             Spacer(Modifier.height(8.dp))
             GenrePills(
                 selectedGenreId = selectedGenreId,
-                onSelect = onGenreSelected,
+                onSelect = {
+                    onGenreSelected(it)
+                    onClearFocus()
+                },
                 modifier = Modifier.fillMaxWidth()
             )
 
@@ -4621,8 +4628,7 @@ private fun SearchOverlay(
                 Spacer(Modifier.height(8.dp))
                 Row(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp),
+                        .fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {

@@ -563,13 +563,9 @@ class HomeViewModel @Inject constructor(
 
     fun setTab(tab: HomeTab) = _state.update { it.copy(activeTab = tab) }
     fun setSearchGenre(id: Int?) {
-        _state.update { it.copy(selectedSearchGenreId = id) }
+        _state.update { it.copy(selectedSearchGenreId = id, searchQuery = "") }
         viewModelScope.launch {
-            if (_state.value.searchQuery.isBlank()) {
-                onSearchChange("")
-            } else {
-                applySearchFiltering()
-            }
+            onSearchChange("")
         }
     }
 
