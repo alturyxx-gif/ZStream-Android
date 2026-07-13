@@ -1,7 +1,11 @@
+bugs to fix:
+1. w
+
 features to add:
 1. multiple user accounts on TV
 2. add subs download button (for when the video is downloaded on device)
 3. add strong fallback to server rotating cert
+4. add release dates for episodes air dates
 
 
 later features:
