@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
@@ -19,8 +20,13 @@ import androidx.work.WorkerParameters
 import com.zstream.android.MainActivity
 import com.zstream.android.R
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CoroutineExceptionHandler
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
@@ -82,6 +88,11 @@ class ReleaseUpdateManager @Inject constructor(
     private val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
     private val _enabled = MutableStateFlow(prefs.getBoolean(KEY_ENABLED, true))
     private val _interval = MutableStateFlow(ReleaseCheckInterval.fromLabel(prefs.getString(KEY_INTERVAL, null).orEmpty()))
+    private val scope = CoroutineScope(
+        SupervisorJob() + Dispatchers.IO + CoroutineExceptionHandler { _, e ->
+            Log.w("ReleaseUpdateManager", "Launch update check failed", e)
+        }
+    )
 
     val enabled = _enabled.asStateFlow()
     val interval = _interval.asStateFlow()
@@ -93,6 +104,23 @@ class ReleaseUpdateManager @Inject constructor(
     fun start() {
         createNotificationChannel()
         schedule()
+        checkOnLaunch()
+    }
+
+    /**
+     * Fire-and-forget check run once per app open, in addition to the periodic WorkManager job --
+     * catches updates published between periodic runs (which can be as sparse as once a week)
+     * without waiting for the next scheduled check. Respects the same "disable background checks"
+     * flag as the periodic job, and reuses checkForUpdate()'s hash/version baseline so it never
+     * re-notifies for a release the user has already been told about (whether that notification
+     * came from this launch check or the periodic worker).
+     */
+    fun checkOnLaunch() {
+        if (!_enabled.value || repositoryUrl.isBlank()) return
+        scope.launch {
+            val apks = GithubReleaseCatalog().loadAllApks(repositoryUrl)
+            if (checkForUpdate(apks)) showUpdateNotification()
+        }
     }
 
     fun setRepositoryUrl(url: String) {

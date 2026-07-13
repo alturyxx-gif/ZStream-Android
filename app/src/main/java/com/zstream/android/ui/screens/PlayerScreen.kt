@@ -265,6 +265,7 @@ private const val PLAYBACK_SPEED_MAX = 5f
 private const val RESUME_DIALOG_COMPLETION_THRESHOLD = 0.95f
 private val MANUAL_SOURCE_PANEL_WIDTH = 343.dp
 private val MANUAL_SOURCE_PANEL_HEIGHT = 431.dp
+private val MANUAL_SOURCE_PANEL_MAX_HEIGHT = 560.dp
 private val SKIP_SEGMENT_BUTTON_WIDTH = 160.dp
 private val SKIP_SEGMENT_BAR_COLORS = mapOf(
     "intro" to Color(0xBF6366F1),
@@ -678,7 +679,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                         .align(Alignment.Center)
                         .padding(vertical = 10.dp)
                         .width(MANUAL_SOURCE_PANEL_WIDTH)
-                        .heightIn(min = MANUAL_SOURCE_PANEL_HEIGHT),
+                        .heightIn(min = MANUAL_SOURCE_PANEL_HEIGHT, max = MANUAL_SOURCE_PANEL_MAX_HEIGHT),
                     color = theme.colors.modal.background.copy(alpha = 0.98f),
                     shape = RoundedCornerShape(24.dp),
                     border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.type.emphasis.copy(alpha = 0.08f))
@@ -688,6 +689,8 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .weight(1f, fill = false)
+                                .verticalScroll(rememberScrollState())
                                 .padding(horizontal = PLAYER_MENU_INNER_HORIZONTAL_PADDING)
                                 .padding(top = 10.dp)
                         ) {

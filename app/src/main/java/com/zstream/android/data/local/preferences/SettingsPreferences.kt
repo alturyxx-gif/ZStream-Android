@@ -76,6 +76,7 @@ class SettingsPreferences @Inject constructor(
     private val KEY_ENABLE_LAST_SUCCESSFUL_SOURCE = booleanPreferencesKey("enable_last_successful_source")
     private val KEY_MANUAL_SOURCE_SELECTION = booleanPreferencesKey("manual_source_selection")
     private val KEY_ALLOW_PARALLEL_DOWNLOAD = booleanPreferencesKey("allow_parallel_download")
+    private val KEY_DOWNLOAD_SD_CARD_TREE_URI = stringPreferencesKey("download_sd_card_tree_uri")
     private val KEY_SOURCE_ORDER = stringPreferencesKey("source_order") // Stored as comma-separated
     private val KEY_ENABLE_SOURCE_ORDER = booleanPreferencesKey("enable_source_order")
 
@@ -161,6 +162,7 @@ class SettingsPreferences @Inject constructor(
             enableLastSuccessfulSource = prefs[KEY_ENABLE_LAST_SUCCESSFUL_SOURCE] ?: false,
             manualSourceSelection = prefs[KEY_MANUAL_SOURCE_SELECTION] ?: false,
             allowParallelDownload = prefs[KEY_ALLOW_PARALLEL_DOWNLOAD] ?: false,
+            downloadSdCardTreeUri = prefs[KEY_DOWNLOAD_SD_CARD_TREE_URI],
             sourceOrder = prefs[KEY_SOURCE_ORDER]?.split(",")?.filter { it.isNotBlank() } ?: emptyList(),
             enableSourceOrder = prefs[KEY_ENABLE_SOURCE_ORDER] ?: false,
             proxyUrls = prefs[KEY_PROXY_URLS]?.split(",")?.filter { it.isNotBlank() } ?: emptyList(),
@@ -246,6 +248,7 @@ class SettingsPreferences @Inject constructor(
             prefs[KEY_ENABLE_LAST_SUCCESSFUL_SOURCE] = entity.enableLastSuccessfulSource
             prefs[KEY_MANUAL_SOURCE_SELECTION] = entity.manualSourceSelection
             prefs[KEY_ALLOW_PARALLEL_DOWNLOAD] = entity.allowParallelDownload
+            if (entity.downloadSdCardTreeUri != null) prefs[KEY_DOWNLOAD_SD_CARD_TREE_URI] = entity.downloadSdCardTreeUri else prefs.remove(KEY_DOWNLOAD_SD_CARD_TREE_URI)
             prefs[KEY_SOURCE_ORDER] = entity.sourceOrder.joinToString(",")
             prefs[KEY_ENABLE_SOURCE_ORDER] = entity.enableSourceOrder
             prefs[KEY_PROXY_URLS] = entity.proxyUrls.joinToString(",")
@@ -311,6 +314,7 @@ class SettingsPreferences @Inject constructor(
             val currentTmdbApiKey = current[KEY_TMDB_API_KEY]
             val currentWyzieKey = current[KEY_WYZIE_KEY]
             val currentFebboxKeys = decodeFebboxKeys(current[KEY_FEBBOX_KEYS])
+            val currentDownloadSdCardTreeUri = current[KEY_DOWNLOAD_SD_CARD_TREE_URI]
             val currentSubtitlesEnabled = current[KEY_SUBTITLES_ENABLED] ?: false
             val currentVideoBrightness = current[KEY_VIDEO_BRIGHTNESS] ?: 100
             val currentVolumeBoost = current[KEY_VOLUME_BOOST] ?: 100
@@ -368,6 +372,7 @@ class SettingsPreferences @Inject constructor(
                 manualSourceSelection = remote.manualSourceSelection ?: false,
                 sourceOrder = remote.sourceOrder ?: emptyList(),
                 enableSourceOrder = remote.enableSourceOrder ?: false,
+                downloadSdCardTreeUri = currentDownloadSdCardTreeUri,
                 proxyUrls = remote.proxyUrls ?: emptyList(),
                 febboxKey = remote.febboxKey,
                 febboxKeys = currentFebboxKeys,

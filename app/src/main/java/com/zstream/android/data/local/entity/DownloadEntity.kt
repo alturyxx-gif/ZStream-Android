@@ -45,4 +45,8 @@ data class DownloadEntity(
     val audioLanguage: String? = null,
     val headersJson: String? = null,
     val captionsJson: String? = null,
+    // Null = the app's own Downloads/ZStream folder (MediaStore on API 29+, legacy File below
+    // that). Non-null = a SAF tree the user picked (see DownloadDestinationBroker) -- filePath/
+    // subtitlePaths are still relative paths, but resolved against this tree instead of Downloads.
+    val storageTreeUri: String? = null,
 )

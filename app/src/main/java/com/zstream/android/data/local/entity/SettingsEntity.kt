@@ -61,6 +61,9 @@ data class SettingsEntity(
     val enableLastSuccessfulSource: Boolean = false,
     val manualSourceSelection: Boolean = false,
     val allowParallelDownload: Boolean = false,
+    // Local-only; the SAF tree URI the user picked as their "SD card" download destination (see
+    // DownloadDestinationBroker). Null until they've chosen SD card at least once.
+    val downloadSdCardTreeUri: String? = null,
     val sourceOrder: List<String> = emptyList(),
     val enableSourceOrder: Boolean = false,
 

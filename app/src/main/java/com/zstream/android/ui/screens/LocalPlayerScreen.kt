@@ -201,6 +201,7 @@ class LocalPlayerViewModel @Inject constructor(
         val key = "${episode.seasonNumber}|${episode.episodeNumber}"
         if (key in _pendingDownloads.value || key in _downloadedEpisodes.value) return
         viewModelScope.launch {
+            val destination = com.zstream.android.download.DownloadDestinationBroker.chooseTreeUri() ?: return@launch
             _pendingDownloads.value += key
             try {
                 val downloadId = downloadResolver.resolveAndEnqueue(
@@ -211,6 +212,7 @@ class LocalPlayerViewModel @Inject constructor(
                     season = episode.seasonNumber,
                     episode = episode.episodeNumber,
                     episodeTitle = episode.name,
+                    destinationTreeUri = destination.treeUri,
                 ).onFailure { android.util.Log.e("LocalPlayerVM", "Episode download failed", it) }.getOrNull()
                 if (downloadId != null) {
                     downloadDao.observeById(downloadId).first { entity ->
@@ -292,10 +294,11 @@ class LocalPlayerViewModel @Inject constructor(
     private suspend fun loadDownload(): LocalPlaybackSource.Ready? {
         val id = downloadId ?: return null
         val entity = downloadDao.getById(id)
+        val treeUri = entity?.storageTreeUri?.let(android.net.Uri::parse)
         val filePath = entity?.filePath
-        val videoUri = filePath?.let { storage.resolvePlayableUri(it) } ?: return null
+        val videoUri = filePath?.let { storage.resolvePlayableUri(it, treeUri) } ?: return null
         val subtitles = entity.subtitlePaths.orEmpty().mapNotNull { path ->
-            storage.resolvePlayableUri(path)?.let { uri -> path to uri }
+            storage.resolvePlayableUri(path, treeUri)?.let { uri -> path to uri }
         }
         val title = if (entity.type == "show") {
             "${entity.title} S${entity.season.toString().padStart(2, '0')}E${entity.episode.toString().padStart(2, '0')}"

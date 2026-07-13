@@ -6,6 +6,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import androidx.documentfile.provider.DocumentFile
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import java.io.OutputStream
@@ -14,9 +15,10 @@ import javax.inject.Singleton
 
 /**
  * A file the download pipeline is writing to — either a MediaStore "Downloads" entry (API 29+,
- * scoped storage) or a plain File under the legacy public Downloads directory (API 24-28, needs
+ * scoped storage), a plain File under the legacy public Downloads directory (API 24-28, needs
  * WRITE_EXTERNAL_STORAGE, declared maxSdkVersion="28" in the manifest since it's a no-op/denied
- * on 29+ anyway).
+ * on 29+ anyway), or a document under a user-picked SAF tree (e.g. an SD card the user chose via
+ * DownloadDestinationBroker).
  */
 sealed class DownloadFile {
     abstract val displayPath: String
@@ -25,6 +27,7 @@ sealed class DownloadFile {
     data class LegacyFile(val file: File) : DownloadFile() {
         override val displayPath: String get() = file.absolutePath
     }
+    data class TreeFile(val uri: Uri, override val displayPath: String) : DownloadFile()
 }
 
 /**
@@ -38,23 +41,28 @@ class DownloadStorage @Inject constructor(
 ) {
     private val isScopedStorage = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
 
-    /** [extension] without a leading dot, e.g. "mp4", "srt". */
-    fun createVideoFile(target: DownloadTarget, extension: String): DownloadFile =
-        createFile(target, target.baseFileName(), extension, mimeTypeForVideo(extension))
+    /**
+     * [extension] without a leading dot, e.g. "mp4", "srt". [treeUri] non-null routes the file
+     * under that user-picked SAF tree instead of the app's own Downloads/ZStream folder.
+     */
+    fun createVideoFile(target: DownloadTarget, extension: String, treeUri: Uri? = null): DownloadFile =
+        createFile(target, target.baseFileName(), extension, mimeTypeForVideo(extension), treeUri)
 
     /**
      * [langTag] e.g. "en", used to disambiguate multiple subtitle tracks in the same folder.
      * [providerLabel] e.g. "Wyzie" — prefixed onto the filename so the origin is visible at a
      * glance in a file browser, for tracks not sourced directly from the stream provider.
      */
-    fun createSubtitleFile(target: DownloadTarget, langTag: String, extension: String, providerLabel: String? = null): DownloadFile {
+    fun createSubtitleFile(target: DownloadTarget, langTag: String, extension: String, providerLabel: String? = null, treeUri: Uri? = null): DownloadFile {
         val prefix = providerLabel?.let { "[$it] " }.orEmpty()
-        return createFile(target, "$prefix${target.baseFileName()}.$langTag", extension, mimeTypeForSubtitle(extension))
+        return createFile(target, "$prefix${target.baseFileName()}.$langTag", extension, mimeTypeForSubtitle(extension), treeUri)
     }
 
-    private fun createFile(target: DownloadTarget, baseName: String, extension: String, mimeType: String): DownloadFile {
+    private fun createFile(target: DownloadTarget, baseName: String, extension: String, mimeType: String, treeUri: Uri?): DownloadFile {
         val relativeFolder = (listOf("ZStream") + target.folderSegments()).joinToString("/")
         val displayName = "$baseName.$extension"
+
+        if (treeUri != null) return createTreeFile(treeUri, relativeFolder, displayName, mimeType)
 
         if (isScopedStorage) {
             val values = ContentValues().apply {
@@ -76,11 +84,24 @@ class DownloadStorage @Inject constructor(
         return DownloadFile.LegacyFile(File(folder, displayName))
     }
 
+    /** Walks/creates [relativeFolder]'s segments under [treeUri], then creates [displayName] in the leaf. */
+    private fun createTreeFile(treeUri: Uri, relativeFolder: String, displayName: String, mimeType: String): DownloadFile.TreeFile {
+        var dir = DocumentFile.fromTreeUri(context, treeUri) ?: error("Could not open SD card folder")
+        for (segment in relativeFolder.split("/").filter { it.isNotBlank() }) {
+            dir = dir.findFile(segment)?.takeIf { it.isDirectory } ?: dir.createDirectory(segment) ?: error("Could not create folder $segment on SD card")
+        }
+        dir.findFile(displayName)?.delete()
+        val doc = dir.createFile(mimeType, displayName) ?: error("Could not create $displayName on SD card")
+        return DownloadFile.TreeFile(doc.uri, "$relativeFolder/$displayName")
+    }
+
     /** Opens the file for writing. Caller must close the stream. */
     fun openOutputStream(file: DownloadFile): OutputStream = when (file) {
         is DownloadFile.MediaStoreFile -> context.contentResolver.openOutputStream(file.uri)
             ?: error("Could not open output stream for ${file.displayPath}")
         is DownloadFile.LegacyFile -> file.file.outputStream()
+        is DownloadFile.TreeFile -> context.contentResolver.openOutputStream(file.uri)
+            ?: error("Could not open output stream for ${file.displayPath}")
     }
 
     /**
@@ -95,9 +116,11 @@ class DownloadStorage @Inject constructor(
             file.file,
             android.os.ParcelFileDescriptor.MODE_READ_WRITE or android.os.ParcelFileDescriptor.MODE_CREATE or android.os.ParcelFileDescriptor.MODE_TRUNCATE,
         )
+        is DownloadFile.TreeFile -> context.contentResolver.openFileDescriptor(file.uri, "w")
+            ?: error("Could not open file descriptor for ${file.displayPath}")
     }
 
-    /** Must be called after writing finishes so MediaStore reveals the file (no-op on legacy storage). */
+    /** Must be called after writing finishes so MediaStore reveals the file (no-op on legacy/tree storage). */
     fun finalize(file: DownloadFile) {
         if (file is DownloadFile.MediaStoreFile) {
             val values = ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) }
@@ -126,6 +149,7 @@ class DownloadStorage @Inject constructor(
             file.uri, arrayOf(MediaStore.MediaColumns.SIZE), null, null, null,
         )?.use { cursor -> if (cursor.moveToFirst()) cursor.getLong(0) else null }
         is DownloadFile.LegacyFile -> file.file.length().takeIf { it > 0 }
+        is DownloadFile.TreeFile -> DocumentFile.fromSingleUri(context, file.uri)?.length()?.takeIf { it > 0 }
     }
 
     /** Deletes a destination, e.g. on download cancel/failure cleanup. */
@@ -133,15 +157,21 @@ class DownloadStorage @Inject constructor(
         when (file) {
             is DownloadFile.MediaStoreFile -> context.contentResolver.delete(file.uri, null, null)
             is DownloadFile.LegacyFile -> file.file.delete()
+            is DownloadFile.TreeFile -> DocumentFile.fromSingleUri(context, file.uri)?.delete()
         }
     }
 
     /**
      * Deletes a file by the `displayPath` stored on a DownloadEntity (relative path like
      * "ZStream/Title (Year)/Title (Year).mp4"), for cases where only that string survives (e.g.
-     * after process death) rather than the original DownloadFile/Uri handle.
+     * after process death) rather than the original DownloadFile/Uri handle. [treeUri] non-null
+     * means the entity was stored on a user-picked SAF tree instead of the app's Downloads folder.
      */
-    fun deleteByDisplayPath(displayPath: String) {
+    fun deleteByDisplayPath(displayPath: String, treeUri: Uri? = null) {
+        if (treeUri != null) {
+            resolveTreeDocument(treeUri, displayPath)?.delete()
+            return
+        }
         if (!isScopedStorage) {
             @Suppress("DEPRECATION")
             val root = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
@@ -160,8 +190,10 @@ class DownloadStorage @Inject constructor(
      * Resolves a stored `displayPath` (relative path like "ZStream/Title (Year)/Title (Year).mp4")
      * back to a URI ExoPlayer can actually open — a plain relative path string isn't playable on
      * its own since scoped storage requires going back through MediaStore to get a content:// Uri.
+     * [treeUri] non-null resolves against that user-picked SAF tree instead.
      */
-    fun resolvePlayableUri(displayPath: String): Uri? {
+    fun resolvePlayableUri(displayPath: String, treeUri: Uri? = null): Uri? {
+        if (treeUri != null) return resolveTreeDocument(treeUri, displayPath)?.uri
         if (!isScopedStorage) {
             @Suppress("DEPRECATION")
             val root = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
@@ -181,15 +213,47 @@ class DownloadStorage @Inject constructor(
         }
     }
 
+    /** Walks a "folder/.../name.ext" displayPath down from [treeUri], returning the leaf document if found. */
+    private fun resolveTreeDocument(treeUri: Uri, displayPath: String): DocumentFile? {
+        var dir = DocumentFile.fromTreeUri(context, treeUri) ?: return null
+        val segments = displayPath.split("/").filter { it.isNotBlank() }
+        for ((index, segment) in segments.withIndex()) {
+            val next = dir.findFile(segment) ?: return null
+            if (index == segments.lastIndex) return next
+            dir = next
+        }
+        return null
+    }
+
     /**
      * Deletes a destination's containing folder (and any now-empty parent folders up to but not
      * including "ZStream/") once its file(s) are gone — MediaStore only removes the row/file it
      * knows about, never the on-disk directory that held it, so a cancelled/deleted download would
-     * otherwise leave an empty "Title (Year)/" folder behind forever.
+     * otherwise leave an empty "Title (Year)/" folder behind forever. [treeUri] non-null does the
+     * same cleanup against a user-picked SAF tree instead of the app's Downloads folder.
      */
-    fun deleteEmptyFolder(displayPath: String) {
+    fun deleteEmptyFolder(displayPath: String, treeUri: Uri? = null) {
         val relativeFolder = displayPath.substringBeforeLast('/', "")
         if (relativeFolder.isBlank()) return
+
+        if (treeUri != null) {
+            val root = DocumentFile.fromTreeUri(context, treeUri) ?: return
+            val segments = relativeFolder.split("/").filter { it.isNotBlank() }
+            val chain = mutableListOf(root)
+            var dir = root
+            for (segment in segments) {
+                dir = dir.findFile(segment)?.takeIf { it.isDirectory } ?: return
+                chain += dir
+            }
+            // Walk back up from the leaf, deleting empty dirs, but never touch the tree root itself.
+            for (index in chain.lastIndex downTo 1) {
+                val d = chain[index]
+                if (d.listFiles().isNotEmpty()) break
+                d.delete()
+            }
+            return
+        }
+
         @Suppress("DEPRECATION")
         val root = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
         val zstreamRoot = File(root, "ZStream")
