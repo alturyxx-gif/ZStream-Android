@@ -79,6 +79,10 @@ import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.WbSunny
+import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.filled.VolumeDown
+import androidx.compose.material.icons.filled.VolumeMute
+import androidx.compose.material.icons.filled.VolumeOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.snapshots.SnapshotStateMap
@@ -2715,6 +2719,7 @@ internal fun PlayerControls(
     var positionMs by remember { mutableLongStateOf(0L) }
     var durationMs by remember { mutableLongStateOf(0L) }
     var isMuted by remember { mutableStateOf(player.volume == 0f) }
+    var volumeBeforeMute by remember { mutableFloatStateOf(player.volume.takeIf { it > 0f } ?: 1f) }
     var isDragging by remember { mutableStateOf(false) }
     var scrubPosition by remember { mutableFloatStateOf(0f) }
     val menuScrollPositions = remember { mutableStateMapOf<PlayerMenuPage, Int>() }
@@ -2868,6 +2873,18 @@ internal fun PlayerControls(
         val clamped = fraction.coerceIn(0f, 1f)
         player.volume = clamped
         isMuted = clamped == 0f
+        if (clamped > 0f) volumeBeforeMute = clamped
+    }
+
+    fun toggleMute() {
+        if (isMuted) {
+            isMuted = false
+            player.volume = volumeBeforeMute
+        } else {
+            if (player.volume > 0f) volumeBeforeMute = player.volume
+            isMuted = true
+            player.volume = 0f
+        }
     }
 
     DisposableEffect(Unit) {
@@ -3529,7 +3546,7 @@ internal fun PlayerControls(
                                 gap = 4.dp,
                             ) {
                                 IconButton(
-                                    onClick = { isMuted = !isMuted; player.volume = if (isMuted) 0f else 1f },
+                                    onClick = { toggleMute() },
                                     modifier = Modifier
                                         .size(BOTTOM_BAR_BUTTON_SIZE)
                                         .background(
@@ -3557,7 +3574,7 @@ internal fun PlayerControls(
                                 res = if (isMuted) R.drawable.ic_player_mute else R.drawable.ic_player_volume,
                                 theme = theme
                             ) {
-                                isMuted = !isMuted; player.volume = if (isMuted) 0f else 1f
+                                toggleMute()
                             }
                         }
                         Spacer(Modifier.width(4.dp))
@@ -7783,7 +7800,12 @@ private fun BoxScope.SideGestureOverlay(
                     modifier = Modifier.size(20.dp)
                 )
                 SideGesture.Volume -> Icon(
-                    painter = painterResource(if (value <= 0f) R.drawable.ic_player_mute else R.drawable.ic_player_volume),
+                    imageVector = when {
+                        value <= 0f -> Icons.Filled.VolumeOff
+                        value <= 0.33f -> Icons.Filled.VolumeMute
+                        value <= 0.66f -> Icons.Filled.VolumeDown
+                        else -> Icons.Filled.VolumeUp
+                    },
                     contentDescription = null,
                     tint = theme.colors.video.context.type.main,
                     modifier = Modifier.size(20.dp)
