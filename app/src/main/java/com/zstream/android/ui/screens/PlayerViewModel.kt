@@ -252,6 +252,22 @@ internal fun vttCueBlocks(body: String): List<String> =
     body.replace(Regex("(\n)(?=\\d{1,2}:\\d{2}(?::\\d{2})?\\.\\d{1,3}\\s*-->)"), "\n\n")
         .split(Regex("\n\\s*\n"))
 
+private val SUBTITLE_TAG_REGEX = Regex("</?[a-zA-Z][^>]*>")
+private val SUBTITLE_ENTITIES = mapOf(
+    "&amp;" to "&", "&lt;" to "<", "&gt;" to ">", "&quot;" to "\"", "&#39;" to "'", "&apos;" to "'", "&nbsp;" to " ",
+)
+
+/** Strips markup like `<font color="#ffff00">`/`<b>`/`<i>` (SRT/VTT styling tags this app's plain
+ * Text() cue renderer doesn't interpret, so they'd otherwise show up as literal text) and decodes
+ * the handful of HTML entities subtitle files commonly use instead of raw characters. */
+internal fun stripSubtitleMarkup(text: String): String {
+    var result = text.replace(SUBTITLE_TAG_REGEX, "")
+    for ((entity, replacement) in SUBTITLE_ENTITIES) {
+        result = result.replace(entity, replacement)
+    }
+    return result
+}
+
 data class AutoplayEpisodeTarget(
     val seasonNumber: Int,
     val episodeNumber: Int,
@@ -1727,7 +1743,37 @@ class PlayerViewModel @OptIn(UnstableApi::class)
         }
         val response = httpClient.newCall(builder.build()).execute()
         if (!response.isSuccessful) throw Exception("Subtitle download failed: HTTP ${response.code}")
-        response.body?.string() ?: throw Exception("Empty subtitle response")
+        val body = response.body ?: throw Exception("Empty subtitle response")
+        decodeSubtitleBytes(body.bytes(), body.contentType())
+    }
+
+    /**
+     * Decodes raw subtitle bytes, sniffing a BOM or declared Content-Type charset first. Many
+     * subtitle sources (esp. OpenSubtitles-style) serve Windows-1252/ISO-8859-1 without declaring
+     * it -- blindly decoding those as UTF-8 hits invalid byte sequences that become U+FFFD, which
+     * renders as Android's tofu "missing glyph" box (the "question mark rectangle" symptom). If a
+     * strict UTF-8 decode fails, fall back to ISO-8859-1, which never fails to decode (every byte
+     * maps to a code point) and matches the common non-UTF-8 case.
+     */
+    internal fun decodeSubtitleBytes(bytes: ByteArray, contentType: okhttp3.MediaType?): String {
+        if (bytes.size >= 3 && bytes[0] == 0xEF.toByte() && bytes[1] == 0xBB.toByte() && bytes[2] == 0xBF.toByte()) {
+            return String(bytes, 3, bytes.size - 3, Charsets.UTF_8)
+        }
+        if (bytes.size >= 2 && bytes[0] == 0xFF.toByte() && bytes[1] == 0xFE.toByte()) {
+            return String(bytes, 2, bytes.size - 2, Charsets.UTF_16LE)
+        }
+        if (bytes.size >= 2 && bytes[0] == 0xFE.toByte() && bytes[1] == 0xFF.toByte()) {
+            return String(bytes, 2, bytes.size - 2, Charsets.UTF_16BE)
+        }
+        contentType?.charset()?.let { return String(bytes, it) }
+        val strictUtf8 = runCatching {
+            Charsets.UTF_8.newDecoder()
+                .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+                .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT)
+                .decode(java.nio.ByteBuffer.wrap(bytes))
+                .toString()
+        }.getOrNull()
+        return strictUtf8 ?: String(bytes, Charsets.ISO_8859_1)
     }
 
     /** Parse SRT or VTT subtitle text into timed cues */
@@ -1759,7 +1805,7 @@ class PlayerViewModel @OptIn(UnstableApi::class)
                 timeMatch.groupValues[7].toInt(),
                 timeMatch.groupValues[8].toInt()
             )
-            val text = lines.drop(2).joinToString("\n").trim()
+            val text = stripSubtitleMarkup(lines.drop(2).joinToString("\n").trim())
             if (text.isNotEmpty()) {
                 cues.add(SubtitleCue(startMs, endMs, text))
             }
@@ -1808,7 +1854,7 @@ class PlayerViewModel @OptIn(UnstableApi::class)
             }
             // Skip cue settings (lines starting with "align:" etc) and WebVTT metadata
             val textLines = lines.dropWhile { it.contains("-->") || it.contains(":") || it.startsWith("NOTE") }
-            val text = textLines.joinToString("\n").trim()
+            val text = stripSubtitleMarkup(textLines.joinToString("\n").trim())
             if (text.isNotEmpty()) {
                 cues.add(SubtitleCue(startMs, endMs, text))
             }
