@@ -802,6 +802,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                 fun mimeTypeFor(streamType: String): String = when {
                     streamType.equals("file", ignoreCase = true) -> MimeTypes.VIDEO_MP4
                     streamType.equals("dash", ignoreCase = true) -> MimeTypes.APPLICATION_MPD
+                    streamType.equals("mkv", ignoreCase = true) -> MimeTypes.VIDEO_MATROSKA
                     else -> MimeTypes.APPLICATION_M3U8
                 }
 

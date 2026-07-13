@@ -48,6 +48,9 @@ import org.json.JSONObject
 private const val DEV_HLS_TEST_URL = "https://alpha-charlott.github.io/video-openh264/Sintel_master.m3u8"
 private const val DEV_MP4_TEST_URL = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4"
 
+// TODO: temporary hardcoded default while adding MKV support -- remove once that's verified.
+private const val DEV_MKV_TEST_URL = "https://cdn.pixeldrain.eu.cc/8KHASrTM"
+
 /**
  * Dev-only stream tester -- replicates the website's /dev/video tool: paste a raw stream URL,
  * pick HLS or MP4, optionally attach request headers, and play it directly. There is no plugin
@@ -59,8 +62,10 @@ private const val DEV_MP4_TEST_URL = "https://commondatastorage.googleapis.com/g
 @Composable
 fun DevVideoScreen(nav: NavController) {
     val theme = LocalZStreamTheme.current
-    var url by remember { mutableStateOf("") }
-    var type by remember { mutableStateOf("mp4") }
+    // TODO: pre-filled with a temporary MKV test link while adding MKV support -- remove once
+    // that's verified, back to a blank default.
+    var url by remember { mutableStateOf(DEV_MKV_TEST_URL) }
+    var type by remember { mutableStateOf("mkv") }
     var headersEnabled by remember { mutableStateOf(false) }
     val headers = remember { mutableStateListOf("" to "") }
 
@@ -121,6 +126,7 @@ fun DevVideoScreen(nav: NavController) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 DevTypeChip("MP4", type == "mp4") { type = "mp4" }
                 DevTypeChip("HLS", type == "hls") { type = "hls" }
+                DevTypeChip("MKV", type == "mkv") { type = "mkv" }
             }
 
             Spacer(Modifier.height(20.dp))

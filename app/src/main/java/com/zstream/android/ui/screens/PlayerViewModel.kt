@@ -164,12 +164,6 @@ data class DownloadQualityOption(
     val audioOptions: List<com.zstream.android.download.HlsAudioRendition> = emptyList(),
 )
 
-internal fun preferredInitialVariantUrl(
-    sourceId: String,
-    defaultUrl: String,
-    variants: List<StreamVariant>,
-): String = defaultUrl
-
 internal fun nextUnfailedVariantUrl(
     currentUrl: String,
     variants: List<StreamVariant>,
@@ -922,8 +916,7 @@ class PlayerViewModel @OptIn(UnstableApi::class)
                                 variants.firstOrNull { it.name.equals(name, ignoreCase = true) }
                             }
                             desiredVariantName = null
-                            val initialUrl = wantedVariant?.streamUrl
-                                ?: preferredInitialVariantUrl(source.id, result.streamUrl, variants)
+                            val initialUrl = wantedVariant?.streamUrl ?: result.streamUrl
                             val initialVariant = variants.firstOrNull { it.streamUrl == initialUrl }
                             logVariantSelection(result.streamUrl, initialUrl, variants)
                             _state.value = PlayerState.Ready(
@@ -1406,7 +1399,7 @@ class PlayerViewModel @OptIn(UnstableApi::class)
                 val variants = result.variants.map { v ->
                     StreamVariant(id = v.id, name = v.name, quality = v.quality, codec = v.codec, tag = v.tag, streamUrl = v.streamUrl, streamType = v.streamType, headers = v.headers, requiresRefreshOnSwitch = v.requiresRefreshOnSwitch)
                 }
-                val initialUrl = preferredInitialVariantUrl(sourceId, result.streamUrl, variants)
+                val initialUrl = result.streamUrl
                 val initialVariant = variants.firstOrNull { it.streamUrl == initialUrl }
                 logVariantSelection(result.streamUrl, initialUrl, variants)
                 ResolvedSourceCandidate(
