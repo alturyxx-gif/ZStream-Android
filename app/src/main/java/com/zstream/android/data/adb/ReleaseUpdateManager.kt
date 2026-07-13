@@ -66,6 +66,15 @@ internal fun releaseChanged(previousHashes: String?, previousVersion: String?, l
     previousHashes != null && previousVersion != null &&
         (previousHashes != latest.hashes || previousVersion != latest.version)
 
+/** Strips a leading "v"/"V" so release tags ("v1.3") and BuildConfig.VERSION_NAME ("v1.2") compare equal regardless of casing/prefix. */
+internal fun normalizeReleaseVersion(v: String): String = v.trim().removePrefix("v").removePrefix("V")
+
+/** True once the release we'd otherwise notify about is the version already running -- covers the
+ * case where the user side-loaded the latest APK themselves (outside this manager's own baseline
+ * tracking), so the stored hash/version baseline is stale but there's genuinely nothing to update. */
+internal fun isAlreadyRunning(latestVersion: String, installedVersion: String): Boolean =
+    normalizeReleaseVersion(latestVersion) == normalizeReleaseVersion(installedVersion)
+
 data class ReleaseUpdateLaunch(val openTvInstaller: Boolean)
 
 object ReleaseUpdateNavigation {
@@ -103,8 +112,24 @@ class ReleaseUpdateManager @Inject constructor(
 
     fun start() {
         createNotificationChannel()
+        healStalePendingUpdate()
         schedule()
         checkOnLaunch()
+    }
+
+    /**
+     * Synchronous, no-network self-heal for a pending-update flag left over from before the user
+     * side-loaded the very release it points at -- e.g. they installed the latest APK by hand
+     * outside this manager's own tracked baseline. Runs before the async launch check so a stale
+     * "update available" prompt never flashes on screen even for a moment after the app reopens
+     * already-updated.
+     */
+    private fun healStalePendingUpdate() {
+        if (!hasPendingUpdate) return
+        val pending = pendingVersion.takeIf { it.isNotBlank() } ?: return
+        if (isAlreadyRunning(pending, com.zstream.android.BuildConfig.VERSION_NAME)) {
+            clearPendingUpdate()
+        }
     }
 
     /**
@@ -157,6 +182,14 @@ class ReleaseUpdateManager @Inject constructor(
 
     fun checkForUpdate(apks: List<GithubApkAsset>): Boolean {
         val latest = latestReleaseSnapshot(apks) ?: return false
+        if (isAlreadyRunning(latest.version, com.zstream.android.BuildConfig.VERSION_NAME)) {
+            // Covers side-loading the latest APK outside this manager's own tracked baseline
+            // (e.g. installing it by hand) -- without this the stale hash/version baseline would
+            // otherwise re-fire the "update available" notification for a release already running.
+            saveBaseline(latest)
+            clearPendingUpdate()
+            return false
+        }
         val previousHashes = prefs.getString(KEY_HASHES, null)
         val previousVersion = prefs.getString(KEY_VERSION, null)
         if (previousHashes == null || previousVersion == null) {
