@@ -109,9 +109,9 @@ class PluginManager @Inject constructor(
                 _pluginState.value = PluginState.Ready(plugin, meta.version, meta.displayVersion ?: meta.version.toString())
                 Log.i(TAG, "Plugin v${meta.version} loaded")
                 checkForUpdateInBackground(meta.version)
-            } catch (e: Exception) {
-                Log.e(TAG, "Plugin init failed: ${e.message}", e)
-                _pluginState.value = PluginState.Failed(e.message ?: "Unknown error")
+            } catch (t: Throwable) {
+                Log.e(TAG, "Plugin init failed: ${t.message}", t)
+                _pluginState.value = PluginState.Failed(t.message ?: "Unknown error")
             }
         }
     }
@@ -138,9 +138,16 @@ class PluginManager @Inject constructor(
             displayVersion = "dev",
         )
         writeActiveMeta(meta)
-        val plugin = loader.load(dest)
-        _pluginState.value = PluginState.Ready(plugin, 0, "dev")
-        Log.i(TAG, "Debug sideload complete: $path")
+        try {
+            val plugin = loader.load(dest)
+            _pluginState.value = PluginState.Ready(plugin, 0, "dev")
+            Log.i(TAG, "Debug sideload complete: $path")
+        } catch (t: Throwable) {
+            clearActiveMeta()
+            dest.delete()
+            _pluginState.value = PluginState.Failed(t.message ?: "Sideload failed")
+            throw t
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -174,9 +181,16 @@ class PluginManager @Inject constructor(
         writeActiveMeta(meta)
         markHighestSeenVersion(manifest.latestVersion)
 
-        val plugin = loader.load(file)
-        _pluginState.value = PluginState.Ready(plugin, meta.version, meta.displayVersion ?: meta.version.toString())
-        Log.i(TAG, "Plugin v${meta.version} installed manually")
+        try {
+            val plugin = loader.load(file)
+            _pluginState.value = PluginState.Ready(plugin, meta.version, meta.displayVersion ?: meta.version.toString())
+            Log.i(TAG, "Plugin v${meta.version} installed manually")
+        } catch (t: Throwable) {
+            clearActiveMeta()
+            file.delete()
+            _pluginState.value = PluginState.Failed(t.message ?: "Plugin load failed")
+            throw t
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -287,15 +301,6 @@ class PluginManager @Inject constructor(
             || !loader.verifySignature(stagedFile)
         ) {
             Log.w(TAG, "Staged plugin failed verification — discarding")
-            stagedFile.delete()
-            clearStagedMeta()
-            return
-        }
-
-        try {
-            loader.load(stagedFile)
-        } catch (e: Throwable) {
-            Log.w(TAG, "Staged plugin failed load validation — discarding", e)
             stagedFile.delete()
             clearStagedMeta()
             return
