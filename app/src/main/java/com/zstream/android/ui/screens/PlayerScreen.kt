@@ -2869,6 +2869,14 @@ internal fun PlayerControls(
         window.attributes = attributes
     }
 
+    fun resetScreenBrightness() {
+        val window = activity?.window ?: return
+        if (window.attributes.screenBrightness == WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE) return
+        val attributes = window.attributes
+        attributes.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+        window.attributes = attributes
+    }
+
     fun applyPlayerVolume(fraction: Float) {
         val clamped = fraction.coerceIn(0f, 1f)
         player.volume = clamped
@@ -2891,6 +2899,7 @@ internal fun PlayerControls(
         onDispose {
             speedIndicatorHideJob?.cancel()
             sideGestureHideJob?.cancel()
+            resetScreenBrightness()
         }
     }
 
