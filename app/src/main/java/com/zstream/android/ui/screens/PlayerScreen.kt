@@ -8,6 +8,7 @@ import android.content.pm.ActivityInfo
 import android.content.res.Resources
 import android.media.audiofx.LoudnessEnhancer
 import android.os.Build
+import android.provider.Settings
 import android.util.Log
 import android.util.Rational
 import android.view.View
@@ -77,6 +78,7 @@ import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.snapshots.SnapshotStateMap
@@ -371,6 +373,8 @@ private const val PAUSE_DESCRIPTION_MAX_LINES_TV = 5
 private val PAUSED_GRAPHIC_BOTTOM_PADDING_TV = 20.dp
 
 private enum class DoubleTapSeekDirection { Backward, Forward }
+
+private enum class SideGesture { Brightness, Volume }
 
 @Composable
 private fun BoxScope.DoubleTapSeekIndicator(
@@ -2695,6 +2699,8 @@ internal fun PlayerControls(
     val isTv = LocalIsTv.current
     val focusManager = LocalFocusManager.current
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val activity = LocalActivity.current
     var isJoiningRoom by remember { mutableStateOf(false) }
     // Auto-switch to room details when joined
     LaunchedEffect(roomCode) {
@@ -2729,6 +2735,9 @@ internal fun PlayerControls(
     var isSpeedBoosted by remember { mutableStateOf(false) }
     var boostedPreviousSpeed by remember { mutableFloatStateOf(1f) }
     var speedIndicatorHideJob by remember { mutableStateOf<Job?>(null) }
+    var activeSideGesture by remember { mutableStateOf<SideGesture?>(null) }
+    var sideGestureValue by remember { mutableFloatStateOf(0f) }
+    var sideGestureHideJob by remember { mutableStateOf<Job?>(null) }
     val currentControlsVisible = rememberUpdatedState(controlsVisible)
     val currentMenuOpen = rememberUpdatedState(menuOpen)
     val currentShowInfoSheet = rememberUpdatedState(showInfoSheet)
@@ -2839,9 +2848,32 @@ internal fun PlayerControls(
         showSpeedOverlay(boosted = false, autoHide = true)
     }
 
+    fun currentScreenBrightnessFraction(): Float {
+        val windowValue = activity?.window?.attributes?.screenBrightness ?: -1f
+        if (windowValue in 0f..1f) return windowValue
+        val systemValue = runCatching {
+            Settings.System.getInt(context.contentResolver, Settings.System.SCREEN_BRIGHTNESS)
+        }.getOrDefault(128)
+        return (systemValue / 255f).coerceIn(0f, 1f)
+    }
+
+    fun applyScreenBrightness(fraction: Float) {
+        val window = activity?.window ?: return
+        val attributes = window.attributes
+        attributes.screenBrightness = fraction.coerceIn(0f, 1f)
+        window.attributes = attributes
+    }
+
+    fun applyPlayerVolume(fraction: Float) {
+        val clamped = fraction.coerceIn(0f, 1f)
+        player.volume = clamped
+        isMuted = clamped == 0f
+    }
+
     DisposableEffect(Unit) {
         onDispose {
             speedIndicatorHideJob?.cancel()
+            sideGestureHideJob?.cancel()
         }
     }
 
@@ -2925,10 +2957,15 @@ internal fun PlayerControls(
                 ) {
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
+                        val isLeftHalf = down.position.x < size.width / 2f
                         val canHoldToBoost =
                             settings.enableHoldToBoost &&
                                 roomCode == null &&
                                 player.isPlaying &&
+                                !currentMenuOpen.value &&
+                                !currentShowInfoSheet.value
+                        val canAdjustSideGesture =
+                            roomCode == null &&
                                 !currentMenuOpen.value &&
                                 !currentShowInfoSheet.value
 
@@ -2945,11 +2982,55 @@ internal fun PlayerControls(
                             }
                         } else null
 
+                        var isSideDragging = false
+                        var sideDragStartValue = 0f
+                        val touchSlop = viewConfiguration.touchSlop
+
                         val releaseChange = try {
-                            waitForUpOrCancellation()
+                            var result: androidx.compose.ui.input.pointer.PointerInputChange? = null
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                val change = event.changes.firstOrNull { it.id == down.id }
+                                if (change == null || change.isConsumed) {
+                                    result = null
+                                    break
+                                }
+                                if (!change.pressed) {
+                                    result = change
+                                    break
+                                }
+                                if (canAdjustSideGesture) {
+                                    val dy = down.position.y - change.position.y
+                                    val dx = change.position.x - down.position.x
+                                    if (!isSideDragging && abs(dy) > touchSlop && abs(dy) > abs(dx)) {
+                                        isSideDragging = true
+                                        boostJob?.cancel()
+                                        activeSideGesture = if (isLeftHalf) SideGesture.Brightness else SideGesture.Volume
+                                        sideDragStartValue =
+                                            if (isLeftHalf) currentScreenBrightnessFraction() else player.volume
+                                    }
+                                    if (isSideDragging) {
+                                        change.consume()
+                                        val newValue =
+                                            (sideDragStartValue + dy / size.height.toFloat()).coerceIn(0f, 1f)
+                                        sideGestureValue = newValue
+                                        if (isLeftHalf) applyScreenBrightness(newValue) else applyPlayerVolume(newValue)
+                                    }
+                                }
+                            }
+                            result
                         } finally {
                             boostJob?.cancel()
                             if (boostActivated) stopTemporarySpeedBoost()
+                        }
+
+                        if (isSideDragging) {
+                            sideGestureHideJob?.cancel()
+                            sideGestureHideJob = scope.launch {
+                                delay(700)
+                                activeSideGesture = null
+                            }
+                            return@awaitEachGesture
                         }
 
                         if (boostActivated) {
@@ -3036,6 +3117,14 @@ internal fun PlayerControls(
             isBoosted = isSpeedBoosted,
             modifier = Modifier.align(Alignment.TopCenter)
         )
+        activeSideGesture?.let { gesture ->
+            SideGestureOverlay(
+                gesture = gesture,
+                value = sideGestureValue,
+                theme = theme,
+                modifier = Modifier.align(if (gesture == SideGesture.Brightness) Alignment.CenterStart else Alignment.CenterEnd)
+            )
+        }
         pauseMetadata?.let { metadata ->
             PauseOverlay(
                 metadata = metadata,
@@ -7660,6 +7749,71 @@ private fun SpeedIndicatorOverlay(
                     fontWeight = FontWeight.Normal,
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun BoxScope.SideGestureOverlay(
+    gesture: SideGesture,
+    value: Float,
+    theme: ZStreamTheme,
+    modifier: Modifier = Modifier,
+) {
+    val percent = (value.coerceIn(0f, 1f) * 100f).roundToInt()
+    Surface(
+        color = theme.colors.video.context.background.copy(alpha = 0.92f),
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, theme.colors.video.context.background.copy(alpha = 0.92f)),
+        shadowElevation = 10.dp,
+        modifier = modifier.padding(horizontal = 28.dp),
+    ) {
+        Column(
+            modifier = Modifier
+                .widthIn(min = 56.dp)
+                .padding(vertical = 16.dp, horizontal = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            when (gesture) {
+                SideGesture.Brightness -> Icon(
+                    imageVector = Icons.Filled.WbSunny,
+                    contentDescription = null,
+                    tint = theme.colors.video.context.type.main,
+                    modifier = Modifier.size(20.dp)
+                )
+                SideGesture.Volume -> Icon(
+                    painter = painterResource(if (value <= 0f) R.drawable.ic_player_mute else R.drawable.ic_player_volume),
+                    contentDescription = null,
+                    tint = theme.colors.video.context.type.main,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .width(4.dp)
+                    .height(80.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(theme.colors.video.context.type.main.copy(alpha = 0.25f)),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .fillMaxHeight(value.coerceIn(0f, 1f))
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(theme.colors.video.context.type.main),
+                )
+            }
+            Text(
+                text = "$percent%",
+                color = theme.colors.video.context.type.main,
+                fontSize = 10.sp,
+                modifier = Modifier.width(IntrinsicSize.Max),
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                softWrap = false,
+            )
         }
     }
 }
