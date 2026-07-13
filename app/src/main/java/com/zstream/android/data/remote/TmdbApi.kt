@@ -30,6 +30,18 @@ interface TmdbApi {
     @GET("collection/{id}") suspend fun collection(@Path("id") id: Int): CollectionDetails
     @GET("movie/{id}/release_dates") suspend fun movieReleaseDates(@Path("id") id: Int): ReleaseDatesResponse
     @GET("tv/{id}/content_ratings") suspend fun tvContentRatings(@Path("id") id: Int): ContentRatingsResponse
+
+    @GET("discover/movie") suspend fun discoverMovies(
+        @Query("with_genres") genreId: String?,
+        @Query("sort_by") sortBy: String? = "popularity.desc",
+        @Query("page") page: Int = 1
+    ): PagedResponse<Media>
+
+    @GET("discover/tv") suspend fun discoverTv(
+        @Query("with_genres") genreId: String?,
+        @Query("sort_by") sortBy: String? = "popularity.desc",
+        @Query("page") page: Int = 1
+    ): PagedResponse<Media>
 }
 
 data class ReleaseDatesResponse(val results: List<ReleaseDatesCountry> = emptyList())

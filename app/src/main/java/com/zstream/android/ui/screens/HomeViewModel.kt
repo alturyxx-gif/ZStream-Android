@@ -36,6 +36,9 @@ import javax.inject.Inject
 
 enum class HomeTab { MOVIES, TV, EDITOR }
 
+enum class DiscoverSort { POPULARITY, RATING, RELEASE }
+enum class SortOrder { ASC, DESC }
+
 enum class MediaSectionSource {
     ContinueWatching,
     Bookmarks,
@@ -80,7 +83,6 @@ data class HomeState(
     val enableLowPerformanceMode: Boolean = false,
     val featuredMedia: List<Media> = emptyList(),
     val activeTab: HomeTab = HomeTab.MOVIES,
-    val selectedGenreId: Int? = null,
     val searchQuery: String = "",
     val loading: Boolean = true,
     val error: String? = null,
@@ -92,7 +94,12 @@ data class HomeState(
     val homeSectionCarouselLimit: Int = 20,
     val gridRows: Int = 2,
     val canLoadMore: Boolean = false,
-    val initialFocusRequested: Boolean = false
+    val initialFocusRequested: Boolean = false,
+    val isDiscoverMode: Boolean = false,
+    val selectedSearchGenreId: Int? = null,
+    val selectedSearchTab: HomeTab = HomeTab.MOVIES,
+    val selectedSearchSort: DiscoverSort = DiscoverSort.POPULARITY,
+    val selectedSearchSortOrder: SortOrder = SortOrder.DESC,
 ) {
     val userSections: List<MediaSection> get() {
         val userContent = mutableListOf<MediaSection>()
@@ -555,59 +562,189 @@ class HomeViewModel @Inject constructor(
     }
 
     fun setTab(tab: HomeTab) = _state.update { it.copy(activeTab = tab) }
-    fun setGenre(id: Int?) = _state.update { it.copy(selectedGenreId = id) }
+    fun setSearchGenre(id: Int?) {
+        _state.update { it.copy(selectedSearchGenreId = id) }
+        viewModelScope.launch {
+            if (_state.value.searchQuery.isBlank()) {
+                onSearchChange("")
+            } else {
+                applySearchFiltering()
+            }
+        }
+    }
+
+    fun setSearchTab(tab: HomeTab) {
+        _state.update { it.copy(selectedSearchTab = tab) }
+        viewModelScope.launch {
+            if (_state.value.searchQuery.isBlank()) {
+                onSearchChange("")
+            } else {
+                applySearchFiltering()
+            }
+        }
+    }
     fun setSearch(q: String) = _state.update { it.copy(searchQuery = q) }
     fun markFocusRequested() = _state.update { it.copy(initialFocusRequested = true) }
 
+    fun cycleSearchSort() {
+        _state.update {
+            val next = when (it.selectedSearchSort) {
+                DiscoverSort.POPULARITY -> DiscoverSort.RATING
+                DiscoverSort.RATING -> DiscoverSort.RELEASE
+                DiscoverSort.RELEASE -> DiscoverSort.POPULARITY
+            }
+            it.copy(selectedSearchSort = next)
+        }
+        onSearchChange(_state.value.searchQuery)
+    }
+
+    fun toggleSearchSortOrder() {
+        _state.update {
+            val next = if (it.selectedSearchSortOrder == SortOrder.ASC) SortOrder.DESC else SortOrder.ASC
+            it.copy(selectedSearchSortOrder = next)
+        }
+        onSearchChange(_state.value.searchQuery)
+    }
+
     // Live search results from TMDB (separate from carousel sections)
+    private val _rawSearchResults = MutableStateFlow<List<Media>>(emptyList())
     private val _searchResults = MutableStateFlow<List<Media>>(emptyList())
     val searchResults = _searchResults.asStateFlow()
 
     private var searchJob: kotlinx.coroutines.Job? = null
 
+    private fun mapMovieGenreToTv(movieGenreId: Int): Int {
+        return when (movieGenreId) {
+            28, 12 -> 10759 // Action, Adventure -> Action & Adventure
+            14, 878 -> 10765 // Fantasy, Sci-Fi -> Sci-Fi & Fantasy
+            10752 -> 10768 // War -> War & Politics
+            else -> movieGenreId
+        }
+    }
+
+    private fun getTmdbSortString(): String {
+        val s = _state.value
+        val base = when (s.selectedSearchSort) {
+            DiscoverSort.POPULARITY -> "popularity"
+            DiscoverSort.RATING -> "vote_average"
+            DiscoverSort.RELEASE -> if (s.selectedSearchTab == HomeTab.MOVIES) "primary_release_date" else "first_air_date"
+        }
+        val order = if (s.selectedSearchSortOrder == SortOrder.ASC) "asc" else "desc"
+        return "$base.$order"
+    }
+
+    private suspend fun applySearchFiltering() {
+        val raw = _rawSearchResults.value
+        val genreId = _state.value.selectedSearchGenreId
+        val tab = _state.value.selectedSearchTab
+        val kidsMode = _state.value.kidsModeEnabled
+        val query = _state.value.searchQuery
+
+        val effectiveGenreId = if (tab == HomeTab.TV && genreId != null) mapMovieGenreToTv(genreId) else genreId
+
+        val typeFiltered = if (query.isNotBlank()) {
+            val targetType = if (tab == HomeTab.MOVIES) "movie" else "tv"
+            raw.filter { it.type == targetType }
+        } else {
+            raw
+        }
+
+        val filtered = if (effectiveGenreId == null) {
+            typeFiltered
+        } else {
+            typeFiltered.filter { it.genreIds?.contains(effectiveGenreId) == true }
+        }
+        _searchResults.value = certRepo.filterForKids(filtered, kidsMode)
+    }
+
     fun onSearchChange(q: String) {
+        val tab = _state.value.selectedSearchTab
         isSearchingMore = false
         setSearch(q)
         searchGeneration++
         currentSearchPage = 1
         searchJob?.cancel()
+        _rawSearchResults.value = emptyList()
         _searchResults.value = emptyList()
-        _state.update { it.copy(canLoadMore = false) }
-        if (q.isBlank()) {
+        _state.update { it.copy(canLoadMore = false, isDiscoverMode = q.isBlank() && _state.value.selectedSearchGenreId != null) }
+
+        if (q.isBlank() && _state.value.selectedSearchGenreId == null) {
             return
         }
+
         val generation = searchGeneration
+        val genreId = _state.value.selectedSearchGenreId
+
         searchJob = viewModelScope.launch {
-            delay(300) // debounce
+            if (q.isNotBlank()) delay(300) // debounce search only
             runCatching {
-                val firstResults = repo.search(q, currentSearchPage) { total ->
-                    if (searchGeneration == generation) {
-                        _state.update { it.copy(canLoadMore = currentSearchPage < total) }
+                if (q.isBlank()) {
+                    // Discover mode
+                    val effectiveGenreId = if (tab == HomeTab.TV) mapMovieGenreToTv(genreId!!) else genreId
+                    val sortBy = getTmdbSortString()
+                    val result = if (tab == HomeTab.MOVIES) {
+                        repo.discoverMoviesPage(effectiveGenreId, sortBy, currentSearchPage)
+                    } else {
+                        repo.discoverTvPage(effectiveGenreId, sortBy, currentSearchPage)
                     }
+                    if (searchGeneration != generation) return@launch
+                    _state.update { it.copy(canLoadMore = result.canLoadMore) }
+                    _rawSearchResults.value = result.items
+                    applySearchFiltering()
+                } else {
+                    // Search mode
+                    val firstResults = repo.search(q, currentSearchPage) { total ->
+                        if (searchGeneration == generation) {
+                            _state.update { it.copy(canLoadMore = currentSearchPage < total) }
+                        }
+                    }
+                    if (searchGeneration != generation) return@launch
+                    _rawSearchResults.value = firstResults
+                    applySearchFiltering()
                 }
-                if (searchGeneration != generation) return@launch
-                _searchResults.value = certRepo.filterForKids(firstResults, _state.value.kidsModeEnabled)
             }
         }
     }
+
     fun searchLoadMore() {
         val q = state.value.searchQuery
-        if (q.isBlank() || !state.value.canLoadMore || isSearchingMore) return
+        val genreId = state.value.selectedSearchGenreId
+        if ((q.isBlank() && genreId == null) || !state.value.canLoadMore || isSearchingMore) return
 
         val generation = searchGeneration
+        val tab = state.value.selectedSearchTab
+
         viewModelScope.launch {
             isSearchingMore = true
             try {
                 currentSearchPage++
 
                 runCatching {
-                    val nextResults = repo.search(q, currentSearchPage) { total ->
-                        if (searchGeneration == generation) {
-                            _state.update { it.copy(canLoadMore = currentSearchPage < total) }
+                    if (q.isBlank()) {
+                        // Discover mode load more
+                        val effectiveGenreId = if (tab == HomeTab.TV) mapMovieGenreToTv(genreId!!) else genreId
+                        val sortBy = getTmdbSortString()
+                        val result = if (tab == HomeTab.MOVIES) {
+                            repo.discoverMoviesPage(effectiveGenreId, sortBy, currentSearchPage)
+                        } else {
+                            repo.discoverTvPage(effectiveGenreId, sortBy, currentSearchPage)
                         }
-                    }
-                    if (searchGeneration == generation) {
-                        _searchResults.value = _searchResults.value + certRepo.filterForKids(nextResults, _state.value.kidsModeEnabled)
+                        if (searchGeneration == generation) {
+                            _state.update { it.copy(canLoadMore = result.canLoadMore) }
+                            _rawSearchResults.value = _rawSearchResults.value + result.items
+                            applySearchFiltering()
+                        }
+                    } else {
+                        // Search mode load more
+                        val nextResults = repo.search(q, currentSearchPage) { total ->
+                            if (searchGeneration == generation) {
+                                _state.update { it.copy(canLoadMore = currentSearchPage < total) }
+                            }
+                        }
+                        if (searchGeneration == generation) {
+                            _rawSearchResults.value = _rawSearchResults.value + nextResults
+                            applySearchFiltering()
+                        }
                     }
                 }.onFailure {
                     if (searchGeneration == generation) {

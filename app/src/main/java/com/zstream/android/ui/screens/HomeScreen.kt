@@ -482,7 +482,10 @@ fun HomeScreen(
         wasKeyboardVisible = isKeyboardVisible
     }
 
-    BackHandler(enabled = isSearchFocused || state.searchQuery.isNotEmpty()) {
+    BackHandler(enabled = isSearchFocused || state.searchQuery.isNotEmpty() || state.isDiscoverMode) {
+        if (state.isDiscoverMode && state.searchQuery.isEmpty()) {
+            vm.setSearchGenre(null)
+        }
         isSearchFocused = false
         vm.onSearchChange("")
         focusManager.clearFocus()
@@ -901,7 +904,7 @@ fun HomeScreen(
                     HomeDialogs()
                     return
                 }
-                val isSearching = isSearchFocused || state.searchQuery.isNotBlank()
+                val isSearching = isSearchFocused || state.searchQuery.isNotBlank() || state.isDiscoverMode
                 val isFeaturedActive = state.enableFeatured && state.featuredMedia.isNotEmpty()
                 val shouldHeaderBeSticky = true
                 var stickyHeaderBottomPx by remember { mutableStateOf(0f) }
@@ -931,7 +934,7 @@ fun HomeScreen(
                         }
                     }
 
-                val displayedSearchResults = if (state.searchQuery.isNotBlank()) searchResults else emptyList()
+                val displayedSearchResults = if (state.searchQuery.isNotBlank() || state.isDiscoverMode) searchResults else emptyList()
 
                 val bookmarksList = state.bookmarks.flatMap { it.items }
                 val progressList = state.continueWatching.flatMap { it.items }
@@ -992,6 +995,8 @@ fun HomeScreen(
                         state.enableCarouselView, state.homeSectionCarouselLimit,
                     ) { state.baseSections }
 
+                    val headerHeightDp = with(density) { stickyHeaderBottomPx.toDp() }
+
                     LazyColumn(
                         state = listState,
                         modifier = Modifier
@@ -1009,10 +1014,11 @@ fun HomeScreen(
                                     progressMap = state.progressMap,
                                     showImageLogos = state.enableImageLogos,
                                     isSearching = isSearching,
+                                    shrunkenHeight = maxOf(190.dp, headerHeightDp),
                                     modifier = Modifier.fillMaxWidth()
                                 )
                             } else {
-                                Spacer(Modifier.height(160.dp)) // Height for header
+                                Spacer(Modifier.height(maxOf(160.dp, headerHeightDp))) // Height for header
                             }
                         }
 
@@ -1030,11 +1036,10 @@ fun HomeScreen(
                                     enabled = !state.isOffline,
                                 )
                             }
-                            item { GenrePills(state.selectedGenreId, vm::setGenre) }
                             item { Spacer(Modifier.height(16.dp)) }
                         }
 
-                        if (state.searchQuery.isNotBlank()) {
+                        if (state.searchQuery.isNotBlank() || state.isDiscoverMode) {
                             item { Spacer(Modifier.height(16.dp)) }
                             MediaGridLazy( section = displayedSearchResults, nav = nav, progressMap = emptyMap(), numOfColumns = numOfColumns )
                             if (state.canLoadMore || displayedSearchResults.isNotEmpty()) {
@@ -1081,6 +1086,9 @@ fun HomeScreen(
                             }
 
                         } else {
+                            if (isSearching && isFeaturedActive) {
+                                item { Spacer(Modifier.height(8.dp)) }
+                            }
                             if (showContinueWatching && state.continueWatchingLoading && state.continueWatching.isEmpty()) {
                                 item("continue_watching_loading") {
                                     HomeSectionLoading("Continue Watching")
@@ -1188,12 +1196,7 @@ fun HomeScreen(
                                 item { HomeTabs(state.activeTab, vm::setTab) }
 
                                 // Base sections second (baseSections computed above, outside the LazyColumn content lambda)
-                                baseSections.map { section ->
-                                    val filtered = if (state.selectedGenreId != null)
-                                        section.items.filter { it.genreIds?.contains(state.selectedGenreId) == true }
-                                    else section.items
-                                    section.copy(items = filtered)
-                                }.filter { it.items.isNotEmpty() }.forEach { section ->
+                                baseSections.forEach { section ->
                                     item {
                                         MediaCarouselSection(
                                             section,
@@ -1295,6 +1298,15 @@ fun HomeScreen(
                                     onClearFocus = { focusManager.clearFocus() },
                                     focusRequester = focusRequester,
                                     placeholder = placeholder,
+                                    selectedGenreId = state.selectedSearchGenreId,
+                                    selectedTab = state.selectedSearchTab,
+                                    selectedSort = state.selectedSearchSort,
+                                    selectedSortOrder = state.selectedSearchSortOrder,
+                                    isDiscoverMode = state.isDiscoverMode,
+                                    onGenreSelected = vm::setSearchGenre,
+                                    onTabSelected = vm::setSearchTab,
+                                    onSortCycle = vm::cycleSearchSort,
+                                    onSortOrderToggle = vm::toggleSearchSortOrder,
                                     enabled = !state.isOffline,
                                     modifier = Modifier.padding(horizontal = 16.dp)
                                 )
@@ -1788,6 +1800,129 @@ private fun HomeSearchBarRow(
 }
 
 @Composable
+private fun SortPill(
+    sort: DiscoverSort,
+    order: SortOrder,
+    onSortClick: () -> Unit,
+    onOrderClick: () -> Unit,
+) {
+    val theme = LocalZStreamTheme.current
+    val isTv = LocalIsTv.current
+    val label = when (sort) {
+        DiscoverSort.POPULARITY -> "Popularity"
+        DiscoverSort.RATING -> "Rating"
+        DiscoverSort.RELEASE -> "Release"
+    }
+
+    var isFocused by remember { mutableStateOf(false) }
+
+    ZsOutlinedWrapper(
+        visible = isFocused && isTv,
+        shape = RoundedCornerShape(50),
+        outlineColor = theme.colors.global.accentA.copy(alpha = 0.6f),
+        gap = 2.dp
+    ) {
+        Row(
+            modifier = Modifier
+                .clip(RoundedCornerShape(50))
+                .background(theme.colors.background.secondary.copy(alpha = 0.5f))
+                .border(
+                    1.dp,
+                    theme.colors.type.divider.copy(alpha = 0.2f),
+                    RoundedCornerShape(50)
+                )
+                .onFocusChanged { isFocused = it.isFocused }
+                .padding(horizontal = 4.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = label,
+                color = theme.colors.type.emphasis,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier
+                    .clickable { onSortClick() }
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+            )
+            Box(
+                modifier = Modifier
+                    .width(1.dp)
+                    .height(16.dp)
+                    .background(theme.colors.type.divider.copy(alpha = 0.3f))
+            )
+            Icon(
+                imageVector = if (order == SortOrder.ASC) Icons.Default.ArrowUpward else Icons.Default.ArrowDownward,
+                contentDescription = "Toggle sort order",
+                tint = theme.colors.global.accentA,
+                modifier = Modifier
+                    .size(28.dp)
+                    .clickable { onOrderClick() }
+                    .padding(6.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun TabTogglePill(
+    selectedTab: HomeTab,
+    onTabSelected: (HomeTab) -> Unit,
+) {
+    val theme = LocalZStreamTheme.current
+    val isTv = LocalIsTv.current
+    var isFocused by remember { mutableStateOf(false) }
+    ZsOutlinedWrapper(
+        visible = isFocused && isTv,
+        shape = RoundedCornerShape(50),
+        outlineColor = theme.colors.global.accentA.copy(alpha = 0.6f),
+        gap = 2.dp
+    ) {
+        Row(
+            modifier = Modifier
+                .clip(RoundedCornerShape(50))
+                .background(theme.colors.background.secondary.copy(alpha = 0.5f))
+                .border(
+                    1.dp,
+                    theme.colors.type.divider.copy(alpha = 0.2f),
+                    RoundedCornerShape(50)
+                )
+                .onFocusChanged { isFocused = it.isFocused }
+                .padding(horizontal = 4.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            HomeTab.entries.filter { it != HomeTab.EDITOR }.forEachIndexed { index, tab ->
+                val selected = selectedTab == tab
+                val label = if (tab == HomeTab.MOVIES) "Movies" else "TV"
+
+                if (index > 0) {
+                    Box(
+                        modifier = Modifier
+                            .width(1.dp)
+                            .height(16.dp)
+                            .background(theme.colors.type.divider.copy(alpha = 0.3f))
+                    )
+                }
+
+                Text(
+                    text = label,
+                    color = if (selected) theme.colors.type.emphasis else theme.colors.type.dimmed,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(
+                            if (selected) theme.colors.global.accentA.copy(alpha = 0.8f) else Color.Transparent
+                        )
+                        .clickable { onTabSelected(tab) }
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun GenrePills(
     selectedGenreId: Int?,
     onSelect: (Int?) -> Unit,
@@ -1799,6 +1934,7 @@ private fun GenrePills(
         modifier = modifier,
         contentPadding = PaddingValues(horizontal = 16.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         items(tmdbGenres.entries.toList()) { (id, name) ->
             val selected = selectedGenreId == id
@@ -3861,6 +3997,7 @@ private fun FeaturedCarousel(
     progressMap: Map<String, ProgressEntity> = emptyMap(),
     showImageLogos: Boolean = true,
     isSearching: Boolean = false,
+    shrunkenHeight: androidx.compose.ui.unit.Dp = 170.dp,
     modifier: Modifier = Modifier,
     onFocused: () -> Unit = {},
     playButtonFocusRequester: FocusRequester? = null
@@ -3940,7 +4077,7 @@ private fun FeaturedCarousel(
 
     val isTv = LocalIsTv.current
     val height by animateDpAsState(
-        targetValue = if (isSearching) 170.dp else if (isTv) TvHomeMetrics.featuredHeight else 450.dp,
+        targetValue = if (isSearching) shrunkenHeight else if (isTv) TvHomeMetrics.featuredHeight else 450.dp,
         label = "carouselHeight"
     )
     val contentAlpha by animateFloatAsState(
@@ -4383,6 +4520,15 @@ private fun SearchOverlay(
     onClearFocus: () -> Unit,
     focusRequester: FocusRequester,
     placeholder: String,
+    selectedGenreId: Int?,
+    selectedTab: HomeTab,
+    selectedSort: DiscoverSort,
+    selectedSortOrder: SortOrder,
+    isDiscoverMode: Boolean,
+    onGenreSelected: (Int?) -> Unit,
+    onTabSelected: (HomeTab) -> Unit,
+    onSortCycle: () -> Unit,
+    onSortOrderToggle: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
 ) {
@@ -4390,70 +4536,106 @@ private fun SearchOverlay(
     val isTv = LocalIsTv.current
     var focusedMenu by remember { mutableStateOf(false) }
     val focusMenuWidth by animateDpAsState(if (focusedMenu) 3.dp else 0.dp)
-    Row(
+    Column(
         modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.End,
+        horizontalAlignment = Alignment.Start,
     ) {
-        Box(
-            modifier = Modifier
-                .animateContentSize()
-                .then(if (isSearching) Modifier.weight(1f) else Modifier.size(44.dp))
-                .height(44.dp)
-                .alpha(if (enabled) 1f else 0.5f)
-                .clip(RoundedCornerShape(44.dp))
-                .background(theme.colors.background.secondary.copy(alpha = 0.8f))
-                .border(
-                    1.dp,
-                    theme.colors.type.divider.copy(alpha = 0.3f),
-                    RoundedCornerShape(44.dp)
-                )
-                .clickable(enabled && !isSearching) { onSearchFocusedChange(true) },
-            contentAlignment = Alignment.CenterStart,
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.End,
         ) {
-            Row(
+            Box(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    .animateContentSize()
+                    .then(if (isSearching) Modifier.weight(1f) else Modifier.size(44.dp))
+                    .height(44.dp)
+                    .alpha(if (enabled) 1f else 0.5f)
+                    .clip(RoundedCornerShape(44.dp))
+                    .background(theme.colors.background.secondary.copy(alpha = 0.8f))
+                    .border(
+                        1.dp,
+                        theme.colors.type.divider.copy(alpha = 0.3f),
+                        RoundedCornerShape(44.dp)
+                    )
+                    .clickable(enabled && !isSearching) { onSearchFocusedChange(true) },
+                contentAlignment = Alignment.CenterStart,
             ) {
-                Icon(Icons.Default.Search, null, tint = theme.colors.type.secondary, modifier = Modifier.size(18.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Icon(Icons.Default.Search, null, tint = theme.colors.type.secondary, modifier = Modifier.size(18.dp))
 
-                if (isSearching) {
-                    Box(modifier = Modifier.weight(1f)) {
-                        if (searchQuery.isEmpty()) {
-                            Text(placeholder, color = theme.colors.search.placeholder, fontSize = 13.sp)
+                    if (isSearching) {
+                        Box(modifier = Modifier.weight(1f)) {
+                            if (searchQuery.isEmpty()) {
+                                Text(placeholder, color = theme.colors.search.placeholder, fontSize = 13.sp)
+                            }
+                            BasicTextField(
+                                value = searchQuery,
+                                onValueChange = onSearch,
+                                enabled = enabled,
+                                singleLine = true,
+                                textStyle = TextStyle(color = theme.colors.search.text, fontSize = 13.sp),
+                                cursorBrush = SolidColor(theme.colors.global.accentA),
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                                keyboardActions = KeyboardActions(onSearch = { onClearFocus() }),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .focusRequester(focusRequester)
+                                    .onFocusChanged {
+                                        if (it.isFocused) {
+                                            onSearchFocusedChange(true)
+                                        }
+                                    },
+                            )
                         }
-                        BasicTextField(
-                            value = searchQuery,
-                            onValueChange = onSearch,
-                            enabled = enabled,
-                            singleLine = true,
-                            textStyle = TextStyle(color = theme.colors.search.text, fontSize = 13.sp),
-                            cursorBrush = SolidColor(theme.colors.global.accentA),
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                            keyboardActions = KeyboardActions(onSearch = { onClearFocus() }),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .focusRequester(focusRequester)
-                                .onFocusChanged {
-                                    if (it.isFocused) {
-                                        onSearchFocusedChange(true)
-                                    }
-                                },
-                        )
+                        if (!isTv && searchQuery.isNotEmpty()) {
+                            ZsIconButton(
+                                onClick = { onSearch("") },
+                                icon = Icons.Default.Close,
+                                contentDescription = "Clear search",
+                                variant = ZsIconButtonVariant.Ghost,
+                                containerSize = 28.dp,
+                                iconSize = 16.dp,
+                            )
+                        }
                     }
-                    if (!isTv && searchQuery.isNotEmpty()) {
-                        ZsIconButton(
-                            onClick = { onSearch("") },
-                            icon = Icons.Default.Close,
-                            contentDescription = "Clear search",
-                            variant = ZsIconButtonVariant.Ghost,
-                            containerSize = 28.dp,
-                            iconSize = 16.dp,
-                        )
-                    }
+                }
+            }
+        }
+
+        if (isSearching) {
+            Spacer(Modifier.height(8.dp))
+            GenrePills(
+                selectedGenreId = selectedGenreId,
+                onSelect = onGenreSelected,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            if (isDiscoverMode) {
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    SortPill(
+                        sort = selectedSort,
+                        order = selectedSortOrder,
+                        onSortClick = onSortCycle,
+                        onOrderClick = onSortOrderToggle
+                    )
+                    TabTogglePill(
+                        selectedTab = selectedTab,
+                        onTabSelected = onTabSelected
+                    )
                 }
             }
         }
@@ -4678,7 +4860,7 @@ private fun TvHomeScreenContent(
                     item { Spacer(Modifier.height(12.dp)) }
                 }
 
-                if (state.searchQuery.isNotBlank()) {
+                if (state.searchQuery.isNotBlank() || state.isDiscoverMode) {
                     item {
                         Text(
                             "Search results",
