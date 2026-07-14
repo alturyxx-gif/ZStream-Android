@@ -10,4 +10,5 @@ object Urls {
     const val DISCORD_LINK = "https://discord.com/invite/wmbWfk4SGy"
     const val NOTIFICATIONS_RSS = "https://zstream.mov/notifications.xml"
     const val PASSKEY_RP_ID = "zstream.mov"
+    const val RYBBIT_BASE = "https://justice.fontaine.lol/api/"
 }

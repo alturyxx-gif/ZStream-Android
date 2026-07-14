@@ -5,6 +5,7 @@ import com.zstream.android.BuildConfig
 import com.zstream.android.Urls
 import com.zstream.android.data.remote.BackendApi
 import com.zstream.android.data.remote.ImdbApi
+import com.zstream.android.data.remote.RybbitApi
 import com.zstream.android.data.remote.TmdbApi
 import dagger.Module
 import dagger.Provides
@@ -23,6 +24,7 @@ import java.util.concurrent.TimeUnit
 @Qualifier @Retention(AnnotationRetention.BINARY) annotation class TmdbRetrofit
 @Qualifier @Retention(AnnotationRetention.BINARY) annotation class BackendRetrofit
 @Qualifier @Retention(AnnotationRetention.BINARY) annotation class ImdbRetrofit
+@Qualifier @Retention(AnnotationRetention.BINARY) annotation class RybbitRetrofit
 
 @Module
 @InstallIn(SingletonComponent::class)
@@ -99,4 +101,14 @@ object NetworkModule {
 
     @Provides @Singleton
     fun imdbApi(@ImdbRetrofit retrofit: Retrofit): ImdbApi = retrofit.create(ImdbApi::class.java)
+
+    @Provides @Singleton @RybbitRetrofit
+    fun rybbitRetrofit(client: OkHttpClient): Retrofit = Retrofit.Builder()
+        .baseUrl(Urls.RYBBIT_BASE)
+        .client(client.newBuilder().connectTimeout(5, TimeUnit.SECONDS).readTimeout(5, TimeUnit.SECONDS).build())
+        .addConverterFactory(GsonConverterFactory.create())
+        .build()
+
+    @Provides @Singleton
+    fun rybbitApi(@RybbitRetrofit retrofit: Retrofit): RybbitApi = retrofit.create(RybbitApi::class.java)
 }

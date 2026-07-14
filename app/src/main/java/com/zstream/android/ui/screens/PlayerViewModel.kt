@@ -284,6 +284,7 @@ class PlayerViewModel @OptIn(UnstableApi::class)
     private val auroraKeyManager: com.zstream.android.data.AuroraKeyManager,
     private val bookmarkRepo: BookmarkRepository,
     private val traktRepository: com.zstream.android.data.TraktRepository,
+    private val rybbitAnalytics: com.zstream.android.data.RybbitAnalytics,
     private val tmdbRepo: TmdbRepository,
     private val httpClient: OkHttpClient,
     val playerCache: SimpleCache,
@@ -700,10 +701,26 @@ class PlayerViewModel @OptIn(UnstableApi::class)
         watchPartyManager.updateLocalState(localStateOwner, content, player)
     }
 
+    private var watchingEventSent = false
+
     fun reportTraktPlayback(isPlaying: Boolean, timeMs: Long, durationMs: Long) {
         lastPlaybackPosition = timeMs
         lastPlaybackDuration = durationMs
         traktRepository.reportPlayback(mediaType, tmdbId, season, episode, isPlaying, timeMs, durationMs)
+
+        if (isPlaying && !watchingEventSent) {
+            watchingEventSent = true
+            rybbitAnalytics.trackEvent(
+                "watching",
+                mapOf(
+                    "tmdbId" to tmdbId,
+                    "title" to title,
+                    "type" to mediaType,
+                    "season" to season,
+                    "episode" to episode,
+                )
+            )
+        }
     }
 
     override fun onCleared() {

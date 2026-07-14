@@ -25,6 +25,13 @@ android {
             localProps.inputStream().use { props.load(it) }
         }
         buildConfigField("String", "TMDB_API_KEY", "\"${props.getProperty("tmdb.api_key", "84259f99204eeb7d45c7e3d8e36c6123")}\"")
+        // No real site id is ever committed here -- this is a public repo, and a hardcoded
+        // default would mean every fork/CI/random build silently reports into our own Rybbit
+        // dashboard. Resolution order: RYBBIT_SITE_ID env var (set as a GitHub Actions secret on
+        // the real release pipeline) -> `rybbit.site_id` in local.properties (gitignored, for
+        // local dev) -> empty string, which RybbitAnalytics treats as "tracking disabled".
+        val rybbitSiteId = System.getenv("RYBBIT_SITE_ID") ?: props.getProperty("rybbit.site_id", "")
+        buildConfigField("String", "RYBBIT_SITE_ID", "\"$rybbitSiteId\"")
     }
 
     signingConfigs {
