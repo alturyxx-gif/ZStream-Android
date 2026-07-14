@@ -96,7 +96,6 @@ class TvSyncViewModel @Inject constructor(
     settingsPreferences: SettingsPreferences,
     private val traktRepository: TraktRepository,
     accountRepository: AccountRepository,
-    @dagger.hilt.android.qualifiers.ApplicationContext private val appContext: android.content.Context,
 ) : ViewModel() {
     val receiverState: StateFlow<TvSyncReceiverState> = repo.receiverState
     val pairedTvs: StateFlow<List<com.zstream.android.data.PairedTv>> = repo.pairedTvs
@@ -150,9 +149,10 @@ class TvSyncViewModel @Inject constructor(
 
     /** Authenticates the phone's passkey and returns the Base64Url-encoded 32-byte seed.
      *  The TV can call CryptoUtils.keysFromSeed(decode(seed)) to derive the same Ed25519
-     *  key pair and run the normal challenge-login against the backend. */
-    suspend fun resolvePasskeySeed(): String {
-        val credId = com.zstream.android.data.CryptoUtils.authenticatePasskey(appContext)
+     *  key pair and run the normal challenge-login against the backend.
+     *  Needs an Activity-based context -- CredentialManager can't launch its selector UI off appContext. */
+    suspend fun resolvePasskeySeed(activityContext: android.content.Context): String {
+        val credId = com.zstream.android.data.CryptoUtils.authenticatePasskey(activityContext)
         val seed = com.zstream.android.data.CryptoUtils.pbkdf2(credId)
         return with(com.zstream.android.data.CryptoUtils) { seed.toBase64Url() }
     }
@@ -473,6 +473,7 @@ private fun TvSyncSenderScreen(
     presetDiscoveredReceiver: TvSyncDiscoveredReceiver? = null,
 ) {
     val theme = LocalZStreamTheme.current
+    val context = androidx.compose.ui.platform.LocalContext.current
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     val onBack = rememberSafeNavigateBack(nav, scope)
     val settings by vm.settings.collectAsStateWithLifecycle()
@@ -810,7 +811,7 @@ private fun TvSyncSenderScreen(
                                             scope.launch {
                                                 loading = true
                                                 status = null
-                                                runCatching { vm.resolvePasskeySeed() }
+                                                runCatching { vm.resolvePasskeySeed(context) }
                                                     .onSuccess { seed -> passkeyKeySeed = seed; status = null }
                                                     .onFailure { status = it.message ?: "Passkey authentication failed" }
                                                 loading = false
