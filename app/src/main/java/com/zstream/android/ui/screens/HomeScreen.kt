@@ -319,12 +319,34 @@ private fun MediaSection.sorted(
     else -> items.sortedByDescending { media -> maxOf(progress[media.id.toString()]?.updatedAt ?: 0L, bookmarks[media.id.toString()]?.updatedAt ?: 0L) }
 })
 
-private val tmdbGenres = mapOf(
-    28 to "Action", 12 to "Adventure", 16 to "Animation", 35 to "Comedy",
-    80 to "Crime", 99 to "Documentary", 18 to "Drama", 10751 to "Family",
-    14 to "Fantasy", 36 to "History", 27 to "Horror", 10402 to "Music",
-    9648 to "Mystery", 10749 to "Romance", 878 to "Sci-Fi",
-    53 to "Thriller", 10752 to "War", 37 to "Western",
+internal val tmdbGenres = mapOf(
+    28 to "Action",
+    12 to "Adventure",
+    10759 to "Action & Adventure",
+    16 to "Animation",
+    35 to "Comedy",
+    80 to "Crime",
+    99 to "Documentary",
+    18 to "Drama",
+    10751 to "Family",
+    10762 to "Kids",
+    878 to "Sci-Fi",
+    14 to "Fantasy",
+    10765 to "Sci-Fi & Fantasy",
+    36 to "History",
+    27 to "Horror",
+    10402 to "Music",
+    9648 to "Mystery",
+    10763 to "News",
+    10764 to "Reality",
+    10749 to "Romance",
+    10766 to "Soap",
+    10767 to "Talk",
+    53 to "Thriller",
+    10770 to "TV Movie",
+    10752 to "War",
+    10768 to "War & Politics",
+    37 to "Western"
 )
 
 private data class NotificationItem(
@@ -1975,16 +1997,35 @@ internal fun GenrePills(
     selectedGenreId: Int?,
     onSelect: (Int?) -> Unit,
     modifier: Modifier = Modifier,
+    activeTab: HomeTab? = null,
 ) {
     val theme = LocalZStreamTheme.current
     val isTv = LocalIsTv.current
+    
+    val filteredGenres = remember(activeTab) {
+        val tvAvailable = setOf(10759, 16, 35, 80, 99, 18, 10751, 10762, 9648, 10763, 10764, 10765, 10766, 10767, 10768, 37)
+        val movieAvailable = setOf(28, 12, 16, 35, 80, 99, 18, 10751, 14, 36, 27, 10402, 9648, 10749, 878, 10770, 53, 10752, 37)
+        
+        // Universal IDs to use in UI instead of TV-specific duplicates
+        val uiDuplicates = setOf(10759, 10765, 10768)
+        val tvEntriesToKeep = (tvAvailable + 28 + 878) - uiDuplicates
+
+        tmdbGenres.entries.filter { (id, _) ->
+            when (activeTab) {
+                HomeTab.TV -> id in tvEntriesToKeep
+                HomeTab.MOVIES -> id in movieAvailable
+                else -> true
+            }
+        }.toList()
+    }
+
     LazyRow(
         modifier = modifier.focusRestorer(),
         contentPadding = PaddingValues(start = 2.dp, end = 16.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        items(tmdbGenres.entries.toList(), key = { it.key }) { (id, name) ->
+        items(filteredGenres, key = { it.key }) { (id, name) ->
             val selected = selectedGenreId == id
             var isFocused by remember { mutableStateOf(false) }
             ZsOutlinedWrapper(
@@ -4672,7 +4713,8 @@ private fun SearchOverlay(
                     keyboardController?.hide()
                     if (!isTv) onClearFocus()
                 },
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                activeTab = selectedTab
             )
 
             if (isDiscoverMode) {

@@ -52,32 +52,33 @@ import dev.chrisbanes.haze.rememberHazeState
 @Composable
 fun SearchScreen(
     nav: NavController,
-    vm: SearchViewModel = hiltViewModel(),
     homeVm: HomeViewModel = hiltViewModel()
 ) {
     val isTv = LocalIsTv.current
     if (isTv) {
-        SearchScreenTV(nav, vm, homeVm)
+        SearchScreenTV(nav, homeVm)
     } else {
-        SearchScreenPhone(nav, vm)
+        SearchScreenPhone(nav, homeVm)
     }
 }
 
 @Composable
-fun SearchScreenTV(nav: NavController, vm: SearchViewModel, homeVm: HomeViewModel) {
+fun SearchScreenTV(nav: NavController, homeVm: HomeViewModel) {
     val homeState by homeVm.state.collectAsState()
     val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     val settingsVm: SettingsViewModel = hiltViewModel()
     val settings by settingsVm.settings.collectAsStateWithLifecycle()
     val useNativeKeyboard = settings.enableNativeKeyboard
 
-    val query by vm.query.collectAsState()
-    val results by vm.results.collectAsState()
-    val popular by vm.popular.collectAsState()
-    val loading by vm.loading.collectAsState()
-    val loadingMore by vm.loadingMore.collectAsState()
-    val canLoadMore by vm.canLoadMore.collectAsState()
-    val error by vm.error.collectAsState()
+    val query = homeState.searchQuery
+    val homeResults by homeVm.searchResults.collectAsState()
+    val popular by homeVm.popularResults.collectAsState()
+    
+    val loading = homeState.loading
+    val loadingMore = homeState.isSearchingMore
+    val canLoadMore = homeState.canLoadMore
+    val error = homeState.error
+
     val theme = LocalZStreamTheme.current
     val hazeState = rememberHazeState()
     
@@ -88,31 +89,32 @@ fun SearchScreenTV(nav: NavController, vm: SearchViewModel, homeVm: HomeViewMode
         searchBarFocusRequester.requestFocus()
     }
     
-    val homeResults by homeVm.searchResults.collectAsState()
-    
     var focusedMedia by remember { mutableStateOf<Media?>(null) }
     
-    val items = if (homeState.isDiscoverMode && query.isBlank()) {
-        homeResults
-    } else if (query.isBlank()) {
+    val items = if (query.isBlank() && homeState.selectedSearchGenreId == null) {
         popular
     } else {
-        results
+        homeResults
     }
     
-    val actualCanLoadMore = if (homeState.isDiscoverMode && query.isBlank()) homeState.canLoadMore else canLoadMore
-    val actualLoadingMore = if (homeState.isDiscoverMode && query.isBlank()) homeState.isSearchingMore else loadingMore
-    val title = if (query.isBlank()) "Popular now" else "Search results"
+    val title = remember(query, homeState.selectedSearchGenreId, homeState.selectedSearchTab) {
+        if (query.isNotBlank()) "Search Results"
+        else if (homeState.selectedSearchGenreId != null) {
+            val genreName = when {
+                homeState.selectedSearchGenreId == 28 && homeState.selectedSearchTab == HomeTab.TV -> "Action & Adventure"
+                homeState.selectedSearchGenreId == 878 && homeState.selectedSearchTab == HomeTab.TV -> "Sci-Fi & Fantasy"
+                else -> tmdbGenres[homeState.selectedSearchGenreId] ?: "Results"
+            }
+            val tabName = if (homeState.selectedSearchTab == HomeTab.TV) "TV Shows" else "Movies"
+            "$genreName $tabName"
+        } else "Popular now"
+    }
     val gridState = rememberLazyGridState()
 
-    LaunchedEffect(gridState.firstVisibleItemIndex, gridState.layoutInfo.totalItemsCount, items.size, actualCanLoadMore, actualLoadingMore, query) {
+    LaunchedEffect(gridState.firstVisibleItemIndex, gridState.layoutInfo.totalItemsCount, items.size, canLoadMore, loadingMore, query) {
         val lastVisible = gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
-        if (actualCanLoadMore && !actualLoadingMore && items.isNotEmpty() && lastVisible >= items.lastIndex - 6) {
-            if (homeState.isDiscoverMode && query.isBlank()) {
-                homeVm.searchLoadMore()
-            } else if (query.isNotBlank()) {
-                vm.loadMore()
-            }
+        if (canLoadMore && !loadingMore && items.isNotEmpty() && lastVisible >= items.lastIndex - 6) {
+            homeVm.searchLoadMore()
         }
     }
 
@@ -172,7 +174,7 @@ fun SearchScreenTV(nav: NavController, vm: SearchViewModel, homeVm: HomeViewMode
                     ) {
                         ZsSearchField(
                             value = query,
-                            onValueChange = { vm.query.value = it },
+                            onValueChange = { homeVm.onSearchChange(it) },
                             placeholder = "Search here",
                             focusRequester = textFieldFocusRequester,
                             modifier = Modifier
@@ -224,8 +226,8 @@ fun SearchScreenTV(nav: NavController, vm: SearchViewModel, homeVm: HomeViewMode
 
                 // Virtual Keyboard
                 VirtualKeyboard(
-                    onCharClick = { vm.query.value += it },
-                    onBackspace = { if (query.isNotEmpty()) vm.query.value = query.dropLast(1) },
+                    onCharClick = { homeVm.onSearchChange(query + it) },
+                    onBackspace = { if (query.isNotEmpty()) homeVm.onSearchChange(query.dropLast(1)) },
                     invisible = useNativeKeyboard
                 )
             }
@@ -264,11 +266,11 @@ fun SearchScreenTV(nav: NavController, vm: SearchViewModel, homeVm: HomeViewMode
                                 GenrePills(
                                     selectedGenreId = if (query.isBlank()) homeState.selectedSearchGenreId else null,
                                     onSelect = {
-                                        vm.query.value = ""
                                         homeVm.setSearchGenre(it)
                                         keyboardController?.hide()
                                     },
-                                    modifier = Modifier.fillMaxWidth()
+                                    modifier = Modifier.fillMaxWidth(),
+                                    activeTab = homeState.selectedSearchTab
                                 )
                                 if (homeState.isDiscoverMode) {
                                     Row(
@@ -400,22 +402,28 @@ fun VirtualKeyboard(onCharClick: (String) -> Unit, onBackspace: () -> Unit, invi
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SearchScreenPhone(nav: NavController, vm: SearchViewModel) {
+fun SearchScreenPhone(nav: NavController, homeVm: HomeViewModel) {
     val theme = LocalZStreamTheme.current
     val scope = rememberCoroutineScope()
     val onBack = rememberSafeNavigateBack(nav, scope)
-    val query by vm.query.collectAsState()
-    val results by vm.results.collectAsState()
-    val loading by vm.loading.collectAsState()
-    val loadingMore by vm.loadingMore.collectAsState()
-    val canLoadMore by vm.canLoadMore.collectAsState()
-    val error by vm.error.collectAsState()
+    val homeState by homeVm.state.collectAsState()
+    val query = homeState.searchQuery
+    val results by homeVm.searchResults.collectAsState()
+    val popular by homeVm.popularResults.collectAsState()
+    
+    val loading = homeState.loading
+    val loadingMore = homeState.isSearchingMore
+    val canLoadMore = homeState.canLoadMore
+    val error = homeState.error
+    
     val gridState = rememberLazyGridState()
+    
+    val items = if (query.isBlank() && homeState.selectedSearchGenreId == null) popular else results
 
-    LaunchedEffect(gridState.firstVisibleItemIndex, gridState.layoutInfo.totalItemsCount, results.size, canLoadMore, loadingMore, query) {
+    LaunchedEffect(gridState.firstVisibleItemIndex, gridState.layoutInfo.totalItemsCount, items.size, canLoadMore, loadingMore, query) {
         val lastVisible = gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
-        if (query.isNotBlank() && canLoadMore && !loadingMore && results.isNotEmpty() && lastVisible >= results.lastIndex - 6) {
-            vm.loadMore()
+        if (canLoadMore && !loadingMore && items.isNotEmpty() && lastVisible >= items.lastIndex - 6) {
+            homeVm.searchLoadMore()
         }
     }
 
@@ -425,7 +433,7 @@ fun SearchScreenPhone(nav: NavController, vm: SearchViewModel) {
                 title = {
                     ZsSearchField(
                         value = query,
-                        onValueChange = { vm.query.value = it },
+                        onValueChange = { homeVm.onSearchChange(it) },
                         placeholder = "Search here",
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                         keyboardActions = KeyboardActions(),
@@ -472,7 +480,7 @@ fun SearchScreenPhone(nav: NavController, vm: SearchViewModel) {
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
-                    items(results, key = { it.id }) { media ->
+                    items(items, key = { it.id }) { media ->
                         MediaCard(media = media, onClick = { nav.navigate("detail/${media.type}/${media.id}") })
                     }
                     if (loadingMore) {
