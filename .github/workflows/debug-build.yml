@@ -32,6 +32,8 @@ jobs:
 
       - name: Assemble debug APK
         run: ./gradlew :app:assembleDebug --stacktrace
+        env:
+          RYBBIT_SITE_ID: ${{ secrets.RYBBIT_SITE_ID }}
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
