@@ -1051,6 +1051,15 @@ fun HomeScreen(
                                     onSearch = vm::onSearchChange,
                                     nav = nav,
                                     placeholder = placeholder,
+                                    selectedGenreId = state.selectedSearchGenreId,
+                                    onGenreSelected = vm::setSearchGenre,
+                                    selectedTab = state.selectedSearchTab,
+                                    onTabSelected = vm::setSearchTab,
+                                    selectedSort = state.selectedSearchSort,
+                                    onSortCycle = vm::cycleSearchSort,
+                                    selectedSortOrder = state.selectedSearchSortOrder,
+                                    onSortOrderToggle = vm::toggleSearchSortOrder,
+                                    isDiscoverMode = state.isDiscoverMode,
                                     searchBarModifier = Modifier.onGloballyPositioned {
                                         heroSearchBarTopPx = it.positionInRoot().y
                                     },
@@ -1691,6 +1700,15 @@ private fun HeroSection(
     onSearch: (String) -> Unit,
     nav: NavController,
     placeholder: String,
+    selectedGenreId: Int?,
+    onGenreSelected: (Int?) -> Unit,
+    selectedTab: HomeTab,
+    onTabSelected: (HomeTab) -> Unit,
+    selectedSort: DiscoverSort,
+    onSortCycle: () -> Unit,
+    selectedSortOrder: SortOrder,
+    onSortOrderToggle: () -> Unit,
+    isDiscoverMode: Boolean,
     focusRequester: FocusRequester? = null,
     searchBarModifier: Modifier = Modifier,
     hideSearchBar: Boolean = false,
@@ -1698,8 +1716,8 @@ private fun HeroSection(
     enabled: Boolean = true,
 ) {
     val theme = LocalZStreamTheme.current
-    var focusedMenu by remember { mutableStateOf(false) }
-    val focusMenuWidth by animateDpAsState(if (focusedMenu) 3.dp else 0.dp)
+    val isTv = LocalIsTv.current
+    val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
 
     Column(
         modifier = modifier
@@ -1730,7 +1748,75 @@ private fun HeroSection(
             )
         }
 
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(12.dp))
+        
+        DiscoveryFilters(
+            selectedGenreId = selectedGenreId,
+            onGenreSelected = onGenreSelected,
+            selectedTab = selectedTab,
+            onTabSelected = onTabSelected,
+            selectedSort = selectedSort,
+            onSortCycle = onSortCycle,
+            selectedSortOrder = selectedSortOrder,
+            onSortOrderToggle = onSortOrderToggle,
+            isDiscoverMode = isDiscoverMode,
+            enabled = enabled,
+            isTv = isTv,
+            keyboardController = keyboardController,
+            onClearFocus = { /* Hero section doesn't usually need to clear focus like overlay */ }
+        )
+
+        Spacer(Modifier.height(4.dp))
+    }
+}
+
+@Composable
+private fun DiscoveryFilters(
+    selectedGenreId: Int?,
+    onGenreSelected: (Int?) -> Unit,
+    selectedTab: HomeTab,
+    onTabSelected: (HomeTab) -> Unit,
+    selectedSort: DiscoverSort,
+    onSortCycle: () -> Unit,
+    selectedSortOrder: SortOrder,
+    onSortOrderToggle: () -> Unit,
+    isDiscoverMode: Boolean,
+    enabled: Boolean,
+    isTv: Boolean,
+    keyboardController: androidx.compose.ui.platform.SoftwareKeyboardController?,
+    onClearFocus: () -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        GenrePills(
+            selectedGenreId = selectedGenreId,
+            onSelect = {
+                onGenreSelected(it)
+                keyboardController?.hide()
+                if (!isTv) onClearFocus()
+            },
+            modifier = Modifier.fillMaxWidth(),
+            activeTab = selectedTab
+        )
+
+        if (isDiscoverMode) {
+            Spacer(Modifier.height(8.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                SortPill(
+                    sort = selectedSort,
+                    order = selectedSortOrder,
+                    onSortClick = onSortCycle,
+                    onOrderClick = onSortOrderToggle
+                )
+                TabTogglePill(
+                    selectedTab = selectedTab,
+                    onTabSelected = onTabSelected
+                )
+            }
+        }
     }
 }
 
@@ -4629,8 +4715,7 @@ private fun SearchOverlay(
     val theme = LocalZStreamTheme.current
     val isTv = LocalIsTv.current
     val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
-    var focusedMenu by remember { mutableStateOf(false) }
-    val focusMenuWidth by animateDpAsState(if (focusedMenu) 3.dp else 0.dp)
+
     Column(
         modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.Start,
@@ -4706,37 +4791,21 @@ private fun SearchOverlay(
 
         if (isSearching) {
             Spacer(Modifier.height(8.dp))
-            GenrePills(
+            DiscoveryFilters(
                 selectedGenreId = selectedGenreId,
-                onSelect = {
-                    onGenreSelected(it)
-                    keyboardController?.hide()
-                    if (!isTv) onClearFocus()
-                },
-                modifier = Modifier.fillMaxWidth(),
-                activeTab = selectedTab
+                onGenreSelected = onGenreSelected,
+                selectedTab = selectedTab,
+                onTabSelected = onTabSelected,
+                selectedSort = selectedSort,
+                onSortCycle = onSortCycle,
+                selectedSortOrder = selectedSortOrder,
+                onSortOrderToggle = onSortOrderToggle,
+                isDiscoverMode = isDiscoverMode,
+                enabled = enabled,
+                isTv = isTv,
+                keyboardController = keyboardController,
+                onClearFocus = onClearFocus
             )
-
-            if (isDiscoverMode) {
-                Spacer(Modifier.height(8.dp))
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    SortPill(
-                        sort = selectedSort,
-                        order = selectedSortOrder,
-                        onSortClick = onSortCycle,
-                        onOrderClick = onSortOrderToggle
-                    )
-                    TabTogglePill(
-                        selectedTab = selectedTab,
-                        onTabSelected = onTabSelected
-                    )
-                }
-            }
         }
     }
 }
@@ -4940,6 +5009,15 @@ private fun TvHomeScreenContent(
                             onSearch = vm::onSearchChange,
                             nav = nav,
                             placeholder = placeholder,
+                            selectedGenreId = state.selectedSearchGenreId,
+                            onGenreSelected = vm::setSearchGenre,
+                            selectedTab = state.selectedSearchTab,
+                            onTabSelected = vm::setSearchTab,
+                            selectedSort = state.selectedSearchSort,
+                            onSortCycle = vm::cycleSearchSort,
+                            selectedSortOrder = state.selectedSearchSortOrder,
+                            onSortOrderToggle = vm::toggleSearchSortOrder,
+                            isDiscoverMode = state.isDiscoverMode,
                             focusRequester = searchBarFocusRequester,
                             enabled = !state.isOffline,
                             modifier = Modifier
