@@ -29,6 +29,8 @@ class TmdbRepository @Inject constructor(private val api: TmdbApi) {
     suspend fun topRatedTvPage(page: Int) = api.topRatedTv(page).toMediaResult("tv")
     suspend fun onAirTvPage(page: Int) = api.onAirTv(page).toMediaResult("tv")
     suspend fun trendingTvPage(page: Int) = api.trendingTv(page).toMediaResult("tv")
+    suspend fun discoverMoviesPage(genreId: Int?, sortBy: String?, page: Int) = api.discoverMovies(genreId?.toString(), sortBy, page).toMediaResult("movie")
+    suspend fun discoverTvPage(genreId: Int?, sortBy: String?, page: Int) = api.discoverTv(genreId?.toString(), sortBy, page).toMediaResult("tv")
     suspend fun search(
         query: String,
         page: Int = 1,
