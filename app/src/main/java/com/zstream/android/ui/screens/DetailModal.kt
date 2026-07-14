@@ -128,6 +128,7 @@ enum class WatchBulkAction { MarkWatched, ClearHistory }
 @Composable
 fun MovieDetailModal(
     detail: MovieDetail,
+    certification: String?,
     nav: NavController,
     context: android.content.Context,
     theme: ZStreamTheme,
@@ -190,6 +191,7 @@ fun MovieDetailModal(
     ) {
         SharedMovieDetailContent(
             detail = detail,
+            certification = certification,
             context = context,
             nav = nav,
             theme = theme,
@@ -650,6 +652,7 @@ private fun CollectionPartCard(
 @Composable
 fun TvDetailModal(
     detail: TvDetail,
+    certification: String?,
     selectedSeason: Season?,
     allProgress: List<ProgressEntity>,
     nav: NavController,
@@ -719,6 +722,7 @@ fun TvDetailModal(
     ) {
         SharedTvDetailContent(
             detail = detail,
+            certification = certification,
             selectedSeason = selectedSeason,
             allProgress = allProgress,
             context = context,

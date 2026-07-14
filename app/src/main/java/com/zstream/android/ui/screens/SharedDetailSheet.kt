@@ -287,6 +287,7 @@ internal fun SharedDetailSheetHero(
 @Composable
 internal fun ColumnScope.SharedMovieDetailContent(
     detail: MovieDetail,
+    certification: String?,
     context: android.content.Context,
     nav: NavController,
     theme: ZStreamTheme,
@@ -340,7 +341,7 @@ internal fun ColumnScope.SharedMovieDetailContent(
                         SharedDetailSpec("Language", "EN", theme)
                     }
                     Box(Modifier.weight(1f)) {
-                        SharedDetailSpec("Rating", "PG-13", theme)
+                        SharedDetailSpec("Rating", certification?.takeIf { it.isNotBlank() } ?: "—", theme)
                     }
                 }
                 specActions()
@@ -360,6 +361,7 @@ internal fun ColumnScope.SharedMovieDetailContent(
 @Composable
 internal fun ColumnScope.SharedTvDetailContent(
     detail: TvDetail,
+    certification: String?,
     selectedSeason: Season?,
     allProgress: List<ProgressEntity>,
     context: android.content.Context,
@@ -422,7 +424,7 @@ internal fun ColumnScope.SharedTvDetailContent(
                         SharedDetailSpec("Language", "EN", theme)
                     }
                     Box(Modifier.weight(1f)) {
-                        SharedDetailSpec("Rating", "TV-14", theme)
+                        SharedDetailSpec("Rating", certification?.takeIf { it.isNotBlank() } ?: "—", theme)
                     }
                 }
                 specActions()
