@@ -66,7 +66,7 @@ fun SearchScreen(
 @Composable
 fun SearchScreenTV(nav: NavController, vm: SearchViewModel, homeVm: HomeViewModel) {
     val homeState by homeVm.state.collectAsState()
-    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+    val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     val settingsVm: SettingsViewModel = hiltViewModel()
     val settings by settingsVm.settings.collectAsStateWithLifecycle()
     val useNativeKeyboard = settings.enableNativeKeyboard
@@ -262,11 +262,11 @@ fun SearchScreenTV(nav: NavController, vm: SearchViewModel, homeVm: HomeViewMode
                                     fontWeight = FontWeight.Bold,
                                 )
                                 GenrePills(
-                                    selectedGenreId = homeState.selectedSearchGenreId,
+                                    selectedGenreId = if (query.isBlank()) homeState.selectedSearchGenreId else null,
                                     onSelect = {
                                         vm.query.value = ""
                                         homeVm.setSearchGenre(it)
-                                        focusManager.clearFocus()
+                                        keyboardController?.hide()
                                     },
                                     modifier = Modifier.fillMaxWidth()
                                 )

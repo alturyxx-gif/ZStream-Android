@@ -1943,6 +1943,16 @@ internal fun TabTogglePill(
                     modifier = Modifier
                         .fillMaxHeight()
                         .clip(shape)
+                        .background(
+                            if (selected) theme.colors.global.accentA 
+                            else Color.Transparent
+                        )
+                        .border(
+                            1.dp,
+                            if (selected) theme.colors.type.divider.copy(alpha = 0.4f) 
+                            else Color.Transparent,
+                            shape
+                        )
                         .onFocusChanged { isTabFocused = it.isFocused }
                         .clickable { onTabSelected(tab) }
                         .padding(horizontal = 16.dp, vertical = 8.dp),
@@ -1950,7 +1960,7 @@ internal fun TabTogglePill(
                 ) {
                     Text(
                         text = label,
-                        color = if (selected) theme.colors.global.accentA else theme.colors.type.dimmed,
+                        color = if (selected) theme.colors.type.emphasis else theme.colors.type.dimmed,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
                     )
