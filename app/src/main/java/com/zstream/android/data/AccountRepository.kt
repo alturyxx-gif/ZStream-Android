@@ -119,8 +119,8 @@ class AccountRepository @Inject constructor(
 
     //  Passkey auth 
 
-    suspend fun loginWithPasskey(deviceName: String = "Android"): AccountSession {
-        val credId = CryptoUtils.authenticatePasskey(ctx)
+    suspend fun loginWithPasskey(activityContext: Context, deviceName: String = "Android"): AccountSession {
+        val credId = CryptoUtils.authenticatePasskey(activityContext)
         val keys   = CryptoUtils.keysFromSeed(CryptoUtils.pbkdf2(credId))
         return challengeLogin(keys.publicKey.toBase64Url(), keys.privateKey, keys.seed, deviceName, true)
     }
@@ -133,8 +133,8 @@ class AccountRepository @Inject constructor(
         return challengeLogin(keys.publicKey.toBase64Url(), keys.privateKey, keys.seed, deviceName, true)
     }
 
-    suspend fun registerWithPasskey(userName: String, deviceName: String = "Android"): AccountSession {
-        val credId = CryptoUtils.createPasskey(ctx, userName)
+    suspend fun registerWithPasskey(activityContext: Context, userName: String, deviceName: String = "Android"): AccountSession {
+        val credId = CryptoUtils.createPasskey(activityContext, userName)
         val keys   = CryptoUtils.keysFromSeed(CryptoUtils.pbkdf2(credId))
         return challengeRegister(keys.publicKey.toBase64Url(), keys.privateKey, keys.seed, deviceName, true)
     }

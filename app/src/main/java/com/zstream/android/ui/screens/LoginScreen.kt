@@ -124,6 +124,7 @@ private fun BoxScope.LoginPanel(
     var deviceName by remember { mutableStateOf("Android") }
     var showPassphrase by remember { mutableStateOf(false) }
     val focusManager = LocalFocusManager.current
+    val context = LocalContext.current
 
     Column(
         modifier = Modifier.align(Alignment.Center).fillMaxWidth().padding(horizontal = 32.dp),
@@ -189,7 +190,7 @@ private fun BoxScope.LoginPanel(
         {
             ZsButton(
                 text = "Sign in with Passkey",
-                onClick = { vm.loginWithPasskey(deviceName.ifBlank { "Android" }) },
+                onClick = { vm.loginWithPasskey(context, deviceName.ifBlank { "Android" }) },
                 enabled = authState !is AuthState.Loading,
                 modifier = Modifier.fillMaxWidth().height(47.dp),
                 variant = ZsButtonVariant.Secondary,
@@ -198,7 +199,7 @@ private fun BoxScope.LoginPanel(
 
             ZsButton(
                 text = "Create account with Passkey",
-                onClick = { vm.registerWithPasskey(deviceName.ifBlank { "Android" }) },
+                onClick = { vm.registerWithPasskey(context, deviceName.ifBlank { "Android" }) },
                 enabled = authState !is AuthState.Loading && deviceName.isNotBlank(),
                 modifier = Modifier.fillMaxWidth().height(47.dp),
                 variant = ZsButtonVariant.Secondary,
@@ -302,6 +303,7 @@ private fun BoxScope.ConfirmRegisterPanel(
     val isTv = LocalIsTv.current
     var deviceName by remember { mutableStateOf("Android") }
     val focusManager = LocalFocusManager.current
+    val context = LocalContext.current
 
     Column(
         modifier = Modifier.align(Alignment.Center).fillMaxWidth().padding(horizontal = 32.dp),
@@ -345,7 +347,7 @@ private fun BoxScope.ConfirmRegisterPanel(
         {
             ZsButton(
                 text = "Create with Passkey",
-                onClick = { vm.registerWithPasskey(deviceName.ifBlank { "Android" }) },
+                onClick = { vm.registerWithPasskey(context, deviceName.ifBlank { "Android" }) },
                 enabled = authState !is AuthState.Loading && deviceName.isNotBlank(),
                 modifier = Modifier.height(48.dp),
                 variant = ZsButtonVariant.Secondary,

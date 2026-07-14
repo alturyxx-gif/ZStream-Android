@@ -44,11 +44,17 @@ class AccountViewModel @Inject constructor(
 
     private var lastSyncedSettingsJson: String? = null
 
+    // Set right before register()/registerWithPasskey() so the session watcher below knows to
+    // seed the backend with this device's settings instead of pulling the new account's (empty) ones.
+    private var pendingNewAccount = false
+
     init {
         // Auto-fetch sync data whenever session is available
         viewModelScope.launch {
             session.first { it != null }
-            syncManager.syncAllFromRemote()
+            val isNewAccount = pendingNewAccount
+            pendingNewAccount = false
+            syncManager.syncAllFromRemote(pushLocalSettingsFirst = isNewAccount)
             // Snapshot current syncable fields so the watcher won't push them back
             lastSyncedSettingsJson = settingsPrefs.settings.first().toSyncableJsonString()
             // Start watching local settings changes to push to remote
@@ -85,16 +91,16 @@ class AccountViewModel @Inject constructor(
         repo.login(passphrase, device)
     }
 
-    fun register(passphrase: String, device: String = "Android") = launch {
+    fun register(passphrase: String, device: String = "Android") = launch(isNewAccount = true) {
         repo.register(passphrase, device)
     }
 
-    fun loginWithPasskey(device: String = "Android") = launch {
-        repo.loginWithPasskey(device)
+    fun loginWithPasskey(activityContext: android.content.Context, device: String = "Android") = launch {
+        repo.loginWithPasskey(activityContext, device)
     }
 
-    fun registerWithPasskey(userName: String, device: String = "Android") = launch {
-        repo.registerWithPasskey(userName, device)
+    fun registerWithPasskey(activityContext: android.content.Context, userName: String, device: String = "Android") = launch(isNewAccount = true) {
+        repo.registerWithPasskey(activityContext, userName, device)
     }
 
     fun logout() {
@@ -192,12 +198,18 @@ class AccountViewModel @Inject constructor(
         if (s == null) return
     }
 
-    private fun launch(block: suspend () -> AccountSession) {
+    private fun launch(isNewAccount: Boolean = false, block: suspend () -> AccountSession) {
         viewModelScope.launch {
             authState.value = AuthState.Loading
+            if (isNewAccount) pendingNewAccount = true
             runCatching { block() }
                 .onSuccess { authState.value = AuthState.Success(it) }
-                .onFailure { authState.value = AuthState.Error(it.message ?: "Unknown error") }
+                .onFailure {
+                    // Failed registration attempt -- don't let a later successful login push
+                    // local settings over the (unrelated) account's real synced settings.
+                    if (isNewAccount) pendingNewAccount = false
+                    authState.value = AuthState.Error(it.message ?: "Unknown error")
+                }
         }
     }
 }
