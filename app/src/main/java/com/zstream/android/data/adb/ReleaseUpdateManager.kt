@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
@@ -19,8 +20,13 @@ import androidx.work.WorkerParameters
 import com.zstream.android.MainActivity
 import com.zstream.android.R
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CoroutineExceptionHandler
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
@@ -60,6 +66,15 @@ internal fun releaseChanged(previousHashes: String?, previousVersion: String?, l
     previousHashes != null && previousVersion != null &&
         (previousHashes != latest.hashes || previousVersion != latest.version)
 
+/** Strips a leading "v"/"V" so release tags ("v1.3") and BuildConfig.VERSION_NAME ("v1.2") compare equal regardless of casing/prefix. */
+internal fun normalizeReleaseVersion(v: String): String = v.trim().removePrefix("v").removePrefix("V")
+
+/** True once the release we'd otherwise notify about is the version already running -- covers the
+ * case where the user side-loaded the latest APK themselves (outside this manager's own baseline
+ * tracking), so the stored hash/version baseline is stale but there's genuinely nothing to update. */
+internal fun isAlreadyRunning(latestVersion: String, installedVersion: String): Boolean =
+    normalizeReleaseVersion(latestVersion) == normalizeReleaseVersion(installedVersion)
+
 data class ReleaseUpdateLaunch(val openTvInstaller: Boolean)
 
 object ReleaseUpdateNavigation {
@@ -82,6 +97,11 @@ class ReleaseUpdateManager @Inject constructor(
     private val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
     private val _enabled = MutableStateFlow(prefs.getBoolean(KEY_ENABLED, true))
     private val _interval = MutableStateFlow(ReleaseCheckInterval.fromLabel(prefs.getString(KEY_INTERVAL, null).orEmpty()))
+    private val scope = CoroutineScope(
+        SupervisorJob() + Dispatchers.IO + CoroutineExceptionHandler { _, e ->
+            Log.w("ReleaseUpdateManager", "Launch update check failed", e)
+        }
+    )
 
     val enabled = _enabled.asStateFlow()
     val interval = _interval.asStateFlow()
@@ -92,7 +112,40 @@ class ReleaseUpdateManager @Inject constructor(
 
     fun start() {
         createNotificationChannel()
+        healStalePendingUpdate()
         schedule()
+        checkOnLaunch()
+    }
+
+    /**
+     * Synchronous, no-network self-heal for a pending-update flag left over from before the user
+     * side-loaded the very release it points at -- e.g. they installed the latest APK by hand
+     * outside this manager's own tracked baseline. Runs before the async launch check so a stale
+     * "update available" prompt never flashes on screen even for a moment after the app reopens
+     * already-updated.
+     */
+    private fun healStalePendingUpdate() {
+        if (!hasPendingUpdate) return
+        val pending = pendingVersion.takeIf { it.isNotBlank() } ?: return
+        if (isAlreadyRunning(pending, com.zstream.android.BuildConfig.VERSION_NAME)) {
+            clearPendingUpdate()
+        }
+    }
+
+    /**
+     * Fire-and-forget check run once per app open, in addition to the periodic WorkManager job --
+     * catches updates published between periodic runs (which can be as sparse as once a week)
+     * without waiting for the next scheduled check. Respects the same "disable background checks"
+     * flag as the periodic job, and reuses checkForUpdate()'s hash/version baseline so it never
+     * re-notifies for a release the user has already been told about (whether that notification
+     * came from this launch check or the periodic worker).
+     */
+    fun checkOnLaunch() {
+        if (!_enabled.value || repositoryUrl.isBlank()) return
+        scope.launch {
+            val apks = GithubReleaseCatalog().loadAllApks(repositoryUrl)
+            if (checkForUpdate(apks)) showUpdateNotification()
+        }
     }
 
     fun setRepositoryUrl(url: String) {
@@ -129,6 +182,14 @@ class ReleaseUpdateManager @Inject constructor(
 
     fun checkForUpdate(apks: List<GithubApkAsset>): Boolean {
         val latest = latestReleaseSnapshot(apks) ?: return false
+        if (isAlreadyRunning(latest.version, com.zstream.android.BuildConfig.VERSION_NAME)) {
+            // Covers side-loading the latest APK outside this manager's own tracked baseline
+            // (e.g. installing it by hand) -- without this the stale hash/version baseline would
+            // otherwise re-fire the "update available" notification for a release already running.
+            saveBaseline(latest)
+            clearPendingUpdate()
+            return false
+        }
         val previousHashes = prefs.getString(KEY_HASHES, null)
         val previousVersion = prefs.getString(KEY_VERSION, null)
         if (previousHashes == null || previousVersion == null) {

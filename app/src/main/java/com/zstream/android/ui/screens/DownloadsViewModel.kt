@@ -86,8 +86,9 @@ class DownloadsViewModel @Inject constructor(
         }
         viewModelScope.launch {
             withContext(Dispatchers.IO) {
-                entity.filePath?.let { runCatching { storage.deleteByDisplayPath(it); storage.deleteEmptyFolder(it) } }
-                entity.subtitlePaths?.forEach { path -> runCatching { storage.deleteByDisplayPath(path) } }
+                val treeUri = entity.storageTreeUri?.let(Uri::parse)
+                entity.filePath?.let { runCatching { storage.deleteByDisplayPath(it, treeUri); storage.deleteEmptyFolder(it, treeUri) } }
+                entity.subtitlePaths?.forEach { path -> runCatching { storage.deleteByDisplayPath(path, treeUri) } }
                 downloadDao.delete(entity)
             }
             refreshFreeSpace()

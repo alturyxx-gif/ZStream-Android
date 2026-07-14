@@ -139,6 +139,7 @@ class MainActivity : ComponentActivity() {
                             LocalIsTv provides isTv
                         ) {
                             NavGraph(navController)
+                            com.zstream.android.ui.screens.DownloadDestinationPrompt()
                         }
                     }
                 }

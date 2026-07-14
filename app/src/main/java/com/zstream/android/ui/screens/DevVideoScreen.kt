@@ -47,9 +47,7 @@ import org.json.JSONObject
 
 private const val DEV_HLS_TEST_URL = "https://alpha-charlott.github.io/video-openh264/Sintel_master.m3u8"
 private const val DEV_MP4_TEST_URL = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4"
-
-// TODO: temporary hardcoded default while adding MKV support -- remove once that's verified.
-private const val DEV_MKV_TEST_URL = "https://cdn.pixeldrain.eu.cc/8KHASrTM"
+private const val DEV_MKV_TEST_URL = ""
 
 /**
  * Dev-only stream tester -- replicates the website's /dev/video tool: paste a raw stream URL,

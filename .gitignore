@@ -40,3 +40,5 @@ xp-turnstile/
 *.aar
 *.txt
 replay_pid9984.log
+
+*.png

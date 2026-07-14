@@ -1894,7 +1894,12 @@ private fun SourceOrderDialog(
                 Text("No sources available yet.", color = theme.colors.type.dimmed, fontSize = 13.sp, modifier = Modifier.padding(vertical = 12.dp))
             }
 
-            Column(Modifier.fillMaxWidth()) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 420.dp)
+                    .verticalScroll(rememberScrollState())
+            ) {
                 items.forEachIndexed { index, source ->
                     val isDragging = draggedIndex == index
                     Box(

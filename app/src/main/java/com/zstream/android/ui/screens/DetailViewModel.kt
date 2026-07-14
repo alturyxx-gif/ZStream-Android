@@ -483,6 +483,7 @@ class DetailViewModel @Inject constructor(
         val key = "null|null"
         if (key in _pendingDownloads.value) return
         viewModelScope.launch {
+            val destination = com.zstream.android.download.DownloadDestinationBroker.chooseTreeUri() ?: return@launch
             _pendingDownloads.value = _pendingDownloads.value + key
             try {
                 downloadResolver.resolveAndEnqueue(
@@ -491,6 +492,7 @@ class DetailViewModel @Inject constructor(
                     title = current.detail.title,
                     year = current.detail.releaseDate?.take(4)?.toIntOrNull(),
                     posterPath = current.detail.posterPath,
+                    destinationTreeUri = destination.treeUri,
                 )
             } finally {
                 _pendingDownloads.value = _pendingDownloads.value - key
@@ -503,6 +505,7 @@ class DetailViewModel @Inject constructor(
         val key = "${episode.seasonNumber}|${episode.episodeNumber}"
         if (key in _pendingDownloads.value) return
         viewModelScope.launch {
+            val destination = com.zstream.android.download.DownloadDestinationBroker.chooseTreeUri() ?: return@launch
             _pendingDownloads.value = _pendingDownloads.value + key
             try {
                 downloadResolver.resolveAndEnqueue(
@@ -514,6 +517,7 @@ class DetailViewModel @Inject constructor(
                     season = episode.seasonNumber,
                     episode = episode.episodeNumber,
                     episodeTitle = episode.name,
+                    destinationTreeUri = destination.treeUri,
                 )
             } finally {
                 _pendingDownloads.value = _pendingDownloads.value - key
@@ -528,6 +532,8 @@ class DetailViewModel @Inject constructor(
         val targets = season.episodes.orEmpty()
             .filterNot { alreadyDownloaded.contains("${it.seasonNumber}|${it.episodeNumber}") }
         viewModelScope.launch {
+            // Asked once for the whole season, not once per episode.
+            val destination = com.zstream.android.download.DownloadDestinationBroker.chooseTreeUri() ?: return@launch
             targets.forEach { episode ->
                 val key = "${episode.seasonNumber}|${episode.episodeNumber}"
                 if (key in _pendingDownloads.value) return@forEach
@@ -542,6 +548,7 @@ class DetailViewModel @Inject constructor(
                         season = episode.seasonNumber,
                         episode = episode.episodeNumber,
                         episodeTitle = episode.name,
+                        destinationTreeUri = destination.treeUri,
                     )
                 } finally {
                     _pendingDownloads.value = _pendingDownloads.value - key

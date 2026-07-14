@@ -64,6 +64,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.Group
@@ -77,6 +78,7 @@ import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material.icons.filled.VolumeUp
@@ -265,6 +267,7 @@ private const val PLAYBACK_SPEED_MAX = 5f
 private const val RESUME_DIALOG_COMPLETION_THRESHOLD = 0.95f
 private val MANUAL_SOURCE_PANEL_WIDTH = 343.dp
 private val MANUAL_SOURCE_PANEL_HEIGHT = 431.dp
+private val MANUAL_SOURCE_PANEL_MAX_HEIGHT = 560.dp
 private val SKIP_SEGMENT_BUTTON_WIDTH = 160.dp
 private val SKIP_SEGMENT_BAR_COLORS = mapOf(
     "intro" to Color(0xBF6366F1),
@@ -317,8 +320,17 @@ private fun SubtitleTrackBadges(track: SubtitleTrack) {
 }
 
 internal enum class PlayerMenuPage {
-    Root, Captions, CaptionLanguage, CaptionSettings, Playback, Sources, Quality, Audio, Download, DownloadQuality, DownloadAudio, WatchParty, SkipSegments, Seasons, Episodes, Variants, LocalFile
+    Root, Captions, CaptionLanguage, CaptionSettings, Playback, Sources, Quality, Audio, Download, DownloadQuality, DownloadAudio, WatchParty, SkipSegments, Seasons, Episodes, Variants, LocalFile, TranslateSubtitle
 }
+
+// https://developers.google.com/workspace/admin/directory/v1/languages -- same list p-stream ships
+// for its Google Translate target-language picker (TranslateSubtitleView.tsx).
+internal val TRANSLATE_TARGET_LANGUAGES = listOf(
+    "am", "ar", "eu", "bn", "en-GB", "pt-BR", "bg", "ca", "chr", "hr", "cs", "da", "nl", "en", "et",
+    "fil", "fi", "fr", "de", "el", "gu", "iw", "hi", "hu", "is", "id", "it", "ja", "kn", "ko", "lv",
+    "lt", "ms", "ml", "mr", "no", "pl", "pt-PT", "ro", "ru", "sr", "zh-CN", "sk", "sl", "es", "sw",
+    "sv", "ta", "te", "th", "zh-TW", "tr", "ur", "uk", "vi", "cy",
+)
 
 internal data class LocalFileInfo(
     val fileName: String,
@@ -678,7 +690,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                         .align(Alignment.Center)
                         .padding(vertical = 10.dp)
                         .width(MANUAL_SOURCE_PANEL_WIDTH)
-                        .heightIn(min = MANUAL_SOURCE_PANEL_HEIGHT),
+                        .heightIn(min = MANUAL_SOURCE_PANEL_HEIGHT, max = MANUAL_SOURCE_PANEL_MAX_HEIGHT),
                     color = theme.colors.modal.background.copy(alpha = 0.98f),
                     shape = RoundedCornerShape(24.dp),
                     border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.type.emphasis.copy(alpha = 0.08f))
@@ -688,6 +700,8 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .weight(1f, fill = false)
+                                .verticalScroll(rememberScrollState())
                                 .padding(horizontal = PLAYER_MENU_INNER_HORIZONTAL_PADDING)
                                 .padding(top = 10.dp)
                         ) {
@@ -823,7 +837,8 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                                 DefaultHttpDataSource.Factory()
                                     .setDefaultRequestProperties(headers)
                                     .setConnectTimeoutMs(30_000)
-                                    .setReadTimeoutMs(30_000),
+                                    .setReadTimeoutMs(30_000)
+                                    .setAllowCrossProtocolRedirects(true),
                             )
                         )
                         .setEventListener(object : EventListener {
@@ -1783,6 +1798,9 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     onSelectSubtitle = vm::selectSubtitle,
                     onAutoSelectSubtitle = vm::autoSelectSubtitle,
                     onDisableSubtitles = vm::disableSubtitles,
+                    translateTask = vm.translateTask.collectAsState().value,
+                    onTranslateCaption = vm::translateCaption,
+                    onClearTranslateTask = vm::clearTranslateTask,
                     onUpdateSettings = vm::updatePlayerSettings,
                     onSetSubtitleDelay = vm::setSubtitleDelay,
                     onSetOverrideCasing = vm::setOverrideCasing,
@@ -2629,6 +2647,9 @@ internal fun PlayerControls(
     onSelectSubtitle: (String) -> Unit,
     onAutoSelectSubtitle: () -> Unit,
     onDisableSubtitles: () -> Unit,
+    translateTask: TranslateTask? = null,
+    onTranslateCaption: (SubtitleTrack, String) -> Unit = { _, _ -> },
+    onClearTranslateTask: () -> Unit = {},
     onUpdateSettings: (com.zstream.android.data.local.entity.SettingsEntity) -> Unit,
     onSetSubtitleDelay: (Float) -> Unit,
     onSetOverrideCasing: (Boolean) -> Unit,
@@ -2737,6 +2758,7 @@ internal fun PlayerControls(
     var doubleTapSeekDirection by remember { mutableStateOf<DoubleTapSeekDirection?>(null) }
     var doubleTapSeekAnimationId by remember { mutableIntStateOf(0) }
     var captionLanguage by remember { mutableStateOf<String?>(null) }
+    var translateSourceTrack by remember { mutableStateOf<SubtitleTrack?>(null) }
     var showSpeedIndicator by remember { mutableStateOf(false) }
     var isSpeedBoosted by remember { mutableStateOf(false) }
     var boostedPreviousSpeed by remember { mutableFloatStateOf(1f) }
@@ -4041,6 +4063,8 @@ internal fun PlayerControls(
                         selectedSubtitleLanguage = selectedSubtitleLanguage,
                         selectedSubtitleId = selectedSubtitleId,
                         captionLanguage = captionLanguage,
+                        translateSourceTrack = translateSourceTrack,
+                        translateTask = translateTask,
                         subtitlesEnabled = subtitlesEnabled,
                         subtitleTracks = readyState.subtitles,
                         playbackSpeed = playbackSpeed,
@@ -4068,6 +4092,14 @@ internal fun PlayerControls(
                         onSetSubtitleDelay = onSetSubtitleDelay,
                         onSelectSubtitle = onSelectSubtitle,
                         onAutoSelectSubtitle = onAutoSelectSubtitle,
+                        onOpenTranslate = { track ->
+                            translateSourceTrack = track
+                            onMenuPageChange(PlayerMenuPage.TranslateSubtitle)
+                        },
+                        onTranslateCaption = { lang ->
+                            translateSourceTrack?.let { onTranslateCaption(it, lang) }
+                        },
+                        onClearTranslateTask = onClearTranslateTask,
                         onSetEnableAutoplay = onSetEnableAutoplay,
                         onSetVideoBrightness = onSetVideoBrightness,
                         onSetVolumeBoost = onSetVolumeBoost,
@@ -4662,6 +4694,8 @@ private fun PlayerMenuContent(
     selectedSubtitleLanguage: String?,
     selectedSubtitleId: String?,
     captionLanguage: String?,
+    translateSourceTrack: SubtitleTrack? = null,
+    translateTask: TranslateTask? = null,
     subtitlesEnabled: Boolean,
     subtitleTracks: List<SubtitleTrack>,
     playbackSpeed: Float,
@@ -4687,6 +4721,9 @@ private fun PlayerMenuContent(
     onSetOverrideCasing: (Boolean) -> Unit,
     onSelectSubtitle: (String) -> Unit,
     onAutoSelectSubtitle: () -> Unit,
+    onOpenTranslate: (SubtitleTrack) -> Unit = {},
+    onTranslateCaption: (String) -> Unit = {},
+    onClearTranslateTask: () -> Unit = {},
     onSetEnableAutoplay: (Boolean) -> Unit,
     onSetVideoBrightness: (Int) -> Unit,
     onSetVolumeBoost: (Int) -> Unit,
@@ -4785,6 +4822,9 @@ private fun PlayerMenuContent(
                     PlayerMenuPage.Episodes -> currentSeason?.let { "Season $it" } ?: "Episodes"
                     PlayerMenuPage.Variants -> "Stream Variants"
                     PlayerMenuPage.LocalFile -> "File"
+                    PlayerMenuPage.TranslateSubtitle -> translateSourceTrack?.let {
+                        "Translate ${subtitleLanguageName(it.language)}"
+                    } ?: "Translate"
                 },
                 showBack = !hideBackButton,
                 onBack = onBack,
@@ -4948,9 +4988,62 @@ private fun PlayerMenuContent(
                                     selected = subtitlesEnabled && selectedSubtitleId == track.id,
                                     onClick = { onSelectSubtitle(track.id) },
                                     focusRequester = firstItemFocusRequester.takeIf { index == 0 },
-                                    rightContent = { SubtitleTrackBadges(track) },
+                                    rightContent = {
+                                        SubtitleTrackBadges(track)
+                                        if (track.source != "translated") {
+                                            IconButton(onClick = { onOpenTranslate(track) }, modifier = Modifier.size(28.dp)) {
+                                                Icon(
+                                                    Icons.Filled.Translate,
+                                                    contentDescription = "Translate",
+                                                    tint = playerMenuDimText(),
+                                                    modifier = Modifier.size(18.dp),
+                                                )
+                                            }
+                                        }
+                                    },
                                     icon = languageToFlag(track.language),
                                 )
+                            }
+                        }
+                    }
+
+                    PlayerMenuPage.TranslateSubtitle -> {
+                        val sourceTrack = translateSourceTrack
+                        if (sourceTrack == null) {
+                            PlayerMenuStubCard("No subtitle selected to translate.")
+                        } else {
+                            PlayerMenuSection {
+                                TRANSLATE_TARGET_LANGUAGES
+                                    .filter { it != sourceTrack.language && !it.startsWith("${sourceTrack.language}-") }
+                                    .forEachIndexed { index, lang ->
+                                        val isThisTarget = translateTask?.targetLanguage == lang &&
+                                            translateTask.sourceTrack.id == sourceTrack.id
+                                        PlayerMenuSelectableRow(
+                                            title = subtitleLanguageName(lang),
+                                            selected = isThisTarget && translateTask?.done == true,
+                                            disabled = translateTask != null && !translateTask.done && !translateTask.error && !isThisTarget,
+                                            onClick = {
+                                                if (translateTask == null || translateTask.done || translateTask.error) {
+                                                    onClearTranslateTask()
+                                                    onTranslateCaption(lang)
+                                                }
+                                            },
+                                            focusRequester = firstItemFocusRequester.takeIf { index == 0 },
+                                            icon = languageToFlag(lang),
+                                            rightContent = {
+                                                when {
+                                                    isThisTarget && translateTask?.error == true -> Icon(
+                                                        Icons.Filled.ErrorOutline, contentDescription = "Failed",
+                                                        tint = theme.colors.type.danger, modifier = Modifier.size(18.dp),
+                                                    )
+                                                    isThisTarget && translateTask?.done == false -> CircularProgressIndicator(
+                                                        modifier = Modifier.size(16.dp), strokeWidth = 2.dp,
+                                                    )
+                                                    else -> {}
+                                                }
+                                            },
+                                        )
+                                    }
                             }
                         }
                     }

@@ -67,6 +67,12 @@ fun formatFreeSpace(freeBytes: Long, totalBytes: Long): String {
     return "%.1f GB / %.0f GB free".format(gb(freeBytes), gb(totalBytes))
 }
 
+/** Prefixes a stored displayPath with where it actually lives, since the relative path alone
+ * ("ZStream/Title (Year)/...") reads as the app's own folder even when the file is really on an
+ * external SAF tree the user picked as their download destination. */
+private fun locationLabel(entity: DownloadEntity, path: String): String =
+    if (entity.storageTreeUri != null) "External / $path" else path
+
 private fun posterUrl(posterPath: String?): String? {
     if (posterPath.isNullOrBlank()) return null
     if (posterPath.startsWith("http")) return posterPath
@@ -211,7 +217,7 @@ fun DownloadsScreen(nav: NavController) {
                     )
                     entity.filePath?.let { path ->
                         Spacer(Modifier.height(10.dp))
-                        Text(path, color = theme.colors.type.dimmed, fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Text(locationLabel(entity, path), color = theme.colors.type.dimmed, fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     }
                 }
             },
@@ -662,7 +668,7 @@ private fun DownloadItem(
 
                 if (entity.status == DownloadStatus.DONE && entity.filePath != null) {
                     Spacer(Modifier.height(6.dp))
-                    Text(entity.filePath, color = theme.colors.type.dimmed, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(locationLabel(entity, entity.filePath), color = theme.colors.type.dimmed, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
             Spacer(Modifier.width(8.dp))
@@ -841,7 +847,7 @@ private fun localMediaTitle(media: LocalMediaEntity): String {
 
 private fun statusLabel(entity: DownloadEntity): String = when (entity.status) {
     DownloadStatus.QUEUED -> "Queued"
-    DownloadStatus.DOWNLOADING -> "Downloading ${entity.progressPercent}%"
+    DownloadStatus.DOWNLOADING -> entity.statusMessage?.let { "Stalled at ${entity.progressPercent}%: $it" } ?: "Downloading ${entity.progressPercent}%"
     DownloadStatus.REMUXING -> "Remuxing ${entity.progressPercent}%"
     DownloadStatus.PAUSED -> "Paused at ${entity.progressPercent}%"
     DownloadStatus.DONE -> "Downloaded"
@@ -881,6 +887,7 @@ private fun leftProgressLineFor(entity: DownloadEntity): String {
 }
 
 private fun rightProgressLineFor(entity: DownloadEntity): String {
+    entity.statusMessage?.let { return it }
     val parts = mutableListOf<String>()
     if (entity.segTotal > 0) {
         parts.add("${entity.segDone}/${entity.segTotal} segments")

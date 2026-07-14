@@ -239,9 +239,34 @@ data class PauseMetadata(
 
 data class SubtitleCue(val startMs: Long, val endMs: Long, val text: String)
 
+/** Mirrors p-stream's TranslateTask (stores/player/slices/source.ts) -- tracks one in-flight
+ * "translate this caption to X" request so the UI can show loading/done/error per target language. */
+data class TranslateTask(
+    val sourceTrack: SubtitleTrack,
+    val targetLanguage: String,
+    val done: Boolean = false,
+    val error: Boolean = false,
+)
+
 internal fun vttCueBlocks(body: String): List<String> =
     body.replace(Regex("(\n)(?=\\d{1,2}:\\d{2}(?::\\d{2})?\\.\\d{1,3}\\s*-->)"), "\n\n")
         .split(Regex("\n\\s*\n"))
+
+private val SUBTITLE_TAG_REGEX = Regex("</?[a-zA-Z][^>]*>")
+private val SUBTITLE_ENTITIES = mapOf(
+    "&amp;" to "&", "&lt;" to "<", "&gt;" to ">", "&quot;" to "\"", "&#39;" to "'", "&apos;" to "'", "&nbsp;" to " ",
+)
+
+/** Strips markup like `<font color="#ffff00">`/`<b>`/`<i>` (SRT/VTT styling tags this app's plain
+ * Text() cue renderer doesn't interpret, so they'd otherwise show up as literal text) and decodes
+ * the handful of HTML entities subtitle files commonly use instead of raw characters. */
+internal fun stripSubtitleMarkup(text: String): String {
+    var result = text.replace(SUBTITLE_TAG_REGEX, "")
+    for ((entity, replacement) in SUBTITLE_ENTITIES) {
+        result = result.replace(entity, replacement)
+    }
+    return result
+}
 
 data class AutoplayEpisodeTarget(
     val seasonNumber: Int,
@@ -314,6 +339,9 @@ class PlayerViewModel @OptIn(UnstableApi::class)
     val selectedSubtitleId = _selectedSubtitleId.asStateFlow()
     private val _subtitleDelay = MutableStateFlow(0f)
     val subtitleDelay = _subtitleDelay.asStateFlow()
+    private val _translateTask = MutableStateFlow<TranslateTask?>(null)
+    val translateTask = _translateTask.asStateFlow()
+    private var translateJob: Job? = null
     private val _overrideCasing = MutableStateFlow(false)
     val overrideCasing = _overrideCasing.asStateFlow()
 
@@ -1145,6 +1173,7 @@ class PlayerViewModel @OptIn(UnstableApi::class)
     private fun enqueueDownload(variant: StreamVariant, streamUrl: String, qualityLabel: String, audioStreamUrl: String? = null, audioLanguage: String? = null) {
         val ready = _state.value as? PlayerState.Ready ?: return
         viewModelScope.launch {
+            val destination = com.zstream.android.download.DownloadDestinationBroker.chooseTreeUri() ?: return@launch
             val target = if (mediaType == "tv") {
                 com.zstream.android.download.DownloadTarget.Episode(
                     showTitle = title,
@@ -1194,6 +1223,7 @@ class PlayerViewModel @OptIn(UnstableApi::class)
                 audioStreamUrl = audioStreamUrl,
                 audioLanguage = audioLanguage,
                 posterPath = poster,
+                destinationTreeUri = destination.treeUri,
             )
             val downloadId = downloadRepository.enqueue(request)
             com.zstream.android.download.DownloadService.enqueue(appContext, downloadId, request)
@@ -1590,6 +1620,70 @@ class PlayerViewModel @OptIn(UnstableApi::class)
         }
     }
 
+    /** Ports p-stream's translateCaption (stores/player/slices/source.ts): fetches the source
+     * track's cues, translates each cue's text via Google Translate, and exposes the result as a
+     * new selectable, virtual subtitle track appended to the current stream's subtitle list. */
+    fun translateCaption(track: SubtitleTrack, targetLanguage: String) {
+        if (_translateTask.value != null) return
+        translateJob = viewModelScope.launch {
+            _translateTask.value = TranslateTask(track, targetLanguage)
+            try {
+                val cues = cuesFor(track)
+                if (cues.isEmpty()) throw Exception("Fetching failed")
+                val translated = withContext(Dispatchers.IO) {
+                    com.zstream.android.subtitle.SubtitleTranslator(httpClient).translateCues(cues, targetLanguage)
+                }
+
+                val targetLangName = java.util.Locale.forLanguageTag(targetLanguage).getDisplayLanguage(java.util.Locale.getDefault())
+                    .takeIf { it.isNotBlank() } ?: targetLanguage
+                val newTrack = SubtitleTrack(
+                    label = "$targetLangName (translated)",
+                    url = "${track.url}#translated-$targetLanguage",
+                    language = targetLanguage,
+                    type = "srt",
+                    id = "${track.id}-translated-$targetLanguage",
+                    source = "translated",
+                    external = true,
+                )
+                subtitleCache["${newTrack.id}:${newTrack.url}"] = translated
+
+                val ready = _state.value as? PlayerState.Ready
+                if (ready != null && ready.subtitles.none { it.id == newTrack.id }) {
+                    _state.value = ready.copy(subtitles = ready.subtitles + newTrack)
+                }
+
+                settingsPrefs.setSubtitlesEnabled(true)
+                _selectedSubtitleId.value = newTrack.id
+                _selectedSubtitleLang.value = newTrack.language
+                _subtitleCues.value = translated
+
+                _translateTask.value = _translateTask.value?.copy(done = true)
+            } catch (ce: kotlinx.coroutines.CancellationException) {
+                throw ce
+            } catch (e: Exception) {
+                Log.e("PlayerVM", "translateCaption failed: ${e.message}", e)
+                _translateTask.value = _translateTask.value?.copy(error = true)
+            }
+        }
+    }
+
+    fun clearTranslateTask() {
+        translateJob?.cancel()
+        translateJob = null
+        _translateTask.value = null
+    }
+
+    private suspend fun cuesFor(track: SubtitleTrack): List<SubtitleCue> {
+        val cacheKey = "${track.id}:${track.url}"
+        subtitleCache[cacheKey]?.let { return it }
+        return withContext(Dispatchers.IO) {
+            val raw = downloadSubtitleText(track.url)
+            val parsed = parseSubtitleText(raw)
+            subtitleCache[cacheKey] = parsed
+            parsed
+        }
+    }
+
     private fun downloadAndParseSubtitles(tracks: List<SubtitleTrack>) {
         viewModelScope.launch {
             val preferredLang = subtitleSearchLanguage
@@ -1649,7 +1743,37 @@ class PlayerViewModel @OptIn(UnstableApi::class)
         }
         val response = httpClient.newCall(builder.build()).execute()
         if (!response.isSuccessful) throw Exception("Subtitle download failed: HTTP ${response.code}")
-        response.body?.string() ?: throw Exception("Empty subtitle response")
+        val body = response.body ?: throw Exception("Empty subtitle response")
+        decodeSubtitleBytes(body.bytes(), body.contentType())
+    }
+
+    /**
+     * Decodes raw subtitle bytes, sniffing a BOM or declared Content-Type charset first. Many
+     * subtitle sources (esp. OpenSubtitles-style) serve Windows-1252/ISO-8859-1 without declaring
+     * it -- blindly decoding those as UTF-8 hits invalid byte sequences that become U+FFFD, which
+     * renders as Android's tofu "missing glyph" box (the "question mark rectangle" symptom). If a
+     * strict UTF-8 decode fails, fall back to ISO-8859-1, which never fails to decode (every byte
+     * maps to a code point) and matches the common non-UTF-8 case.
+     */
+    internal fun decodeSubtitleBytes(bytes: ByteArray, contentType: okhttp3.MediaType?): String {
+        if (bytes.size >= 3 && bytes[0] == 0xEF.toByte() && bytes[1] == 0xBB.toByte() && bytes[2] == 0xBF.toByte()) {
+            return String(bytes, 3, bytes.size - 3, Charsets.UTF_8)
+        }
+        if (bytes.size >= 2 && bytes[0] == 0xFF.toByte() && bytes[1] == 0xFE.toByte()) {
+            return String(bytes, 2, bytes.size - 2, Charsets.UTF_16LE)
+        }
+        if (bytes.size >= 2 && bytes[0] == 0xFE.toByte() && bytes[1] == 0xFF.toByte()) {
+            return String(bytes, 2, bytes.size - 2, Charsets.UTF_16BE)
+        }
+        contentType?.charset()?.let { return String(bytes, it) }
+        val strictUtf8 = runCatching {
+            Charsets.UTF_8.newDecoder()
+                .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+                .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT)
+                .decode(java.nio.ByteBuffer.wrap(bytes))
+                .toString()
+        }.getOrNull()
+        return strictUtf8 ?: String(bytes, Charsets.ISO_8859_1)
     }
 
     /** Parse SRT or VTT subtitle text into timed cues */
@@ -1681,7 +1805,7 @@ class PlayerViewModel @OptIn(UnstableApi::class)
                 timeMatch.groupValues[7].toInt(),
                 timeMatch.groupValues[8].toInt()
             )
-            val text = lines.drop(2).joinToString("\n").trim()
+            val text = stripSubtitleMarkup(lines.drop(2).joinToString("\n").trim())
             if (text.isNotEmpty()) {
                 cues.add(SubtitleCue(startMs, endMs, text))
             }
@@ -1730,7 +1854,7 @@ class PlayerViewModel @OptIn(UnstableApi::class)
             }
             // Skip cue settings (lines starting with "align:" etc) and WebVTT metadata
             val textLines = lines.dropWhile { it.contains("-->") || it.contains(":") || it.startsWith("NOTE") }
-            val text = textLines.joinToString("\n").trim()
+            val text = stripSubtitleMarkup(textLines.joinToString("\n").trim())
             if (text.isNotEmpty()) {
                 cues.add(SubtitleCue(startMs, endMs, text))
             }

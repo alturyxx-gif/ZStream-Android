@@ -105,6 +105,8 @@ class HlsDownloadEngine(private val client: OkHttpClient) {
         outputFd: FileDescriptor,
         onProgress: suspend (HlsDownloadProgress) -> Unit,
         onRemuxProgress: suspend (done: Int, total: Int) -> Unit,
+        /** Fired the moment a segment enters a retry/backoff loop (rate limit, throttle, transient error), and again with null once it clears -- lets the UI explain a stalled percentage in real time instead of waiting for the next segment to finish. */
+        onStall: suspend (String?) -> Unit = {},
         segmentWorkers: Int = DEFAULT_SEGMENT_WORKERS,
         maxSegmentWorkers: Int = ADAPTIVE_MAX_WORKERS_SINGLE,
     ) = coroutineScope {
@@ -158,9 +160,14 @@ class HlsDownloadEngine(private val client: OkHttpClient) {
             async(Dispatchers.IO) {
                 controller.withPermit {
                     if (!(dest.exists() && dest.length() > 0)) {
-                        val size = downloadSegment(segment.uri, headers, dest, key, videoKeys + audioKeys, controller::onRateLimited)
+                        val size = downloadSegment(
+                            segment.uri, headers, dest, key, videoKeys + audioKeys,
+                            onRateLimited = controller::onRateLimited,
+                            onStall = onStall,
+                        )
                         synchronized(progressLock) { bytes += size }
                         controller.onSegmentSuccess()
+                        onStall(null)
                     }
                     val (snapshot, shouldReport) = synchronized(progressLock) {
                         done++
@@ -237,8 +244,9 @@ class HlsDownloadEngine(private val client: OkHttpClient) {
         key: HlsKey?,
         keyMaterial: Map<String, ByteArray>,
         onRateLimited: suspend () -> Unit,
+        onStall: suspend (String?) -> Unit = {},
     ): Long {
-        val raw = fetchWithRetry(url, headers, onRateLimited = onRateLimited)
+        val raw = fetchWithRetry(url, headers, onRateLimited = onRateLimited, onStall = onStall)
         if (raw.isEmpty()) error("Empty segment body: $url")
         val plain = if (key != null) decryptAes128(raw, keyMaterial["${key.uri}|${key.iv}"] ?: error("Missing key for segment"), key.iv) else raw
         if (plain.isEmpty()) error("Segment decrypted to 0 bytes: $url")
@@ -257,6 +265,7 @@ class HlsDownloadEngine(private val client: OkHttpClient) {
         maxAttempts: Int = 5,
         maxRateLimitAttempts: Int = 60,
         onRateLimited: (suspend () -> Unit)? = null,
+        onStall: suspend (String?) -> Unit = {},
     ): ByteArray {
         var lastError: Exception? = null
         var otherAttempts = 0
@@ -275,7 +284,14 @@ class HlsDownloadEngine(private val client: OkHttpClient) {
                         lastError = IllegalStateException("Segment fetch failed: HTTP ${resp.code}")
                         return@use
                     }
-                    if (!resp.isSuccessful) error("Segment fetch failed: HTTP ${resp.code}")
+                    if (!resp.isSuccessful) {
+                        // 403 here almost always means an expired/short-TTL signed CDN URL (e.g.
+                        // Nesterov) outliving its token partway through a long download -- log the
+                        // code plus which attempt/URL so a failure report actually distinguishes
+                        // that from a source that was just broken from the start.
+                        Log.w(TAG, "Segment fetch non-2xx: HTTP ${resp.code} attempt=${otherAttempts + 1} url=$url")
+                        error("Segment fetch failed: HTTP ${resp.code}")
+                    }
                     val bodyBytes = resp.body?.bytes()
                     if (bodyBytes == null || bodyBytes.isEmpty()) {
                         // Some CDNs throttle silently -- a 200 OK with a 0-byte body instead of a
@@ -299,12 +315,20 @@ class HlsDownloadEngine(private val client: OkHttpClient) {
                     onRateLimited?.invoke()
                 }
                 rateLimitAttempts++
-                if (rateLimitAttempts >= maxRateLimitAttempts) throw IllegalStateException("Segment rate limited after $rateLimitAttempts attempts")
+                if (rateLimitAttempts >= maxRateLimitAttempts) {
+                    onStall("Rate limited by server, gave up after $rateLimitAttempts attempts")
+                    throw IllegalStateException("Segment rate limited after $rateLimitAttempts attempts")
+                }
+                onStall("Server rate-limiting downloads, retrying ($rateLimitAttempts/$maxRateLimitAttempts)…")
                 val delayMs = err.retryAfterMs ?: (1000L * (1L shl minOf(rateLimitAttempts - 1, 5))).coerceAtMost(30_000L)
                 kotlinx.coroutines.delay(delayMs)
             } else {
                 otherAttempts++
-                if (otherAttempts >= maxAttempts) throw err ?: IllegalStateException("Segment fetch failed after $otherAttempts attempts")
+                if (otherAttempts >= maxAttempts) {
+                    onStall("Segment fetch failed after $otherAttempts attempts: ${err?.message ?: "unknown error"}")
+                    throw err ?: IllegalStateException("Segment fetch failed after $otherAttempts attempts")
+                }
+                onStall("Segment fetch error, retrying ($otherAttempts/$maxAttempts): ${err?.message ?: "unknown error"}")
                 kotlinx.coroutines.delay(500L * (1L shl (otherAttempts - 1))) // 500ms, 1s, 2s, 4s
             }
         }

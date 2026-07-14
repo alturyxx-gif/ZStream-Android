@@ -190,7 +190,7 @@ class LocalMediaRepository @Inject constructor(
     private suspend fun DownloadEntity.withFingerprint(): DownloadEntity {
         if (contentFingerprint != null) return this
         val path = filePath ?: return this
-        val uri = downloadStorage.resolvePlayableUri(path) ?: return this
+        val uri = downloadStorage.resolvePlayableUri(path, storageTreeUri?.let(Uri::parse)) ?: return this
         val fingerprint = VideoFingerprint.compute(context, uri, fileSize(uri), null) ?: return this
         val updated = copy(contentFingerprint = fingerprint)
         downloadDao.update(updated)
