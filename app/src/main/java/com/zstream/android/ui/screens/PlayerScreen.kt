@@ -178,6 +178,7 @@ import com.zstream.android.ui.components.themed.ZsOutlinedWrapper
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import com.zstream.android.di.RepositoryEntryPoint
 import kotlin.math.roundToInt
 import kotlin.math.abs
 import dagger.hilt.android.EntryPointAccessors
@@ -344,8 +345,8 @@ internal data class LocalFileInfo(
 
 private sealed class PlayerInfoState {
     object Loading : PlayerInfoState()
-    data class Movie(val detail: MovieDetail, val trailers: List<com.zstream.android.data.ImdbTrailer> = emptyList()) : PlayerInfoState()
-    data class Tv(val detail: TvDetail, val selectedSeason: Season? = null, val trailers: List<com.zstream.android.data.ImdbTrailer> = emptyList()) : PlayerInfoState()
+    data class Movie(val detail: MovieDetail, val certification: String? = null, val trailers: List<com.zstream.android.data.ImdbTrailer> = emptyList()) : PlayerInfoState()
+    data class Tv(val detail: TvDetail, val certification: String? = null, val selectedSeason: Season? = null, val trailers: List<com.zstream.android.data.ImdbTrailer> = emptyList()) : PlayerInfoState()
     data class Error(val message: String) : PlayerInfoState()
 }
 
@@ -1834,10 +1835,13 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     onInfo = {
                         showInfoSheet = true
                         playerScope.launch {
+                            val entryPoint = EntryPointAccessors.fromApplication(context, RepositoryEntryPoint::class.java)
+                            val certRepo = entryPoint.certificationRepository()
                             infoState = PlayerInfoState.Loading
                             infoState = runCatching {
                                 if (vm.mediaType == "tv") {
                                     val detail = tmdbRepo.tvDetail(vm.tmdbId.toInt())
+                                    val certification = certRepo.getCertification(detail.id, "tv")
                                     val initialSeasonNumber = vm.season
                                         ?: existingProgress?.seasonNumber
                                         ?: detail.seasons?.firstOrNull { it.seasonNumber > 0 }?.seasonNumber
@@ -1847,13 +1851,14 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                                     val trailers = (detail.imdbId ?: detail.externalIds?.imdbId)
                                         ?.let { id -> runCatching { imdbTrailerRepo.getTrailers(id) }.getOrDefault(emptyList()) }
                                         .orEmpty()
-                                    PlayerInfoState.Tv(detail, initialSeason, trailers)
+                                    PlayerInfoState.Tv(detail, certification, initialSeason, trailers)
                                 } else {
                                     val detail = tmdbRepo.movieDetail(vm.tmdbId.toInt())
+                                    val certification = certRepo.getCertification(detail.id, "movie")
                                     val trailers = detail.imdbId
                                         ?.let { id -> runCatching { imdbTrailerRepo.getTrailers(id) }.getOrDefault(emptyList()) }
                                         .orEmpty()
-                                    PlayerInfoState.Movie(detail, trailers)
+                                    PlayerInfoState.Movie(detail, certification, trailers)
                                 }
                             }.getOrElse { PlayerInfoState.Error(it.message ?: "Failed to load details") }
                         }
@@ -7432,6 +7437,7 @@ private fun PlayerInfoSheet(
         is PlayerInfoState.Movie -> {
             MovieDetailModal(
                 detail = state.detail,
+                certification = state.certification,
                 nav = nav,
                 context = context,
                 theme = theme,
@@ -7452,6 +7458,7 @@ private fun PlayerInfoSheet(
         is PlayerInfoState.Tv -> {
             TvDetailModal(
                 detail = state.detail,
+                certification = state.certification,
                 selectedSeason = state.selectedSeason,
                 allProgress = allProgress,
                 nav = nav,

@@ -65,6 +65,7 @@ fun DetailScreen(nav: NavController, vm: DetailViewModel = hiltViewModel()) {
         is DetailState.Movie -> {
             MovieDetailModal(
                 detail = s.detail,
+                certification = s.certification,
                 nav = nav,
                 context = context,
                 theme = theme,
@@ -93,6 +94,7 @@ fun DetailScreen(nav: NavController, vm: DetailViewModel = hiltViewModel()) {
         is DetailState.Tv -> {
             TvDetailModal(
                 detail = s.detail,
+                certification = s.certification,
                 selectedSeason = s.selectedSeason,
                 allProgress = allProgress,
                 nav = nav,

@@ -36,6 +36,9 @@ import javax.inject.Inject
 
 enum class HomeTab { MOVIES, TV, EDITOR }
 
+enum class DiscoverSort { POPULARITY, RATING, RELEASE }
+enum class SortOrder { ASC, DESC }
+
 enum class MediaSectionSource {
     ContinueWatching,
     Bookmarks,
@@ -80,7 +83,6 @@ data class HomeState(
     val enableLowPerformanceMode: Boolean = false,
     val featuredMedia: List<Media> = emptyList(),
     val activeTab: HomeTab = HomeTab.MOVIES,
-    val selectedGenreId: Int? = null,
     val searchQuery: String = "",
     val loading: Boolean = true,
     val error: String? = null,
@@ -92,7 +94,13 @@ data class HomeState(
     val homeSectionCarouselLimit: Int = 20,
     val gridRows: Int = 2,
     val canLoadMore: Boolean = false,
-    val initialFocusRequested: Boolean = false
+    val initialFocusRequested: Boolean = false,
+    val isDiscoverMode: Boolean = false,
+    val selectedSearchGenreId: Int? = null,
+    val selectedSearchTab: HomeTab = HomeTab.MOVIES,
+    val selectedSearchSort: DiscoverSort = DiscoverSort.POPULARITY,
+    val selectedSearchSortOrder: SortOrder = SortOrder.DESC,
+    val isSearchingMore: Boolean = false,
 ) {
     val userSections: List<MediaSection> get() {
         val userContent = mutableListOf<MediaSection>()
@@ -174,7 +182,6 @@ class HomeViewModel @Inject constructor(
     private val _state = MutableStateFlow(HomeState())
     val state = _state.asStateFlow()
     private var currentSearchPage = 1
-    private var isSearchingMore = false
     private var searchGeneration = 0
 
     init {
@@ -184,7 +191,17 @@ class HomeViewModel @Inject constructor(
         observeDownloaded()
         observeSettings()
         observeConnectivityRecovery()
+        loadPopularForSearch()
         com.zstream.android.CrashLog.breadcrumb("HomeVM", "init done")
+    }
+
+    private fun loadPopularForSearch() {
+        viewModelScope.launch {
+            runCatching {
+                val popular = repo.popularMovies()
+                _popularResults.value = certRepo.filterForKids(popular, _state.value.kidsModeEnabled)
+            }
+        }
     }
 
     val watchPartyRoomCode = watchPartyManager.roomCode
@@ -555,67 +572,228 @@ class HomeViewModel @Inject constructor(
     }
 
     fun setTab(tab: HomeTab) = _state.update { it.copy(activeTab = tab) }
-    fun setGenre(id: Int?) = _state.update { it.copy(selectedGenreId = id) }
+    fun setSearchGenre(id: Int?) {
+        _state.update { it.copy(selectedSearchGenreId = id, searchQuery = "") }
+        viewModelScope.launch {
+            onSearchChange("")
+        }
+    }
+
+    fun setSearchTab(tab: HomeTab) {
+        val currentGenreId = _state.value.selectedSearchGenreId
+        
+        // Define availability based on official lists
+        val tvAvailable = setOf(10759, 16, 35, 80, 99, 18, 10751, 10762, 9648, 10763, 10764, 10765, 10766, 10767, 10768, 37)
+        val movieAvailable = setOf(28, 12, 16, 35, 80, 99, 18, 10751, 14, 36, 27, 10402, 9648, 10749, 878, 10770, 53, 10752, 37)
+
+        // Map universal UI IDs (28, 878) to their tab-specific versions for compatibility checking
+        val effectiveIdForCompatibility = when {
+            tab == HomeTab.TV && currentGenreId == 28 -> 10759
+            tab == HomeTab.TV && currentGenreId == 878 -> 10765
+            else -> currentGenreId
+        }
+
+        val isGenreIncompatible = when (tab) {
+            HomeTab.TV -> effectiveIdForCompatibility !in tvAvailable
+            HomeTab.MOVIES -> effectiveIdForCompatibility !in movieAvailable
+            else -> false
+        }
+
+        _state.update { 
+            it.copy(
+                selectedSearchTab = tab,
+                selectedSearchGenreId = if (isGenreIncompatible) 28 else it.selectedSearchGenreId
+            ) 
+        }
+
+        viewModelScope.launch {
+            if (_state.value.searchQuery.isBlank()) {
+                onSearchChange("")
+            } else {
+                applySearchFiltering(searchGeneration)
+            }
+        }
+    }
     fun setSearch(q: String) = _state.update { it.copy(searchQuery = q) }
     fun markFocusRequested() = _state.update { it.copy(initialFocusRequested = true) }
 
+    fun cycleSearchSort() {
+        _state.update {
+            val next = when (it.selectedSearchSort) {
+                DiscoverSort.POPULARITY -> DiscoverSort.RATING
+                DiscoverSort.RATING -> DiscoverSort.RELEASE
+                DiscoverSort.RELEASE -> DiscoverSort.POPULARITY
+            }
+            it.copy(selectedSearchSort = next)
+        }
+        onSearchChange(_state.value.searchQuery)
+    }
+
+    fun toggleSearchSortOrder() {
+        _state.update {
+            val next = if (it.selectedSearchSortOrder == SortOrder.ASC) SortOrder.DESC else SortOrder.ASC
+            it.copy(selectedSearchSortOrder = next)
+        }
+        onSearchChange(_state.value.searchQuery)
+    }
+
     // Live search results from TMDB (separate from carousel sections)
+    private val _rawSearchResults = MutableStateFlow<List<Media>>(emptyList())
     private val _searchResults = MutableStateFlow<List<Media>>(emptyList())
     val searchResults = _searchResults.asStateFlow()
 
+    private val _popularResults = MutableStateFlow<List<Media>>(emptyList())
+    val popularResults = _popularResults.asStateFlow()
+
     private var searchJob: kotlinx.coroutines.Job? = null
 
+    private fun mapMovieGenreToTv(movieGenreId: Int): Int {
+        return when (movieGenreId) {
+            28 -> 10759 // Action -> Action & Adventure
+            878 -> 10765 // Sci-Fi -> Sci-Fi & Fantasy
+            10752 -> 10768 // War -> War & Politics (If manually selected via search overlay somehow)
+            else -> movieGenreId
+        }
+    }
+
+    private fun getTmdbSortString(): String {
+        val s = _state.value
+        val base = when (s.selectedSearchSort) {
+            DiscoverSort.POPULARITY -> "popularity"
+            DiscoverSort.RATING -> "vote_average"
+            DiscoverSort.RELEASE -> if (s.selectedSearchTab == HomeTab.MOVIES) "primary_release_date" else "first_air_date"
+        }
+        val order = if (s.selectedSearchSortOrder == SortOrder.ASC) "asc" else "desc"
+        return "$base.$order"
+    }
+
+    private suspend fun applySearchFiltering(generation: Int) {
+        val raw = _rawSearchResults.value
+        val genreId = _state.value.selectedSearchGenreId
+        val tab = _state.value.selectedSearchTab
+        val kidsMode = _state.value.kidsModeEnabled
+        val query = _state.value.searchQuery
+
+        val filtered = if (query.isNotBlank()) {
+            // Search Mode: Global mixed search (Movies + TV), ignore tabs/genres
+            raw
+        } else {
+            // Discover Mode: Strict filtering by Tab and Genre
+            val effectiveGenreId = if (tab == HomeTab.TV && genreId != null) mapMovieGenreToTv(genreId) else genreId
+            if (effectiveGenreId == null) {
+                raw
+            } else {
+                raw.filter { it.genreIds?.contains(effectiveGenreId) == true }
+            }
+        }
+
+        val kidsFiltered = certRepo.filterForKids(filtered, kidsMode)
+        if (searchGeneration == generation) {
+            _searchResults.value = kidsFiltered
+        }
+    }
+
     fun onSearchChange(q: String) {
-        isSearchingMore = false
+        val tab = _state.value.selectedSearchTab
+        _state.update { it.copy(isSearchingMore = false) }
         setSearch(q)
         searchGeneration++
         currentSearchPage = 1
         searchJob?.cancel()
+        _rawSearchResults.value = emptyList()
         _searchResults.value = emptyList()
-        _state.update { it.copy(canLoadMore = false) }
-        if (q.isBlank()) {
+
+        if (q.isNotBlank()) {
+            // Visual reset of genres when searching
+            _state.update { it.copy(selectedSearchGenreId = null, isDiscoverMode = false, canLoadMore = false) }
+        } else {
+            _state.update { it.copy(canLoadMore = false, isDiscoverMode = _state.value.selectedSearchGenreId != null) }
+        }
+
+        if (q.isBlank() && _state.value.selectedSearchGenreId == null) {
             return
         }
+
         val generation = searchGeneration
+        val genreId = _state.value.selectedSearchGenreId
+
         searchJob = viewModelScope.launch {
-            delay(300) // debounce
+            if (q.isNotBlank()) delay(300) // debounce search only
             runCatching {
-                val firstResults = repo.search(q, currentSearchPage) { total ->
-                    if (searchGeneration == generation) {
-                        _state.update { it.copy(canLoadMore = currentSearchPage < total) }
+                if (q.isBlank()) {
+                    // Discover mode
+                    val effectiveGenreId = if (tab == HomeTab.TV) mapMovieGenreToTv(genreId!!) else genreId
+                    val sortBy = getTmdbSortString()
+                    val result = if (tab == HomeTab.MOVIES) {
+                        repo.discoverMoviesPage(effectiveGenreId, sortBy, currentSearchPage)
+                    } else {
+                        repo.discoverTvPage(effectiveGenreId, sortBy, currentSearchPage)
                     }
-                }
-                if (searchGeneration != generation) return@launch
-                _searchResults.value = certRepo.filterForKids(firstResults, _state.value.kidsModeEnabled)
-            }
-        }
-    }
-    fun searchLoadMore() {
-        val q = state.value.searchQuery
-        if (q.isBlank() || !state.value.canLoadMore || isSearchingMore) return
-
-        val generation = searchGeneration
-        viewModelScope.launch {
-            isSearchingMore = true
-            try {
-                currentSearchPage++
-
-                runCatching {
-                    val nextResults = repo.search(q, currentSearchPage) { total ->
+                    if (searchGeneration != generation) return@launch
+                    _state.update { it.copy(canLoadMore = result.canLoadMore) }
+                    _rawSearchResults.value = result.items
+                    applySearchFiltering(generation)
+                } else {
+                    // Search mode (Global Mixed)
+                    val firstResults = repo.search(q, currentSearchPage) { total ->
                         if (searchGeneration == generation) {
                             _state.update { it.copy(canLoadMore = currentSearchPage < total) }
                         }
                     }
-                    if (searchGeneration == generation) {
-                        _searchResults.value = _searchResults.value + certRepo.filterForKids(nextResults, _state.value.kidsModeEnabled)
-                    }
-                }.onFailure {
-                    if (searchGeneration == generation) {
-                        currentSearchPage--
+                    if (searchGeneration != generation) return@launch
+                    _rawSearchResults.value = firstResults
+                    applySearchFiltering(generation)
+                }
+            }
+        }
+    }
+
+    fun searchLoadMore() {
+        val q = state.value.searchQuery
+        val genreId = state.value.selectedSearchGenreId
+        if ((q.isBlank() && genreId == null) || !state.value.canLoadMore || state.value.isSearchingMore) return
+
+        val generation = searchGeneration
+        val tab = state.value.selectedSearchTab
+        val pageToLoad = currentSearchPage + 1
+
+        viewModelScope.launch {
+            _state.update { it.copy(isSearchingMore = true) }
+            try {
+                runCatching {
+                    if (q.isBlank()) {
+                        // Discover mode load more
+                        val effectiveGenreId = if (tab == HomeTab.TV) mapMovieGenreToTv(genreId!!) else genreId
+                        val sortBy = getTmdbSortString()
+                        val result = if (tab == HomeTab.MOVIES) {
+                            repo.discoverMoviesPage(effectiveGenreId, sortBy, pageToLoad)
+                        } else {
+                            repo.discoverTvPage(effectiveGenreId, sortBy, pageToLoad)
+                        }
+                        if (searchGeneration == generation) {
+                            currentSearchPage = pageToLoad
+                            _state.update { it.copy(canLoadMore = result.canLoadMore) }
+                            _rawSearchResults.value = _rawSearchResults.value + result.items
+                            applySearchFiltering(generation)
+                        }
+                    } else {
+                        // Search mode load more
+                        val nextResults = repo.search(q, pageToLoad) { total ->
+                            if (searchGeneration == generation) {
+                                _state.update { it.copy(canLoadMore = pageToLoad < total) }
+                            }
+                        }
+                        if (searchGeneration == generation) {
+                            currentSearchPage = pageToLoad
+                            _rawSearchResults.value = _rawSearchResults.value + nextResults
+                            applySearchFiltering(generation)
+                        }
                     }
                 }
             } finally {
-                isSearchingMore = false
+                if (searchGeneration == generation) {
+                    _state.update { it.copy(isSearchingMore = false) }
+                }
             }
         }
     }

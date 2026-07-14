@@ -46,7 +46,7 @@ class CertificationRepository @Inject constructor(
         }.getOrDefault("")
     }
 
-    private suspend fun getCertification(tmdbId: Int, mediaType: String): String {
+    internal suspend fun getCertification(tmdbId: Int, mediaType: String): String {
         val id = cacheId(tmdbId, mediaType)
         dao.get(id)?.let { return it.certification }
         val certification = fetchCertification(tmdbId, mediaType)

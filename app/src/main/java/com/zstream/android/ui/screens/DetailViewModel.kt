@@ -33,8 +33,8 @@ import javax.inject.Inject
 
 sealed class DetailState {
     object Loading : DetailState()
-    data class Movie(val detail: MovieDetail) : DetailState()
-    data class Tv(val detail: TvDetail, val selectedSeason: Season? = null) : DetailState()
+    data class Movie(val detail: MovieDetail, val certification: String? = null) : DetailState()
+    data class Tv(val detail: TvDetail, val selectedSeason: Season? = null, val certification: String? = null) : DetailState()
     data class Error(val message: String) : DetailState()
 }
 
@@ -221,7 +221,8 @@ class DetailViewModel @Inject constructor(
                     val filteredDetail = detail.similar?.results?.let { similarItems ->
                         detail.copy(similar = detail.similar.copy(results = certRepo.filterForKids(similarItems, kidsModeEnabled)))
                     } ?: detail
-                    _state.value = DetailState.Movie(filteredDetail)
+                    val certification = certRepo.getCertification(detail.id, "movie")
+                    _state.value = DetailState.Movie(filteredDetail, certification)
                     if (!offline) loadImdbTrailers(detail.imdbId)
                 } else {
                     val detail = if (offline) {
@@ -239,7 +240,8 @@ class DetailViewModel @Inject constructor(
                     } ?: filteredDetail.seasons
                         ?.firstOrNull { it.seasonNumber > 0 }
                         ?.let { fetchOrCachedSeason(it.seasonNumber) }
-                    _state.value = DetailState.Tv(filteredDetail, firstSeason)
+                    val certification = certRepo.getCertification(detail.id, "tv")
+                    _state.value = DetailState.Tv(filteredDetail, firstSeason, certification)
                     applyPendingInitialSeason()
                     if (!offline) loadImdbTrailers(detail.imdbId ?: detail.externalIds?.imdbId)
                 }
