@@ -100,6 +100,7 @@ data class HomeState(
     val selectedSearchTab: HomeTab = HomeTab.MOVIES,
     val selectedSearchSort: DiscoverSort = DiscoverSort.POPULARITY,
     val selectedSearchSortOrder: SortOrder = SortOrder.DESC,
+    val isSearchingMore: Boolean = false,
 ) {
     val userSections: List<MediaSection> get() {
         val userContent = mutableListOf<MediaSection>()
@@ -181,7 +182,6 @@ class HomeViewModel @Inject constructor(
     private val _state = MutableStateFlow(HomeState())
     val state = _state.asStateFlow()
     private var currentSearchPage = 1
-    private var isSearchingMore = false
     private var searchGeneration = 0
 
     init {
@@ -653,7 +653,7 @@ class HomeViewModel @Inject constructor(
 
     fun onSearchChange(q: String) {
         val tab = _state.value.selectedSearchTab
-        isSearchingMore = false
+        _state.update { it.copy(isSearchingMore = false) }
         setSearch(q)
         searchGeneration++
         currentSearchPage = 1
@@ -709,13 +709,13 @@ class HomeViewModel @Inject constructor(
     fun searchLoadMore() {
         val q = state.value.searchQuery
         val genreId = state.value.selectedSearchGenreId
-        if ((q.isBlank() && genreId == null) || !state.value.canLoadMore || isSearchingMore) return
+        if ((q.isBlank() && genreId == null) || !state.value.canLoadMore || state.value.isSearchingMore) return
 
         val generation = searchGeneration
         val tab = state.value.selectedSearchTab
 
         viewModelScope.launch {
-            isSearchingMore = true
+            _state.update { it.copy(isSearchingMore = true) }
             try {
                 currentSearchPage++
 
@@ -752,7 +752,7 @@ class HomeViewModel @Inject constructor(
                     }
                 }
             } finally {
-                isSearchingMore = false
+                _state.update { it.copy(isSearchingMore = false) }
             }
         }
     }

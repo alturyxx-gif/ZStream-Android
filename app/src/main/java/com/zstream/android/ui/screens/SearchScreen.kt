@@ -50,17 +50,23 @@ import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
 
 @Composable
-fun SearchScreen(nav: NavController, vm: SearchViewModel = hiltViewModel()) {
+fun SearchScreen(
+    nav: NavController,
+    vm: SearchViewModel = hiltViewModel(),
+    homeVm: HomeViewModel = hiltViewModel()
+) {
     val isTv = LocalIsTv.current
     if (isTv) {
-        SearchScreenTV(nav, vm)
+        SearchScreenTV(nav, vm, homeVm)
     } else {
         SearchScreenPhone(nav, vm)
     }
 }
 
 @Composable
-fun SearchScreenTV(nav: NavController, vm: SearchViewModel) {
+fun SearchScreenTV(nav: NavController, vm: SearchViewModel, homeVm: HomeViewModel) {
+    val homeState by homeVm.state.collectAsState()
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
     val settingsVm: SettingsViewModel = hiltViewModel()
     val settings by settingsVm.settings.collectAsStateWithLifecycle()
     val useNativeKeyboard = settings.enableNativeKeyboard
@@ -82,16 +88,31 @@ fun SearchScreenTV(nav: NavController, vm: SearchViewModel) {
         searchBarFocusRequester.requestFocus()
     }
     
+    val homeResults by homeVm.searchResults.collectAsState()
+    
     var focusedMedia by remember { mutableStateOf<Media?>(null) }
     
-    val items = if (query.isBlank()) popular else results
+    val items = if (homeState.isDiscoverMode && query.isBlank()) {
+        homeResults
+    } else if (query.isBlank()) {
+        popular
+    } else {
+        results
+    }
+    
+    val actualCanLoadMore = if (homeState.isDiscoverMode && query.isBlank()) homeState.canLoadMore else canLoadMore
+    val actualLoadingMore = if (homeState.isDiscoverMode && query.isBlank()) homeState.isSearchingMore else loadingMore
     val title = if (query.isBlank()) "Popular now" else "Search results"
     val gridState = rememberLazyGridState()
 
-    LaunchedEffect(gridState.firstVisibleItemIndex, gridState.layoutInfo.totalItemsCount, items.size, canLoadMore, loadingMore, query) {
+    LaunchedEffect(gridState.firstVisibleItemIndex, gridState.layoutInfo.totalItemsCount, items.size, actualCanLoadMore, actualLoadingMore, query) {
         val lastVisible = gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
-        if (query.isNotBlank() && canLoadMore && !loadingMore && items.isNotEmpty() && lastVisible >= items.lastIndex - 6) {
-            vm.loadMore()
+        if (actualCanLoadMore && !actualLoadingMore && items.isNotEmpty() && lastVisible >= items.lastIndex - 6) {
+            if (homeState.isDiscoverMode && query.isBlank()) {
+                homeVm.searchLoadMore()
+            } else if (query.isNotBlank()) {
+                vm.loadMore()
+            }
         }
     }
 
@@ -233,13 +254,42 @@ fun SearchScreenTV(nav: NavController, vm: SearchViewModel) {
                         contentPadding = PaddingValues(start = 12.dp, top = 8.dp, end = 12.dp, bottom = 48.dp)
                     ) {
                         item(span = { GridItemSpan(maxLineSpan) }) {
-                            Text(
-                                title,
-                                style = MaterialTheme.typography.titleLarge,
-                                color = theme.colors.type.emphasis,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(bottom = 24.dp)
-                            )
+                            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                                Text(
+                                    title,
+                                    style = MaterialTheme.typography.titleLarge,
+                                    color = theme.colors.type.emphasis,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                                GenrePills(
+                                    selectedGenreId = homeState.selectedSearchGenreId,
+                                    onSelect = {
+                                        vm.query.value = ""
+                                        homeVm.setSearchGenre(it)
+                                        focusManager.clearFocus()
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                if (homeState.isDiscoverMode) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        SortPill(
+                                            sort = homeState.selectedSearchSort,
+                                            order = homeState.selectedSearchSortOrder,
+                                            onSortClick = homeVm::cycleSearchSort,
+                                            onOrderClick = homeVm::toggleSearchSortOrder
+                                        )
+                                        TabTogglePill(
+                                            selectedTab = homeState.selectedSearchTab,
+                                            onTabSelected = homeVm::setSearchTab
+                                        )
+                                    }
+                                }
+                                Spacer(Modifier.height(8.dp))
+                            }
                         }
                         items(items, key = { it.id }) { media ->
                             Box(modifier = Modifier.onFocusChanged { if (it.isFocused) focusedMedia = media }) {
@@ -258,7 +308,7 @@ fun SearchScreenTV(nav: NavController, vm: SearchViewModel) {
                                 }
                             }
                             item(span = { GridItemSpan(maxLineSpan) }) {
-                                Spacer(Modifier.height(24.dp))
+                                Spacer(Modifier.height(80.dp))
                             }
                         }
                     }

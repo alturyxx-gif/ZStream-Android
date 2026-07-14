@@ -1800,7 +1800,7 @@ private fun HomeSearchBarRow(
 }
 
 @Composable
-private fun SortPill(
+internal fun SortPill(
     sort: DiscoverSort,
     order: SortOrder,
     onSortClick: () -> Unit,
@@ -1814,108 +1814,78 @@ private fun SortPill(
         DiscoverSort.RELEASE -> "Release"
     }
 
-    var isFocused by remember { mutableStateOf(false) }
+    var isSortFocused by remember { mutableStateOf(false) }
+    var isOrderFocused by remember { mutableStateOf(false) }
 
-    ZsOutlinedWrapper(
-        visible = isFocused && isTv,
-        shape = RoundedCornerShape(50),
-        outlineColor = theme.colors.global.accentA.copy(alpha = 0.6f),
-        gap = 2.dp
+    Row(
+        modifier = Modifier
+            .height(IntrinsicSize.Min)
+            .background(theme.colors.background.secondary.copy(alpha = 0.5f), RoundedCornerShape(50))
+            .border(
+                1.dp,
+                theme.colors.type.divider.copy(alpha = 0.2f),
+                RoundedCornerShape(50)
+            ),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
-            modifier = Modifier
-                .clip(RoundedCornerShape(50))
-                .background(theme.colors.background.secondary.copy(alpha = 0.5f))
-                .border(
-                    1.dp,
-                    theme.colors.type.divider.copy(alpha = 0.2f),
-                    RoundedCornerShape(50)
-                )
-                .onFocusChanged { isFocused = it.isFocused }
-                .padding(horizontal = 4.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
+        // Sort Type Segment
+        val leftShape = RoundedCornerShape(topStartPercent = 50, bottomStartPercent = 50)
+        ZsOutlinedWrapper(
+            modifier = Modifier.fillMaxHeight(),
+            visible = isSortFocused && isTv,
+            shape = leftShape,
+            outlineColor = theme.colors.global.accentA.copy(alpha = 0.6f),
+            gap = 0.dp
         ) {
-            Text(
-                text = label,
-                color = theme.colors.type.emphasis,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier
-                    .clickable { onSortClick() }
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
-            )
             Box(
                 modifier = Modifier
-                    .width(1.dp)
-                    .height(16.dp)
-                    .background(theme.colors.type.divider.copy(alpha = 0.3f))
-            )
-            Icon(
-                imageVector = if (order == SortOrder.ASC) Icons.Default.ArrowUpward else Icons.Default.ArrowDownward,
-                contentDescription = "Toggle sort order",
-                tint = theme.colors.global.accentA,
-                modifier = Modifier
-                    .size(28.dp)
-                    .clickable { onOrderClick() }
-                    .padding(6.dp)
-            )
-        }
-    }
-}
-
-@Composable
-private fun TabTogglePill(
-    selectedTab: HomeTab,
-    onTabSelected: (HomeTab) -> Unit,
-) {
-    val theme = LocalZStreamTheme.current
-    val isTv = LocalIsTv.current
-    var isFocused by remember { mutableStateOf(false) }
-    ZsOutlinedWrapper(
-        visible = isFocused && isTv,
-        shape = RoundedCornerShape(50),
-        outlineColor = theme.colors.global.accentA.copy(alpha = 0.6f),
-        gap = 2.dp
-    ) {
-        Row(
-            modifier = Modifier
-                .clip(RoundedCornerShape(50))
-                .background(theme.colors.background.secondary.copy(alpha = 0.5f))
-                .border(
-                    1.dp,
-                    theme.colors.type.divider.copy(alpha = 0.2f),
-                    RoundedCornerShape(50)
-                )
-                .onFocusChanged { isFocused = it.isFocused }
-                .padding(horizontal = 4.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            HomeTab.entries.filter { it != HomeTab.EDITOR }.forEachIndexed { index, tab ->
-                val selected = selectedTab == tab
-                val label = if (tab == HomeTab.MOVIES) "Movies" else "TV"
-
-                if (index > 0) {
-                    Box(
-                        modifier = Modifier
-                            .width(1.dp)
-                            .height(16.dp)
-                            .background(theme.colors.type.divider.copy(alpha = 0.3f))
-                    )
-                }
-
+                    .fillMaxHeight()
+                    .clip(leftShape)
+                    .onFocusChanged { isSortFocused = it.isFocused }
+                    .clickable { onSortClick() }
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                contentAlignment = Alignment.Center
+            ) {
                 Text(
                     text = label,
-                    color = if (selected) theme.colors.type.emphasis else theme.colors.type.dimmed,
+                    color = theme.colors.type.emphasis,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(50))
-                        .background(
-                            if (selected) theme.colors.global.accentA.copy(alpha = 0.8f) else Color.Transparent
-                        )
-                        .clickable { onTabSelected(tab) }
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                )
+            }
+        }
+
+        // Divider
+        Box(
+            modifier = Modifier
+                .width(1.dp)
+                .height(16.dp)
+                .background(theme.colors.type.divider.copy(alpha = 0.3f))
+        )
+
+        // Sort Order Segment
+        val rightShape = RoundedCornerShape(topEndPercent = 50, bottomEndPercent = 50)
+        ZsOutlinedWrapper(
+            modifier = Modifier.fillMaxHeight(),
+            visible = isOrderFocused && isTv,
+            shape = rightShape,
+            outlineColor = theme.colors.global.accentA.copy(alpha = 0.6f),
+            gap = 0.dp
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .clip(rightShape)
+                    .onFocusChanged { isOrderFocused = it.isFocused }
+                    .clickable { onOrderClick() }
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = if (order == SortOrder.ASC) Icons.Default.ArrowUpward else Icons.Default.ArrowDownward,
+                    contentDescription = "Toggle sort order",
+                    tint = theme.colors.global.accentA,
+                    modifier = Modifier.size(16.dp)
                 )
             }
         }
@@ -1923,7 +1893,75 @@ private fun TabTogglePill(
 }
 
 @Composable
-private fun GenrePills(
+internal fun TabTogglePill(
+    selectedTab: HomeTab,
+    onTabSelected: (HomeTab) -> Unit,
+) {
+    val theme = LocalZStreamTheme.current
+    val isTv = LocalIsTv.current
+    val tabs = remember { HomeTab.entries.filter { it != HomeTab.EDITOR } }
+
+    Row(
+        modifier = Modifier
+            .height(IntrinsicSize.Min)
+            .background(theme.colors.background.secondary.copy(alpha = 0.5f), RoundedCornerShape(50))
+            .border(
+                1.dp,
+                theme.colors.type.divider.copy(alpha = 0.2f),
+                RoundedCornerShape(50)
+            ),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        tabs.forEachIndexed { index, tab ->
+            val label = if (tab == HomeTab.MOVIES) "Movies" else "TV"
+            val selected = selectedTab == tab
+            var isTabFocused by remember { mutableStateOf(false) }
+
+            val shape = when (index) {
+                0 -> RoundedCornerShape(topStartPercent = 50, bottomStartPercent = 50)
+                tabs.lastIndex -> RoundedCornerShape(topEndPercent = 50, bottomEndPercent = 50)
+                else -> androidx.compose.ui.graphics.RectangleShape
+            }
+
+            if (index > 0) {
+                Box(
+                    modifier = Modifier
+                        .width(1.dp)
+                        .height(16.dp)
+                        .background(theme.colors.type.divider.copy(alpha = 0.3f))
+                )
+            }
+
+            ZsOutlinedWrapper(
+                modifier = Modifier.fillMaxHeight(),
+                visible = isTabFocused && isTv,
+                shape = shape,
+                outlineColor = theme.colors.global.accentA.copy(alpha = 0.6f),
+                gap = 0.dp
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .clip(shape)
+                        .onFocusChanged { isTabFocused = it.isFocused }
+                        .clickable { onTabSelected(tab) }
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = label,
+                        color = if (selected) theme.colors.global.accentA else theme.colors.type.dimmed,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+internal fun GenrePills(
     selectedGenreId: Int?,
     onSelect: (Int?) -> Unit,
     modifier: Modifier = Modifier,
@@ -1931,11 +1969,12 @@ private fun GenrePills(
     val theme = LocalZStreamTheme.current
     val isTv = LocalIsTv.current
     LazyRow(
-        modifier = modifier,
+        modifier = modifier.focusRestorer(),
+        contentPadding = PaddingValues(start = 2.dp, end = 16.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        items(tmdbGenres.entries.toList()) { (id, name) ->
+        items(tmdbGenres.entries.toList(), key = { it.key }) { (id, name) ->
             val selected = selectedGenreId == id
             var isFocused by remember { mutableStateOf(false) }
             ZsOutlinedWrapper(
@@ -4538,6 +4577,7 @@ private fun SearchOverlay(
 ) {
     val theme = LocalZStreamTheme.current
     val isTv = LocalIsTv.current
+    val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     var focusedMenu by remember { mutableStateOf(false) }
     val focusMenuWidth by animateDpAsState(if (focusedMenu) 3.dp else 0.dp)
     Column(
@@ -4619,7 +4659,8 @@ private fun SearchOverlay(
                 selectedGenreId = selectedGenreId,
                 onSelect = {
                     onGenreSelected(it)
-                    onClearFocus()
+                    keyboardController?.hide()
+                    if (!isTv) onClearFocus()
                 },
                 modifier = Modifier.fillMaxWidth()
             )
