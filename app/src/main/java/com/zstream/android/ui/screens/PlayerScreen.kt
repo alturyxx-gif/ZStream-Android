@@ -135,6 +135,9 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.core.app.OnPictureInPictureModeChangedProvider
 import androidx.core.app.PictureInPictureModeChangedInfo
 import androidx.core.util.Consumer
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Format
@@ -536,6 +539,22 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                 WindowInsetsControllerCompat(window, window.decorView).show(WindowInsetsCompat.Type.systemBars())
             }
         }
+    }
+
+    // Backgrounding the app (home button, recents, another app) and returning restores the system
+    // bars outside of Compose's control -- the DisposableEffect above only runs once on entry, so
+    // without this the status/nav bars stay stuck visible after the player resumes foreground.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                activity?.window?.let { window ->
+                    WindowInsetsControllerCompat(window, window.decorView).hide(WindowInsetsCompat.Type.systemBars())
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     val theme = LocalZStreamTheme.current
@@ -2222,6 +2241,21 @@ fun LocalPlayerScreen(nav: NavController, vm: LocalPlayerViewModel = hiltViewMod
         onDispose {
             if (window != null) WindowInsetsControllerCompat(window, window.decorView).show(WindowInsetsCompat.Type.systemBars())
         }
+    }
+
+    // Same fix as the main PlayerScreen: backgrounding and returning restores the system bars
+    // outside Compose's control, so re-hide them on every resume, not just on first composition.
+    val localPlayerLifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(localPlayerLifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                activity?.window?.let { window ->
+                    WindowInsetsControllerCompat(window, window.decorView).hide(WindowInsetsCompat.Type.systemBars())
+                }
+            }
+        }
+        localPlayerLifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { localPlayerLifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     LaunchedEffect(ready) {
