@@ -147,6 +147,11 @@ fun Episode.hasAired(todayIsoDate: String = todayIsoDate()): Boolean {
 fun List<Episode>.airedEpisodes(todayIsoDate: String = todayIsoDate()): List<Episode> =
     filter { it.hasAired(todayIsoDate) }
 
+fun MovieDetail.hasReleased(todayIsoDate: String = todayIsoDate()): Boolean {
+    val date = releaseDate?.takeIf { it.isNotBlank() } ?: return false
+    return date <= todayIsoDate
+}
+
 private val displayDateFormat = SimpleDateFormat("MMM d, yyyy", Locale.US)
 private val isoDateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
 
