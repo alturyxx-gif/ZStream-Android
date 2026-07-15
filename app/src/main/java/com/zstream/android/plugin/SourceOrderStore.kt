@@ -38,13 +38,23 @@ class SourceOrderStore @Inject constructor(
         dataStore.edit { prefs -> prefs[KEY_SOURCE_ORDER] = JSONArray(sourceIds).toString() }
     }
 
-    suspend fun getDownloadOrder(): List<SourceInfo> {
+    suspend fun getDownloadOrder(hasArtemisVipKey: Boolean = false): List<SourceInfo> {
         val stored = readStoredOrder(KEY_DOWNLOAD_SOURCE_ORDER)
-        return pluginManager.downloadOrderedSources(stored)
+        return pluginManager.downloadOrderedSources(stored, hasArtemisVipKey)
     }
 
     suspend fun saveDownloadOrder(sourceIds: List<String>) {
         dataStore.edit { prefs -> prefs[KEY_DOWNLOAD_SOURCE_ORDER] = JSONArray(sourceIds).toString() }
+    }
+
+    /** Clears the saved manual order so [getOrderedSources] falls back to the plugin's default priority. */
+    suspend fun clearOrder() {
+        dataStore.edit { prefs -> prefs.remove(KEY_SOURCE_ORDER) }
+    }
+
+    /** Clears the saved manual download order so [getDownloadOrder] falls back to the plugin's default priority. */
+    suspend fun clearDownloadOrder() {
+        dataStore.edit { prefs -> prefs.remove(KEY_DOWNLOAD_SOURCE_ORDER) }
     }
 
     /** Raw saved id list (no plugin merge/defaults applied) — for backup/export. */

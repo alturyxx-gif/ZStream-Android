@@ -542,18 +542,18 @@ class PluginManager @Inject constructor(
     }
 
     /** Same as [orderedSources] but for the download flow's priority order. */
-    fun downloadOrderedSources(storedOrder: List<String>): List<SourceInfo> {
+    fun downloadOrderedSources(storedOrder: List<String>, hasArtemisVipKey: Boolean): List<SourceInfo> {
         val plugin = readyPlugin() ?: return emptyList()
         return try {
             val method = plugin.javaClass.methods.firstOrNull {
                 it.name == "downloadOrderedSourcesJson" &&
-                    it.parameterTypes.size == 1 &&
+                    it.parameterTypes.size == 2 &&
                     it.parameterTypes[0] == String::class.java
             } ?: run {
                 Log.e(TAG, "Plugin has no downloadOrderedSourcesJson() — incompatible plugin build")
                 return emptyList()
             }
-            val json = method.invoke(plugin, storedOrder.toJsonArray()) as? String ?: return emptyList()
+            val json = method.invoke(plugin, storedOrder.toJsonArray(), hasArtemisVipKey) as? String ?: return emptyList()
             parseSourcesJson(json)
         } catch (t: Throwable) {
             Log.e(TAG, "downloadOrderedSourcesJson() threw: ${t.message}", t)

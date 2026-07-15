@@ -1987,6 +1987,7 @@ private fun PreferencesSection(
             theme = theme,
             onReorder = vm::reorderSources,
             onDismiss = { showSourceOrderDialog = false },
+            onReset = vm::resetSourceOrder,
         )
     }
 
@@ -1996,6 +1997,7 @@ private fun PreferencesSection(
             theme = theme,
             onReorder = vm::reorderDownloadSources,
             onDismiss = { showDownloadSourceOrderDialog = false },
+            onReset = vm::resetDownloadSourceOrder,
             title = "Preferred Source Order for Downloads",
             subtitle = "Downloads try sources top to bottom",
         )
@@ -2077,6 +2079,7 @@ private fun SourceOrderDialog(
     theme: ZStreamTheme,
     onReorder: (List<SourceInfo>) -> Unit,
     onDismiss: () -> Unit,
+    onReset: () -> Unit,
     title: String = "Custom Source Order",
     subtitle: String = "Sources are tried top to bottom",
 ) {
@@ -2104,21 +2107,24 @@ private fun SourceOrderDialog(
                     Text(title, color = theme.colors.type.emphasis, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                     Text(subtitle, color = theme.colors.type.dimmed, fontSize = 12.sp)
                 }
-                var closeFocused by remember { mutableStateOf(false) }
-                ZsOutlinedWrapper(
-                    shape = RoundedCornerShape(8.dp),
-                    outlineColor = Color.White,
-                    outlineWidth = 2.dp,
-                    gap = 2.dp,
-                    visible = closeFocused,
-                ) {
-                    IconButton(
-                        onClick = onDismiss,
-                        modifier = Modifier
-                            .focusRequester(closeFocusRequester)
-                            .onFocusChanged { closeFocused = it.isFocused },
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    ZsTextButton(text = "Reset", onClick = onReset)
+                    var closeFocused by remember { mutableStateOf(false) }
+                    ZsOutlinedWrapper(
+                        shape = RoundedCornerShape(8.dp),
+                        outlineColor = Color.White,
+                        outlineWidth = 2.dp,
+                        gap = 2.dp,
+                        visible = closeFocused,
                     ) {
-                        Icon(Icons.Filled.Close, contentDescription = "Close", tint = theme.colors.type.secondary)
+                        IconButton(
+                            onClick = onDismiss,
+                            modifier = Modifier
+                                .focusRequester(closeFocusRequester)
+                                .onFocusChanged { closeFocused = it.isFocused },
+                        ) {
+                            Icon(Icons.Filled.Close, contentDescription = "Close", tint = theme.colors.type.secondary)
+                        }
                     }
                 }
             }

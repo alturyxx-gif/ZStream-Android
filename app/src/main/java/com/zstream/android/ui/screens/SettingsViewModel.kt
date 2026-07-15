@@ -119,9 +119,20 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    /** Clears the manual source order and recomputes the plugin's default priority order. */
+    fun resetSourceOrder() {
+        viewModelScope.launch {
+            sourceOrderStore.clearOrder()
+            refreshSourceOrder()
+        }
+    }
+
     private fun refreshDownloadSourceOrder() {
         viewModelScope.launch {
-            _downloadSourceOrder.value = sourceOrderStore.getDownloadOrder()
+            val current = settingsPrefs.settings.first()
+            _downloadSourceOrder.value = sourceOrderStore.getDownloadOrder(
+                hasArtemisVipKey = !current.artemisVipKey.isNullOrBlank(),
+            )
         }
     }
 
@@ -129,6 +140,14 @@ class SettingsViewModel @Inject constructor(
         _downloadSourceOrder.value = newOrder
         viewModelScope.launch {
             sourceOrderStore.saveDownloadOrder(newOrder.map { it.id })
+        }
+    }
+
+    /** Clears the manual download order and recomputes the plugin's default download priority order. */
+    fun resetDownloadSourceOrder() {
+        viewModelScope.launch {
+            sourceOrderStore.clearDownloadOrder()
+            refreshDownloadSourceOrder()
         }
     }
 
