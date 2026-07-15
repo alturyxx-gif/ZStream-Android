@@ -3338,7 +3338,6 @@ private fun SandwichMenuDialog(
                         SandwichItem(ImageVector.vectorResource(R.drawable.ic_discord), "Discord", theme = theme) { onDiscord(); onDismiss() }
                         SandwichItem(Icons.Default.AttachMoney, "Tip Jar", theme = theme) { onTipJar(); onDismiss() }
                     }
-                    SandwichItem(Icons.Default.Explore, "Discover", theme = theme) { nav.navigate("search"); onDismiss() }
                     if (watchPartyEnabled) {
                         val watchPartyHostGraceDeadlineMs by vm.watchPartyHostGraceDeadlineMs.collectAsState()
                         WatchPartyActiveItem(
@@ -3540,7 +3539,6 @@ private fun SandwichMenuDialog(
                         SandwichItem(ImageVector.vectorResource(R.drawable.ic_discord), "Discord", theme = theme) { onDiscord(); onDismiss() }
                         SandwichItem(Icons.Default.AttachMoney, "Tip Jar", theme = theme) { onTipJar(); onDismiss() }
                     }
-                    SandwichItem(Icons.Default.Explore, "Discover", theme = theme) { nav.navigate("search"); onDismiss() }
                     if (watchPartyEnabled) {
                         val watchPartyHostGraceDeadlineMs by vm.watchPartyHostGraceDeadlineMs.collectAsState()
                         WatchPartyActiveItem(
