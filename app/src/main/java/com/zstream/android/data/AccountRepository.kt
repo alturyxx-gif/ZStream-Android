@@ -12,10 +12,13 @@ import com.zstream.android.data.CryptoUtils.toBase64Url
 import com.zstream.android.data.remote.*
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import retrofit2.HttpException
 
 private const val TAG = "AccountRepo"
@@ -48,6 +51,7 @@ class AccountRepository @Inject constructor(
     private val KEY_GUEST_ID = stringPreferencesKey("guest_id")
     private val KEY_SAVED_PROFILES = stringPreferencesKey("saved_profiles")
     private val gson = Gson()
+    private val guestIdMutex = Mutex()
 
     // Current session (can be null)
     var currentSession: AccountSession? = null
@@ -62,6 +66,13 @@ class AccountRepository @Inject constructor(
         currentSession = account
         account
     }
+
+    /** Stable namespace for device-local data that must not leak across account/profile switches. */
+    val activeReleaseOwner: Flow<String> = session
+        .map { account -> account?.userId ?: "guest:${getOrCreateGuestId()}" }
+        .distinctUntilChanged()
+
+    suspend fun currentReleaseOwner(): String = activeReleaseOwner.first()
 
     /** Cached logins available for a fast profile switch. TV-only feature; harmless if unused on phone. */
     val savedProfiles: Flow<List<SavedProfile>> = ctx.accountStore.data.map { prefs ->
@@ -156,14 +167,14 @@ class AccountRepository @Inject constructor(
     /**
      * Get a persistent guest ID for anonymous watch party participation.
      */
-    suspend fun getOrCreateGuestId(): String {
+    suspend fun getOrCreateGuestId(): String = guestIdMutex.withLock {
         val prefs = ctx.accountStore.data.first()
         val existing = prefs[KEY_GUEST_ID]
-        if (existing != null) return existing
+        if (existing != null) return@withLock existing
 
         val newId = java.util.UUID.randomUUID().toString()
         ctx.accountStore.edit { it[KEY_GUEST_ID] = newId }
-        return newId
+        newId
     }
 
     /**

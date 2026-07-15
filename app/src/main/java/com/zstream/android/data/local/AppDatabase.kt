@@ -41,7 +41,7 @@ import com.zstream.android.data.local.entity.TrackedReleaseEntity
         TrackedReleaseEntity::class,
     ],
 
-    version = 16,
+    version = 17,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -249,15 +249,45 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_16_17 = object : Migration(16, 17) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Version 16 rows had no owner/profile namespace, so assigning them to the
+                // currently-active or anonymous profile would leak subscriptions. Reset only
+                // this new feature's table; all other user data remains intact.
+                db.execSQL("DROP TABLE IF EXISTS tracked_releases")
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS tracked_releases (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        ownerId TEXT NOT NULL,
+                        `key` TEXT NOT NULL,
+                        tmdbId INTEGER NOT NULL,
+                        mediaType TEXT NOT NULL,
+                        title TEXT NOT NULL,
+                        posterPath TEXT,
+                        seasonNumber INTEGER,
+                        episodeNumber INTEGER,
+                        episodeTitle TEXT,
+                        addedAt INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS index_tracked_releases_ownerId_key " +
+                        "ON tracked_releases (ownerId, `key`)"
+                )
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
-                val instance = Room.databaseBuilder(
+                INSTANCE ?: Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
                     "zstream.db"
-                ).addMigrations(MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16).build()
-                INSTANCE = instance
-                instance
+                ).addMigrations(MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17).build().also {
+                    INSTANCE = it
+                }
             }
         }
     }

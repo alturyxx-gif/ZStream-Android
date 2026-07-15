@@ -24,8 +24,10 @@ class ZStreamApp : Application(), ImageLoaderFactory {
         CrashLog.breadcrumb("App", "traktRepository.start() done")
         releaseUpdateManager.start()
         CrashLog.breadcrumb("App", "releaseUpdateManager.start() done")
-        releaseNotifyManager.start()
-        CrashLog.breadcrumb("App", "releaseNotifyManager.start() done")
+        // Reconcile persisted subscriptions after a crash/process kill. An empty check is one-shot;
+        // the worker only re-arms itself while tracked rows still exist.
+        releaseNotifyManager.ensureStarted()
+        CrashLog.breadcrumb("App", "releaseNotifyManager.ensureStarted() done")
         rybbitAnalytics.trackEvent("app_open")
     }
 

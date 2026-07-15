@@ -14,6 +14,7 @@ import com.google.gson.Gson
 import com.zstream.android.data.local.entity.SettingsEntity
 import com.zstream.android.data.local.preferences.SettingsPreferences
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -43,6 +44,7 @@ import java.net.ServerSocket
 import java.net.Socket
 import java.security.SecureRandom
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Semaphore
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.coroutines.resume
@@ -124,7 +126,21 @@ data class PairedTv(
     val token: String,
     val secretBase64: String,
     val pairedAt: Long,
+    val releaseOwnerId: String? = null,
+    val releaseOwnerName: String? = null,
 )
+
+data class PairedPhone(
+    val id: String,
+    val phoneDeviceId: String?,
+    val phoneName: String,
+    val host: String?,
+    val port: Int?,
+    val pairedAt: Long,
+) {
+    val needsRepair: Boolean
+        get() = phoneDeviceId.isNullOrBlank() || host.isNullOrBlank() || port == null
+}
 
 /** TV-side record of a phone that paired with it, persisted so the session survives a TV app restart. */
 private data class PairedPhoneSession(
@@ -132,7 +148,36 @@ private data class PairedPhoneSession(
     val secretBase64: String,
     val phoneName: String,
     val pairedAt: Long,
+    val phoneDeviceId: String? = null,
+    val host: String? = null,
+    val callbackPort: Int? = null,
 )
+
+private data class DiscoveredPhone(
+    val phoneDeviceId: String,
+    val phoneName: String,
+    val host: String,
+    val port: Int,
+)
+
+private data class ProcessedReleaseRequest(
+    val requestId: String,
+    val issuedAt: Long,
+    val message: String,
+)
+
+private data class ReleaseRequestAttempt(
+    val requestId: String,
+    val issuedAt: Long,
+)
+
+private data class ReleaseSubscriptionEnvelope(
+    val requestId: String,
+    val issuedAt: Long,
+    val request: ReleaseSubscriptionRequest,
+)
+
+private class ReleaseSubscriptionRejected(message: String) : IllegalStateException(message)
 
 data class TvSyncReceiverState(
     val active: Boolean = false,
@@ -172,6 +217,8 @@ class TvSyncRepository @Inject constructor(
     private val settingsPreferences: SettingsPreferences,
     private val accountRepository: AccountRepository,
     private val traktRepository: TraktRepository,
+    private val trackedReleaseRepository: TrackedReleaseRepository,
+    private val releaseNotifyManager: ReleaseNotifyManager,
 ) {
     private val tag = "TvSync"
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -201,6 +248,12 @@ class TvSyncRepository @Inject constructor(
     private val _pairedTvs = MutableStateFlow<List<PairedTv>>(emptyList())
     val pairedTvs: StateFlow<List<PairedTv>> = _pairedTvs.asStateFlow()
 
+    private val pairedPhoneSessions = ConcurrentHashMap<String, PairedPhoneSession>()
+    private val _pairedPhones = MutableStateFlow<List<PairedPhone>>(emptyList())
+    val pairedPhones: StateFlow<List<PairedPhone>> = _pairedPhones.asStateFlow()
+    private val releaseRequestAttempts = ConcurrentHashMap<String, ReleaseRequestAttempt>()
+    private val phoneClientSlots = Semaphore(MAX_PHONE_CONNECTIONS)
+
     init {
         scope.launch {
             _pairedTvs.value = loadPairedTvsFromDisk()
@@ -216,8 +269,10 @@ class TvSyncRepository @Inject constructor(
         }
         scope.launch {
             loadPhoneSessionsFromDisk().forEach { session ->
+                pairedPhoneSessions[session.id] = session
                 pairedSecrets[session.token] = secretFromBase64(session.secretBase64)
             }
+            publishPairedPhones()
         }
     }
 
@@ -232,8 +287,14 @@ class TvSyncRepository @Inject constructor(
     // without this, both could race stopReceiver()/socket-creation and leave the UI showing a
     // pairing code for a socket the other caller already closed.
     private val receiverStartMutex = Mutex()
+    private val phoneReceiverStartMutex = Mutex()
+    private val phoneSessionsMutex = Mutex()
+    private val processedReleaseMutex = Mutex()
     private var serverSocket: ServerSocket? = null
     private var registrationListener: NsdManager.RegistrationListener? = null
+    private var phoneServerSocket: ServerSocket? = null
+    private var phoneRegistrationListener: NsdManager.RegistrationListener? = null
+    @Volatile private var phoneRegistrationRetryCount = 0
     private var currentCode: String? = null
     private var currentSalt: String? = null
     private var currentTvDeviceId: String? = null
@@ -244,8 +305,11 @@ class TvSyncRepository @Inject constructor(
 
     private val keyTvName = stringPreferencesKey("tv_name")
     private val keyTvDeviceId = stringPreferencesKey("tv_device_id")
+    private val keyPhoneDeviceId = stringPreferencesKey("phone_device_id")
+    private val keyPhoneName = stringPreferencesKey("phone_name")
     private val keyPairedTvs = stringPreferencesKey("paired_tvs")
     private val keyPhoneSessions = stringPreferencesKey("paired_phone_sessions")
+    private val keyProcessedReleaseRequests = stringPreferencesKey("processed_release_requests")
 
     suspend fun defaultTvName(): String =
         context.tvSyncStore.data.first()[keyTvName] ?: "${Build.MODEL.takeIf { it.isNotBlank() } ?: "ZStream"} TV"
@@ -262,6 +326,34 @@ class TvSyncRepository @Inject constructor(
         return id
     }
 
+    private suspend fun phoneDeviceId(): String {
+        context.tvSyncStore.data.first()[keyPhoneDeviceId]?.let { return it }
+        val id = randomToken(18)
+        context.tvSyncStore.edit { it[keyPhoneDeviceId] = id }
+        return id
+    }
+
+    private suspend fun phoneName(): String {
+        val deviceIdSuffix = phoneDeviceId().takeLast(4).uppercase()
+        context.tvSyncStore.data.first()[keyPhoneName]
+            ?.takeIf { it.endsWith("($deviceIdSuffix)") }
+            ?.let { return it }
+        val accountDeviceName = accountRepository.session.first()
+            ?.deviceName
+            ?.trim()
+            ?.takeIf { it.isNotBlank() && !it.equals("Android", ignoreCase = true) }
+        val manufacturer = Build.MANUFACTURER.trim().takeUnless {
+            it.isBlank() || Build.MODEL.startsWith(it, ignoreCase = true)
+        }
+        val modelName = listOfNotNull(manufacturer, Build.MODEL.trim().takeIf(String::isNotBlank))
+            .joinToString(" ").ifBlank { "Android phone" }
+        // The short stable suffix keeps two otherwise-identical phone models distinguishable in
+        // the TV picker without exposing the full device identifier.
+        val name = "${(accountDeviceName ?: modelName).take(40)} ($deviceIdSuffix)"
+        context.tvSyncStore.edit { it[keyPhoneName] = name }
+        return name
+    }
+
     private suspend fun loadPairedTvsFromDisk(): List<PairedTv> = runCatching {
         val raw = context.tvSyncStore.data.first()[keyPairedTvs] ?: return emptyList()
         val type = com.google.gson.reflect.TypeToken.getParameterized(List::class.java, PairedTv::class.java).type
@@ -275,7 +367,54 @@ class TvSyncRepository @Inject constructor(
         context.tvSyncStore.edit { it[keyPairedTvs] = gson.toJson(list) }
     }
 
-    private suspend fun upsertPairedTv(host: String, port: Int, tvName: String, tvDeviceId: String?, token: String, secret: ByteArray) {
+    private suspend fun processReleaseRequestOnce(
+        envelope: ReleaseSubscriptionEnvelope,
+        action: suspend () -> String,
+    ): String = processedReleaseMutex.withLock {
+        val now = System.currentTimeMillis()
+        require(envelope.requestId.matches(Regex("[A-Za-z0-9_-]{16,64}"))) {
+            "Invalid release subscription request"
+        }
+        require(envelope.issuedAt <= now + RELEASE_REQUEST_CLOCK_SKEW_MS) {
+            "Release subscription request is dated in the future"
+        }
+        require(now - envelope.issuedAt <= RELEASE_REQUEST_MAX_AGE_MS) {
+            "Release subscription request expired"
+        }
+
+        val stored = runCatching {
+            val raw = context.tvSyncStore.data.first()[keyProcessedReleaseRequests]
+                ?: return@runCatching emptyList()
+            val type = com.google.gson.reflect.TypeToken.getParameterized(
+                List::class.java,
+                ProcessedReleaseRequest::class.java,
+            ).type
+            gson.fromJson<List<ProcessedReleaseRequest>>(raw, type).orEmpty()
+        }.getOrElse {
+            Log.w(tag, "Could not read processed release requests", it)
+            emptyList()
+        }
+        stored.firstOrNull { it.requestId == envelope.requestId }?.let { return@withLock it.message }
+
+        val message = action()
+        val retained = (stored + ProcessedReleaseRequest(envelope.requestId, envelope.issuedAt, message))
+            .filter { now - it.issuedAt <= PROCESSED_RELEASE_RETENTION_MS }
+            .sortedByDescending(ProcessedReleaseRequest::issuedAt)
+            .take(MAX_PROCESSED_RELEASE_REQUESTS)
+        context.tvSyncStore.edit { it[keyProcessedReleaseRequests] = gson.toJson(retained) }
+        message
+    }
+
+    private suspend fun upsertPairedTv(
+        host: String,
+        port: Int,
+        tvName: String,
+        tvDeviceId: String?,
+        token: String,
+        secret: ByteArray,
+        releaseOwnerId: String,
+        releaseOwnerName: String,
+    ) {
         val existing = _pairedTvs.value.find {
             (tvDeviceId != null && it.tvDeviceId == tvDeviceId) || (it.host == host && it.port == port)
         }
@@ -289,6 +428,8 @@ class TvSyncRepository @Inject constructor(
             token = token,
             secretBase64 = secretToBase64(secret),
             pairedAt = System.currentTimeMillis(),
+            releaseOwnerId = releaseOwnerId,
+            releaseOwnerName = releaseOwnerName,
         )
         val next = _pairedTvs.value.filterNot { it.id == updated.id } + updated
         _pairedTvs.value = next
@@ -379,13 +520,53 @@ class TvSyncRepository @Inject constructor(
         emptyList()
     }
 
-    private fun persistPhoneSession(token: String, secret: ByteArray, phoneName: String) {
-        scope.launch {
-            val current = loadPhoneSessionsFromDisk()
-            val next = current.filterNot { it.token == token } +
-                PairedPhoneSession(token, secretToBase64(secret), phoneName, System.currentTimeMillis())
-            context.tvSyncStore.edit { it[keyPhoneSessions] = gson.toJson(next) }
+    private val PairedPhoneSession.id: String
+        get() = phoneDeviceId?.takeIf(String::isNotBlank) ?: "legacy:$token"
+
+    private fun publishPairedPhones() {
+        _pairedPhones.value = pairedPhoneSessions.values
+            .sortedByDescending(PairedPhoneSession::pairedAt)
+            .map { session ->
+                PairedPhone(
+                    id = session.id,
+                    phoneDeviceId = session.phoneDeviceId,
+                    phoneName = session.phoneName,
+                    host = session.host,
+                    port = session.callbackPort,
+                    pairedAt = session.pairedAt,
+                )
+            }
+    }
+
+    private suspend fun persistPhoneSession(
+        token: String,
+        secret: ByteArray,
+        phoneName: String,
+        phoneDeviceId: String?,
+        host: String?,
+        callbackPort: Int?,
+    ) = phoneSessionsMutex.withLock {
+        val session = PairedPhoneSession(
+            token = token,
+            secretBase64 = secretToBase64(secret),
+            phoneName = phoneName,
+            pairedAt = System.currentTimeMillis(),
+            phoneDeviceId = phoneDeviceId,
+            host = host,
+            callbackPort = callbackPort,
+        )
+        val superseded = pairedPhoneSessions.entries.filter { entry ->
+            entry.value.token == token ||
+                (!phoneDeviceId.isNullOrBlank() && entry.value.phoneDeviceId == phoneDeviceId)
         }
+        superseded.forEach { entry ->
+            pairedPhoneSessions.remove(entry.key)
+            pairedSecrets.remove(entry.value.token)
+        }
+        pairedSecrets[token] = secret
+        pairedPhoneSessions[session.id] = session
+        context.tvSyncStore.edit { it[keyPhoneSessions] = gson.toJson(pairedPhoneSessions.values.toList()) }
+        publishPairedPhones()
     }
 
     suspend fun startReceiver(tvName: String? = null) = receiverStartMutex.withLock {
@@ -453,6 +634,134 @@ class TvSyncRepository @Inject constructor(
         currentTvDeviceId = null
         _receiverState.value = TvSyncReceiverState()
     }
+
+    /** Keeps a paired phone reachable while its app process is alive. */
+    suspend fun startPhoneReceiver() = phoneReceiverStartMutex.withLock {
+        if (phoneServerSocket?.isClosed == false) return@withLock
+        stopPhoneReceiver()
+        var socket: ServerSocket? = null
+        try {
+            socket = ServerSocket(0)
+            phoneServerSocket = socket
+            val name = phoneName()
+            val deviceId = phoneDeviceId()
+            registerPhoneService(name, deviceId, socket.localPort)
+            Log.d(tag, "startPhoneReceiver phoneName=$name phoneDeviceId=$deviceId port=${socket.localPort}")
+            val activeSocket = socket
+            scope.launch {
+                while (!activeSocket.isClosed) {
+                    try {
+                        val client = activeSocket.accept()
+                        if (!phoneClientSlots.tryAcquire()) {
+                            client.close()
+                        } else {
+                            scope.launch {
+                                try {
+                                    handlePhoneClient(client)
+                                } finally {
+                                    phoneClientSlots.release()
+                                }
+                            }
+                        }
+                    } catch (_: Exception) {
+                        if (!activeSocket.isClosed) Log.w(tag, "phone receiver accept failed")
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(tag, "Phone receiver startup failed", e)
+            runCatching { socket?.close() }
+            if (phoneServerSocket === socket) phoneServerSocket = null
+            phoneRegistrationListener = null
+            schedulePhoneReceiverRetry()
+        }
+    }
+
+    fun stopPhoneReceiver() {
+        try {
+            phoneRegistrationListener?.let { nsdManager.unregisterService(it) }
+        } catch (_: Exception) {
+        }
+        phoneRegistrationListener = null
+        try {
+            phoneServerSocket?.close()
+        } catch (_: Exception) {
+        }
+        phoneServerSocket = null
+    }
+
+    private fun schedulePhoneReceiverRetry() {
+        val retry = ++phoneRegistrationRetryCount
+        val delayMs = (retry * 2_000L).coerceAtMost(30_000L)
+        scope.launch {
+            delay(delayMs)
+            runCatching { startPhoneReceiver() }
+                .onFailure { Log.w(tag, "Phone receiver retry failed", it) }
+        }
+    }
+
+    private suspend fun persistAuthenticatedPhoneEndpoint(
+        sessionId: String,
+        expectedToken: String,
+        phone: DiscoveredPhone,
+    ) = phoneSessionsMutex.withLock {
+        val current = pairedPhoneSessions[sessionId] ?: return@withLock
+        if (current.token != expectedToken) return@withLock
+        pairedPhoneSessions[sessionId] = current.copy(
+            phoneName = phone.phoneName,
+            host = phone.host,
+            callbackPort = phone.port,
+        )
+        context.tvSyncStore.edit { it[keyPhoneSessions] = gson.toJson(pairedPhoneSessions.values.toList()) }
+        publishPairedPhones()
+    }
+
+    private suspend fun discoverPhones(timeoutMs: Long): List<DiscoveredPhone> =
+        suspendCancellableCoroutine { continuation ->
+            val found = ConcurrentHashMap<String, DiscoveredPhone>()
+            val listener = object : NsdManager.DiscoveryListener {
+                override fun onStartDiscoveryFailed(serviceType: String?, errorCode: Int) {
+                    Log.w(tag, "phone discovery start failed error=$errorCode")
+                    runCatching { nsdManager.stopServiceDiscovery(this) }
+                    if (continuation.isActive) continuation.resume(emptyList())
+                }
+
+                override fun onStopDiscoveryFailed(serviceType: String?, errorCode: Int) {
+                    Log.w(tag, "phone discovery stop failed error=$errorCode")
+                }
+
+                override fun onDiscoveryStarted(serviceType: String?) = Unit
+                override fun onDiscoveryStopped(serviceType: String?) = Unit
+                override fun onServiceLost(serviceInfo: NsdServiceInfo?) = Unit
+
+                override fun onServiceFound(serviceInfo: NsdServiceInfo) {
+                    if (serviceInfo.serviceType != PHONE_NSD_SERVICE_TYPE) return
+                    nsdManager.resolveService(serviceInfo, object : NsdManager.ResolveListener {
+                        override fun onResolveFailed(serviceInfo: NsdServiceInfo?, errorCode: Int) {
+                            Log.w(tag, "phone resolve failed service=${serviceInfo?.serviceName} error=$errorCode")
+                        }
+
+                        override fun onServiceResolved(resolved: NsdServiceInfo) {
+                            val deviceId = resolved.attributes["phoneDeviceId"]?.decodeToString()?.takeIf(String::isNotBlank) ?: return
+                            val host = resolved.host?.hostAddress ?: return
+                            val name = resolved.attributes["phoneName"]?.decodeToString()?.takeIf(String::isNotBlank)
+                                ?: resolved.serviceName
+                            found["$deviceId:$host:${resolved.port}"] =
+                                DiscoveredPhone(deviceId, name, host, resolved.port)
+                        }
+                    })
+                }
+            }
+            nsdManager.discoverServices(PHONE_NSD_SERVICE_TYPE, NsdManager.PROTOCOL_DNS_SD, listener)
+            scope.launch {
+                delay(timeoutMs)
+                runCatching { nsdManager.stopServiceDiscovery(listener) }
+                if (continuation.isActive) continuation.resume(found.values.toList())
+            }
+            continuation.invokeOnCancellation {
+                runCatching { nsdManager.stopServiceDiscovery(listener) }
+            }
+        }
 
     suspend fun discoverReceivers(timeoutMs: Long = 3500): List<TvSyncDiscoveredReceiver> =
         suspendCancellableCoroutine { continuation ->
@@ -526,25 +835,47 @@ class TvSyncRepository @Inject constructor(
     }
 
     suspend fun pair(host: String, port: Int, code: String, salt: String, sessionId: String, phoneName: String, tvName: String = "TV", tvDeviceId: String? = null): String = withContext(Dispatchers.IO) {
-        Log.d(tag, "pair host=$host port=$port codeLength=${code.length} sessionId=$sessionId phoneName=$phoneName")
+        startPhoneReceiver()
+        val actualPhoneName = phoneName.trim()
+            .takeUnless { it.isBlank() || it.equals("Android Phone", ignoreCase = true) }
+            ?: this@TvSyncRepository.phoneName()
+        val deviceId = phoneDeviceId()
+        val callbackPort = phoneServerSocket?.localPort ?: error("Phone receiver is unavailable")
+        val releaseOwner = accountRepository.session.first()
+        val releaseOwnerId = releaseOwner?.userId ?: "guest:${accountRepository.getOrCreateGuestId()}"
+        val releaseOwnerName = releaseOwner?.nickname?.trim().takeUnless { it.isNullOrBlank() } ?: "Guest"
+        Log.d(tag, "pair host=$host port=$port codeLength=${code.length} sessionId=$sessionId phoneName=$actualPhoneName")
         val secret = deriveSecret(code, salt)
         val proof = CryptoUtils.encryptData("pair:$sessionId", secret)
+        val callbackProof = CryptoUtils.encryptData("callback:$sessionId:$deviceId:$callbackPort", secret)
         val body = JSONObject()
             .put("sessionId", sessionId)
-            .put("clientName", phoneName)
+            .put("clientName", actualPhoneName)
+            .put("phoneDeviceId", deviceId)
+            .put("callbackPort", callbackPort)
+            .put("callbackProof", callbackProof)
             .put("proof", proof)
             .toString()
             .toRequestBody(JSON.toMediaType())
         val request = Request.Builder().url("http://$host:$port/pair").post(body).build()
         return@withContext httpClient.newCall(request).execute().use { response ->
             val raw = response.body?.string().orEmpty()
-            Log.d(tag, "pair response code=${response.code} body=$raw")
+            Log.d(tag, "pair response code=${response.code}")
             if (!response.isSuccessful) error(raw.ifBlank { "Pairing failed" })
             val token = JSONObject(raw).getString("token")
             sessionIds["$host:$port"] = token
             pairedSecrets["$host:$port"] = secret
             _activeReceiver.value = TvSyncDiscoveredReceiver(serviceName = tvName, host = host, port = port, tvName = tvName, tvDeviceId = tvDeviceId)
-            upsertPairedTv(host, port, tvName, tvDeviceId, token, secret)
+            upsertPairedTv(
+                host,
+                port,
+                tvName,
+                tvDeviceId,
+                token,
+                secret,
+                releaseOwnerId,
+                releaseOwnerName,
+            )
             token
         }
     }
@@ -588,6 +919,126 @@ class TvSyncRepository @Inject constructor(
             val raw = response.body?.string().orEmpty()
             Log.d(tag, "sendPayload response code=${response.code} body=$raw")
             if (!response.isSuccessful) error(raw.ifBlank { "Transfer failed" })
+        }
+    }
+
+    suspend fun sendReleaseSubscription(
+        phone: PairedPhone,
+        request: ReleaseSubscriptionRequest,
+    ): String = withContext(Dispatchers.IO) {
+        val session = pairedPhoneSessions[phone.id] ?: error("This phone is no longer paired")
+        val deviceId = session.phoneDeviceId
+        val initialHost = session.host
+        val initialPort = session.callbackPort
+        if (deviceId.isNullOrBlank() || initialHost.isNullOrBlank() || initialPort == null) {
+            error("Pair this phone again to enable release notifications")
+        }
+        val secret = secretFromBase64(session.secretBase64)
+        val attemptKey = "${phone.id}:${request.key}"
+        val now = System.currentTimeMillis()
+        val attempt = releaseRequestAttempts.compute(attemptKey) { _, existing ->
+            existing?.takeIf { now - it.issuedAt <= RELEASE_REQUEST_MAX_AGE_MS }
+                ?: ReleaseRequestAttempt(randomToken(18), now)
+        } ?: error("Could not create the release subscription request")
+        val envelope = ReleaseSubscriptionEnvelope(attempt.requestId, attempt.issuedAt, request)
+
+        try {
+            val message = sendReleaseSubscriptionToEndpoint(
+                initialHost,
+                initialPort,
+                session,
+                secret,
+                envelope,
+            )
+            releaseRequestAttempts.remove(attemptKey, attempt)
+            return@withContext message
+        } catch (e: ReleaseSubscriptionRejected) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(tag, "Last paired phone endpoint did not authenticate; discovering its current endpoint", e)
+        }
+
+        val discovered = try {
+            discoverPhones(3_500).filter { it.phoneDeviceId == deviceId }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            emptyList()
+        }
+        if (discovered.isEmpty()) {
+            throw IllegalStateException(
+                "Could not reach ${session.phoneName}. Open ZStream on that phone and try again",
+            )
+        }
+
+        var lastFailure: Exception? = null
+        discovered.distinctBy { it.host to it.port }.forEach { candidate ->
+            try {
+                val message = sendReleaseSubscriptionToEndpoint(
+                    candidate.host,
+                    candidate.port,
+                    session,
+                    secret,
+                    envelope,
+                )
+                persistAuthenticatedPhoneEndpoint(phone.id, session.token, candidate)
+                releaseRequestAttempts.remove(attemptKey, attempt)
+                return@withContext message
+            } catch (e: ReleaseSubscriptionRejected) {
+                throw e
+            } catch (e: Exception) {
+                lastFailure = e
+            }
+        }
+        throw IllegalStateException(
+            "Could not confirm the subscription on ${session.phoneName}. Check that phone and try again",
+            lastFailure,
+        )
+    }
+
+    private fun sendReleaseSubscriptionToEndpoint(
+        host: String,
+        port: Int,
+        session: PairedPhoneSession,
+        secret: ByteArray,
+        envelope: ReleaseSubscriptionEnvelope,
+    ): String {
+        val encryptedPayload = CryptoUtils.encryptData(releaseSubscriptionToJson(envelope), secret)
+        val body = JSONObject()
+            .put("token", session.token)
+            .put("payload", encryptedPayload)
+            .toString()
+            .toRequestBody(JSON.toMediaType())
+        val request = Request.Builder()
+            .url(
+                okhttp3.HttpUrl.Builder()
+                    .scheme("http")
+                    .host(host)
+                    .port(port)
+                    .addPathSegment("release-subscription")
+                    .build()
+            )
+            .post(body)
+            .build()
+        return httpClient.newCall(request).execute().use { response ->
+            val raw = response.body?.string().orEmpty()
+            if (!response.isSuccessful) {
+                throw IllegalStateException("Phone endpoint did not return an authenticated acknowledgement")
+            }
+            val encryptedAck = JSONObject(raw).getString("payload")
+            val ack = JSONObject(CryptoUtils.decryptData(encryptedAck, secret))
+            require(ack.getString("requestId") == envelope.requestId) {
+                "Phone returned an invalid subscription acknowledgement"
+            }
+            if (!ack.optBoolean("ok")) {
+                throw ReleaseSubscriptionRejected(
+                    ack.optString("message").takeIf(String::isNotBlank)
+                        ?: "Subscription failed on ${session.phoneName}"
+                )
+            }
+            ack.optString("message")
+                .takeIf(String::isNotBlank)
+                ?: "${session.phoneName} will notify you when ${envelope.request.title} releases"
         }
     }
 
@@ -712,6 +1163,170 @@ class TvSyncRepository @Inject constructor(
         nsdManager.registerService(serviceInfo, NsdManager.PROTOCOL_DNS_SD, listener)
     }
 
+    private fun registerPhoneService(phoneName: String, phoneDeviceId: String, port: Int) {
+        val serviceInfo = NsdServiceInfo().apply {
+            serviceType = PHONE_NSD_SERVICE_TYPE
+            serviceName = "ZStream $phoneName"
+            setPort(port)
+            setAttribute("phoneName", phoneName)
+            setAttribute("phoneDeviceId", phoneDeviceId)
+        }
+        val listener = object : NsdManager.RegistrationListener {
+            override fun onRegistrationFailed(serviceInfo: NsdServiceInfo?, errorCode: Int) {
+                Log.w(tag, "phone register failed service=${serviceInfo?.serviceName} error=$errorCode")
+                if (phoneRegistrationListener !== this) return
+                phoneRegistrationListener = null
+                runCatching { phoneServerSocket?.close() }
+                phoneServerSocket = null
+                schedulePhoneReceiverRetry()
+            }
+
+            override fun onUnregistrationFailed(serviceInfo: NsdServiceInfo?, errorCode: Int) = Unit
+
+            override fun onServiceRegistered(serviceInfo: NsdServiceInfo?) {
+                if (phoneRegistrationListener !== this) return
+                phoneRegistrationRetryCount = 0
+                Log.d(tag, "phone register success service=${serviceInfo?.serviceName} port=$port phoneDeviceId=$phoneDeviceId")
+            }
+
+            override fun onServiceUnregistered(serviceInfo: NsdServiceInfo?) = Unit
+        }
+        phoneRegistrationListener = listener
+        nsdManager.registerService(serviceInfo, NsdManager.PROTOCOL_DNS_SD, listener)
+    }
+
+    private suspend fun handlePhoneClient(client: Socket) {
+        client.use { socket ->
+            socket.soTimeout = 10_000
+            val writer = OutputStreamWriter(socket.getOutputStream())
+            try {
+                val reader = BufferedReader(InputStreamReader(socket.getInputStream()))
+                val requestLine = readHttpLineLimited(reader, MAX_HTTP_REQUEST_LINE_CHARS) ?: return
+                val headers = linkedMapOf<String, String>()
+                var totalHeaderChars = 0
+                var headersComplete = false
+                for (index in 0 until MAX_HTTP_HEADER_LINES) {
+                    val line = readHttpLineLimited(reader, MAX_HTTP_HEADER_LINE_CHARS) ?: return
+                    if (line.isBlank()) {
+                        headersComplete = true
+                        break
+                    }
+                    totalHeaderChars += line.length
+                    require(totalHeaderChars <= MAX_HTTP_HEADER_CHARS) { "Request headers are too large" }
+                    val parts = line.split(':', limit = 2)
+                    if (parts.size == 2) headers[parts[0].trim().lowercase()] = parts[1].trim()
+                }
+                require(headersComplete) { "Too many request headers" }
+                val length = headers["content-length"]?.toIntOrNull()?.coerceAtLeast(0) ?: 0
+                if (length !in 1..MAX_LOCAL_REQUEST_BYTES) {
+                    respond(writer, 413, """{"error":"Invalid request size"}""")
+                    return
+                }
+                val chars = CharArray(length)
+                var read = 0
+                while (read < length) {
+                    val count = reader.read(chars, read, length - read)
+                    if (count < 0) break
+                    read += count
+                }
+                if (requestLine.startsWith("POST /release-subscription ")) {
+                    handleReleaseSubscription(String(chars, 0, read), writer)
+                } else {
+                    respond(writer, 404, """{"error":"Not found"}""")
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(tag, "Rejected malformed phone callback request", e)
+                runCatching { respond(writer, 400, """{"error":"Invalid request"}""") }
+            }
+        }
+    }
+
+    private suspend fun handleReleaseSubscription(body: String, writer: OutputStreamWriter) {
+        var acknowledgementSecret: ByteArray? = null
+        var acknowledgementRequestId: String? = null
+        try {
+            val json = JSONObject(body)
+            val token = json.getString("token")
+            val pairedTv = _pairedTvs.value.find { it.token == token }
+                ?: loadPairedTvsFromDisk().find { it.token == token }
+                ?: error("Pair with this phone again")
+            val secret = secretFromBase64(pairedTv.secretBase64)
+            acknowledgementSecret = secret
+            val decrypted = CryptoUtils.decryptData(json.getString("payload"), secret)
+            val envelope = releaseSubscriptionFromJson(decrypted)
+            acknowledgementRequestId = envelope.requestId
+            val currentOwnerId = accountRepository.currentReleaseOwner()
+            require(pairedTv.releaseOwnerId != null && pairedTv.releaseOwnerId == currentOwnerId) {
+                val profile = pairedTv.releaseOwnerName?.takeIf(String::isNotBlank) ?: "the paired profile"
+                "Switch to $profile on this phone, or pair it again"
+            }
+            val message = processReleaseRequestOnce(envelope) {
+                val generation = trackedReleaseRepository.subscribe(envelope.request)
+                val confirmationPosted = runCatching {
+                    releaseNotifyManager.showSubscriptionConfirmation(envelope.request)
+                }.getOrElse {
+                    Log.w(tag, "Subscription confirmation failed", it)
+                    false
+                }
+                if (!confirmationPosted) {
+                    generation?.let { trackedReleaseRepository.rollbackSubscription(it) }
+                    throw NotificationUnavailableException(
+                        "Notifications are disabled on this phone. Enable them and try again"
+                    )
+                }
+                "${phoneName()} will notify you when ${envelope.request.title} releases"
+            }
+            respondReleaseAcknowledgement(
+                writer,
+                secret,
+                envelope.requestId,
+                ok = true,
+                message = message,
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(tag, "handleReleaseSubscription failed error=${e.message}", e)
+            val secret = acknowledgementSecret
+            val requestId = acknowledgementRequestId
+            if (secret != null && requestId != null) {
+                respondReleaseAcknowledgement(
+                    writer,
+                    secret,
+                    requestId,
+                    ok = false,
+                    message = e.message ?: "Subscription failed",
+                )
+            } else {
+                respond(writer, 400, """{"error":"Invalid subscription request"}""")
+            }
+        }
+    }
+
+    private fun respondReleaseAcknowledgement(
+        writer: OutputStreamWriter,
+        secret: ByteArray,
+        requestId: String,
+        ok: Boolean,
+        message: String,
+    ) {
+        val acknowledgement = CryptoUtils.encryptData(
+            JSONObject()
+                .put("requestId", requestId)
+                .put("ok", ok)
+                .put("message", message)
+                .toString(),
+            secret,
+        )
+        respond(
+            writer,
+            200,
+            JSONObject().put("payload", acknowledgement).toString(),
+        )
+    }
+
     private suspend fun handleClient(client: Socket) {
         client.use { socket ->
             val reader = BufferedReader(InputStreamReader(socket.getInputStream()))
@@ -730,11 +1345,11 @@ class TvSyncRepository @Inject constructor(
                 reader.read(it)
                 String(it)
             } else ""
-            if (body.isNotBlank()) Log.d(tag, "handleClient body=$body")
+            if (body.isNotBlank()) Log.d(tag, "handleClient bodyLength=${body.length}")
             val writer = OutputStreamWriter(socket.getOutputStream())
             when {
                 requestLine.startsWith("GET /hello") -> respond(writer, 200, helloJson().toString())
-                requestLine.startsWith("POST /pair") -> handlePair(body, writer)
+                requestLine.startsWith("POST /pair") -> handlePair(body, socket.inetAddress.hostAddress, writer)
                 requestLine.startsWith("POST /transfer") -> handleTransfer(body, writer)
                 requestLine.startsWith("POST /cast") -> handleCast(body, writer)
                 requestLine.startsWith("GET /status") -> handleStatus(requestLine, writer)
@@ -755,7 +1370,7 @@ class TvSyncRepository @Inject constructor(
             Log.d(tag, "helloJson sessionId=$it tvName=${_receiverState.value.tvName} port=${_receiverState.value.port} ips=${_receiverState.value.localIps}")
         })
 
-    private fun handlePair(body: String, writer: OutputStreamWriter) {
+    private suspend fun handlePair(body: String, clientHost: String?, writer: OutputStreamWriter) {
         runCatching {
             val json = JSONObject(body)
             val sessionId = json.getString("sessionId")
@@ -766,9 +1381,27 @@ class TvSyncRepository @Inject constructor(
             val decrypted = CryptoUtils.decryptData(proof, secret)
             require(decrypted == "pair:$sessionId") { "Wrong pairing code" }
             val token = randomToken(24)
-            pairedSecrets[token] = secret
-            persistPhoneSession(token, secret, json.optString("clientName").ifBlank { "phone" })
-            Log.d(tag, "handlePair success sessionId=$sessionId token=$token client=${json.optString("clientName")}")
+            val callbackPort = json.optInt("callbackPort", 0).takeIf { it in 1..65535 }
+            val phoneDeviceId = json.optString("phoneDeviceId").takeIf(String::isNotBlank)
+            val callbackProof = json.optString("callbackProof").takeIf(String::isNotBlank)
+            if (callbackPort != null || phoneDeviceId != null || callbackProof != null) {
+                require(callbackPort != null && phoneDeviceId != null && callbackProof != null) {
+                    "Invalid phone callback"
+                }
+                require(
+                    CryptoUtils.decryptData(callbackProof, secret) ==
+                        "callback:$sessionId:$phoneDeviceId:$callbackPort"
+                ) { "Invalid phone callback" }
+            }
+            persistPhoneSession(
+                token = token,
+                secret = secret,
+                phoneName = json.optString("clientName").ifBlank { "phone" },
+                phoneDeviceId = phoneDeviceId,
+                host = clientHost,
+                callbackPort = callbackPort,
+            )
+            Log.d(tag, "handlePair success sessionId=$sessionId client=${json.optString("clientName")}")
             _receiverState.value = _receiverState.value.copy(status = "Paired with ${json.optString("clientName").ifBlank { "phone" }}")
             respond(writer, 200, JSONObject().put("token", token).toString())
         }.onFailure {
@@ -786,7 +1419,7 @@ class TvSyncRepository @Inject constructor(
             val secret = pairedSecrets[token] ?: error("Pair again")
             val decrypted = CryptoUtils.decryptData(json.getString("payload"), secret)
             val payload = payloadFromJson(decrypted)
-            Log.d(tag, "handleTransfer success token=$token summary=${payload.summaryLines()} tvName=${payload.tvName}")
+            Log.d(tag, "handleTransfer success summary=${payload.summaryLines()} tvName=${payload.tvName}")
             _receiverState.value = _receiverState.value.copy(
                 pendingPayload = payload,
                 pendingToken = token,
@@ -809,7 +1442,7 @@ class TvSyncRepository @Inject constructor(
             val secret = pairedSecrets[token] ?: error("Pair again")
             val decrypted = CryptoUtils.decryptData(json.getString("payload"), secret)
             val request = castRequestFromJson(decrypted)
-            Log.d(tag, "handleCast success token=$token tmdbId=${request.tmdbId} sourceId=${request.sourceId}")
+            Log.d(tag, "handleCast success tmdbId=${request.tmdbId} sourceId=${request.sourceId}")
             _pendingCast.value = request
             respond(writer, 200, """{"ok":true}""")
         }.onFailure {
@@ -905,6 +1538,53 @@ class TvSyncRepository @Inject constructor(
         )
     }
 
+    private fun releaseSubscriptionToJson(envelope: ReleaseSubscriptionEnvelope): String = JSONObject().apply {
+        val request = envelope.request
+        put("requestId", envelope.requestId)
+        put("issuedAt", envelope.issuedAt)
+        put("tmdbId", request.tmdbId)
+        put("mediaType", request.mediaType)
+        put("title", request.title)
+        request.posterPath?.let { put("posterPath", it) }
+        request.seasonNumber?.let { put("seasonNumber", it) }
+        request.episodeNumber?.let { put("episodeNumber", it) }
+        request.episodeTitle?.let { put("episodeTitle", it) }
+    }.toString()
+
+    private fun releaseSubscriptionFromJson(json: String): ReleaseSubscriptionEnvelope {
+        val obj = JSONObject(json)
+        val request = ReleaseSubscriptionRequest(
+            tmdbId = obj.getInt("tmdbId"),
+            mediaType = obj.getString("mediaType"),
+            title = obj.getString("title"),
+            posterPath = obj.optString("posterPath").takeIf(String::isNotBlank),
+            seasonNumber = obj.optInt("seasonNumber", -1).takeIf { it >= 0 },
+            episodeNumber = obj.optInt("episodeNumber", -1).takeIf { it > 0 },
+            episodeTitle = obj.optString("episodeTitle").takeIf(String::isNotBlank),
+        )
+        require(request.tmdbId > 0 && request.title.isNotBlank()) { "Invalid release subscription" }
+        request.key // validates type and required episode identity
+        return ReleaseSubscriptionEnvelope(
+            requestId = obj.getString("requestId"),
+            issuedAt = obj.getLong("issuedAt"),
+            request = request,
+        )
+    }
+
+    private fun readHttpLineLimited(reader: BufferedReader, maxChars: Int): String? {
+        val value = StringBuilder()
+        while (true) {
+            val next = reader.read()
+            if (next < 0) return value.takeIf { it.isNotEmpty() }?.toString()
+            if (next.toChar() == '\n') {
+                if (value.endsWith("\r")) value.setLength(value.length - 1)
+                return value.toString()
+            }
+            require(value.length < maxChars) { "HTTP line is too long" }
+            value.append(next.toChar())
+        }
+    }
+
     private fun deriveSecret(code: String, salt: String): ByteArray = CryptoUtils.pbkdf2(code, "tvsync:$salt")
 
     private fun localIpv4Addresses(): List<String> = runCatching {
@@ -925,6 +1605,17 @@ class TvSyncRepository @Inject constructor(
 
     companion object {
         private const val NSD_SERVICE_TYPE = "_zstreamsync._tcp."
+        private const val PHONE_NSD_SERVICE_TYPE = "_zstreamphone._tcp."
         private const val JSON = "application/json; charset=utf-8"
+        private const val MAX_LOCAL_REQUEST_BYTES = 64 * 1024
+        private const val MAX_PHONE_CONNECTIONS = 8
+        private const val MAX_HTTP_REQUEST_LINE_CHARS = 2_048
+        private const val MAX_HTTP_HEADER_LINE_CHARS = 8_192
+        private const val MAX_HTTP_HEADER_CHARS = 16_384
+        private const val MAX_HTTP_HEADER_LINES = 32
+        private const val MAX_PROCESSED_RELEASE_REQUESTS = 128
+        private const val RELEASE_REQUEST_CLOCK_SKEW_MS = 10 * 60 * 1_000L
+        private const val RELEASE_REQUEST_MAX_AGE_MS = 24 * 60 * 60 * 1_000L
+        private const val PROCESSED_RELEASE_RETENTION_MS = 48 * 60 * 60 * 1_000L
     }
 }

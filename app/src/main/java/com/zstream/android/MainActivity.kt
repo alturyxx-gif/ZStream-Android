@@ -23,11 +23,14 @@ import androidx.core.view.WindowCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewModelScope
 import androidx.navigation.NavController
 import androidx.navigation.compose.rememberNavController
 import com.zstream.android.data.OPEN_TRACKED_RELEASE_MEDIA_TYPE_EXTRA
 import com.zstream.android.data.OPEN_TRACKED_RELEASE_TMDB_ID_EXTRA
+import com.zstream.android.data.OPEN_TRACKED_RELEASE_SEASON_EXTRA
+import com.zstream.android.data.OPEN_TRACKED_RELEASE_EPISODE_EXTRA
 import com.zstream.android.data.OpenTrackedReleaseNavigation
 import com.zstream.android.data.WatchPartyAction
 import com.zstream.android.data.WatchPartyManager
@@ -59,6 +62,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -86,6 +90,11 @@ class MainActivity : ComponentActivity() {
         handleOpenTrackedReleaseIntent(intent)
         val uiModeManager = getSystemService(UI_MODE_SERVICE) as UiModeManager
         val isTv = uiModeManager.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
+        if (!isTv) {
+            // Release-subscription callbacks must remain reachable even while the private plugin
+            // is loading, absent, or waiting at the debug sideload gate.
+            lifecycleScope.launch { tvSyncRepository.startPhoneReceiver() }
+        }
         if (
             !isTv &&
             releaseUpdateManager.enabled.value &&
@@ -203,9 +212,13 @@ class MainActivity : ComponentActivity() {
         val mediaType = intent?.getStringExtra(OPEN_TRACKED_RELEASE_MEDIA_TYPE_EXTRA) ?: return
         val tmdbId = intent.getIntExtra(OPEN_TRACKED_RELEASE_TMDB_ID_EXTRA, -1)
         if (tmdbId == -1) return
-        OpenTrackedReleaseNavigation.dispatch(mediaType, tmdbId)
+        val seasonNumber = intent.getIntExtra(OPEN_TRACKED_RELEASE_SEASON_EXTRA, -1).takeIf { it >= 0 }
+        val episodeNumber = intent.getIntExtra(OPEN_TRACKED_RELEASE_EPISODE_EXTRA, -1).takeIf { it >= 0 }
+        OpenTrackedReleaseNavigation.dispatch(mediaType, tmdbId, seasonNumber, episodeNumber)
         intent.removeExtra(OPEN_TRACKED_RELEASE_MEDIA_TYPE_EXTRA)
         intent.removeExtra(OPEN_TRACKED_RELEASE_TMDB_ID_EXTRA)
+        intent.removeExtra(OPEN_TRACKED_RELEASE_SEASON_EXTRA)
+        intent.removeExtra(OPEN_TRACKED_RELEASE_EPISODE_EXTRA)
     }
 
 }
@@ -284,10 +297,8 @@ fun ProfilePickerGlobalEffect(
 }
 
 /**
- * TV-only: keeps the pairing receiver listening for as long as the TV app is open (not just while
- * the "Sync from phone" screen is visible), and reacts to an incoming cast command by stopping
- * whatever is currently playing and clearing the back stack down to Home before opening the new
- * content -- so pressing back from the cast player lands on Home, not on whatever was playing before.
+ * Keeps the TV LAN receiver available while the app process is alive. Phone callbacks start from
+ * the activity lifecycle before the plugin gate. Incoming casts clear the stack down to Home.
  */
 @Composable
 fun TvCastGlobalEffect(
@@ -296,8 +307,7 @@ fun TvCastGlobalEffect(
     isTv: Boolean,
 ) {
     LaunchedEffect(isTv) {
-        if (!isTv) return@LaunchedEffect
-        if (!tvSyncRepository.receiverState.value.active) tvSyncRepository.startReceiver()
+        if (isTv && !tvSyncRepository.receiverState.value.active) tvSyncRepository.startReceiver()
     }
     LaunchedEffect(isTv, tvSyncRepository) {
         if (!isTv) return@LaunchedEffect
@@ -339,7 +349,9 @@ fun OpenTrackedReleaseGlobalEffect(navController: NavController) {
     val target by OpenTrackedReleaseNavigation.target.collectAsStateWithLifecycle()
     LaunchedEffect(target) {
         val t = target ?: return@LaunchedEffect
-        navController.navigate("detail/${t.mediaType}/${t.tmdbId}")
+        navController.navigate(
+            "detail/${t.mediaType}/${t.tmdbId}?season=${t.seasonNumber ?: -1}&episode=${t.episodeNumber ?: -1}"
+        )
         OpenTrackedReleaseNavigation.consume()
     }
 }

@@ -18,10 +18,12 @@ fun NavGraph(nav: NavHostController) {
         composable("search") { SearchScreen(nav) }
         composable("more/{source}?group={group}") { MoreScreen(nav) }
         dialog(
-            "detail/{mediaType}/{id}",
+            "detail/{mediaType}/{id}?season={season}&episode={episode}",
             arguments = listOf(
                 navArgument("mediaType") { type = NavType.StringType },
                 navArgument("id") { type = NavType.IntType },
+                navArgument("season") { type = NavType.IntType; defaultValue = -1 },
+                navArgument("episode") { type = NavType.IntType; defaultValue = -1 },
             ),
             dialogProperties = DialogProperties(
                 usePlatformDefaultWidth = false,
