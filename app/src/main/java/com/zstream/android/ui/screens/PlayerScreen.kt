@@ -1062,6 +1062,16 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                             showResumeDialog = true
                         } else {
                             pendingResumeMs = w * 1000
+                            // If the source resolved fast enough that the player already hit
+                            // STATE_READY before this 100ms-delayed snapshot ran, the READY-transition
+                            // listener below already fired and won't fire again until some later
+                            // event (e.g. a user seek causing a rebuffer) -- which would then apply
+                            // this now-stale position on top of the user's manual seek. Consume it
+                            // immediately instead of leaving it dangling.
+                            if (player.playbackState == Player.STATE_READY) {
+                                player.seekTo(pendingResumeMs)
+                                pendingResumeMs = -1L
+                            }
                         }
                     }
                 }
