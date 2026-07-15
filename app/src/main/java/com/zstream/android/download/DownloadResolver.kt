@@ -32,11 +32,11 @@ class DownloadResolver @Inject constructor(
         destinationTreeUri: String? = null,
     ): Result<Long> = runCatching {
         val pluginSources = pluginManager.availableSources()
-        val ordered = sourceOrderStore.getDownloadOrder()
+        val settings = settingsPreferences.settings.first()
+        val ordered = sourceOrderStore.getDownloadOrder(hasArtemisVipKey = !settings.artemisVipKey.isNullOrBlank())
         check(ordered.isNotEmpty()) { "No sources available" }
 
         auroraKeyManager.ensureActiveKey()
-        val settings = settingsPreferences.settings.first()
         val media = MediaRequest(
             type = if (mediaType == "tv") MediaRequest.Type.SHOW else MediaRequest.Type.MOVIE,
             tmdbId = tmdbId,
