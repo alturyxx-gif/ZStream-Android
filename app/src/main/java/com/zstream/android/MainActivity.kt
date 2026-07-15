@@ -35,9 +35,11 @@ import com.zstream.android.data.adb.ReleaseUpdateNavigation
 import com.zstream.android.data.adb.ReleaseUpdateManager
 import com.zstream.android.download.OpenDownloadsNavigation
 import com.zstream.android.player.PlayerBackgroundController
+import com.zstream.android.plugin.PLUGIN_UPDATE_EXTRA
 import com.zstream.android.plugin.PluginGateViewModel
 import com.zstream.android.plugin.PluginManager
 import com.zstream.android.plugin.PluginState
+import com.zstream.android.plugin.PluginUpdateNavigation
 import com.zstream.android.ui.LocalIsTv
 import com.zstream.android.ui.navigation.NavGraph
 import com.zstream.android.ui.screens.LocalMediaCard
@@ -76,6 +78,7 @@ class MainActivity : ComponentActivity() {
         pluginManager.initialize()
         CrashLog.breadcrumb("MainActivity", "pluginManager.initialize() dispatched")
         handleReleaseUpdateIntent(intent)
+        handlePluginUpdateIntent(intent)
         handleOpenDownloadsIntent(intent)
         val uiModeManager = getSystemService(UI_MODE_SERVICE) as UiModeManager
         val isTv = uiModeManager.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
@@ -97,6 +100,14 @@ class MainActivity : ComponentActivity() {
 
             LaunchedEffect(pluginState::class) {
                 CrashLog.breadcrumb("MainActivity", "pluginState=${pluginState::class.simpleName}")
+            }
+
+            LaunchedEffect(Unit) {
+                pluginManager.pluginUpdateError.collect { message ->
+                    if (message != null) {
+                        android.widget.Toast.makeText(this@MainActivity, message, android.widget.Toast.LENGTH_LONG).show()
+                    }
+                }
             }
 
             ZStreamTheme {
@@ -156,6 +167,7 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         handleReleaseUpdateIntent(intent)
+        handlePluginUpdateIntent(intent)
         handleOpenDownloadsIntent(intent)
     }
 
@@ -164,6 +176,13 @@ class MainActivity : ComponentActivity() {
             ReleaseUpdateNavigation.dispatch(intent.getBooleanExtra(OPEN_TV_INSTALLER_EXTRA, false))
             intent.removeExtra(RELEASE_UPDATE_EXTRA)
             intent.removeExtra(OPEN_TV_INSTALLER_EXTRA)
+        }
+    }
+
+    private fun handlePluginUpdateIntent(intent: Intent?) {
+        if (intent?.getBooleanExtra(PLUGIN_UPDATE_EXTRA, false) == true) {
+            PluginUpdateNavigation.dispatch()
+            intent.removeExtra(PLUGIN_UPDATE_EXTRA)
         }
     }
 

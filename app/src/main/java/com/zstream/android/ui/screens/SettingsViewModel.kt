@@ -62,6 +62,7 @@ class SettingsViewModel @Inject constructor(
 
     // Plugin state — exposed directly from PluginManager
     val pluginState = pluginManager.pluginState
+    val pluginUpdateError = pluginManager.pluginUpdateError
 
     private val _sourceOrder = MutableStateFlow<List<SourceInfo>>(emptyList())
     val sourceOrder: StateFlow<List<SourceInfo>> = _sourceOrder
@@ -134,6 +135,33 @@ class SettingsViewModel @Inject constructor(
 
     fun setReleaseChecksEnabled(enabled: Boolean) = releaseUpdateManager.setEnabled(enabled)
     fun setReleaseCheckInterval(label: String) = releaseUpdateManager.setInterval(ReleaseCheckInterval.fromLabel(label))
+
+    private val _appUpdateMessage = MutableStateFlow<String?>(null)
+    val appUpdateMessage = _appUpdateMessage.asStateFlow()
+
+    fun checkAppUpdate() {
+        viewModelScope.launch {
+            _appUpdateMessage.value = null
+            runCatching {
+                val repositoryUrl = releaseUpdateManager.repositoryUrl
+                val apks = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    com.zstream.android.data.adb.GithubReleaseCatalog().loadAllApks(repositoryUrl)
+                }
+                if (releaseUpdateManager.checkForUpdate(apks)) {
+                    _appUpdateMessage.value = "Update ${releaseUpdateManager.pendingVersion} is available."
+                    com.zstream.android.data.adb.ReleaseUpdateNavigation.dispatch(false)
+                } else {
+                    _appUpdateMessage.value = "App is up to date (${com.zstream.android.BuildConfig.VERSION_NAME})."
+                }
+            }.onFailure {
+                _appUpdateMessage.value = "Update check failed: ${it.message}"
+            }
+        }
+    }
+
+    /** Debug-only: shows the update dialogs without a real pending release/plugin build. */
+    fun simulateAppUpdate() = releaseUpdateManager.simulateUpdate()
+    fun simulatePluginUpdate() = pluginManager.simulateUpdate()
 
     fun connectTrakt(context: android.content.Context) {
         viewModelScope.launch {

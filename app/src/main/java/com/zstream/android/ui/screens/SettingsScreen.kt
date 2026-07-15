@@ -1157,9 +1157,16 @@ private fun ArtemisVipKeySection(
 }
 
 @Composable
-private fun PluginVersionSection(vm: SettingsViewModel, theme: ZStreamTheme, isTv: Boolean) {
+private fun PluginVersionSection(vm: SettingsViewModel, theme: ZStreamTheme, isTv: Boolean, nav: NavController) {
     val pluginState by vm.pluginState.collectAsStateWithLifecycle()
     val updateMessage by vm.pluginUpdateMessage.collectAsStateWithLifecycle()
+    val updateError by vm.pluginUpdateError.collectAsStateWithLifecycle()
+
+    // The update-available dialogs live in HomeScreen, so a check/simulate triggered from
+    // Settings does nothing visible unless we hop back to "home" for it to be composed.
+    fun returnToHomeForDialog() {
+        if (!nav.popBackStack("home", false)) nav.navigate("home")
+    }
 
     val versionLabel = when (pluginState) {
         is com.zstream.android.plugin.PluginState.Ready ->
@@ -1179,6 +1186,11 @@ private fun PluginVersionSection(vm: SettingsViewModel, theme: ZStreamTheme, isT
         TvSettingsRow(theme, onActivate = { vm.checkPluginUpdate() }) {
             Text("Check for Plugin Update", color = theme.colors.type.link, fontSize = 14.sp, modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 12.dp))
         }
+        if (com.zstream.android.BuildConfig.DEBUG) {
+            TvSettingsRow(theme, onActivate = { vm.simulatePluginUpdate(); returnToHomeForDialog() }) {
+                Text("Simulate Plugin Update (debug)", color = theme.colors.type.dimmed, fontSize = 13.sp, modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 12.dp))
+            }
+        }
     } else {
         SettingsRow("Plugin Version", versionLabel, theme)
         Row(
@@ -1191,6 +1203,18 @@ private fun PluginVersionSection(vm: SettingsViewModel, theme: ZStreamTheme, isT
         ) {
             Text("Check for Plugin Update", color = theme.colors.type.link, fontSize = 14.sp)
         }
+        if (com.zstream.android.BuildConfig.DEBUG) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable { vm.simulatePluginUpdate(); returnToHomeForDialog() }
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("Simulate Plugin Update (debug)", color = theme.colors.type.dimmed, fontSize = 13.sp)
+            }
+        }
     }
 
     updateMessage?.takeIf { it.isNotBlank() }?.let { msg ->
@@ -1199,6 +1223,101 @@ private fun PluginVersionSection(vm: SettingsViewModel, theme: ZStreamTheme, isT
             color = if (msg.startsWith("Update check failed")) theme.colors.type.danger else theme.colors.type.secondary,
             fontSize = 12.sp,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+        )
+    }
+    updateError?.takeIf { it.isNotBlank() }?.let { msg ->
+        ZsStatusBanner(
+            message = msg,
+            variant = ZsStatusBannerVariant.Error,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+        )
+    }
+}
+
+@Composable
+private fun AppUpdateSection(vm: SettingsViewModel, theme: ZStreamTheme, isTv: Boolean, nav: NavController) {
+    val updateMessage by vm.appUpdateMessage.collectAsStateWithLifecycle()
+    val releaseChecksEnabled by vm.releaseChecksEnabled.collectAsStateWithLifecycle()
+    val releaseCheckInterval by vm.releaseCheckInterval.collectAsStateWithLifecycle()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    fun returnToHomeForDialog() {
+        if (!nav.popBackStack("home", false)) nav.navigate("home")
+    }
+    var notificationGranted by remember {
+        mutableStateOf(
+            android.os.Build.VERSION.SDK_INT < 33 ||
+                context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) == android.content.pm.PackageManager.PERMISSION_GRANTED,
+        )
+    }
+    val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+        notificationGranted = it
+    }
+
+    if (isTv) {
+        TvSettingsRow(theme, onActivate = { vm.checkAppUpdate() }) {
+            Text("Check for App Update", color = theme.colors.type.link, fontSize = 14.sp, modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 12.dp))
+        }
+        if (com.zstream.android.BuildConfig.DEBUG) {
+            TvSettingsRow(theme, onActivate = { vm.simulateAppUpdate(); returnToHomeForDialog() }) {
+                Text("Simulate App Update (debug)", color = theme.colors.type.dimmed, fontSize = 13.sp, modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 12.dp))
+            }
+        }
+    } else {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clickable { vm.checkAppUpdate() }
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Check for App Update", color = theme.colors.type.link, fontSize = 14.sp)
+        }
+        if (com.zstream.android.BuildConfig.DEBUG) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable { vm.simulateAppUpdate(); returnToHomeForDialog() }
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("Simulate App Update (debug)", color = theme.colors.type.dimmed, fontSize = 13.sp)
+            }
+        }
+    }
+
+    updateMessage?.takeIf { it.isNotBlank() }?.let { msg ->
+        Text(
+            msg,
+            color = if (msg.startsWith("Update check failed")) theme.colors.type.danger else theme.colors.type.secondary,
+            fontSize = 12.sp,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+        )
+    }
+
+    HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
+
+    ZsSwitchRow(
+        title = "Background app update checks",
+        subtitle = "Check the saved GitHub repository for new app releases. Plugin updates are checked separately and always run.",
+        checked = releaseChecksEnabled,
+        onCheckedChange = { enabled ->
+            vm.setReleaseChecksEnabled(enabled)
+            if (enabled && android.os.Build.VERSION.SDK_INT >= 33 && !notificationGranted) {
+                notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+            }
+        },
+        notice = if (releaseChecksEnabled && !notificationGranted) "Notification permission is disabled; the app will still show the update prompt when opened." else null,
+        modifier = Modifier.padding(horizontal = 16.dp),
+    )
+    if (releaseChecksEnabled) {
+        HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
+        ZsDropdownRow(
+            title = "Check interval",
+            options = ReleaseCheckInterval.entries.map { it.label },
+            selected = releaseCheckInterval.label,
+            onSelect = vm::setReleaseCheckInterval,
         )
     }
 }
@@ -1444,7 +1563,9 @@ private fun AccountSection(
                     Text(com.zstream.android.BuildConfig.VERSION_NAME, color = theme.colors.type.secondary, fontSize = 13.sp, modifier = Modifier.padding(end = 12.dp))
                 }
                 HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
-                PluginVersionSection(vm = vm, theme = theme, isTv = true)
+                PluginVersionSection(vm = vm, theme = theme, isTv = true, nav = nav)
+                HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
+                AppUpdateSection(vm = vm, theme = theme, isTv = true, nav = nav)
             }
         } else {
             SettingsCard(theme) {
@@ -1452,7 +1573,9 @@ private fun AccountSection(
                 HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                 SettingsRow("App Version", com.zstream.android.BuildConfig.VERSION_NAME, theme, onClick = onVersionTap)
                 HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
-                PluginVersionSection(vm = vm, theme = theme, isTv = false)
+                PluginVersionSection(vm = vm, theme = theme, isTv = false, nav = nav)
+                HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
+                AppUpdateSection(vm = vm, theme = theme, isTv = false, nav = nav)
             }
         }
     }
@@ -3477,18 +3600,7 @@ private fun ConnectionsSection(
     firstItemFocusRequester: FocusRequester? = null,
 ) {
     val trakt by vm.traktState.collectAsStateWithLifecycle()
-    val releaseChecksEnabled by vm.releaseChecksEnabled.collectAsStateWithLifecycle()
-    val releaseCheckInterval by vm.releaseCheckInterval.collectAsStateWithLifecycle()
     val context = androidx.compose.ui.platform.LocalContext.current
-    var notificationGranted by remember {
-        mutableStateOf(
-            android.os.Build.VERSION.SDK_INT < 33 ||
-                context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) == android.content.pm.PackageManager.PERMISSION_GRANTED,
-        )
-    }
-    val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
-        notificationGranted = it
-    }
     if (isTv) {
         Column(Modifier
             .padding(bottom = 32.dp)
@@ -3817,32 +3929,6 @@ private fun ConnectionsSection(
             .padding(bottom = 32.dp)
             .padding(top = if (isTv) 16.dp else 0.dp)) {
             Spacer(Modifier.height(8.dp))
-            SectionLabel("App update checks", theme)
-            SettingsCard(theme) {
-                ZsSwitchRow(
-                    title = "Background release checks",
-                    subtitle = "Check the saved GitHub repository for new APK releases.",
-                    checked = releaseChecksEnabled,
-                    onCheckedChange = { enabled ->
-                        vm.setReleaseChecksEnabled(enabled)
-                        if (enabled && android.os.Build.VERSION.SDK_INT >= 33 && !notificationGranted) {
-                            notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
-                        }
-                    },
-                    notice = if (releaseChecksEnabled && !notificationGranted) "Notification permission is disabled; the app will still show the update prompt when opened." else null,
-                    modifier = Modifier.padding(horizontal = 16.dp),
-                )
-                if (releaseChecksEnabled) {
-                    HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
-                    ZsDropdownRow(
-                        title = "Check interval",
-                        options = ReleaseCheckInterval.entries.map { it.label },
-                        selected = releaseCheckInterval.label,
-                        onSelect = vm::setReleaseCheckInterval,
-                    )
-                }
-            }
-            Spacer(Modifier.height(16.dp))
             SectionLabel("TMDB API Key", theme)
             SettingsCard(theme) {
                 Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {

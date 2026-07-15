@@ -457,6 +457,9 @@ fun HomeScreen(
     var showTipJar by remember { mutableStateOf(false) }
     var showTvInstaller by remember { mutableStateOf(false) }
     var showReleaseUpdatePrompt by remember { mutableStateOf(false) }
+    var showTvAdbWizard by remember { mutableStateOf(false) }
+    var showPluginUpdatePrompt by remember { mutableStateOf(false) }
+    val pluginUpdateVm: com.zstream.android.plugin.PluginUpdateViewModel = hiltViewModel()
     var editingGroup by remember { mutableStateOf<String?>(null) }
     var sectionSettings by remember { mutableStateOf<String?>(null) }
     var editingBookmarks by remember { mutableStateOf(false) }
@@ -556,6 +559,18 @@ fun HomeScreen(
         }
     }
 
+    val pluginState by pluginUpdateVm.pluginManager.pluginState.collectAsState()
+    val pluginUpdateLaunch by com.zstream.android.plugin.PluginUpdateNavigation.launch.collectAsState()
+    LaunchedEffect(pluginState) {
+        if (pluginState is com.zstream.android.plugin.PluginState.UpdateAvailable) showPluginUpdatePrompt = true
+    }
+    LaunchedEffect(pluginUpdateLaunch) {
+        if (pluginUpdateLaunch) {
+            showPluginUpdatePrompt = true
+            com.zstream.android.plugin.PluginUpdateNavigation.consume()
+        }
+    }
+
     LaunchedEffect(openLayoutMenuSignal) {
         if (openLayoutMenuSignal) {
             showLayoutMenu = true
@@ -575,39 +590,127 @@ fun HomeScreen(
         if (showTvInstaller) {
             TvInstallerScreen(onDismiss = { showTvInstaller = false })
         }
+        if (showTvAdbWizard) {
+            TvUpdateWizardScreen(onDismiss = {
+                releaseUpdateManager.clearPendingUpdate()
+                showTvAdbWizard = false
+                showReleaseUpdatePrompt = false
+            })
+        }
         if (showReleaseUpdatePrompt) {
-            if (isTv) {
-                TvUpdateWizardScreen(onDismiss = {
-                    releaseUpdateManager.clearPendingUpdate()
-                    showReleaseUpdatePrompt = false
-                })
-            } else {
+            run {
                 val versionSuffix = releaseUpdateManager.pendingVersion.takeIf { it.isNotBlank() }?.let { " ($it)" } ?: ""
+                val downloadProgress by com.zstream.android.data.adb.ApkInstaller.progress.collectAsState()
+                val installing = downloadProgress != null
+                var installError by remember { mutableStateOf<String?>(null) }
                 AlertDialog(
                     onDismissRequest = {},
                     containerColor = theme.colors.modal.background,
                     title = { Text("ZStream update available", color = theme.colors.type.emphasis) },
                     text = {
-                        Text(
-                            "A new APK release$versionSuffix is available. Open its GitHub release page? Background checks and their interval can be changed or disabled in Settings → Connections.",
-                            color = theme.colors.type.text,
-                        )
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                "A new APK release$versionSuffix is available. Download and install it now? Background checks and their interval can be changed or disabled in Settings → Connections.",
+                                color = theme.colors.type.text,
+                            )
+                            if (isTv) {
+                                Text(
+                                    "On a TV, if a system \"Install unknown apps\" screen appears, use the remote to grant it and come back.",
+                                    color = theme.colors.type.secondary,
+                                )
+                            }
+                            val downloadUrl = releaseUpdateManager.pendingDownloadUrl
+                            when (val p = downloadProgress) {
+                                is com.zstream.android.data.adb.ApkDownloadProgress.Connecting ->
+                                    Text("Connecting…", color = theme.colors.type.secondary)
+                                is com.zstream.android.data.adb.ApkDownloadProgress.Downloading -> {
+                                    val frac = if (p.totalBytes > 0) p.bytes.toFloat() / p.totalBytes else null
+                                    if (frac != null) {
+                                        LinearProgressIndicator(progress = { frac }, modifier = Modifier.fillMaxWidth())
+                                    } else {
+                                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                                    }
+                                }
+                                is com.zstream.android.data.adb.ApkDownloadProgress.Done ->
+                                    Text("Handing off to installer…", color = theme.colors.type.secondary)
+                                null -> Unit
+                            }
+                            installError?.let { Text(it, color = theme.colors.video.scraping.error) }
+                            if (downloadUrl == null) {
+                                Text("No downloadable APK found for this release.", color = theme.colors.type.secondary)
+                            }
+                        }
                     },
                     confirmButton = {
-                        TextButton(onClick = {
-                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(releaseUpdateManager.pendingReleaseUrl)))
-                            releaseUpdateManager.clearPendingUpdate()
-                            showReleaseUpdatePrompt = false
-                        }) { Text("Open GitHub releases", color = theme.colors.global.accentA) }
+                        TextButton(
+                            enabled = !installing && releaseUpdateManager.pendingDownloadUrl != null,
+                            onClick = {
+                                val url = releaseUpdateManager.pendingDownloadUrl ?: return@TextButton
+                                if (!com.zstream.android.data.adb.ApkInstaller.canRequestInstall(context)) {
+                                    com.zstream.android.data.adb.ApkInstaller.requestInstallPermission(context)
+                                    return@TextButton
+                                }
+                                installError = null
+                                scope.launch {
+                                    try {
+                                        com.zstream.android.data.adb.ApkInstaller.downloadAndInstall(context, url)
+                                        releaseUpdateManager.clearPendingUpdate()
+                                        showReleaseUpdatePrompt = false
+                                    } catch (t: Throwable) {
+                                        installError = t.message ?: "Download failed."
+                                    }
+                                }
+                            },
+                        ) { Text("Download & install", color = theme.colors.global.accentA) }
                     },
                     dismissButton = {
-                        TextButton(onClick = {
-                            releaseUpdateManager.clearPendingUpdate()
-                            showReleaseUpdatePrompt = false
-                        }) { Text("No", color = theme.colors.type.secondary) }
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            if (isTv) {
+                                TextButton(enabled = !installing, onClick = {
+                                    showTvAdbWizard = true
+                                }) { Text("Use ADB instead", color = theme.colors.type.secondary) }
+                            }
+                            TextButton(enabled = !installing, onClick = {
+                                releaseUpdateManager.clearPendingUpdate()
+                                showReleaseUpdatePrompt = false
+                            }) { Text("No", color = theme.colors.type.secondary) }
+                        }
                     },
                 )
             }
+        }
+        if (showPluginUpdatePrompt) {
+            val stagedVersion = pluginUpdateVm.pluginManager.stagedDisplayVersion()
+                ?: pluginUpdateVm.pluginManager.stagedVersion()?.toString().orEmpty()
+            AlertDialog(
+                onDismissRequest = { showPluginUpdatePrompt = false },
+                containerColor = theme.colors.modal.background,
+                title = { Text("Source plugin update ready", color = theme.colors.type.emphasis) },
+                text = {
+                    Text(
+                        "A new source plugin build${stagedVersion.takeIf { it.isNotBlank() }?.let { " (v$it)" } ?: ""} is staged and will be used after a restart. Restart ZStream now?",
+                        color = theme.colors.type.text,
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        showPluginUpdatePrompt = false
+                        val pm = context.packageManager
+                        val restartIntent = pm.getLaunchIntentForPackage(context.packageName)
+                        if (restartIntent != null) {
+                            restartIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                            context.startActivity(restartIntent)
+                            (context as? android.app.Activity)?.finish()
+                            Runtime.getRuntime().exit(0)
+                        }
+                    }) { Text("Restart now", color = theme.colors.global.accentA) }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showPluginUpdatePrompt = false }) {
+                        Text("Later", color = theme.colors.type.secondary)
+                    }
+                },
+            )
         }
         if (showLayoutMenu) {
             val allGroups = remember(state.bookmarkEntities) {
