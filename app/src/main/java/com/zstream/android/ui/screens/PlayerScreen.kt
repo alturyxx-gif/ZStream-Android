@@ -1478,6 +1478,25 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     onDispose { PlayerBackgroundController.onUserLeaveHint = null }
                 }
 
+                // Locking the screen (power button) stops the activity the same as backgrounding
+                // it, but never calls onUserLeaveHint -- so without this, playback (and its audio)
+                // would keep running with the screen off regardless of the flags above. Skips
+                // pausing when already in PiP (that's the onUserLeaveHint/autoPipEnabled path's
+                // job) so it doesn't fight that behavior on a plain home-button leave.
+                DisposableEffect(lifecycleOwner, player, isTv, isInPip, settings.enableBackgroundPlaybackOnScreenLock) {
+                    val observer = LifecycleEventObserver { _, event ->
+                        if (event == Lifecycle.Event.ON_STOP &&
+                            !isTv &&
+                            !isInPip &&
+                            !settings.enableBackgroundPlaybackOnScreenLock
+                        ) {
+                            player.pause()
+                        }
+                    }
+                    lifecycleOwner.lifecycle.addObserver(observer)
+                    onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+                }
+
                 BackHandler(enabled = showInfoSheet || menuPage != null) {
                     updateActivity()
                     if (showInfoSheet) {

@@ -2666,6 +2666,14 @@ private fun PlayerSection(
                     onCheckedChange = vm::setAutoPipEnabled,
                     modifier = Modifier.padding(horizontal = 16.dp),
                 )
+                HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
+                ZsSwitchRow(
+                    title = "Play When Screen Locks",
+                    subtitle = "When the screen locks while a video is playing: on = keep playing in the background, off = pause playback.",
+                    checked = settings.enableBackgroundPlaybackOnScreenLock,
+                    onCheckedChange = vm::setEnableBackgroundPlaybackOnScreenLock,
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                )
             }
         }
     }
