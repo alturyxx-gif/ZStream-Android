@@ -293,7 +293,7 @@ fun SearchScreenTV(nav: NavController, homeVm: HomeViewModel) {
                                 Spacer(Modifier.height(8.dp))
                             }
                         }
-                        items(items, key = { it.id }) { media ->
+                        items(items, key = { it.stableUiKey() }) { media ->
                             Box(modifier = Modifier.onFocusChanged { if (it.isFocused) focusedMedia = media }) {
                                 MediaCard(
                                     media = media,
@@ -480,7 +480,7 @@ fun SearchScreenPhone(nav: NavController, homeVm: HomeViewModel) {
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
-                    items(items, key = { it.id }) { media ->
+                    items(items, key = { it.stableUiKey() }) { media ->
                         MediaCard(media = media, onClick = { nav.navigate("detail/${media.type}/${media.id}") })
                     }
                     if (loadingMore) {

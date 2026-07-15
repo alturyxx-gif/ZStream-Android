@@ -2460,7 +2460,7 @@ private fun MediaCarouselSection(
             contentPadding = PaddingValues(horizontal = if (isTv) TvHomeMetrics.screenPadding else 16.dp),
             horizontalArrangement = Arrangement.spacedBy(if (isTv) TvHomeMetrics.railItemSpacing else 10.dp)
         ) {
-            items(section.items, key = { it.id }) { media ->
+            items(section.items, key = { it.stableUiKey() }) { media ->
                 val progress = progressMap[media.id.toString()]
                 val progressInfo = progress?.let { entry ->
                     val watched = entry.watched.toFloat()
@@ -4412,7 +4412,7 @@ private fun FeaturedCarousel(
                     translationY = carouselOffset.toPx()
                 }
                 .blur(blurRadius),
-            key = { media[it].id }
+            key = { media[it].stableUiKey() }
         ) { page ->
             val current = media[page]
             val backdropUrl = current.backdropUrl()

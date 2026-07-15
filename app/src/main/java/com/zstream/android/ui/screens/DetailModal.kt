@@ -41,6 +41,8 @@ import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.NotificationsNone
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RemoveRedEye
 import androidx.compose.material.icons.filled.Share
@@ -65,6 +67,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -275,6 +278,19 @@ fun MovieDetailModal(
                                 color = theme.colors.type.emphasis,
                             )
                         }
+                    }
+                }
+
+                if (!detail.hasReleased()) {
+                    val trackedReleaseVm: TrackedReleaseViewModel = hiltViewModel()
+                    val isTracked by remember(detail.id) { trackedReleaseVm.isMovieTracked(detail.id) }
+                        .collectAsState(initial = false)
+                    SharedActionPill(
+                        icon = if (isTracked) Icons.Filled.NotificationsActive else Icons.Filled.NotificationsNone,
+                        theme = theme,
+                        onFocusChanged = { focused -> if (focused && isTv) scrollRequestId++ },
+                    ) {
+                        trackedReleaseVm.toggleMovie(detail, isTracked)
                     }
                 }
 
@@ -1151,17 +1167,37 @@ internal fun SharedEpisodeRow(
                                 .clickable { onDownloadEpisode() },
                         )
                     } else if (!isAired) {
-                        Text(
-                            ep.formattedAirDate()?.let { "Airs $it" } ?: "Unreleased",
-                            color = theme.colors.type.secondary,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Medium,
-                            textAlign = TextAlign.End,
-                            maxLines = 2,
-                            modifier = Modifier
-                                .padding(8.dp)
-                                .widthIn(max = 64.dp),
-                        )
+                        val trackedReleaseVm: TrackedReleaseViewModel = hiltViewModel()
+                        val isTracked by remember(showId, ep.seasonNumber, ep.episodeNumber) {
+                            trackedReleaseVm.isEpisodeTracked(showId, ep.seasonNumber, ep.episodeNumber)
+                        }.collectAsState(initial = false)
+                        Column(
+                            horizontalAlignment = Alignment.End,
+                            modifier = Modifier.padding(top = 4.dp, end = 4.dp, bottom = 4.dp),
+                        ) {
+                            Icon(
+                                imageVector = if (isTracked) Icons.Filled.NotificationsActive else Icons.Filled.NotificationsNone,
+                                contentDescription = if (isTracked) "Stop notifying on release" else "Notify me on release",
+                                tint = if (isTracked) theme.colors.global.accentA else theme.colors.type.secondary,
+                                modifier = Modifier
+                                    .padding(4.dp)
+                                    .size(20.dp)
+                                    .clickable {
+                                        trackedReleaseVm.toggleEpisode(showId, title, posterPath, ep, isTracked)
+                                    },
+                            )
+                            Text(
+                                ep.formattedAirDate()?.let { "Airs $it" } ?: "Unreleased",
+                                color = theme.colors.type.secondary,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium,
+                                textAlign = TextAlign.End,
+                                maxLines = 2,
+                                modifier = Modifier
+                                    .padding(horizontal = 4.dp)
+                                    .widthIn(max = 64.dp),
+                            )
+                        }
                     }
                 }
 

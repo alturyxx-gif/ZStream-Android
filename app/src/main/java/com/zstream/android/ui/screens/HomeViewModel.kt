@@ -199,7 +199,9 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch {
             runCatching {
                 val popular = repo.popularMovies()
-                _popularResults.value = certRepo.filterForKids(popular, _state.value.kidsModeEnabled)
+                _popularResults.value = certRepo
+                    .filterForKids(popular, _state.value.kidsModeEnabled)
+                    .distinctByMediaIdentity()
             }
         }
     }
@@ -687,7 +689,7 @@ class HomeViewModel @Inject constructor(
             }
         }
 
-        val kidsFiltered = certRepo.filterForKids(filtered, kidsMode)
+        val kidsFiltered = certRepo.filterForKids(filtered, kidsMode).distinctByMediaIdentity()
         if (searchGeneration == generation) {
             _searchResults.value = kidsFiltered
         }
