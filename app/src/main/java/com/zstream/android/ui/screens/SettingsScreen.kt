@@ -1157,6 +1157,57 @@ private fun ArtemisVipKeySection(
 }
 
 @Composable
+private fun BackendUrlSection(vm: SettingsViewModel, theme: ZStreamTheme, isTv: Boolean) {
+    val activeUrl by vm.backendUrl.collectAsStateWithLifecycle()
+    var editing by remember { mutableStateOf(false) }
+    var draft by remember(activeUrl, editing) { mutableStateOf(activeUrl) }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    if (!editing) {
+        if (isTv) {
+            TvSettingsRow(theme, onActivate = { editing = true }) {
+                Text("Backend URL", color = theme.colors.type.text, fontSize = 14.sp, modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 12.dp))
+                Text(activeUrl.removePrefix("https://").removePrefix("http://"), color = theme.colors.type.secondary, fontSize = 13.sp, maxLines = 1, modifier = Modifier
+                    .widthIn(max = 220.dp)
+                    .padding(end = 12.dp))
+            }
+        } else {
+            SettingsRow("Backend URL", activeUrl.removePrefix("https://").removePrefix("http://"), theme, onClick = { editing = true })
+        }
+    } else {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
+            Text(
+                "Only affects account sync (login, progress, bookmarks, settings). TMDB, subtitles, plugin updates, and Artemis are unaffected.",
+                color = theme.colors.type.secondary,
+                fontSize = 12.sp,
+                modifier = Modifier.padding(bottom = 8.dp),
+            )
+            ZsTextField(
+                value = draft,
+                onValueChange = { draft = it; error = null },
+                label = "Backend URL",
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            error?.let {
+                Text(it, color = theme.colors.type.danger, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
+            }
+            Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ZsButton(text = "Save", onClick = {
+                    val err = vm.setBackendUrl(draft)
+                    if (err == null) editing = false else error = err
+                }, variant = ZsButtonVariant.Primary, modifier = Modifier.weight(1f))
+                ZsButton(text = "Reset to default", onClick = {
+                    vm.resetBackendUrl()
+                    editing = false
+                }, variant = ZsButtonVariant.Secondary, modifier = Modifier.weight(1f))
+                ZsButton(text = "Cancel", onClick = { editing = false }, variant = ZsButtonVariant.Secondary, modifier = Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+@Composable
 private fun PluginVersionSection(vm: SettingsViewModel, theme: ZStreamTheme, isTv: Boolean, nav: NavController) {
     val pluginState by vm.pluginState.collectAsStateWithLifecycle()
     val updateMessage by vm.pluginUpdateMessage.collectAsStateWithLifecycle()
@@ -1616,12 +1667,7 @@ private fun AccountSection(
                     .clip(RoundedCornerShape(12.dp))
                     .background(theme.colors.settings.card.background)
             ) {
-                TvSettingsRow(theme) {
-                    Text("Backend URL", color = theme.colors.type.text, fontSize = 14.sp, modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 12.dp))
-                    Text(com.zstream.android.Urls.BACKEND.removePrefix("https://").removePrefix("http://"), color = theme.colors.type.secondary, fontSize = 13.sp, maxLines = 1, modifier = Modifier
-                        .widthIn(max = 260.dp)
-                        .padding(end = 12.dp))
-                }
+                BackendUrlSection(vm = vm, theme = theme, isTv = true)
                 HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                 TvSettingsRow(theme, onActivate = onVersionTap) {
                     Text("App Version", color = theme.colors.type.text, fontSize = 14.sp, modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 12.dp))
@@ -1634,7 +1680,7 @@ private fun AccountSection(
             }
         } else {
             SettingsCard(theme) {
-                SettingsRow("Backend URL", com.zstream.android.Urls.BACKEND.removePrefix("https://").removePrefix("http://"), theme)
+                BackendUrlSection(vm = vm, theme = theme, isTv = false)
                 HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                 SettingsRow("App Version", com.zstream.android.BuildConfig.VERSION_NAME, theme, onClick = onVersionTap)
                 HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
