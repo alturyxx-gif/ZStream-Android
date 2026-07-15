@@ -1,0 +1,15 @@
+# Xcode
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+*.xcscmblueprint
+
+# XcodeGen generates this — regenerate with `xcodegen generate`
+*.xcodeproj
+
+# CocoaPods (if added later)
+Pods/
+
+# macOS
+.DS_Store
