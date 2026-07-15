@@ -19,6 +19,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
@@ -110,6 +118,7 @@ fun LoginScreen(nav: NavController, vm: AccountViewModel = hiltViewModel()) {
 
 //  Login panel 
 
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun BoxScope.LoginPanel(
     vm: AccountViewModel,
@@ -125,6 +134,9 @@ private fun BoxScope.LoginPanel(
     var showPassphrase by remember { mutableStateOf(false) }
     val focusManager = LocalFocusManager.current
     val context = LocalContext.current
+    val passphraseFieldFocusRequester = remember { FocusRequester() }
+    val showPassphraseButtonFocusRequester = remember { FocusRequester() }
+    val imeVisible = WindowInsets.isImeVisible
 
     Column(
         modifier = Modifier.align(Alignment.Center).fillMaxWidth().padding(horizontal = 32.dp),
@@ -158,11 +170,36 @@ private fun BoxScope.LoginPanel(
             }),
             visualTransformation = if (showPassphrase) VisualTransformation.None else PasswordVisualTransformation(),
             trailingIcon = {
-                IconButton(onClick = { showPassphrase = !showPassphrase }) {
+                IconButton(
+                    onClick = { showPassphrase = !showPassphrase },
+                    modifier = Modifier
+                        .focusRequester(showPassphraseButtonFocusRequester)
+                        .then(
+                            if (isTv) {
+                                Modifier.focusProperties { left = passphraseFieldFocusRequester }
+                            } else Modifier
+                        ),
+                ) {
                     Icon(if (showPassphrase) Icons.Default.VisibilityOff else Icons.Default.Visibility, null, tint = txt.dimmed)
                 }
             },
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .focusRequester(passphraseFieldFocusRequester)
+                .then(
+                    if (isTv) {
+                        Modifier
+                            .focusProperties { right = showPassphraseButtonFocusRequester }
+                            .onPreviewKeyEvent { event ->
+                                if (!imeVisible && event.type == KeyEventType.KeyDown && event.key == Key.DirectionRight) {
+                                    showPassphraseButtonFocusRequester.requestFocus()
+                                    true
+                                } else {
+                                    false
+                                }
+                            }
+                    } else Modifier
+                ),
         )
 
         if (authState is AuthState.Error) {

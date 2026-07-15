@@ -122,6 +122,31 @@ class AccountViewModel @Inject constructor(
 
     fun clearError() { if (authState.value is AuthState.Error) authState.value = AuthState.Idle }
 
+    private val _nicknameUpdateError = MutableStateFlow<String?>(null)
+    val nicknameUpdateError: StateFlow<String?> = _nicknameUpdateError
+
+    private val _nicknameUpdating = MutableStateFlow(false)
+    val nicknameUpdating: StateFlow<Boolean> = _nicknameUpdating
+
+    /** [onSuccess] runs on the caller's behalf once the rename lands, so a dialog can dismiss itself. */
+    fun updateNickname(newNickname: String, onSuccess: () -> Unit) {
+        val trimmed = newNickname.trim()
+        if (trimmed.isEmpty()) {
+            _nicknameUpdateError.value = "Nickname can't be empty"
+            return
+        }
+        viewModelScope.launch {
+            _nicknameUpdating.value = true
+            _nicknameUpdateError.value = null
+            runCatching { repo.updateNickname(trimmed) }
+                .onSuccess { onSuccess() }
+                .onFailure { _nicknameUpdateError.value = it.message ?: "Failed to update nickname" }
+            _nicknameUpdating.value = false
+        }
+    }
+
+    fun clearNicknameUpdateError() { _nicknameUpdateError.value = null }
+
     /** TV-only: switches to an already-saved login without re-authenticating, swapping local progress/bookmarks for the new profile's synced data. */
     fun switchProfile(id: String) {
         viewModelScope.launch {

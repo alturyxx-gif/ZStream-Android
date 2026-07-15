@@ -166,7 +166,22 @@ class AccountRepository @Inject constructor(
         return newId
     }
 
-    //  Sync helpers 
+    /**
+     * Renames the active account (backend's PATCH /users/{id}), then updates the persisted
+     * session and cached profile entry so the new name survives an app restart / profile switch
+     * without needing a fresh login.
+     */
+    suspend fun updateNickname(newNickname: String): AccountSession {
+        val session = currentSession ?: error("No active session")
+        val trimmed = newNickname.trim()
+        val updated = api.updateUserProfile(session.userId, session.bearer(), UpdateUserProfileBody(trimmed))
+        val newSession = session.copy(nickname = updated.nickname)
+        persist(newSession)
+        currentSession = newSession
+        return newSession
+    }
+
+    //  Sync helpers
 
     suspend fun getProgress(session: AccountSession)  = api.getProgress(session.userId, session.bearer())
     suspend fun setProgress(session: AccountSession, input: ProgressInput) =

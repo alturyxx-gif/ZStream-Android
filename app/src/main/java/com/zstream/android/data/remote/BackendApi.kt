@@ -47,6 +47,8 @@ data class UserResponse(
 data class UserWithSession(val user: UserResponse, val session: SessionResponse)
 data class RegisterResponse(val token: String, val session: SessionResponse, val user: UserResponse)
 
+data class UpdateUserProfileBody(val nickname: String)
+
 data class MetaSeasonEpisode(val id: String? = null, val number: Int? = null)
 data class ProgressMeta(val title: String, val year: Int?, val poster: String?, val type: String)
 data class ProgressResponse(
@@ -174,6 +176,9 @@ interface BackendApi {
 
     @GET("users/@me")
     suspend fun getMe(@Header("Authorization") auth: String): UserWithSession
+
+    @PATCH("users/{id}")
+    suspend fun updateUserProfile(@Path("id") userId: String, @Header("Authorization") auth: String, @Body body: UpdateUserProfileBody): UserResponse
 
     @GET("users/{id}/settings")
     suspend fun getSettings(@Path("id") userId: String, @Header("Authorization") auth: String): SettingsResponse
