@@ -64,6 +64,7 @@ class SettingsPreferences @Inject constructor(
     private val KEY_VIDEO_SCALE_MODE = stringPreferencesKey("video_scale_mode")
     private val KEY_TV_PIP_POSITION = stringPreferencesKey("tv_pip_position")
     private val KEY_AUTO_PIP_ENABLED = booleanPreferencesKey("auto_pip_enabled")
+    private val KEY_ENABLE_BACKGROUND_PLAYBACK_ON_SCREEN_LOCK = booleanPreferencesKey("enable_background_playback_on_screen_lock")
     private val KEY_TRAILERS_OPEN_IN_APP = booleanPreferencesKey("trailers_open_in_app")
     private val KEY_DEFAULT_PLAYBACK_SPEED = stringPreferencesKey("default_playback_speed")
     private val KEY_ENABLE_SIDE_GESTURES = booleanPreferencesKey("enable_side_gestures")
@@ -155,6 +156,7 @@ class SettingsPreferences @Inject constructor(
             videoScaleMode = prefs[KEY_VIDEO_SCALE_MODE] ?: "fit",
             tvPipPosition = prefs[KEY_TV_PIP_POSITION] ?: "bottom_end",
             autoPipEnabled = prefs[KEY_AUTO_PIP_ENABLED] ?: true,
+            enableBackgroundPlaybackOnScreenLock = prefs[KEY_ENABLE_BACKGROUND_PLAYBACK_ON_SCREEN_LOCK] ?: false,
             trailersOpenInApp = prefs[KEY_TRAILERS_OPEN_IN_APP] ?: true,
             defaultPlaybackSpeed = prefs[KEY_DEFAULT_PLAYBACK_SPEED]?.toFloatOrNull() ?: 1f,
             enableSideGestures = prefs[KEY_ENABLE_SIDE_GESTURES] ?: true,
@@ -238,6 +240,7 @@ class SettingsPreferences @Inject constructor(
             prefs[KEY_VIDEO_SCALE_MODE] = entity.videoScaleMode
             prefs[KEY_TV_PIP_POSITION] = entity.tvPipPosition
             prefs[KEY_AUTO_PIP_ENABLED] = entity.autoPipEnabled
+            prefs[KEY_ENABLE_BACKGROUND_PLAYBACK_ON_SCREEN_LOCK] = entity.enableBackgroundPlaybackOnScreenLock
             prefs[KEY_TRAILERS_OPEN_IN_APP] = entity.trailersOpenInApp
             prefs[KEY_DEFAULT_PLAYBACK_SPEED] = entity.defaultPlaybackSpeed.toString()
             prefs[KEY_ENABLE_SIDE_GESTURES] = entity.enableSideGestures
@@ -324,6 +327,7 @@ class SettingsPreferences @Inject constructor(
             val currentVideoScaleMode = current[KEY_VIDEO_SCALE_MODE] ?: "fit"
             val currentTvPipPosition = current[KEY_TV_PIP_POSITION] ?: "bottom_end"
             val currentAutoPipEnabled = current[KEY_AUTO_PIP_ENABLED] ?: true
+            val currentEnableBackgroundPlaybackOnScreenLock = current[KEY_ENABLE_BACKGROUND_PLAYBACK_ON_SCREEN_LOCK] ?: false
             val currentTrailersOpenInApp = current[KEY_TRAILERS_OPEN_IN_APP] ?: true
             val currentDefaultPlaybackSpeed = current[KEY_DEFAULT_PLAYBACK_SPEED]?.toFloatOrNull() ?: 1f
             val currentEnableSideGestures = current[KEY_ENABLE_SIDE_GESTURES] ?: true
@@ -367,6 +371,7 @@ class SettingsPreferences @Inject constructor(
                 videoScaleMode = currentVideoScaleMode,
                 tvPipPosition = currentTvPipPosition,
                 autoPipEnabled = currentAutoPipEnabled,
+                enableBackgroundPlaybackOnScreenLock = currentEnableBackgroundPlaybackOnScreenLock,
                 trailersOpenInApp = currentTrailersOpenInApp,
                 defaultPlaybackSpeed = currentDefaultPlaybackSpeed,
                 enableSideGestures = currentEnableSideGestures,

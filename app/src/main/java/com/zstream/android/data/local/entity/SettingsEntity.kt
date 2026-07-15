@@ -47,6 +47,10 @@ data class SettingsEntity(
     // When leaving the app (home/recents) while a video is playing: false = pause playback,
     // true = automatically enter system Picture-in-Picture instead. Local-only, not synced.
     val autoPipEnabled: Boolean = true,
+    // When the screen locks (power button) while a video is playing, not applicable to leaving via
+    // home/recents (see autoPipEnabled for that): false = pause playback, true = keep playing in
+    // the background. Local-only, not synced.
+    val enableBackgroundPlaybackOnScreenLock: Boolean = false,
     // Phone only: whether trailers play in the in-app player or launch externally. Local-only, not synced.
     val trailersOpenInApp: Boolean = true,
     // Playback speed carried over to the next video played. Local-only, not synced.

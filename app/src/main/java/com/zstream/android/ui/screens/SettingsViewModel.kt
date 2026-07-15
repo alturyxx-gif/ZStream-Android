@@ -292,6 +292,10 @@ class SettingsViewModel @Inject constructor(
         update { copy(autoPipEnabled = v) }
     }
 
+    fun setEnableBackgroundPlaybackOnScreenLock(v: Boolean) {
+        update { copy(enableBackgroundPlaybackOnScreenLock = v) }
+    }
+
     fun setTrailersOpenInApp(v: Boolean) {
         update { copy(trailersOpenInApp = v) }
     }
