@@ -15,7 +15,7 @@ private val KEY_DOWNLOAD_SOURCE_ORDER = stringPreferencesKey("download_source_or
 
 /**
  * Persistence-only: stores the raw id list from the user's manual drag-reorder (if any) and
- * asks the plugin to compute the actual order. Default priority, VIP-key preference, and
+ * asks the plugin to compute the actual order. Default priority, aurora-key preference, and
  * download-priority logic all live in the plugin (Entry.orderedSourcesJson /
  * downloadOrderedSourcesJson) — not here — so they can be retuned via a plugin update without
  * an app release.
@@ -27,20 +27,19 @@ class SourceOrderStore @Inject constructor(
 ) {
 
     suspend fun getOrderedSources(
-        hasArtemisVipKey: Boolean = false,
         hasAuroraKey: Boolean = false,
     ): List<SourceInfo> {
         val stored = readStoredOrder(KEY_SOURCE_ORDER)
-        return pluginManager.orderedSources(stored, hasArtemisVipKey, hasAuroraKey)
+        return pluginManager.orderedSources(stored, hasAuroraKey)
     }
 
     suspend fun saveOrder(sourceIds: List<String>) {
         dataStore.edit { prefs -> prefs[KEY_SOURCE_ORDER] = JSONArray(sourceIds).toString() }
     }
 
-    suspend fun getDownloadOrder(hasArtemisVipKey: Boolean = false): List<SourceInfo> {
+    suspend fun getDownloadOrder(): List<SourceInfo> {
         val stored = readStoredOrder(KEY_DOWNLOAD_SOURCE_ORDER)
-        return pluginManager.downloadOrderedSources(stored, hasArtemisVipKey)
+        return pluginManager.downloadOrderedSources(stored)
     }
 
     suspend fun saveDownloadOrder(sourceIds: List<String>) {

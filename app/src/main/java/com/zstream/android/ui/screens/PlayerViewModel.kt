@@ -748,7 +748,6 @@ class PlayerViewModel @OptIn(UnstableApi::class)
             title = title,
             year = year.takeIf { it > 0 },
             febboxKey = current.febboxKey,
-            artemisVipKey = current.artemisVipKey,
         )
     }
 
@@ -844,7 +843,6 @@ class PlayerViewModel @OptIn(UnstableApi::class)
             runCatching {
                 val settingsValue = settingsPrefs.settings.first()
                 val displaySources = sourceOrderStore.getOrderedSources(
-                    hasArtemisVipKey = !settingsValue.artemisVipKey.isNullOrBlank(),
                     hasAuroraKey = !settingsValue.febboxKey.isNullOrBlank(),
                 )
                 cachedDisplaySources = displaySources
@@ -859,7 +857,6 @@ class PlayerViewModel @OptIn(UnstableApi::class)
 
                 val automaticSources = displaySources.filter { source ->
                     when (source.id) {
-                        "artemis" -> !settingsValue.artemisVipKey.isNullOrBlank()
                         "aurora" -> !settingsValue.febboxKey.isNullOrBlank()
                         else -> true
                     }

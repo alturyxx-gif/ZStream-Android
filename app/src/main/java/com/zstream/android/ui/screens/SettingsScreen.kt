@@ -1094,69 +1094,6 @@ private fun AuroraKeyRow(
 }
 
 @Composable
-private fun ArtemisVipKeySection(
-    vm: SettingsViewModel,
-    settings: SettingsEntity,
-    theme: ZStreamTheme,
-    isTv: Boolean,
-) {
-    SectionLabel("Artemis VIP", theme)
-    SettingsCard(theme) {
-        Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-            Text("API Key", color = theme.colors.type.text, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(4.dp))
-            Text(
-                "Enter the API key supplied with your Artemis VIP subscription.",
-                color = theme.colors.type.dimmed,
-                fontSize = 11.sp,
-                lineHeight = 16.sp,
-            )
-            Spacer(Modifier.height(10.dp))
-            var visible by remember { mutableStateOf(false) }
-            val value = settings.artemisVipKey.orEmpty()
-            val transformation = if (visible) VisualTransformation.None else PasswordVisualTransformation()
-            if (isTv) {
-                TvTextField(
-                    value = value,
-                    onValueChange = { vm.setArtemisVipKey(it.ifBlank { null }) },
-                    placeholder = "Artemis VIP API key",
-                    visualTransformation = transformation,
-                    theme = theme,
-                )
-            } else {
-                BasicTextField(
-                    value = value,
-                    onValueChange = { vm.setArtemisVipKey(it.ifBlank { null }) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(theme.colors.background.secondary)
-                        .border(1.dp, theme.colors.type.divider.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
-                    textStyle = TextStyle(color = theme.colors.type.text, fontSize = 12.sp),
-                    visualTransformation = transformation,
-                    singleLine = true,
-                    decorationBox = { field ->
-                        Box {
-                            if (value.isEmpty()) Text("Artemis VIP API key", color = theme.colors.type.dimmed, fontSize = 12.sp)
-                            field()
-                        }
-                    },
-                )
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                TextButton(onClick = { visible = !visible }) {
-                    Text(if (visible) "Hide" else "Show", color = theme.colors.global.accentA, fontSize = 11.sp)
-                }
-                TextButton(onClick = { vm.setArtemisVipKey(null) }, enabled = value.isNotEmpty()) {
-                    Text("Clear", color = if (value.isNotEmpty()) theme.colors.buttons.danger else theme.colors.type.dimmed, fontSize = 11.sp)
-                }
-            }
-        }
-    }
-}
-
-@Composable
 private fun BackendUrlSection(vm: SettingsViewModel, theme: ZStreamTheme, isTv: Boolean) {
     val activeUrl by vm.backendUrl.collectAsStateWithLifecycle()
     var editing by remember { mutableStateOf(false) }
@@ -3995,9 +3932,6 @@ private fun ConnectionsSection(
             FebboxAuroraSection(vm, settings, theme, isTv = true)
 
             Spacer(Modifier.height(16.dp))
-            ArtemisVipKeySection(vm, settings, theme, isTv = true)
-
-            Spacer(Modifier.height(16.dp))
             SectionLabel("External Services", theme)
             Column(
                 Modifier
@@ -4289,9 +4223,6 @@ private fun ConnectionsSection(
 
             Spacer(Modifier.height(16.dp))
             FebboxAuroraSection(vm, settings, theme, isTv = false)
-
-            Spacer(Modifier.height(16.dp))
-            ArtemisVipKeySection(vm, settings, theme, isTv = false)
 
             Spacer(Modifier.height(16.dp))
             SectionLabel("Integrations", theme)
