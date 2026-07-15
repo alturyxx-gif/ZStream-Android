@@ -3983,10 +3983,15 @@ private fun ConnectionsSection(
 
             Spacer(Modifier.height(16.dp))
             SectionLabel("External Services", theme)
-            ZsBottomSheetSectionCard(
-                title = "TheIntroDB (optional)",
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(theme.colors.settings.card.background)
             ) {
+              Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                Text("TheIntroDB (optional)", color = theme.colors.type.text, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(4.dp))
                 Text(
                     "Add your TheIntroDB API key to submit new skip segments from the player.",
@@ -4139,6 +4144,7 @@ private fun ConnectionsSection(
                         )
                     }
                 }
+              }
             }
         }
     } else {
