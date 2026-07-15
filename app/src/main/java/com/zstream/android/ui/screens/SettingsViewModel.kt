@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.zstream.android.data.AuroraKeyInfo
 import com.zstream.android.data.AuroraKeyManager
+import com.zstream.android.data.BackendConfig
 import com.zstream.android.data.BookmarkRepository
 import com.zstream.android.data.ProgressRepository
 import com.zstream.android.data.TraktRepository
@@ -54,11 +55,30 @@ class SettingsViewModel @Inject constructor(
     private val sourceOrderStore: SourceOrderStore,
     private val accountRepo: com.zstream.android.data.AccountRepository,
     private val auroraKeyManager: AuroraKeyManager,
+    private val backendConfig: BackendConfig,
     @dagger.hilt.android.qualifiers.ApplicationContext private val appContext: android.content.Context,
 ) : ViewModel() {
     val traktState = traktRepo.state
     val releaseChecksEnabled = releaseUpdateManager.enabled
     val releaseCheckInterval = releaseUpdateManager.interval
+
+    // Custom account/sync backend URL — only affects login/progress/bookmarks/settings sync.
+    // TMDB, IMDb, the plugin manifest CDN, and Artemis are unaffected (see BackendConfig).
+    private val _backendUrl = MutableStateFlow(backendConfig.baseUrl)
+    val backendUrl: StateFlow<String> = _backendUrl
+    val isCustomBackend: Boolean get() = backendConfig.isCustom
+
+    /** Returns null on success, or an error message if [url] isn't a valid http(s) URL. */
+    fun setBackendUrl(url: String): String? {
+        if (!backendConfig.setCustomUrl(url)) return "Enter a valid URL (e.g. https://example.com/)"
+        _backendUrl.value = backendConfig.baseUrl
+        return null
+    }
+
+    fun resetBackendUrl() {
+        backendConfig.reset()
+        _backendUrl.value = backendConfig.baseUrl
+    }
 
     // Plugin state — exposed directly from PluginManager
     val pluginState = pluginManager.pluginState

@@ -3,6 +3,7 @@ package com.zstream.android.di
 import android.content.Context
 import com.zstream.android.BuildConfig
 import com.zstream.android.Urls
+import com.zstream.android.data.BackendConfig
 import com.zstream.android.data.remote.BackendApi
 import com.zstream.android.data.remote.ImdbApi
 import com.zstream.android.data.remote.RybbitApi
@@ -14,6 +15,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import okhttp3.OkHttpClient
 import okhttp3.Cache
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
@@ -53,9 +55,30 @@ object NetworkModule {
     fun tmdbApi(@TmdbRetrofit retrofit: Retrofit): TmdbApi = retrofit.create(TmdbApi::class.java)
 
     @Provides @Singleton @BackendRetrofit
-    fun backendRetrofit(client: OkHttpClient): Retrofit = Retrofit.Builder()
+    fun backendRetrofit(client: OkHttpClient, backendConfig: BackendConfig): Retrofit = Retrofit.Builder()
         .baseUrl(Urls.BACKEND)
         .client(client.newBuilder()
+            .apply {
+                // Retrofit's baseUrl is fixed at construction time, but the backend host is a
+                // user-configurable setting (see BackendConfig) that can change without an app
+                // restart -- so rewrite each outgoing request to the currently-configured host
+                // here instead. Requests are built by Retrofit relative to the default baseUrl
+                // (which has an empty "/" path), so the custom host's own path prefix (if any)
+                // just needs the original request's already-relative path appended to it.
+                addInterceptor { chain ->
+                    val original = chain.request()
+                    val custom = backendConfig.customUrl?.toHttpUrlOrNull()
+                    if (custom == null) {
+                        chain.proceed(original)
+                    } else {
+                        val newUrl = custom.newBuilder()
+                            .encodedPath(custom.encodedPath.trimEnd('/') + original.url.encodedPath)
+                            .encodedQuery(original.url.encodedQuery)
+                            .build()
+                        chain.proceed(original.newBuilder().url(newUrl).build())
+                    }
+                }
+            }
             .apply {
                 // Both interceptors log full request/response bodies -- which include the
                 // session bearer token and user settings (febbox/tidb/debrid/trakt keys).
