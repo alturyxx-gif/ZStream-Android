@@ -107,6 +107,7 @@ import com.zstream.android.data.model.TvDetail
 import com.zstream.android.data.model.airedEpisodes
 import com.zstream.android.data.model.formattedAirDate
 import com.zstream.android.data.model.hasAired
+import com.zstream.android.data.model.hasReleased
 import com.zstream.android.theme.ZStreamTheme
 import com.zstream.android.ui.LocalIsTv
 import com.zstream.android.ui.components.themed.ZsBottomSheetSectionHeader
@@ -242,14 +243,18 @@ fun MovieDetailModal(
                         horizontal = 3.dp,
                         vertical = (-1).dp,
                     ) {
+                        val isDownloadedLocally = isOffline && downloadedMovieId != null
                         Button(
                             onClick = {
-                                if (isOffline && downloadedMovieId != null) nav.navigate("localPlayer/$downloadedMovieId")
+                                if (isDownloadedLocally) nav.navigate("localPlayer/$downloadedMovieId")
                                 else nav.navigate("player/movie/${detail.id}?title=${detail.title.encode()}&year=${detail.releaseDate?.take(4)?.toIntOrNull() ?: 0}&poster=${detail.posterPath?.encode() ?: ""}")
                             },
+                            enabled = detail.hasReleased(),
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = theme.colors.buttons.purple,
                                 contentColor = theme.colors.type.emphasis,
+                                disabledContainerColor = theme.colors.buttons.purple.copy(alpha = 0.4f),
+                                disabledContentColor = theme.colors.type.emphasis.copy(alpha = 0.6f),
                             ),
                             border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.type.divider.copy(alpha = 0.3f)),
                             shape = RoundedCornerShape(6.dp),
@@ -265,7 +270,10 @@ fun MovieDetailModal(
                         ) {
                             Icon(Icons.Filled.PlayArrow, null, tint = theme.colors.type.emphasis)
                             Spacer(Modifier.width(6.dp))
-                            Text(if (hasProgress) "Resume" else "Play", color = theme.colors.type.emphasis)
+                            Text(
+                                if (!detail.hasReleased()) "Unreleased" else if (hasProgress) "Resume" else "Play",
+                                color = theme.colors.type.emphasis,
+                            )
                         }
                     }
                 }
