@@ -1468,6 +1468,7 @@ private fun AccountSection(
     firstItemFocusRequester: FocusRequester? = null,
 ) {
     var nickname by remember(session) { mutableStateOf(session?.nickname ?: "") }
+    var showNicknameDialog by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val context = androidx.compose.ui.platform.LocalContext.current
     var versionTapCount by remember { mutableStateOf(0) }
@@ -1538,9 +1539,10 @@ private fun AccountSection(
                 ) {
                     TvSettingsRow(
                         theme = theme,
+                        onActivate = { showNicknameDialog = true },
                         modifier = if (firstItemFocusRequester != null) Modifier.focusRequester(firstItemFocusRequester) else Modifier
                     ) {
-                        Text("Nickname", color = theme.colors.type.text, fontSize = 14.sp, modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 12.dp))
+                        Text("Nickname (press to edit)", color = theme.colors.type.text, fontSize = 14.sp, modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 12.dp))
                         Text(nickname.ifEmpty { "—" }, color = theme.colors.type.secondary, fontSize = 13.sp, modifier = Modifier.padding(end = 12.dp))
                     }
                     HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
@@ -1577,7 +1579,7 @@ private fun AccountSection(
                 }
             } else {
                 SettingsCard(theme) {
-                    SettingsRow("Nickname", nickname.ifEmpty { "—" }, theme)
+                    SettingsRow("Nickname", nickname.ifEmpty { "—" }, theme, onClick = { showNicknameDialog = true })
                     HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                     SettingsRow("Device Name", session.deviceName.ifEmpty { "Android" }, theme)
                     HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
@@ -1721,9 +1723,81 @@ private fun AccountSection(
             }
         )
     }
+
+    if (showNicknameDialog) {
+        NicknameEditDialog(
+            currentNickname = nickname,
+            theme = theme,
+            accountVm = accountVm,
+            onDismiss = { showNicknameDialog = false },
+        )
+    }
 }
 
-//  Preferences Section 
+@Composable
+private fun NicknameEditDialog(
+    currentNickname: String,
+    theme: ZStreamTheme,
+    accountVm: AccountViewModel,
+    onDismiss: () -> Unit,
+) {
+    var draft by remember { mutableStateOf(currentNickname) }
+    val updating by accountVm.nicknameUpdating.collectAsStateWithLifecycle()
+    val error by accountVm.nicknameUpdateError.collectAsStateWithLifecycle()
+    val fieldFocusRequester = remember { FocusRequester() }
+
+    // Compose's Dialog opens in its own window, which doesn't inherit D-pad focus from the
+    // screen behind it -- without an explicit request the TV remote appears "stuck" since
+    // nothing in the new window is focused yet.
+    LaunchedEffect(Unit) {
+        accountVm.clearNicknameUpdateError()
+        fieldFocusRequester.requestFocus()
+    }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(16.dp))
+                .background(theme.colors.modal.background)
+                .border(1.dp, theme.colors.type.divider.copy(alpha = 0.2f), RoundedCornerShape(16.dp))
+                .padding(16.dp)
+        ) {
+            Text("Edit Nickname", color = theme.colors.type.emphasis, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            Spacer(Modifier.height(12.dp))
+            ZsTextField(
+                value = draft,
+                onValueChange = { draft = it; accountVm.clearNicknameUpdateError() },
+                label = "Nickname",
+                singleLine = true,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusRequester(fieldFocusRequester),
+            )
+            error?.let {
+                Text(it, color = theme.colors.type.danger, fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp))
+            }
+            Row(Modifier.fillMaxWidth().padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ZsButton(
+                    text = "Cancel",
+                    onClick = onDismiss,
+                    variant = ZsButtonVariant.Secondary,
+                    enabled = !updating,
+                    modifier = Modifier.weight(1f),
+                )
+                ZsButton(
+                    text = if (updating) "Saving…" else "Save",
+                    onClick = { accountVm.updateNickname(draft, onSuccess = onDismiss) },
+                    variant = ZsButtonVariant.Primary,
+                    enabled = !updating && draft.trim().isNotEmpty() && draft.trim() != currentNickname,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+    }
+}
+
+//  Preferences Section
 
 @Composable
 private fun PreferencesSection(
