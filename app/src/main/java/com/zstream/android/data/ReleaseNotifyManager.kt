@@ -10,24 +10,34 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
+import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequest
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.zstream.android.MainActivity
 import com.zstream.android.R
-import com.zstream.android.data.local.AppDatabase
+import com.zstream.android.data.local.dao.TrackedReleaseDao
 import com.zstream.android.data.local.entity.TrackedReleaseEntity
-import com.zstream.android.data.model.hasAired
-import com.zstream.android.data.model.hasReleased
+import com.zstream.android.data.local.preferences.SettingsPreferences
 import com.zstream.android.data.remote.TmdbApi
 import com.zstream.android.di.TmdbTokenCache
+import dagger.hilt.EntryPoint
+import dagger.hilt.InstallIn
+import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.TimeoutCancellationException
-import okhttp3.OkHttpClient
-import retrofit2.Retrofit
-import retrofit2.converter.gson.GsonConverterFactory
+import dagger.hilt.components.SingletonComponent
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withContext
+import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.LocalTime
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -36,99 +46,164 @@ import kotlin.random.Random
 const val OPEN_TRACKED_RELEASE_MEDIA_TYPE_EXTRA = "open_tracked_release_media_type"
 const val OPEN_TRACKED_RELEASE_TMDB_ID_EXTRA = "open_tracked_release_tmdb_id"
 
-/**
- * Polls TMDB in the background for movies/episodes the user has flagged as "notify me when this
- * releases", firing a local notification once the release/air date has passed. There's no
- * server-side push involved -- the phone itself wakes up periodically (at a randomized interval,
- * self-chained via a WorkManager one-off request each run rather than a fixed PeriodicWorkRequest)
- * and re-checks TMDB directly, same as ReleaseUpdateManager does for GitHub releases.
- */
+class NotificationUnavailableException(message: String) : IllegalStateException(message)
+
+/** TMDB supplies dates without times, so same-day releases wait until local noon. */
+internal fun hasReachedReleaseDate(rawDate: String?, now: LocalDateTime = LocalDateTime.now()): Boolean {
+    val date = rawDate?.takeIf(String::isNotBlank)?.let {
+        runCatching { LocalDate.parse(it) }.getOrNull()
+    } ?: return false
+    return date.isBefore(now.toLocalDate()) ||
+        (date == now.toLocalDate() && !now.toLocalTime().isBefore(LocalTime.NOON))
+}
+
 @Singleton
 class ReleaseNotifyManager @Inject constructor(
     @ApplicationContext private val context: Context,
+    private val dao: TrackedReleaseDao,
+    private val api: TmdbApi,
+    private val settingsPreferences: SettingsPreferences,
+    private val accountRepository: AccountRepository,
 ) {
-    fun start() {
+    /** Cold-start safety net; preserves an already queued/running check. */
+    fun ensureStarted() {
         createNotificationChannel()
-        // KEEP: don't disturb an already-pending/running check just because the app was reopened,
-        // otherwise an active user's timer keeps getting pushed out and never fires.
-        val request = OneTimeWorkRequestBuilder<ReleaseNotifyWorker>()
-            .setInitialDelay(randomDelayMinutes(), TimeUnit.MINUTES)
-            .build()
-        WorkManager.getInstance(context).enqueueUniqueWork(WORK_NAME, ExistingWorkPolicy.KEEP, request)
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            WORK_NAME,
+            ExistingWorkPolicy.KEEP,
+            request(randomDelayMinutes()),
+        )
     }
 
-    /** Used by the worker to re-arm itself after each run; REPLACE is correct here. */
+    /** A new row must leave a check queued even if the previous worker is just finishing empty. */
+    fun scheduleAfterSubscription() {
+        createNotificationChannel()
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            WORK_NAME,
+            ExistingWorkPolicy.REPLACE,
+            request(randomDelayMinutes()),
+        )
+    }
+
+    /** Appends after the running unique worker instead of replacing/cancelling that worker. */
     fun scheduleNext(delayMinutes: Long = randomDelayMinutes()) {
-        val request = OneTimeWorkRequestBuilder<ReleaseNotifyWorker>()
-            .setInitialDelay(delayMinutes, TimeUnit.MINUTES)
-            .build()
-        WorkManager.getInstance(context).enqueueUniqueWork(WORK_NAME, ExistingWorkPolicy.REPLACE, request)
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            WORK_NAME,
+            ExistingWorkPolicy.APPEND_OR_REPLACE,
+            request(delayMinutes),
+        )
     }
 
-    /** Checks every tracked release against TMDB; notifies + untracks any that have gone live. */
-    suspend fun checkNow() {
-        val dao = AppDatabase.getInstance(context).trackedReleaseDao()
-        val tracked = dao.getAllSync()
-        if (tracked.isEmpty()) return
-        val api = buildTmdbApi()
-        for (entry in tracked) {
-            val released = try {
-                isReleased(api, entry)
-            } catch (e: TimeoutCancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Log.w("ReleaseNotifyManager", "Check failed for ${entry.key}", e)
-                null
-            } ?: continue
-            if (released && showReleaseNotification(entry)) {
-                dao.deleteByKey(entry.key)
+    /** Returns whether any owner still has subscriptions and therefore needs another check. */
+    suspend fun checkNow(): Boolean {
+        createNotificationChannel()
+        // The injected TMDB interceptor reads this cache at request time. Explicitly hydrate it
+        // because a worker may be the first component started in a fresh process.
+        TmdbTokenCache.token = settingsPreferences.settings.first().tmdbApiKey
+
+        val ownerId = accountRepository.currentReleaseOwner()
+        val tracked = dao.getAllSync(ownerId)
+
+        tracked.filter { it.mediaType == "movie" }.forEach { entry ->
+            check(entry) {
+                hasReachedReleaseDate(api.movieDetail(entry.tmdbId, append = "").releaseDate)
             }
         }
+
+        tracked.filter { it.mediaType == "tv" }
+            .groupBy { it.tmdbId to it.seasonNumber }
+            .forEach { (showSeason, entries) ->
+                val seasonNumber = showSeason.second ?: return@forEach
+                val season = try {
+                    api.season(showSeason.first, seasonNumber)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.w(TAG, "Check failed for tv:${showSeason.first}:$seasonNumber", e)
+                    return@forEach
+                }
+                val byEpisode = season.episodes.orEmpty().associateBy { it.episodeNumber }
+                entries.forEach { entry ->
+                    val episode = entry.episodeNumber?.let(byEpisode::get)
+                    if (hasReachedReleaseDate(episode?.airDate)) deliverIfCurrent(ownerId, entry)
+                }
+            }
+
+        return dao.countAll() > 0
     }
 
-    private suspend fun isReleased(api: TmdbApi, entry: TrackedReleaseEntity): Boolean {
-        return if (entry.mediaType == "movie") {
-            api.movieDetail(entry.tmdbId).hasReleased()
+    /** Immediate phone-side acknowledgement for a TV-originated subscription. */
+    fun showSubscriptionConfirmation(request: ReleaseSubscriptionRequest): Boolean {
+        val subject = if (request.mediaType == "movie") {
+            request.title
         } else {
-            val season = entry.seasonNumber ?: return false
-            val episode = entry.episodeNumber ?: return false
-            val ep = api.season(entry.tmdbId, season).episodes
-                .orEmpty()
-                .firstOrNull { it.episodeNumber == episode }
-            // Treat a missing air_date as "not yet known to have aired" here, unlike Episode.hasAired()'s
-            // UI-facing default of true (which exists so unknown-date episodes aren't hidden from playback).
-            ep?.airDate?.takeIf { it.isNotBlank() } != null && ep.hasAired()
+            "${request.title} S${request.seasonNumber}E${request.episodeNumber}"
+        }
+        return postNotification(
+            notificationId = "release-subscription:${request.key}".hashCode(),
+            title = "Release notification subscribed",
+            message = "You’ll be notified when $subject is available.",
+            pendingIntent = null,
+        )
+    }
+
+    /** Null means posting is currently possible; a message explains why a new add must fail. */
+    fun notificationUnavailableReason(): String? {
+        createNotificationChannel()
+        if (Build.VERSION.SDK_INT >= 33 &&
+            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            return "Allow notifications for Z-Stream before subscribing to a release."
+        }
+        if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) {
+            return "Notifications are disabled for Z-Stream in system settings."
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = context.getSystemService(NotificationManager::class.java)
+                .getNotificationChannel(CHANNEL_ID)
+            if (channel == null || channel.importance == NotificationManager.IMPORTANCE_NONE) {
+                return "Release notifications are disabled in system settings."
+            }
+        }
+        return null
+    }
+
+    private suspend fun check(entry: TrackedReleaseEntity, released: suspend () -> Boolean) {
+        val isReleased = try {
+            released()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "Check failed for ${entry.key}", e)
+            false
+        }
+        if (isReleased) deliverIfCurrent(entry.ownerId, entry)
+    }
+
+    private suspend fun deliverIfCurrent(ownerId: String, snapshot: TrackedReleaseEntity) {
+        // Once a released row reaches delivery, finish the post+generation delete together even if
+        // a newly-added subscription replaces this worker. Otherwise cancellation can land after
+        // notify() and before the delete, causing the replacement worker to notify it again.
+        withContext(NonCancellable) {
+            if (accountRepository.currentReleaseOwner() != ownerId) return@withContext
+            val current = dao.get(ownerId, snapshot.key)
+            if (current?.id != snapshot.id) return@withContext
+            if (showReleaseNotification(snapshot)) {
+                // Generation-safe: never delete a row created by an untrack/re-track during polling.
+                dao.deleteGeneration(ownerId, snapshot.key, snapshot.id)
+            }
         }
     }
 
-    private fun buildTmdbApi(): TmdbApi {
-        val client = OkHttpClient.Builder()
-            .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(15, TimeUnit.SECONDS)
-            .addInterceptor { chain ->
-                val key = TmdbTokenCache.token ?: com.zstream.android.BuildConfig.TMDB_API_KEY
-                val original = chain.request()
-                val url = original.url.newBuilder().addQueryParameter("api_key", key).build()
-                chain.proceed(original.newBuilder().url(url).build())
-            }
-            .build()
-        val retrofit = Retrofit.Builder()
-            .baseUrl(com.zstream.android.Urls.TMDB_BASE)
-            .client(client)
-            .addConverterFactory(GsonConverterFactory.create())
-            .build()
-        return retrofit.create(TmdbApi::class.java)
-    }
-
-    /** Returns true only if a notification was actually posted (so callers know it's safe to untrack). */
     private fun showReleaseNotification(entry: TrackedReleaseEntity): Boolean {
-        if (Build.VERSION.SDK_INT >= 33 && context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return false
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
             putExtra(OPEN_TRACKED_RELEASE_MEDIA_TYPE_EXTRA, entry.mediaType)
             putExtra(OPEN_TRACKED_RELEASE_TMDB_ID_EXTRA, entry.tmdbId)
+            entry.seasonNumber?.let { putExtra(OPEN_TRACKED_RELEASE_SEASON_EXTRA, it) }
+            entry.episodeNumber?.let { putExtra(OPEN_TRACKED_RELEASE_EPISODE_EXTRA, it) }
         }
-        val notificationId = entry.key.hashCode()
+        val notificationId = "${entry.ownerId}:${entry.key}".hashCode()
         val pendingIntent = PendingIntent.getActivity(
             context,
             notificationId,
@@ -139,19 +214,38 @@ class ReleaseNotifyManager @Inject constructor(
             "${entry.title} is out now" to "The movie you were waiting on just released."
         } else {
             "${entry.title} S${entry.seasonNumber}E${entry.episodeNumber} is out now" to
-                (entry.episodeTitle?.takeIf { it.isNotBlank() } ?: "A new episode just aired.")
+                (entry.episodeTitle?.takeIf(String::isNotBlank) ?: "A new episode just aired.")
+        }
+        return postNotification(notificationId, title, message, pendingIntent)
+    }
+
+    private fun postNotification(
+        notificationId: Int,
+        title: String,
+        message: String,
+        pendingIntent: PendingIntent?,
+    ): Boolean {
+        val blocked = notificationUnavailableReason()
+        if (blocked != null) {
+            Log.w(TAG, "Notification retained: $blocked")
+            return false
         }
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_group_megaphone)
             .setContentTitle(title)
             .setContentText(message)
             .setStyle(NotificationCompat.BigTextStyle().bigText(message))
-            .setContentIntent(pendingIntent)
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .apply { pendingIntent?.let(::setContentIntent) }
             .build()
-        context.getSystemService(NotificationManager::class.java).notify(notificationId, notification)
-        return true
+        return try {
+            NotificationManagerCompat.from(context).notify(notificationId, notification)
+            true
+        } catch (e: SecurityException) {
+            Log.w(TAG, "Notification retained because posting was denied", e)
+            false
+        }
     }
 
     private fun createNotificationChannel() {
@@ -163,13 +257,29 @@ class ReleaseNotifyManager @Inject constructor(
         )
     }
 
+    private fun request(delayMinutes: Long): OneTimeWorkRequest =
+        OneTimeWorkRequestBuilder<ReleaseNotifyWorker>()
+            .setConstraints(
+                Constraints.Builder()
+                    .setRequiredNetworkType(NetworkType.CONNECTED)
+                    .build()
+            )
+            .setInitialDelay(delayMinutes, TimeUnit.MINUTES)
+            .build()
+
     companion object {
+        private const val TAG = "ReleaseNotifyManager"
         private const val WORK_NAME = "tracked-release-check"
         private const val CHANNEL_ID = "tracked_releases"
 
-        /** Random 3-8 hour spread so the check isn't a predictable fixed-interval poll. */
         private fun randomDelayMinutes(): Long = Random.nextLong(3 * 60L, 8 * 60L)
     }
+}
+
+@EntryPoint
+@InstallIn(SingletonComponent::class)
+internal interface ReleaseNotifyManagerEntryPoint {
+    fun releaseNotifyManager(): ReleaseNotifyManager
 }
 
 class ReleaseNotifyWorker(
@@ -177,17 +287,18 @@ class ReleaseNotifyWorker(
     params: WorkerParameters,
 ) : CoroutineWorker(appContext, params) {
     override suspend fun doWork(): Result {
-        val manager = ReleaseNotifyManager(applicationContext)
+        val manager = EntryPointAccessors.fromApplication(
+            applicationContext,
+            ReleaseNotifyManagerEntryPoint::class.java,
+        ).releaseNotifyManager()
         return try {
-            manager.checkNow()
-            manager.scheduleNext()
+            if (manager.checkNow()) manager.scheduleNext()
             Result.success()
-        } catch (e: kotlinx.coroutines.CancellationException) {
+        } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.w("ReleaseNotifyWorker", "Check run failed, rescheduling anyway", e)
-            manager.scheduleNext()
-            Result.success()
+            Log.w("ReleaseNotifyWorker", "Release check failed; using WorkManager backoff", e)
+            Result.retry()
         }
     }
 }

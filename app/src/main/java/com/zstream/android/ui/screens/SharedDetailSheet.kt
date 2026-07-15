@@ -16,6 +16,8 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -53,6 +55,10 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.vectorResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -363,6 +369,7 @@ internal fun ColumnScope.SharedTvDetailContent(
     detail: TvDetail,
     certification: String?,
     selectedSeason: Season?,
+    requestedEpisodeNumber: Int? = null,
     allProgress: List<ProgressEntity>,
     context: android.content.Context,
     nav: NavController,
@@ -376,6 +383,9 @@ internal fun ColumnScope.SharedTvDetailContent(
     pendingDownloads: Set<String> = emptySet(),
     isOffline: Boolean = false,
     firstItemFocusRequester: FocusRequester? = null,
+    trackedReleaseVm: TrackedReleaseViewModel,
+    releasePendingKeys: Set<String>,
+    onToggleEpisodeRelease: ((Int, String, String?, Episode, Boolean) -> Unit)?,
     trailers: List<com.zstream.android.data.ImdbTrailer> = emptyList(),
     openTrailersInApp: Boolean = true,
     onTrailerWillPlay: () -> Unit = {},
@@ -384,6 +394,7 @@ internal fun ColumnScope.SharedTvDetailContent(
 ) {
     val seasons = detail.seasons.orEmpty().filter { it.seasonNumber > 0 }
     val scrollState = LocalScrollState.current
+    var requestedEpisodeHandled by remember(detail.id, requestedEpisodeNumber) { mutableStateOf(false) }
 
     Row(
         Modifier
@@ -481,6 +492,21 @@ internal fun ColumnScope.SharedTvDetailContent(
     Spacer(Modifier.height(16.dp))
 
     selectedSeason?.episodes?.takeIf { it.isNotEmpty() }?.let { episodes ->
+        val requestedEpisodeRequester = remember(
+            selectedSeason.seasonNumber,
+            requestedEpisodeNumber,
+        ) { BringIntoViewRequester() }
+        LaunchedEffect(episodes, requestedEpisodeNumber) {
+            if (
+                !requestedEpisodeHandled &&
+                requestedEpisodeNumber != null &&
+                episodes.any { it.episodeNumber == requestedEpisodeNumber }
+            ) {
+                withFrameNanos { }
+                requestedEpisodeRequester.bringIntoView()
+                requestedEpisodeHandled = true
+            }
+        }
         val progressMap = allProgress
             .filter { it.seasonNumber == selectedSeason.seasonNumber }
             .associateBy { it.episodeNumber }
@@ -505,6 +531,11 @@ internal fun ColumnScope.SharedTvDetailContent(
             }
         }
         episodes.forEach { episode ->
+            val requestedEpisodeModifier = if (episode.episodeNumber == requestedEpisodeNumber) {
+                Modifier.bringIntoViewRequester(requestedEpisodeRequester)
+            } else {
+                Modifier
+            }
             com.zstream.android.ui.screens.SharedEpisodeRow(
                 ep = episode,
                 showId = detail.id,
@@ -513,6 +544,9 @@ internal fun ColumnScope.SharedTvDetailContent(
                 nav = nav,
                 theme = theme,
                 episodeProgress = progressMap[episode.episodeNumber],
+                trackedReleaseVm = trackedReleaseVm,
+                releasePendingKeys = releasePendingKeys,
+                onToggleRelease = onToggleEpisodeRelease,
                 enableWatchActions = true,
                 onMarkWatched = { onMarkEpisodeWatched(episode) },
                 onClearHistory = { onClearEpisodeWatchHistory(episode) },
@@ -520,6 +554,7 @@ internal fun ColumnScope.SharedTvDetailContent(
                 onDownloadEpisode = { onDownloadEpisode(episode) },
                 isDownloadPending = pendingDownloads.contains("${episode.seasonNumber}|${episode.episodeNumber}"),
                 isOffline = isOffline,
+                modifier = requestedEpisodeModifier,
             )
         }
     }
@@ -542,6 +577,7 @@ internal fun Modifier.onTvFocusScroll(scrollState: ScrollState): Modifier {
 internal fun SharedActionPill(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     theme: ZStreamTheme,
+    contentDescription: String? = null,
     focusRequester: FocusRequester? = null,
     onFocusChanged: ((Boolean) -> Unit)? = null,
     loading: Boolean = false,
@@ -570,6 +606,16 @@ internal fun SharedActionPill(
                 color = if (isFocused && isTv) theme.colors.global.accentA.copy(alpha = 0.3f) else theme.colors.type.text.copy(alpha = 0.05f),
                 border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.type.divider.copy(alpha = 0.3f)),
                 modifier = Modifier
+                    .then(
+                        if (contentDescription != null) {
+                            Modifier.semantics {
+                                this.contentDescription = contentDescription
+                                role = Role.Button
+                            }
+                        } else {
+                            Modifier
+                        }
+                    )
                     .clickable(enabled = !loading, onClick = onClick)
             ) {
                 Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {

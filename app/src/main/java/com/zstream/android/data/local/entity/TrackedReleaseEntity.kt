@@ -1,15 +1,21 @@
 package com.zstream.android.data.local.entity
 
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
 /**
  * A movie or TV episode the user asked to be notified about once it releases/airs.
  * Rows are removed once the release-notify worker fires a notification for them.
  */
-@Entity(tableName = "tracked_releases")
+@Entity(
+    tableName = "tracked_releases",
+    indices = [Index(value = ["ownerId", "key"], unique = true)],
+)
 data class TrackedReleaseEntity(
-    @PrimaryKey
+    @PrimaryKey(autoGenerate = true)
+    val id: Long = 0,
+    val ownerId: String,
     val key: String, // "movie:{tmdbId}" or "tv:{tmdbId}:{season}:{episode}"
     val tmdbId: Int,
     val mediaType: String, // "movie" or "tv"

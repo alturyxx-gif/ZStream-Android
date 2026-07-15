@@ -61,6 +61,8 @@ class DetailViewModel @Inject constructor(
 ) : ViewModel() {
     private val id = savedState.get<Int>("id") ?: 0
     private val mediaType = savedState.get<String>("mediaType") ?: "movie"
+    private val requestedSeasonNumber = savedState.get<Int>("season")?.takeIf { it >= 0 }
+    val requestedEpisodeNumber = savedState.get<Int>("episode")?.takeIf { it >= 0 }
 
     private val _state = MutableStateFlow<DetailState>(DetailState.Loading)
     val state = _state.asStateFlow()
@@ -104,13 +106,14 @@ class DetailViewModel @Inject constructor(
     val allProgress = progressRepo.observeAllProgressForTmdb(id.toString())
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    private var pendingInitialSeasonNumber: Int? = null
+    private var pendingInitialSeasonNumber: Int? = requestedSeasonNumber
     private var initialSeasonResolved = false
 
     init {
         if (mediaType == "tv") {
             viewModelScope.launch {
                 progress.collectLatest { currentProgress ->
+                    if (requestedSeasonNumber != null) return@collectLatest
                     val seasonNumber = currentProgress?.seasonNumber ?: return@collectLatest
                     pendingInitialSeasonNumber = seasonNumber
                     applyPendingInitialSeason()

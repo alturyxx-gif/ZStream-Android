@@ -131,6 +131,12 @@ private fun groupIconKey(group: String): String? =
 enum class WatchBulkTarget { Movie, Season }
 enum class WatchBulkAction { MarkWatched, ClearHistory }
 
+internal fun shouldShowEpisodeReleaseNotification(
+    isTracked: Boolean,
+    hasAired: Boolean,
+    airDate: String?,
+): Boolean = isTracked || !hasAired || airDate.isNullOrBlank()
+
 @Composable
 fun MovieDetailModal(
     detail: MovieDetail,
@@ -161,12 +167,24 @@ fun MovieDetailModal(
     trailers: List<com.zstream.android.data.ImdbTrailer> = emptyList(),
     openTrailersInApp: Boolean = true,
     onTrailerWillPlay: () -> Unit = {},
+    trackedReleaseVm: TrackedReleaseViewModel = hiltViewModel(),
+    releasePendingKeys: Set<String>? = null,
+    onToggleRelease: ((MovieDetail, Boolean) -> Unit)? = null,
 ) {
     var pendingBulkTarget by remember { mutableStateOf<WatchBulkTarget?>(null) }
     var pendingBulkAction by remember { mutableStateOf<WatchBulkAction?>(null) }
     var showGroupEditor by remember { mutableStateOf(false) }
     val isTv = LocalIsTv.current
     val scrollState = rememberScrollState()
+    val observedReleasePendingKeys by trackedReleaseVm.pendingKeys.collectAsState()
+    val defaultReleaseInteraction = if (onToggleRelease == null) {
+        rememberTrackedReleaseInteraction(trackedReleaseVm)
+    } else {
+        null
+    }
+    val effectiveReleasePendingKeys =
+        releasePendingKeys ?: defaultReleaseInteraction?.pendingKeys ?: observedReleasePendingKeys
+    val effectiveToggleRelease = onToggleRelease ?: defaultReleaseInteraction?.toggleMovie
 
     var scrollRequestId by remember { mutableLongStateOf(0L) }
     LaunchedEffect(scrollRequestId) {
@@ -281,16 +299,21 @@ fun MovieDetailModal(
                     }
                 }
 
-                if (!detail.hasReleased()) {
-                    val trackedReleaseVm: TrackedReleaseViewModel = hiltViewModel()
-                    val isTracked by remember(detail.id) { trackedReleaseVm.isMovieTracked(detail.id) }
-                        .collectAsState(initial = false)
+                val isTracked by remember(detail.id) { trackedReleaseVm.isMovieTracked(detail.id) }
+                    .collectAsState(initial = false)
+                if (!detail.hasReleased() || isTracked) {
                     SharedActionPill(
                         icon = if (isTracked) Icons.Filled.NotificationsActive else Icons.Filled.NotificationsNone,
                         theme = theme,
+                        contentDescription = if (isTracked) {
+                            "Disable release notification"
+                        } else {
+                            "Enable release notification"
+                        },
+                        loading = com.zstream.android.data.local.entity.trackedMovieKey(detail.id) in effectiveReleasePendingKeys,
                         onFocusChanged = { focused -> if (focused && isTv) scrollRequestId++ },
                     ) {
-                        trackedReleaseVm.toggleMovie(detail, isTracked)
+                        effectiveToggleRelease?.invoke(detail, isTracked)
                     }
                 }
 
@@ -680,6 +703,7 @@ fun TvDetailModal(
     detail: TvDetail,
     certification: String?,
     selectedSeason: Season?,
+    requestedEpisodeNumber: Int? = null,
     allProgress: List<ProgressEntity>,
     nav: NavController,
     context: android.content.Context,
@@ -712,12 +736,25 @@ fun TvDetailModal(
     trailers: List<com.zstream.android.data.ImdbTrailer> = emptyList(),
     openTrailersInApp: Boolean = true,
     onTrailerWillPlay: () -> Unit = {},
+    trackedReleaseVm: TrackedReleaseViewModel = hiltViewModel(),
+    releasePendingKeys: Set<String>? = null,
+    onToggleEpisodeRelease: ((Int, String, String?, Episode, Boolean) -> Unit)? = null,
 ) {
     var pendingBulkTarget by remember { mutableStateOf<WatchBulkTarget?>(null) }
     var pendingBulkAction by remember { mutableStateOf<WatchBulkAction?>(null) }
     var showGroupEditor by remember { mutableStateOf(false) }
     val isTv = LocalIsTv.current
     val scrollState = rememberScrollState()
+    val observedReleasePendingKeys by trackedReleaseVm.pendingKeys.collectAsState()
+    val defaultReleaseInteraction = if (onToggleEpisodeRelease == null) {
+        rememberTrackedReleaseInteraction(trackedReleaseVm)
+    } else {
+        null
+    }
+    val effectiveReleasePendingKeys =
+        releasePendingKeys ?: defaultReleaseInteraction?.pendingKeys ?: observedReleasePendingKeys
+    val effectiveToggleEpisodeRelease =
+        onToggleEpisodeRelease ?: defaultReleaseInteraction?.toggleEpisode
 
     var scrollRequestId by remember { mutableLongStateOf(0L) }
     LaunchedEffect(scrollRequestId) {
@@ -750,6 +787,7 @@ fun TvDetailModal(
             detail = detail,
             certification = certification,
             selectedSeason = selectedSeason,
+            requestedEpisodeNumber = requestedEpisodeNumber,
             allProgress = allProgress,
             context = context,
             nav = nav,
@@ -766,6 +804,9 @@ fun TvDetailModal(
             pendingDownloads = pendingDownloads,
             isOffline = isOffline,
             firstItemFocusRequester = firstItemFocusRequester,
+            trackedReleaseVm = trackedReleaseVm,
+            releasePendingKeys = effectiveReleasePendingKeys,
+            onToggleEpisodeRelease = effectiveToggleEpisodeRelease,
             specActions = { },
         ) { requester ->
             Row(
@@ -1022,6 +1063,9 @@ internal fun SharedEpisodeRow(
     nav: NavController,
     theme: ZStreamTheme,
     episodeProgress: ProgressEntity?,
+    trackedReleaseVm: TrackedReleaseViewModel = hiltViewModel(),
+    releasePendingKeys: Set<String>? = null,
+    onToggleRelease: ((Int, String, String?, Episode, Boolean) -> Unit)? = null,
     enableWatchActions: Boolean = false,
     onMarkWatched: () -> Unit = {},
     onClearHistory: () -> Unit = {},
@@ -1039,6 +1083,15 @@ internal fun SharedEpisodeRow(
     } else 0f
     val isWatched = episodeProgress?.let { it.duration > 0 && it.watched >= (it.duration * 0.95f) } == true
     val isAired = ep.hasAired()
+    val releaseKey = com.zstream.android.data.local.entity.trackedEpisodeKey(
+        showId,
+        ep.seasonNumber,
+        ep.episodeNumber,
+    )
+    val observedReleasePendingKeys by trackedReleaseVm.pendingKeys.collectAsState()
+    val releasePending = releaseKey in (releasePendingKeys ?: observedReleasePendingKeys)
+    val isTracked by remember(releaseKey) { trackedReleaseVm.isEpisodeTracked(showId, ep.seasonNumber, ep.episodeNumber) }
+        .collectAsState(initial = false)
 
     val dismissState = rememberSwipeToDismissBoxState(
         positionalThreshold = { it * 0.35f },
@@ -1065,7 +1118,7 @@ internal fun SharedEpisodeRow(
                     .alpha(if (rowDisabled) 0.4f else 1f)
                     .clip(RoundedCornerShape(12.dp))
                     .background(theme.colors.modal.background)
-                    .onFocusChanged { isFocused = it.isFocused }
+                    .onFocusChanged { isFocused = it.hasFocus }
                     .clickable(enabled = !rowDisabled) {
                         if (isDownloaded) {
                             if (isOffline) nav.navigate("localPlayer/${downloadEntry?.id}")
@@ -1143,7 +1196,44 @@ internal fun SharedEpisodeRow(
                         }
                     }
 
-                    if (isDownloaded) {
+                    if (releasePending) {
+                        CircularProgressIndicator(
+                            color = theme.colors.type.secondary,
+                            strokeWidth = 2.dp,
+                            modifier = Modifier.size(48.dp).padding(14.dp),
+                        )
+                    } else if (
+                        onToggleRelease != null &&
+                        shouldShowEpisodeReleaseNotification(isTracked, isAired, ep.airDate)
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.End,
+                            modifier = Modifier.padding(top = 4.dp, end = 4.dp, bottom = 4.dp),
+                        ) {
+                            Icon(
+                                imageVector = if (isTracked) Icons.Filled.NotificationsActive else Icons.Filled.NotificationsNone,
+                                contentDescription = if (isTracked) "Disable release notification" else "Enable release notification",
+                                tint = if (isTracked) theme.colors.global.accentA else theme.colors.type.secondary,
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .clickable {
+                                        onToggleRelease(showId, title, posterPath, ep, isTracked)
+                                    }
+                                    .padding(14.dp),
+                            )
+                            Text(
+                                ep.formattedAirDate()?.let { if (isAired) "Aired $it" else "Airs $it" } ?: "Date TBD",
+                                color = theme.colors.type.secondary,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium,
+                                textAlign = TextAlign.End,
+                                maxLines = 2,
+                                modifier = Modifier
+                                    .padding(horizontal = 4.dp)
+                                    .widthIn(max = 72.dp),
+                            )
+                        }
+                    } else if (isDownloaded) {
                         Icon(
                             imageVector = Icons.Filled.CheckCircle,
                             contentDescription = "Downloaded",
@@ -1166,38 +1256,6 @@ internal fun SharedEpisodeRow(
                                 .size(20.dp)
                                 .clickable { onDownloadEpisode() },
                         )
-                    } else if (!isAired) {
-                        val trackedReleaseVm: TrackedReleaseViewModel = hiltViewModel()
-                        val isTracked by remember(showId, ep.seasonNumber, ep.episodeNumber) {
-                            trackedReleaseVm.isEpisodeTracked(showId, ep.seasonNumber, ep.episodeNumber)
-                        }.collectAsState(initial = false)
-                        Column(
-                            horizontalAlignment = Alignment.End,
-                            modifier = Modifier.padding(top = 4.dp, end = 4.dp, bottom = 4.dp),
-                        ) {
-                            Icon(
-                                imageVector = if (isTracked) Icons.Filled.NotificationsActive else Icons.Filled.NotificationsNone,
-                                contentDescription = if (isTracked) "Stop notifying on release" else "Notify me on release",
-                                tint = if (isTracked) theme.colors.global.accentA else theme.colors.type.secondary,
-                                modifier = Modifier
-                                    .padding(4.dp)
-                                    .size(20.dp)
-                                    .clickable {
-                                        trackedReleaseVm.toggleEpisode(showId, title, posterPath, ep, isTracked)
-                                    },
-                            )
-                            Text(
-                                ep.formattedAirDate()?.let { "Airs $it" } ?: "Unreleased",
-                                color = theme.colors.type.secondary,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Medium,
-                                textAlign = TextAlign.End,
-                                maxLines = 2,
-                                modifier = Modifier
-                                    .padding(horizontal = 4.dp)
-                                    .widthIn(max = 64.dp),
-                            )
-                        }
                     }
                 }
 
