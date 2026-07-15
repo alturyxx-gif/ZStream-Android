@@ -105,6 +105,8 @@ import com.zstream.android.data.model.Season
 import com.zstream.android.data.model.TrailerData
 import com.zstream.android.data.model.TvDetail
 import com.zstream.android.data.model.airedEpisodes
+import com.zstream.android.data.model.formattedAirDate
+import com.zstream.android.data.model.hasAired
 import com.zstream.android.theme.ZStreamTheme
 import com.zstream.android.ui.LocalIsTv
 import com.zstream.android.ui.components.themed.ZsBottomSheetSectionHeader
@@ -1012,13 +1014,15 @@ internal fun SharedEpisodeRow(
         ((episodeProgress.watched.toFloat() / episodeProgress.duration) * 100f).coerceIn(0f, 100f)
     } else 0f
     val isWatched = episodeProgress?.let { it.duration > 0 && it.watched >= (it.duration * 0.95f) } == true
+    val isAired = ep.hasAired()
+
     val dismissState = rememberSwipeToDismissBoxState(
         positionalThreshold = { it * 0.35f },
         confirmValueChange = { true }
     )
     val scope = rememberCoroutineScope()
     val isDownloaded = downloadEntry != null
-    val rowDisabled = !isDownloaded && isOffline
+    val rowDisabled = (!isDownloaded && isOffline) || !isAired
 
     val rowContent: @Composable () -> Unit = {
         val isTv = LocalIsTv.current
@@ -1071,6 +1075,7 @@ internal fun SharedEpisodeRow(
                             contentDescription = null,
                             modifier = Modifier
                                 .matchParentSize()
+                                .alpha(if (isAired) 1f else 0.5f)
                                 .clip(RoundedCornerShape(topStart = 12.dp, bottomStart = 12.dp)),
                             contentScale = ContentScale.Crop
                         )
@@ -1127,7 +1132,7 @@ internal fun SharedEpisodeRow(
                             strokeWidth = 2.dp,
                             modifier = Modifier.padding(8.dp).size(20.dp),
                         )
-                    } else if (!isOffline) {
+                    } else if (!isOffline && isAired) {
                         Icon(
                             imageVector = Icons.Filled.Download,
                             contentDescription = "Download episode",
@@ -1136,6 +1141,18 @@ internal fun SharedEpisodeRow(
                                 .padding(8.dp)
                                 .size(20.dp)
                                 .clickable { onDownloadEpisode() },
+                        )
+                    } else if (!isAired) {
+                        Text(
+                            ep.formattedAirDate()?.let { "Airs $it" } ?: "Unreleased",
+                            color = theme.colors.type.secondary,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            textAlign = TextAlign.End,
+                            maxLines = 2,
+                            modifier = Modifier
+                                .padding(8.dp)
+                                .widthIn(max = 64.dp),
                         )
                     }
                 }

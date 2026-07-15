@@ -480,13 +480,15 @@ internal fun ColumnScope.SharedTvDetailContent(
     }
     Spacer(Modifier.height(16.dp))
 
-    selectedSeason?.episodes?.airedEpisodes()?.takeIf { it.isNotEmpty() }?.let { episodes ->
+    selectedSeason?.episodes?.takeIf { it.isNotEmpty() }?.let { episodes ->
         val progressMap = allProgress
             .filter { it.seasonNumber == selectedSeason.seasonNumber }
             .associateBy { it.episodeNumber }
         ZsBottomSheetSectionHeader("Episodes")
-        val seasonPending = episodes.any { pendingDownloads.contains("${it.seasonNumber}|${it.episodeNumber}") }
-        val seasonFullyDownloaded = episodes.all { downloadedEpisodes.containsKey("${it.seasonNumber}|${it.episodeNumber}") }
+        val airedEpisodesForDownload = episodes.airedEpisodes()
+        val seasonPending = airedEpisodesForDownload.any { pendingDownloads.contains("${it.seasonNumber}|${it.episodeNumber}") }
+        val seasonFullyDownloaded = airedEpisodesForDownload.isNotEmpty() &&
+            airedEpisodesForDownload.all { downloadedEpisodes.containsKey("${it.seasonNumber}|${it.episodeNumber}") }
         if (!isOffline && !seasonFullyDownloaded) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp), horizontalArrangement = Arrangement.End) {
                 TextButton(onClick = onDownloadSeason, enabled = !seasonPending) {
