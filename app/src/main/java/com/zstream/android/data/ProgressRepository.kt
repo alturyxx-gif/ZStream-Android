@@ -386,10 +386,19 @@ class ProgressRepository @Inject constructor(
                 Log.d(TAG, "Successfully synced ${toUpsert.size} progress entries from remote")
             }
 
-            val remoteTmdbIds = entities.map { it.tmdbId }.toSet()
-            val stale = localBefore.filter { it.tmdbId !in remoteTmdbIds }.map { it.id }
-            for (id in stale) progressDao.deleteById(id)
-            if (stale.isNotEmpty()) Log.d(TAG, "Removed ${stale.size} progress entries for shows no longer on remote")
+            // An empty remote response is indistinguishable here from "every show was removed
+            // elsewhere" vs. a brand-new account, a session hiccup, or the backend legitimately
+            // returning an empty 200 -- any of which would otherwise wipe every local entry on
+            // this device. Never treat "remote has nothing" as "delete everything local"; only
+            // prune shows once we've seen at least one real remote entry to diff against.
+            if (entities.isNotEmpty()) {
+                val remoteTmdbIds = entities.map { it.tmdbId }.toSet()
+                val stale = localBefore.filter { it.tmdbId !in remoteTmdbIds }.map { it.id }
+                for (id in stale) progressDao.deleteById(id)
+                if (stale.isNotEmpty()) Log.d(TAG, "Removed ${stale.size} progress entries for shows no longer on remote")
+            } else {
+                Log.d(TAG, "Remote progress list was empty -- leaving local progress untouched")
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to sync progress from remote", e)
         } finally {
