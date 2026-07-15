@@ -25,5 +25,6 @@ dependencyResolutionManagement {
 
 rootProject.name = "ZStream-Android"
 include(":app")
+include(":shared")
 include(":libadb")
 project(":libadb").projectDir = file("libadb-android/libadb")
