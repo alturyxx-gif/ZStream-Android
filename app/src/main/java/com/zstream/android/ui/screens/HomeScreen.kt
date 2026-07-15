@@ -610,7 +610,7 @@ fun HomeScreen(
                     text = {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(
-                                "A new APK release$versionSuffix is available. Download and install it now? Background checks and their interval can be changed or disabled in Settings → Connections.",
+                                "A new APK release$versionSuffix is available. Download and install it now? Background checks and their interval can be changed or disabled in Settings → Account.",
                                 color = theme.colors.type.text,
                             )
                             if (isTv) {
@@ -668,6 +668,7 @@ fun HomeScreen(
                             if (isTv) {
                                 TextButton(enabled = !installing, onClick = {
                                     showTvAdbWizard = true
+                                    showReleaseUpdatePrompt = false
                                 }) { Text("Use ADB instead", color = theme.colors.type.secondary) }
                             }
                             TextButton(enabled = !installing, onClick = {

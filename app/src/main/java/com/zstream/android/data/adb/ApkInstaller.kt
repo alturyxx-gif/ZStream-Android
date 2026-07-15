@@ -14,6 +14,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
 import java.io.IOException
+import java.util.concurrent.TimeUnit
 
 sealed class ApkDownloadProgress {
     object Connecting : ApkDownloadProgress()
@@ -31,7 +32,13 @@ sealed class ApkDownloadProgress {
  * separately for TV and remains the primary TV update flow.
  */
 object ApkInstaller {
-    private val client = OkHttpClient()
+    // Default 10s connect/read timeouts are tight for a multi-MB APK on a slow or flaky
+    // connection -- a stalled read (not just a slow-but-steady one) would otherwise abort the
+    // download partway through.
+    private val client = OkHttpClient.Builder()
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .build()
 
     private val _progress = MutableStateFlow<ApkDownloadProgress?>(null)
     val progress = _progress.asStateFlow()
