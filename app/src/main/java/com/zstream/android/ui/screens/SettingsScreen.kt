@@ -1431,6 +1431,46 @@ private fun AccountSection(
         nav.navigate("devVideo")
     }
 
+    // TV has no usable file-picker UI, so it always writes straight to Downloads instead of
+    // going through onExport's Storage Access Framework prompt (which the phone flow uses).
+    // LENGTH_LONG (~3.5s) is still short for a filename users need to actually read and
+    // remember, so this repeats the Toast via a fresh call after that window instead of
+    // relying on a single showing.
+    fun exportToDownloadsWithToast() {
+        scope.launch {
+            runCatching { vm.exportToDownloads() }
+                .onSuccess { fileName ->
+                    val message = "Saved backup to Downloads/$fileName"
+                    Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                    delay(3500)
+                    Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                }
+                .onFailure {
+                    Toast.makeText(context, "Export failed: ${it.message}", Toast.LENGTH_LONG).show()
+                }
+        }
+    }
+
+    // MediaStore.Downloads needs no runtime permission on API 29+, but on 24-28 writing to the
+    // public Downloads folder via the legacy File API requires WRITE_EXTERNAL_STORAGE to have
+    // been granted first, or it throws.
+    val storagePermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) {
+            exportToDownloadsWithToast()
+        } else {
+            Toast.makeText(context, "Storage permission is required to export on this Android version.", Toast.LENGTH_LONG).show()
+        }
+    }
+    val requestExportToDownloads: () -> Unit = {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q ||
+            context.checkSelfPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            exportToDownloadsWithToast()
+        } else {
+            storagePermissionLauncher.launch(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
+        }
+    }
+
     Column(Modifier
         .padding(horizontal = if (isTv) 16.dp else 0.dp)
         .padding(bottom = 32.dp, top = if (isTv) 16.dp else 0.dp)) {
@@ -1466,7 +1506,6 @@ private fun AccountSection(
                     }
                 }
                 Spacer(Modifier.height(12.dp))
-                // No export data button on TV
                 Column(
                     Modifier
                         .fillMaxWidth()
@@ -1475,6 +1514,10 @@ private fun AccountSection(
                 ) {
                     TvSettingsRow(theme, onActivate = { nav.navigate("tvSync") }) {
                         Text("Sync from phone", color = theme.colors.type.link, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 12.dp, top = 14.dp, bottom = 14.dp))
+                    }
+                    HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
+                    TvSettingsRow(theme, onActivate = requestExportToDownloads) {
+                        Text("Export Data", color = theme.colors.type.link, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 12.dp, top = 14.dp, bottom = 14.dp))
                     }
                     HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                     TvSettingsRow(theme, onActivate = { onLogoutConfirmChange(true) }) {
@@ -1528,6 +1571,17 @@ private fun AccountSection(
                         Text("Log in / Register", color = theme.colors.type.link, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 12.dp, top = 14.dp, bottom = 14.dp))
                     }
                 }
+                Spacer(Modifier.height(12.dp))
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(theme.colors.settings.card.background)
+                ) {
+                    TvSettingsRow(theme, onActivate = requestExportToDownloads) {
+                        Text("Export Data", color = theme.colors.type.link, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 12.dp, top = 14.dp, bottom = 14.dp))
+                    }
+                }
             } else {
                 SettingsCard(theme) {
                     TextButton(
@@ -1537,6 +1591,17 @@ private fun AccountSection(
                             .padding(horizontal = 4.dp)
                     ) {
                         Text("Log in / Register", color = theme.colors.type.link, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+                SettingsCard(theme) {
+                    TextButton(
+                        onClick = onExport,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 4.dp)
+                    ) {
+                        Text("Export Data", color = theme.colors.type.link, fontWeight = FontWeight.SemiBold)
                     }
                 }
             }
