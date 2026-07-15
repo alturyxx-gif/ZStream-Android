@@ -119,17 +119,22 @@ fun ProfileSwitcherScreen(nav: NavController, vm: AccountViewModel = hiltViewMod
                         modifier = if (profiles.isEmpty()) Modifier.focusRequester(firstProfileFocusRequester) else Modifier,
                     )
                 }
-                item {
-                    // Escape hatch — this screen's BackHandler is a no-op, so without this card
-                    // there's no way off it besides picking/creating a profile.
-                    ContinueWithoutProfileCard(
-                        theme = theme,
-                        onClick = {
-                            nav.navigate("home") {
-                                popUpTo("profileSwitcher") { inclusive = true }
-                            }
-                        },
-                    )
+                if (profiles.isEmpty()) {
+                    item {
+                        // Escape hatch — this screen's BackHandler is a no-op, so without this
+                        // card there's no way off it when there are no cached profiles to pick.
+                        // Hidden once a profile exists: picking that profile (or "Add Profile")
+                        // is always available then, and this card doesn't actually log out of
+                        // the active session -- it would just land back on that same profile.
+                        ContinueWithoutProfileCard(
+                            theme = theme,
+                            onClick = {
+                                nav.navigate("home") {
+                                    popUpTo("profileSwitcher") { inclusive = true }
+                                }
+                            },
+                        )
+                    }
                 }
             }
         }
