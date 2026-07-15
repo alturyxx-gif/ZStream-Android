@@ -26,7 +26,6 @@ data class MediaRequest(
     val title: String = "",
     val year: Int? = null,
     val febboxKey: String? = null,
-    val artemisVipKey: String? = null,
 ) {
     enum class Type { MOVIE, SHOW }
 }

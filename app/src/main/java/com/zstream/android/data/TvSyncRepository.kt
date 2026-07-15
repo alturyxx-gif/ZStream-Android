@@ -86,7 +86,6 @@ data class TvSyncPayload(
     // the validity/exhaustion check it would otherwise do), so playback quietly breaks on the TV
     // the moment that key's bandwidth runs out, even though the phone would have rotated already.
     val febboxKeys: List<String>? = null,
-    val artemisVipKey: String? = null,
     val debridToken: String? = null,
     val debridService: String? = null,
     val tidbKey: String? = null,
@@ -101,7 +100,6 @@ data class TvSyncPayload(
     fun summaryLines(): List<String> = buildList {
         if (tmdbApiKey != null) add("TMDB API key")
         if (febboxKey != null) add("Febbox key")
-        if (artemisVipKey != null) add("Artemis VIP key")
         if (debridToken != null) add("Debrid (${debridService ?: "service"})")
         if (tidbKey != null) add("TheIntroDB key")
         if (wyzieKey != null) add("Wyzie key")
@@ -652,7 +650,6 @@ class TvSyncRepository @Inject constructor(
                 tmdbApiKey = payload.tmdbApiKey ?: current.tmdbApiKey,
                 febboxKey = payload.febboxKey ?: current.febboxKey,
                 febboxKeys = payload.febboxKeys ?: current.febboxKeys,
-                artemisVipKey = payload.artemisVipKey ?: current.artemisVipKey,
                 debridToken = payload.debridToken ?: current.debridToken,
                 debridService = payload.debridService ?: current.debridService,
                 tidbKey = payload.tidbKey ?: current.tidbKey,
@@ -845,7 +842,6 @@ class TvSyncRepository @Inject constructor(
         payload.tmdbApiKey?.let { put("tmdbApiKey", it) }
         payload.febboxKey?.let { put("febboxKey", it) }
         payload.febboxKeys?.let { put("febboxKeys", JSONArray(it)) }
-        payload.artemisVipKey?.let { put("artemisVipKey", it) }
         payload.debridToken?.let { put("debridToken", it) }
         payload.debridService?.let { put("debridService", it) }
         payload.tidbKey?.let { put("tidbKey", it) }
@@ -863,7 +859,6 @@ class TvSyncRepository @Inject constructor(
             tmdbApiKey = obj.optString("tmdbApiKey").takeIf { it.isNotBlank() },
             febboxKey = obj.optString("febboxKey").takeIf { it.isNotBlank() },
             febboxKeys = obj.optJSONArray("febboxKeys")?.let { arr -> (0 until arr.length()).map { arr.getString(it) } },
-            artemisVipKey = obj.optString("artemisVipKey").takeIf { it.isNotBlank() },
             debridToken = obj.optString("debridToken").takeIf { it.isNotBlank() },
             debridService = obj.optString("debridService").takeIf { it.isNotBlank() },
             tidbKey = obj.optString("tidbKey").takeIf { it.isNotBlank() },

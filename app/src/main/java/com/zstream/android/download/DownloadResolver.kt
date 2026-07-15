@@ -33,7 +33,7 @@ class DownloadResolver @Inject constructor(
     ): Result<Long> = runCatching {
         val pluginSources = pluginManager.availableSources()
         val settings = settingsPreferences.settings.first()
-        val ordered = sourceOrderStore.getDownloadOrder(hasArtemisVipKey = !settings.artemisVipKey.isNullOrBlank())
+        val ordered = sourceOrderStore.getDownloadOrder()
         check(ordered.isNotEmpty()) { "No sources available" }
 
         auroraKeyManager.ensureActiveKey()
@@ -45,7 +45,6 @@ class DownloadResolver @Inject constructor(
             title = title,
             year = year,
             febboxKey = settings.febboxKey,
-            artemisVipKey = settings.artemisVipKey,
         )
 
         var success: StreamResult.Success? = null

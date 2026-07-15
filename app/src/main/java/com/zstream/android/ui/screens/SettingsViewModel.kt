@@ -94,7 +94,6 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             combine(pluginState, settingsPrefs.settings) { _, current -> current }.collect { current ->
                 _sourceOrder.value = sourceOrderStore.getOrderedSources(
-                    hasArtemisVipKey = !current.artemisVipKey.isNullOrBlank(),
                     hasAuroraKey = !current.febboxKey.isNullOrBlank(),
                 )
                 refreshDownloadSourceOrder()
@@ -106,7 +105,6 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             val current = settingsPrefs.settings.first()
             _sourceOrder.value = sourceOrderStore.getOrderedSources(
-                hasArtemisVipKey = !current.artemisVipKey.isNullOrBlank(),
                 hasAuroraKey = !current.febboxKey.isNullOrBlank(),
             )
         }
@@ -129,10 +127,7 @@ class SettingsViewModel @Inject constructor(
 
     private fun refreshDownloadSourceOrder() {
         viewModelScope.launch {
-            val current = settingsPrefs.settings.first()
-            _downloadSourceOrder.value = sourceOrderStore.getDownloadOrder(
-                hasArtemisVipKey = !current.artemisVipKey.isNullOrBlank(),
-            )
+            _downloadSourceOrder.value = sourceOrderStore.getDownloadOrder()
         }
     }
 
@@ -406,10 +401,6 @@ class SettingsViewModel @Inject constructor(
      */
     suspend fun ensureActiveAuroraKey(): String? = auroraKeyManager.ensureActiveKey()
 
-    fun setArtemisVipKey(key: String?) {
-        update { copy(artemisVipKey = key) }
-    }
-
     fun setTidbKey(key: String?) {
         update { copy(tidbKey = key) }
     }
@@ -658,7 +649,7 @@ class SettingsViewModel @Inject constructor(
 
         // Construct the export map. Gson will automatically omit null fields
         // like tmdbApiKey or febboxKey if they haven't been set by the user.
-        // Note: API keys (TMDB, febbox/Aurora, Artemis VIP, debrid, tidb, wyzie) are already
+        // Note: API keys (TMDB, febbox/Aurora, debrid, tidb, wyzie) are already
         // inside `settings` — SettingsEntity is dumped whole, not field-by-field.
         val exportMap = mapOf(
             "settings" to settings,

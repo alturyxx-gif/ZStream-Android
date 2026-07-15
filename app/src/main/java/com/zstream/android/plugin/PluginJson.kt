@@ -24,7 +24,6 @@ fun MediaRequest.toJson(): String = JSONObject().apply {
     put("title", title)
     put("year", year ?: JSONObject.NULL)
     put("febboxKey", febboxKey ?: JSONObject.NULL)
-    put("artemisVipKey", artemisVipKey ?: JSONObject.NULL)
 }.toString()
 
 fun parseSourcesJson(json: String): List<SourceInfo> {

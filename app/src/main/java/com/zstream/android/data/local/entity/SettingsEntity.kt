@@ -79,8 +79,6 @@ data class SettingsEntity(
     // Local-only; all Aurora/Febbox keys the user has added. febboxKey is whichever of these is
     // currently active — AuroraKeyManager rotates it away from exhausted/invalid keys.
     val febboxKeys: List<String> = emptyList(),
-    // Local-only API credential; the current backend settings schema does not expose it.
-    val artemisVipKey: String? = null,
     val debridToken: String? = null,
     val debridService: String = "realdebrid",
     val tidbKey: String? = null,
