@@ -26,6 +26,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import androidx.navigation.NavController
 import androidx.navigation.compose.rememberNavController
+import com.zstream.android.data.OPEN_TRACKED_RELEASE_MEDIA_TYPE_EXTRA
+import com.zstream.android.data.OPEN_TRACKED_RELEASE_TMDB_ID_EXTRA
+import com.zstream.android.data.OpenTrackedReleaseNavigation
 import com.zstream.android.data.WatchPartyAction
 import com.zstream.android.data.WatchPartyManager
 import com.zstream.android.data.local.preferences.SettingsPreferences
@@ -80,6 +83,7 @@ class MainActivity : ComponentActivity() {
         handleReleaseUpdateIntent(intent)
         handlePluginUpdateIntent(intent)
         handleOpenDownloadsIntent(intent)
+        handleOpenTrackedReleaseIntent(intent)
         val uiModeManager = getSystemService(UI_MODE_SERVICE) as UiModeManager
         val isTv = uiModeManager.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
         if (
@@ -142,6 +146,7 @@ class MainActivity : ComponentActivity() {
                         AppBehaviorEffect(navController, isTv)
                         WatchPartyGlobalEffect(navController, watchPartyManager)
                         OpenDownloadsGlobalEffect(navController)
+                        OpenTrackedReleaseGlobalEffect(navController)
                         TvCastGlobalEffect(navController, tvSyncRepository, isTv)
                         ProfilePickerGlobalEffect(navController, isTv)
 
@@ -169,6 +174,7 @@ class MainActivity : ComponentActivity() {
         handleReleaseUpdateIntent(intent)
         handlePluginUpdateIntent(intent)
         handleOpenDownloadsIntent(intent)
+        handleOpenTrackedReleaseIntent(intent)
     }
 
     private fun handleReleaseUpdateIntent(intent: Intent?) {
@@ -191,6 +197,15 @@ class MainActivity : ComponentActivity() {
             OpenDownloadsNavigation.dispatch()
             intent.removeExtra(com.zstream.android.download.OPEN_DOWNLOADS_EXTRA)
         }
+    }
+
+    private fun handleOpenTrackedReleaseIntent(intent: Intent?) {
+        val mediaType = intent?.getStringExtra(OPEN_TRACKED_RELEASE_MEDIA_TYPE_EXTRA) ?: return
+        val tmdbId = intent.getIntExtra(OPEN_TRACKED_RELEASE_TMDB_ID_EXTRA, -1)
+        if (tmdbId == -1) return
+        OpenTrackedReleaseNavigation.dispatch(mediaType, tmdbId)
+        intent.removeExtra(OPEN_TRACKED_RELEASE_MEDIA_TYPE_EXTRA)
+        intent.removeExtra(OPEN_TRACKED_RELEASE_TMDB_ID_EXTRA)
     }
 
 }
@@ -316,6 +331,16 @@ fun OpenDownloadsGlobalEffect(navController: NavController) {
             navController.navigate("downloads")
             OpenDownloadsNavigation.consume()
         }
+    }
+}
+
+@Composable
+fun OpenTrackedReleaseGlobalEffect(navController: NavController) {
+    val target by OpenTrackedReleaseNavigation.target.collectAsStateWithLifecycle()
+    LaunchedEffect(target) {
+        val t = target ?: return@LaunchedEffect
+        navController.navigate("detail/${t.mediaType}/${t.tmdbId}")
+        OpenTrackedReleaseNavigation.consume()
     }
 }
 

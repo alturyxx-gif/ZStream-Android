@@ -10,6 +10,7 @@ import com.zstream.android.data.local.dao.LocalFileProgressDao
 import com.zstream.android.data.local.dao.LocalLibraryDao
 import com.zstream.android.data.local.dao.ProgressDao
 import com.zstream.android.data.local.dao.SkipSegmentDao
+import com.zstream.android.data.local.dao.TrackedReleaseDao
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -65,5 +66,10 @@ object DatabaseModule {
     @Provides
     fun provideCertificationDao(database: AppDatabase): CertificationDao {
         return database.certificationDao()
+    }
+
+    @Provides
+    fun provideTrackedReleaseDao(database: AppDatabase): TrackedReleaseDao {
+        return database.trackedReleaseDao()
     }
 }
