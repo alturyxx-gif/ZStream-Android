@@ -16,6 +16,15 @@
     <uses-feature android:name="android.software.leanback" android:required="false" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
 
+    <!-- API 30+ package visibility: without this, the implicit ACTION_VIEW intent that hands a
+         downloaded APK off to the system installer can fail to resolve on some OEM builds. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:mimeType="application/vnd.android.package-archive" />
+        </intent>
+    </queries>
+
     <application
         android:name=".ZStreamApp"
         android:allowBackup="false"
