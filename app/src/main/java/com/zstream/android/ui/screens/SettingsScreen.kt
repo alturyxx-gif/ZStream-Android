@@ -1941,6 +1941,14 @@ private fun PreferencesSection(
                 )
                 HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                 ZsSwitchRow(
+                    title = "Brightness/Volume Gestures",
+                    subtitle = "Swipe the left/right half of the player to adjust brightness/volume",
+                    checked = settings.enableSideGestures,
+                    onCheckedChange = vm::setEnableSideGestures,
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                )
+                HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
+                ZsSwitchRow(
                     title = "Double-tap to Seek",
                     subtitle = "Double-tap to seek forward/backward",
                     checked = settings.enableDoubleClickToSeek,

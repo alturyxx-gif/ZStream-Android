@@ -51,6 +51,8 @@ data class SettingsEntity(
     val trailersOpenInApp: Boolean = true,
     // Playback speed carried over to the next video played. Local-only, not synced.
     val defaultPlaybackSpeed: Float = 1f,
+    // Swipe left/right half of the player to adjust brightness/volume. Local-only, not synced.
+    val enableSideGestures: Boolean = true,
 
     // Discover/Home Settings
     val enableDiscover: Boolean = false, // Synced with backend, but the local UI no longer reads it.
