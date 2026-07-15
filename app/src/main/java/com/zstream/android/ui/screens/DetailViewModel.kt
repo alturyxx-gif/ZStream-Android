@@ -532,6 +532,7 @@ class DetailViewModel @Inject constructor(
         val season = current.selectedSeason ?: return
         val alreadyDownloaded = downloadedEpisodes.value.keys
         val targets = season.episodes.orEmpty()
+            .airedEpisodes()
             .filterNot { alreadyDownloaded.contains("${it.seasonNumber}|${it.episodeNumber}") }
         viewModelScope.launch {
             // Asked once for the whole season, not once per episode.

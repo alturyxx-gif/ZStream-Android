@@ -147,6 +147,14 @@ fun Episode.hasAired(todayIsoDate: String = todayIsoDate()): Boolean {
 fun List<Episode>.airedEpisodes(todayIsoDate: String = todayIsoDate()): List<Episode> =
     filter { it.hasAired(todayIsoDate) }
 
+private val displayDateFormat = SimpleDateFormat("MMM d, yyyy", Locale.US)
+private val isoDateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+
+fun Episode.formattedAirDate(): String? =
+    airDate?.takeIf { it.isNotBlank() }?.let { raw ->
+        runCatching { isoDateFormat.parse(raw)?.let { displayDateFormat.format(it) } }.getOrNull() ?: raw
+    }
+
 data class Credits(val cast: List<CastMember>?)
 
 data class CastMember(
