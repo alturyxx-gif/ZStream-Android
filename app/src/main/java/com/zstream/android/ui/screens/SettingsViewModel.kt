@@ -320,6 +320,10 @@ class SettingsViewModel @Inject constructor(
         update { copy(enablePauseOverlay = v) }
     }
 
+    fun setEnableSideGestures(v: Boolean) {
+        update { copy(enableSideGestures = v) }
+    }
+
     fun setEnableHoldToBoost(v: Boolean) {
         update { copy(enableHoldToBoost = v) }
     }

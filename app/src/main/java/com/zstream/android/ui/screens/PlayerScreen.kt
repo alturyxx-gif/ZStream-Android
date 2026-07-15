@@ -1388,14 +1388,19 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     playerViewRef.value?.resizeMode = nativeResizeMode(settings.videoScaleMode)
                 }
 
-                LaunchedEffect(controlsVisible, isPlaying, menuPage, lastInteractionTime, showInfoSheet) {
-                    if (controlsVisible && isPlaying && !showInfoSheet) {
+                // A source resolving in the background (manual switch/variant probe while still
+                // Ready -- see probeSourceWhileReady) shouldn't let controls auto-hide: the user
+                // has no other feedback that something's loading besides the visible spinner/status
+                // on the source row, which the controls sheet contains.
+                val isResolvingSource = s.sources.any { it.status == SourceStatus.TRYING }
+                LaunchedEffect(controlsVisible, isPlaying, menuPage, lastInteractionTime, showInfoSheet, isResolvingSource) {
+                    if (controlsVisible && isPlaying && !showInfoSheet && !isResolvingSource) {
                         val waitTime = PLAYER_AUTO_HIDE_DURATION
                         val elapsed = System.currentTimeMillis() - lastInteractionTime
                         if (elapsed < waitTime) {
                             delay(waitTime - elapsed)
                         }
-                        if (isPlaying && !showInfoSheet) {
+                        if (isPlaying && !showInfoSheet && !isResolvingSource) {
                             controlsVisible = false
                             if (menuPage != null) menuBackstack.clear()
                         }
@@ -3007,6 +3012,7 @@ internal fun PlayerControls(
                     durationMs,
                     roomCode,
                     settings.enableHoldToBoost,
+                    settings.enableSideGestures,
                     enableDoubleTapToSeek,
                 ) {
                     awaitEachGesture {
@@ -3019,7 +3025,8 @@ internal fun PlayerControls(
                                 !currentMenuOpen.value &&
                                 !currentShowInfoSheet.value
                         val canAdjustSideGesture =
-                            roomCode == null &&
+                            settings.enableSideGestures &&
+                                roomCode == null &&
                                 !currentMenuOpen.value &&
                                 !currentShowInfoSheet.value
 

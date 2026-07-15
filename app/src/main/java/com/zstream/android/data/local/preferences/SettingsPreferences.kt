@@ -66,6 +66,7 @@ class SettingsPreferences @Inject constructor(
     private val KEY_AUTO_PIP_ENABLED = booleanPreferencesKey("auto_pip_enabled")
     private val KEY_TRAILERS_OPEN_IN_APP = booleanPreferencesKey("trailers_open_in_app")
     private val KEY_DEFAULT_PLAYBACK_SPEED = stringPreferencesKey("default_playback_speed")
+    private val KEY_ENABLE_SIDE_GESTURES = booleanPreferencesKey("enable_side_gestures")
 
     // Discover/Home Settings
     private val KEY_ENABLE_DISCOVER = booleanPreferencesKey("enable_discover")
@@ -156,6 +157,7 @@ class SettingsPreferences @Inject constructor(
             autoPipEnabled = prefs[KEY_AUTO_PIP_ENABLED] ?: true,
             trailersOpenInApp = prefs[KEY_TRAILERS_OPEN_IN_APP] ?: true,
             defaultPlaybackSpeed = prefs[KEY_DEFAULT_PLAYBACK_SPEED]?.toFloatOrNull() ?: 1f,
+            enableSideGestures = prefs[KEY_ENABLE_SIDE_GESTURES] ?: true,
             enableDiscover = prefs[KEY_ENABLE_DISCOVER] ?: false,
             enableFeatured = prefs[KEY_ENABLE_FEATURED] ?: true,
             lastSuccessfulSource = prefs[KEY_LAST_SUCCESSFUL_SOURCE],
@@ -238,6 +240,7 @@ class SettingsPreferences @Inject constructor(
             prefs[KEY_AUTO_PIP_ENABLED] = entity.autoPipEnabled
             prefs[KEY_TRAILERS_OPEN_IN_APP] = entity.trailersOpenInApp
             prefs[KEY_DEFAULT_PLAYBACK_SPEED] = entity.defaultPlaybackSpeed.toString()
+            prefs[KEY_ENABLE_SIDE_GESTURES] = entity.enableSideGestures
             prefs[KEY_ENABLE_DISCOVER] = entity.enableDiscover
             prefs[KEY_ENABLE_FEATURED] = entity.enableFeatured
             if (entity.lastSuccessfulSource != null) {
@@ -323,6 +326,7 @@ class SettingsPreferences @Inject constructor(
             val currentAutoPipEnabled = current[KEY_AUTO_PIP_ENABLED] ?: true
             val currentTrailersOpenInApp = current[KEY_TRAILERS_OPEN_IN_APP] ?: true
             val currentDefaultPlaybackSpeed = current[KEY_DEFAULT_PLAYBACK_SPEED]?.toFloatOrNull() ?: 1f
+            val currentEnableSideGestures = current[KEY_ENABLE_SIDE_GESTURES] ?: true
             val currentDoubleTapSeekSeconds = current[KEY_DOUBLE_TAP_SEEK_SECONDS] ?: 10
             val currentGridRows = (current[KEY_GRID_ROWS] ?: 2).coerceIn(1, 8)
             val currentApplicationFont = current[KEY_APPLICATION_FONT] ?: "onest"
@@ -365,6 +369,7 @@ class SettingsPreferences @Inject constructor(
                 autoPipEnabled = currentAutoPipEnabled,
                 trailersOpenInApp = currentTrailersOpenInApp,
                 defaultPlaybackSpeed = currentDefaultPlaybackSpeed,
+                enableSideGestures = currentEnableSideGestures,
                 enableDiscover = remote.enableDiscover ?: false,
                 enableFeatured = remote.enableFeatured ?: true,
                 lastSuccessfulSource = remote.lastSuccessfulSource,
