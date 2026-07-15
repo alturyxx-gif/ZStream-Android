@@ -2,6 +2,8 @@ package com.zstream.android.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,7 +38,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import com.zstream.android.ui.components.themed.ZsOutlinedWrapper
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -98,8 +102,12 @@ fun DevVideoScreen(nav: NavController) {
             Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            IconButton(onClick = { nav.popBackStack() }) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = theme.colors.type.emphasis)
+            val backInteraction = remember { MutableInteractionSource() }
+            val backFocused by backInteraction.collectIsFocusedAsState()
+            ZsOutlinedWrapper(shape = RoundedCornerShape(50), visible = backFocused) {
+                IconButton(onClick = { nav.popBackStack() }, interactionSource = backInteraction) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = theme.colors.type.emphasis)
+                }
             }
             Text(
                 "Video tester",
@@ -112,14 +120,17 @@ fun DevVideoScreen(nav: NavController) {
         Column(Modifier.padding(horizontal = 20.dp)) {
             Text("Custom stream", color = theme.colors.type.emphasis, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(12.dp))
-            OutlinedTextField(
-                value = url,
-                onValueChange = { url = it },
-                placeholder = { Text("https://...") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                colors = devTextFieldColors(theme),
-            )
+            var urlFocused by remember { mutableStateOf(false) }
+            ZsOutlinedWrapper(shape = RoundedCornerShape(4.dp), visible = urlFocused, gap = 2.dp) {
+                OutlinedTextField(
+                    value = url,
+                    onValueChange = { url = it },
+                    placeholder = { Text("https://...") },
+                    modifier = Modifier.fillMaxWidth().onFocusChanged { urlFocused = it.isFocused },
+                    singleLine = true,
+                    colors = devTextFieldColors(theme),
+                )
+            }
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 DevTypeChip("MP4", type == "mp4") { type = "mp4" }
@@ -134,16 +145,21 @@ fun DevVideoScreen(nav: NavController) {
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text("Headers", color = theme.colors.type.emphasis, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-                Switch(
-                    checked = headersEnabled,
-                    onCheckedChange = {
-                        headersEnabled = it
-                        if (!it) {
-                            headers.clear()
-                            headers.add("" to "")
-                        }
-                    },
-                )
+                val switchInteraction = remember { MutableInteractionSource() }
+                val switchFocused by switchInteraction.collectIsFocusedAsState()
+                ZsOutlinedWrapper(shape = RoundedCornerShape(50), visible = switchFocused) {
+                    Switch(
+                        checked = headersEnabled,
+                        onCheckedChange = {
+                            headersEnabled = it
+                            if (!it) {
+                                headers.clear()
+                                headers.add("" to "")
+                            }
+                        },
+                        interactionSource = switchInteraction,
+                    )
+                }
             }
             if (headersEnabled) {
                 Spacer(Modifier.height(8.dp))
@@ -153,64 +169,94 @@ fun DevVideoScreen(nav: NavController) {
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        OutlinedTextField(
-                            value = key,
-                            onValueChange = { headers[index] = it to headers[index].second },
-                            placeholder = { Text("Key") },
-                            modifier = Modifier.weight(1f),
-                            singleLine = true,
-                            colors = devTextFieldColors(theme),
-                        )
-                        OutlinedTextField(
-                            value = value,
-                            onValueChange = { headers[index] = headers[index].first to it },
-                            placeholder = { Text("Value") },
-                            modifier = Modifier.weight(1f),
-                            singleLine = true,
-                            colors = devTextFieldColors(theme),
-                        )
-                        IconButton(onClick = { if (headers.size > 1) headers.removeAt(index) }) {
-                            Icon(Icons.Filled.Close, null, tint = theme.colors.type.dimmed)
+                        var keyFocused by remember { mutableStateOf(false) }
+                        ZsOutlinedWrapper(shape = RoundedCornerShape(4.dp), visible = keyFocused, gap = 2.dp, modifier = Modifier.weight(1f)) {
+                            OutlinedTextField(
+                                value = key,
+                                onValueChange = { headers[index] = it to headers[index].second },
+                                placeholder = { Text("Key") },
+                                modifier = Modifier.fillMaxWidth().onFocusChanged { keyFocused = it.isFocused },
+                                singleLine = true,
+                                colors = devTextFieldColors(theme),
+                            )
+                        }
+                        var valueFocused by remember { mutableStateOf(false) }
+                        ZsOutlinedWrapper(shape = RoundedCornerShape(4.dp), visible = valueFocused, gap = 2.dp, modifier = Modifier.weight(1f)) {
+                            OutlinedTextField(
+                                value = value,
+                                onValueChange = { headers[index] = headers[index].first to it },
+                                placeholder = { Text("Value") },
+                                modifier = Modifier.fillMaxWidth().onFocusChanged { valueFocused = it.isFocused },
+                                singleLine = true,
+                                colors = devTextFieldColors(theme),
+                            )
+                        }
+                        val removeInteraction = remember { MutableInteractionSource() }
+                        val removeFocused by removeInteraction.collectIsFocusedAsState()
+                        ZsOutlinedWrapper(shape = RoundedCornerShape(50), visible = removeFocused) {
+                            IconButton(onClick = { if (headers.size > 1) headers.removeAt(index) }, interactionSource = removeInteraction) {
+                                Icon(Icons.Filled.Close, null, tint = theme.colors.type.dimmed)
+                            }
                         }
                     }
                 }
                 Spacer(Modifier.height(4.dp))
-                Button(
-                    onClick = { headers.add("" to "") },
-                    colors = ButtonDefaults.buttonColors(containerColor = theme.colors.buttons.purple),
-                ) {
-                    Icon(Icons.Filled.Add, null, modifier = Modifier.width(18.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("Add header")
+                val addHeaderInteraction = remember { MutableInteractionSource() }
+                val addHeaderFocused by addHeaderInteraction.collectIsFocusedAsState()
+                ZsOutlinedWrapper(shape = RoundedCornerShape(4.dp), visible = addHeaderFocused, gap = 2.dp) {
+                    Button(
+                        onClick = { headers.add("" to "") },
+                        colors = ButtonDefaults.buttonColors(containerColor = theme.colors.buttons.purple),
+                        interactionSource = addHeaderInteraction,
+                    ) {
+                        Icon(Icons.Filled.Add, null, modifier = Modifier.width(18.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Add header")
+                    }
                 }
             }
 
             Spacer(Modifier.height(24.dp))
-            Button(
-                onClick = { startStream(url, type) },
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(containerColor = theme.colors.buttons.purple),
-            ) {
-                Text("Start stream")
+            val startInteraction = remember { MutableInteractionSource() }
+            val startFocused by startInteraction.collectIsFocusedAsState()
+            ZsOutlinedWrapper(shape = RoundedCornerShape(4.dp), visible = startFocused, gap = 2.dp, modifier = Modifier.fillMaxWidth()) {
+                Button(
+                    onClick = { startStream(url, type) },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = theme.colors.buttons.purple),
+                    interactionSource = startInteraction,
+                ) {
+                    Text("Start stream")
+                }
             }
 
             Spacer(Modifier.height(32.dp))
             Text("Preset tests", color = theme.colors.type.emphasis, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(12.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(
-                    onClick = { startStream(DEV_HLS_TEST_URL, "hls") },
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.buttonColors(containerColor = theme.colors.background.secondary),
-                ) {
-                    Text("HLS test", color = theme.colors.type.emphasis)
+                val hlsInteraction = remember { MutableInteractionSource() }
+                val hlsFocused by hlsInteraction.collectIsFocusedAsState()
+                ZsOutlinedWrapper(shape = RoundedCornerShape(4.dp), visible = hlsFocused, gap = 2.dp, modifier = Modifier.weight(1f)) {
+                    Button(
+                        onClick = { startStream(DEV_HLS_TEST_URL, "hls") },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = theme.colors.background.secondary),
+                        interactionSource = hlsInteraction,
+                    ) {
+                        Text("HLS test", color = theme.colors.type.emphasis)
+                    }
                 }
-                Button(
-                    onClick = { startStream(DEV_MP4_TEST_URL, "mp4") },
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.buttonColors(containerColor = theme.colors.background.secondary),
-                ) {
-                    Text("MP4 test", color = theme.colors.type.emphasis)
+                val mp4Interaction = remember { MutableInteractionSource() }
+                val mp4Focused by mp4Interaction.collectIsFocusedAsState()
+                ZsOutlinedWrapper(shape = RoundedCornerShape(4.dp), visible = mp4Focused, gap = 2.dp, modifier = Modifier.weight(1f)) {
+                    Button(
+                        onClick = { startStream(DEV_MP4_TEST_URL, "mp4") },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = theme.colors.background.secondary),
+                        interactionSource = mp4Interaction,
+                    ) {
+                        Text("MP4 test", color = theme.colors.type.emphasis)
+                    }
                 }
             }
         }
@@ -220,14 +266,18 @@ fun DevVideoScreen(nav: NavController) {
 @Composable
 private fun DevTypeChip(label: String, selected: Boolean, onClick: () -> Unit) {
     val theme = LocalZStreamTheme.current
-    Box(
-        modifier = Modifier
-            .clip(RoundedCornerShape(8.dp))
-            .background(if (selected) theme.colors.buttons.purple else theme.colors.background.secondary)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-    ) {
-        Text(label, color = if (selected) Color.White else theme.colors.type.emphasis, fontSize = 13.sp)
+    val interactionSource = remember { MutableInteractionSource() }
+    val isFocused by interactionSource.collectIsFocusedAsState()
+    ZsOutlinedWrapper(shape = RoundedCornerShape(8.dp), visible = isFocused, gap = 2.dp) {
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(8.dp))
+                .background(if (selected) theme.colors.buttons.purple else theme.colors.background.secondary)
+                .clickable(interactionSource = interactionSource, indication = null, onClick = onClick)
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+        ) {
+            Text(label, color = if (selected) Color.White else theme.colors.type.emphasis, fontSize = 13.sp)
+        }
     }
 }
 
