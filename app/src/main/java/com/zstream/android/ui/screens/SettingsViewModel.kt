@@ -628,4 +628,33 @@ class SettingsViewModel @Inject constructor(
         return Gson().toJson(exportMap)
     }
 
+    /**
+     * TV has no file picker UI worth using (Storage Access Framework's "create document" flow
+     * is built for touch + a file browser, neither of which exist on a remote-control-only
+     * device), so TV writes straight to the public Downloads folder instead of prompting for a
+     * location. Returns the display file name that was written, for the caller to show in a
+     * Toast.
+     */
+    suspend fun exportToDownloads(): String = withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val json = exportDataJson()
+        val fileName = "zstream_backup_${System.currentTimeMillis()}.json"
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            val values = android.content.ContentValues().apply {
+                put(android.provider.MediaStore.Downloads.DISPLAY_NAME, fileName)
+                put(android.provider.MediaStore.Downloads.MIME_TYPE, "application/json")
+                put(android.provider.MediaStore.Downloads.RELATIVE_PATH, android.os.Environment.DIRECTORY_DOWNLOADS)
+            }
+            val resolver = appContext.contentResolver
+            val uri = resolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                ?: throw IllegalStateException("Could not create file in Downloads")
+            resolver.openOutputStream(uri)?.use { it.write(json.toByteArray()) }
+                ?: throw IllegalStateException("Could not open output stream for Downloads file")
+        } else {
+            @Suppress("DEPRECATION")
+            val dir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
+            dir.mkdirs()
+            java.io.File(dir, fileName).writeText(json)
+        }
+        fileName
+    }
 }

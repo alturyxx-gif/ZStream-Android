@@ -365,17 +365,31 @@ class ProgressRepository @Inject constructor(
                 current
             }
 
-            if (entities.isNotEmpty()) {
-                progressDao.insertAll(entities)
-                Log.d(TAG, "Successfully synced ${entities.size} progress entries from remote")
+            // The backend stores only ONE row per show (the latest-watched episode; see
+            // syncAllProgress()'s comment), while locally each episode gets its own row so
+            // "Continue Watching" can track a specific episode. A remote snapshot therefore
+            // never lists most locally-tracked episode ids -- diffing by exact id (as this used
+            // to) meant almost every episode-level entry looked "stale" and got deleted on every
+            // sync, and a remote row that hadn't caught up yet (e.g. this device's last
+            // updateProgress() backend push failed/raced) could silently erase the real local
+            // progress. Diff by tmdbId instead: only wipe a show's local history when the show is
+            // *entirely* absent from remote (removed on another device/web), and only let a
+            // remote row overwrite a specific local episode entry when it's actually newer.
+            val localBefore = progressDao.getAllSync()
+            val localById = localBefore.associateBy { it.id }
+            val toUpsert = entities.filter { remote ->
+                val local = localById[remote.id]
+                local == null || remote.updatedAt > local.updatedAt
+            }
+            if (toUpsert.isNotEmpty()) {
+                progressDao.insertAll(toUpsert)
+                Log.d(TAG, "Successfully synced ${toUpsert.size} progress entries from remote")
             }
 
-            // Delete local entries the remote no longer has (deleted on another device/web)
-            val remoteIds = entities.map { it.id }.toSet()
-            val localIds = progressDao.getAllSync().map { it.id }.toSet()
-            val stale = localIds - remoteIds
+            val remoteTmdbIds = entities.map { it.tmdbId }.toSet()
+            val stale = localBefore.filter { it.tmdbId !in remoteTmdbIds }.map { it.id }
             for (id in stale) progressDao.deleteById(id)
-            if (stale.isNotEmpty()) Log.d(TAG, "Removed ${stale.size} stale progress entries")
+            if (stale.isNotEmpty()) Log.d(TAG, "Removed ${stale.size} progress entries for shows no longer on remote")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to sync progress from remote", e)
         } finally {
