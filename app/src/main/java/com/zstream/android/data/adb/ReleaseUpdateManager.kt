@@ -50,6 +50,7 @@ data class ReleaseSnapshot(
     val hashes: String,
     val version: String,
     val releaseUrl: String,
+    val downloadUrl: String,
 )
 
 internal fun latestReleaseSnapshot(apks: List<GithubApkAsset>): ReleaseSnapshot? {
@@ -59,7 +60,7 @@ internal fun latestReleaseSnapshot(apks: List<GithubApkAsset>): ReleaseSnapshot?
         .map { it.digest ?: "${it.assetId}:${it.size}:${it.assetCreatedAt}" }
         .sorted()
         .joinToString("|")
-    return ReleaseSnapshot(hashes, latest.releaseTag.ifBlank { latest.version }, latest.releaseUrl)
+    return ReleaseSnapshot(hashes, latest.releaseTag.ifBlank { latest.version }, latest.releaseUrl, latest.downloadUrl)
 }
 
 internal fun releaseChanged(previousHashes: String?, previousVersion: String?, latest: ReleaseSnapshot): Boolean =
@@ -109,6 +110,7 @@ class ReleaseUpdateManager @Inject constructor(
     val hasPendingUpdate: Boolean get() = prefs.getBoolean(KEY_PENDING, false)
     val pendingReleaseUrl: String get() = prefs.getString(KEY_PENDING_URL, null) ?: "$repositoryUrl/releases"
     val pendingVersion: String get() = prefs.getString(KEY_PENDING_VERSION, null).orEmpty()
+    val pendingDownloadUrl: String? get() = prefs.getString(KEY_PENDING_DOWNLOAD_URL, null)
 
     fun start() {
         createNotificationChannel()
@@ -202,12 +204,29 @@ class ReleaseUpdateManager @Inject constructor(
             .putBoolean(KEY_PENDING, true)
             .putString(KEY_PENDING_URL, latest.releaseUrl)
             .putString(KEY_PENDING_VERSION, latest.version)
+            .putString(KEY_PENDING_DOWNLOAD_URL, latest.downloadUrl)
             .apply()
         return true
     }
 
+    /**
+     * Debug-only helper that fakes a pending release update (no real download URL, so the
+     * install button in the update dialog just reports "no APK found") purely so the update UI
+     * can be exercised without waiting for or faking an actual GitHub release.
+     */
+    fun simulateUpdate() {
+        prefs.edit()
+            .putBoolean(KEY_PENDING, true)
+            .putString(KEY_PENDING_URL, "$repositoryUrl/releases")
+            .putString(KEY_PENDING_VERSION, "test-${System.currentTimeMillis() % 1000}")
+            .apply()
+        ReleaseUpdateNavigation.dispatch(false)
+    }
+
     fun clearPendingUpdate() {
-        prefs.edit().remove(KEY_PENDING).remove(KEY_PENDING_URL).remove(KEY_PENDING_VERSION).apply()
+        prefs.edit()
+            .remove(KEY_PENDING).remove(KEY_PENDING_URL).remove(KEY_PENDING_VERSION).remove(KEY_PENDING_DOWNLOAD_URL)
+            .apply()
         context.getSystemService(NotificationManager::class.java).cancel(NOTIFICATION_ID)
     }
 
@@ -277,6 +296,7 @@ class ReleaseUpdateManager @Inject constructor(
         private const val KEY_PENDING = "pending_update"
         private const val KEY_PENDING_URL = "pending_release_url"
         private const val KEY_PENDING_VERSION = "pending_version"
+        private const val KEY_PENDING_DOWNLOAD_URL = "pending_download_url"
         private const val WORK_NAME = "github-release-update-check"
         private const val CHANNEL_ID = "release_updates"
         private const val NOTIFICATION_ID = 4102

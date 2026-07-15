@@ -1,16 +1,35 @@
 package com.zstream.android.plugin
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
+import android.os.Build
 import android.util.Log
+import androidx.core.app.NotificationCompat
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.work.Constraints
+import androidx.work.CoroutineWorker
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
+import androidx.work.WorkerParameters
 import com.google.gson.Gson
 import com.zstream.android.BuildConfig
+import com.zstream.android.MainActivity
+import com.zstream.android.R
 import com.zstream.android.di.PluginDataStore
+import dagger.hilt.EntryPoint
+import dagger.hilt.InstallIn
+import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.android.qualifiers.ApplicationContext
+import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -25,15 +44,28 @@ import kotlin.coroutines.Continuation
 import kotlin.coroutines.intrinsics.COROUTINE_SUSPENDED
 import kotlin.coroutines.intrinsics.suspendCoroutineUninterceptedOrReturn
 import java.io.File
+import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
 
 private const val TAG = "PluginManager"
+private const val PLUGIN_UPDATE_CHANNEL_ID = "plugin_updates"
+private const val PLUGIN_UPDATE_NOTIFICATION_ID = 4103
+private const val PLUGIN_UPDATE_WORK_NAME = "plugin-update-check"
+const val PLUGIN_UPDATE_EXTRA = "plugin_update"
 
 internal val KEY_ACTIVE_META  = stringPreferencesKey("plugin_active_meta")
 internal val KEY_STAGED_META  = stringPreferencesKey("plugin_staged_meta")
 internal val KEY_HIGHEST_VER  = intPreferencesKey("plugin_highest_version")
 internal val KEY_LAST_CHECKED = stringPreferencesKey("plugin_last_checked")
+
+object PluginUpdateNavigation {
+    private val _launch = MutableStateFlow(false)
+    val launch = _launch.asStateFlow()
+
+    fun dispatch() { _launch.value = true }
+    fun consume() { _launch.value = false }
+}
 
 /**
  * Central singleton that owns the loaded plugin instance and manages its lifecycle.
@@ -74,6 +106,12 @@ class PluginManager @Inject constructor(
     private val _pluginState = MutableStateFlow<PluginState>(PluginState.Loading)
     val pluginState: StateFlow<PluginState> = _pluginState.asStateFlow()
 
+    // Set only when a launch-time update attempt was actually made and failed (download,
+    // verification, or the new build failing to load) -- not when there's simply no update.
+    // Cleared on the next successful update. UI (Settings) surfaces this as a clear error.
+    private val _pluginUpdateError = MutableStateFlow<String?>(null)
+    val pluginUpdateError: StateFlow<String?> = _pluginUpdateError.asStateFlow()
+
     // -------------------------------------------------------------------------
     // Initialisation
     // -------------------------------------------------------------------------
@@ -86,14 +124,24 @@ class PluginManager @Inject constructor(
      * alive in this process. A second DexClassLoader loading the same .so throws
      * UnsatisfiedLinkError ("already opened by ClassLoader ...") the first time anything touches
      * that native code, since a shared library can only be owned by one ClassLoader at a time.
+     *
+     * Every launch tries to fetch and load the newest plugin build immediately (see
+     * [tryLoadFreshUpdate]) rather than only staging it for the launch after next. If the fresh
+     * build can't be fetched, verified, or actually loaded, that attempt is abandoned before it
+     * touches anything and this falls back to whatever plugin build is already active on disk —
+     * [pluginUpdateError] carries a clear reason for the fallback so the UI can surface it.
      */
     fun initialize() {
         if (!initStarted.compareAndSet(false, true)) return
+        createNotificationChannel()
+        schedulePeriodicCheck()
         scope.launch {
             _pluginState.value = PluginState.Loading
             try {
                 activateStagedUpdate()
                 val meta = readActiveMeta()
+                if (tryLoadFreshUpdate(meta)) return@launch
+
                 if (meta == null) {
                     _pluginState.value = PluginState.NotInstalled
                     return@launch
@@ -107,13 +155,87 @@ class PluginManager @Inject constructor(
                 }
                 val plugin = loader.load(file)
                 _pluginState.value = PluginState.Ready(plugin, meta.version, meta.displayVersion ?: meta.version.toString())
-                Log.i(TAG, "Plugin v${meta.version} loaded")
-                checkForUpdateInBackground(meta.version)
+                Log.i(TAG, "Plugin v${meta.version} loaded (fallback to previously-active build)")
             } catch (t: Throwable) {
                 Log.e(TAG, "Plugin init failed: ${t.message}", t)
                 _pluginState.value = PluginState.Failed(t.message ?: "Unknown error")
             }
         }
+    }
+
+    /**
+     * Fetches the manifest and, if it points at a newer version than [activeMeta], downloads,
+     * verifies, and *loads* it right now so this launch runs the freshest plugin instead of
+     * staging it for later. Returns true (and leaves [_pluginState] as Ready) only if all of
+     * that succeeded. Any failure along the way — network, hash/signature mismatch, or the new
+     * build throwing when actually loaded — deletes the bad file, records a human-readable
+     * message in [pluginUpdateError], and returns false so the caller falls back to the
+     * previously-active build. Never touches [meta]/the active file itself, so a failed attempt
+     * can't corrupt the fallback.
+     */
+    private suspend fun tryLoadFreshUpdate(activeMeta: PluginMetadata?): Boolean {
+        val manifest = try {
+            updateChecker.fetchManifest()
+        } catch (t: Throwable) {
+            Log.w(TAG, "Startup manifest fetch failed, using previously-active plugin: ${t.message}")
+            return false
+        }
+        writeLastChecked()
+
+        val activeVersion = activeMeta?.version ?: -1
+        if (manifest.latestVersion <= activeVersion) return false
+
+        val highestSeen = readHighestSeenVersion()
+        if (manifest.latestVersion < highestSeen) {
+            Log.w(TAG, "Manifest rollback refused at startup (v${manifest.latestVersion} < highest seen v$highestSeen)")
+            return false
+        }
+        if (manifest.minAppVersion > BuildConfig.VERSION_CODE) {
+            Log.w(TAG, "Plugin v${manifest.latestVersion} requires app v${manifest.minAppVersion}, skipping")
+            return false
+        }
+
+        Log.i(TAG, "Fetching plugin update at launch: v$activeVersion → v${manifest.latestVersion}")
+        val file = try {
+            val f = loader.download(manifest.downloadUrl, manifest.latestVersion, manifest.hash)
+            if (!loader.verifySignature(f)) {
+                f.delete()
+                throw SecurityException("signature verification failed")
+            }
+            f
+        } catch (t: Throwable) {
+            val msg = "Plugin update v${manifest.latestVersion} failed to download/verify (${t.message}) — kept the previous plugin build."
+            Log.e(TAG, msg, t)
+            _pluginUpdateError.value = msg
+            return false
+        }
+
+        val plugin = try {
+            loader.load(file)
+        } catch (t: Throwable) {
+            file.delete()
+            val msg = "Plugin update v${manifest.latestVersion} downloaded but failed to load (${t.message}) — kept the previous plugin build."
+            Log.e(TAG, msg, t)
+            _pluginUpdateError.value = msg
+            return false
+        }
+
+        // Downloaded, verified, AND actually loaded without throwing -- safe to promote.
+        activeMeta?.let { loader.pluginDir().resolve(it.fileName).delete() }
+        val newMeta = PluginMetadata(
+            version        = manifest.latestVersion,
+            hash           = manifest.hash,
+            fileName       = file.name,
+            activatedAt    = System.currentTimeMillis() / 1000,
+            displayVersion = manifest.displayVersion,
+        )
+        writeActiveMeta(newMeta)
+        markHighestSeenVersion(newMeta.version)
+        clearStagedMeta()
+        _pluginUpdateError.value = null
+        _pluginState.value = PluginState.Ready(plugin, newMeta.version, newMeta.displayVersion ?: newMeta.version.toString())
+        Log.i(TAG, "Plugin v${newMeta.version} downloaded and loaded at launch")
+        return true
     }
 
     // -------------------------------------------------------------------------
@@ -197,14 +319,20 @@ class PluginManager @Inject constructor(
     // Background update check
     // -------------------------------------------------------------------------
 
-    fun checkForUpdateInBackground(currentVersion: Int) {
-        scope.launch {
-            try {
-                checkForUpdate(currentVersion)
-            } catch (e: Exception) {
-                Log.w(TAG, "Background update check failed: ${e.message}")
-            }
-        }
+    /**
+     * Debug-only helper that fakes an UpdateAvailable state (no real staged file, so an actual
+     * restart would just reload the currently-active plugin) purely so the update UI can be
+     * exercised without waiting for or faking a real plugin manifest bump.
+     */
+    fun simulateUpdate() {
+        val current = pluginState.value as? PluginState.Ready ?: return
+        _pluginState.value = PluginState.UpdateAvailable(
+            plugin                = current.plugin,
+            currentVersion        = current.version,
+            currentDisplayVersion = current.displayVersion,
+            stagedVersion         = current.version + 1,
+            stagedDisplayVersion  = "test",
+        )
     }
 
     /**
@@ -271,8 +399,53 @@ class PluginManager @Inject constructor(
         }
 
         Log.i(TAG, "Plugin v${staged.version} staged — activates on next launch")
+        showUpdateNotification(staged.displayVersion ?: staged.version.toString())
         staged.version
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // Background/periodic check + notification (mirrors ReleaseUpdateManager)
+    // -------------------------------------------------------------------------
+
+    private fun schedulePeriodicCheck() {
+        val request = PeriodicWorkRequestBuilder<PluginUpdateWorker>(24, TimeUnit.HOURS)
+            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+            .build()
+        WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+            PLUGIN_UPDATE_WORK_NAME, ExistingPeriodicWorkPolicy.UPDATE, request,
+        )
+    }
+
+    private fun createNotificationChannel() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        context.getSystemService(NotificationManager::class.java).createNotificationChannel(
+            NotificationChannel(PLUGIN_UPDATE_CHANNEL_ID, "Plugin updates", NotificationManager.IMPORTANCE_LOW).apply {
+                description = "Notifications when a new source plugin build is staged"
+            },
+        )
+    }
+
+    private fun showUpdateNotification(displayVersion: String) {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) return
+        val intent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            putExtra(PLUGIN_UPDATE_EXTRA, true)
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            context, 4103, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val notification = NotificationCompat.Builder(context, PLUGIN_UPDATE_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_group_megaphone)
+            .setContentTitle("Plugin update ready")
+            .setContentText("Source plugin v$displayVersion is staged — restart ZStream to apply it.")
+            .setContentIntent(pendingIntent)
+            .setAutoCancel(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .build()
+        context.getSystemService(NotificationManager::class.java).notify(PLUGIN_UPDATE_NOTIFICATION_ID, notification)
     }
 
     // -------------------------------------------------------------------------
@@ -546,5 +719,33 @@ class PluginManager @Inject constructor(
         if (!loader.verifyHash(file, meta.hash)) return false
         if (!loader.verifySignature(file)) return false
         return true
+    }
+}
+
+@EntryPoint
+@InstallIn(SingletonComponent::class)
+internal interface PluginManagerEntryPoint {
+    fun pluginManager(): PluginManager
+}
+
+/**
+ * Periodic background check, mirroring ReleaseUpdateWorker: no Hilt-Work module in this
+ * project, so the singleton PluginManager is pulled via EntryPointAccessors instead of
+ * constructor injection.
+ */
+class PluginUpdateWorker(
+    appContext: Context,
+    params: WorkerParameters,
+) : CoroutineWorker(appContext, params) {
+    override suspend fun doWork(): Result {
+        val pluginManager = EntryPointAccessors.fromApplication(applicationContext, PluginManagerEntryPoint::class.java).pluginManager()
+        val currentVersion = pluginManager.pluginVersion() ?: return Result.success()
+        return try {
+            pluginManager.checkForUpdate(currentVersion)
+            Result.success()
+        } catch (e: Exception) {
+            Log.w(TAG, "Plugin background update check failed: ${e.message}")
+            Result.retry()
+        }
     }
 }
