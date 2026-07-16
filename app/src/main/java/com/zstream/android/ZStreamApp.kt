@@ -1,8 +1,10 @@
 package com.zstream.android
 
 import android.app.Application
+import android.util.Log
 import coil.ImageLoader
 import coil.ImageLoaderFactory
+import com.google.firebase.messaging.FirebaseMessaging
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
@@ -29,6 +31,11 @@ class ZStreamApp : Application(), ImageLoaderFactory {
         releaseNotifyManager.ensureStarted()
         CrashLog.breadcrumb("App", "releaseNotifyManager.ensureStarted() done")
         rybbitAnalytics.trackEvent("app_open")
+
+        // Subscribes every install to the shared broadcast topic so the backend can push an
+        // announcement to all users by sending a single FCM message to this topic.
+        FirebaseMessaging.getInstance().subscribeToTopic(com.zstream.android.data.BroadcastMessagingService.BROADCAST_TOPIC)
+            .addOnFailureListener { e -> Log.w("ZStreamApp", "Failed to subscribe to broadcast topic", e) }
     }
 
     @EntryPoint
