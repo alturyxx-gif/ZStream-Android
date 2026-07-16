@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "811482048123",
+    "project_id": "zstream-15675",
+    "storage_bucket": "zstream-15675.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:811482048123:android:5afb53070b0ee8645f64de",
+        "android_client_info": {
+          "package_name": "com.zstream.android"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDjOGKph0qVLpCoYrCTAQ9RaMxP616zNJ8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
