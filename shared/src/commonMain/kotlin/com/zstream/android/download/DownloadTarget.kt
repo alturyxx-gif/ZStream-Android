@@ -25,6 +25,9 @@ fun sanitizeFileName(name: String): String =
         .trim('.')
         .ifBlank { "untitled" }
 
+/** Zero-pads to 2 digits. String.format isn't available on Kotlin/Native, so this replaces it. */
+private fun Int.pad2(): String = toString().padStart(2, '0')
+
 /**
  * Folder path segments under the "ZStream" root, e.g.:
  *   Movie:   ["Interstellar (2014)"]
@@ -36,9 +39,9 @@ fun DownloadTarget.folderSegments(): List<String> = when (this) {
         listOf(sanitizeFileName(label))
     }
     is DownloadTarget.Episode -> {
-        val seasonLabel = "Season %02d".format(season)
+        val seasonLabel = "Season ${season.pad2()}"
         val episodeLabel = buildString {
-            append("S%02dE%02d".format(season, episode))
+            append("S${season.pad2()}E${episode.pad2()}")
             if (!episodeTitle.isNullOrBlank()) append(" - $episodeTitle")
         }
         listOf(sanitizeFileName(showTitle), sanitizeFileName(seasonLabel), sanitizeFileName(episodeLabel))
@@ -50,7 +53,7 @@ fun DownloadTarget.baseFileName(): String = when (this) {
     is DownloadTarget.Movie -> sanitizeFileName(if (year != null) "$title ($year)" else title)
     is DownloadTarget.Episode -> sanitizeFileName(
         buildString {
-            append("S%02dE%02d".format(season, episode))
+            append("S${season.pad2()}E${episode.pad2()}")
             if (!episodeTitle.isNullOrBlank()) append(" - $episodeTitle")
         }
     )
