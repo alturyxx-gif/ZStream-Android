@@ -12,6 +12,9 @@ build/
 local.properties
 /local.properties
 
+# Firebase service-account key -- secret, must never be committed (grants send-to-all access)
+*firebase-adminsdk*.json
+
 # Build artifacts
 /captures
 .externalNativeBuild
