@@ -7,6 +7,13 @@ plugins {
     alias(libs.plugins.hilt)
 }
 
+// google-services.json isn't committed (it's per-Firebase-project config), so only apply the
+// plugin when a developer has actually dropped one in -- keeps the build working for everyone
+// else without Firebase set up locally.
+if (file("google-services.json").exists()) {
+    apply(plugin = "com.google.gms.google-services")
+}
+
 android {
     namespace = "com.zstream.android"
     compileSdk = 36
@@ -119,6 +126,9 @@ dependencies {
     implementation(libs.androidx.tv.material)
     implementation(libs.androidx.work)
     implementation(libs.haze)
+
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.messaging)
     implementation("org.bouncycastle:bcpkix-jdk15to18:1.81")
     implementation(project(":libadb"))
     coreLibraryDesugaring(libs.desugar.jdk.libs)
