@@ -10,7 +10,7 @@ import platform.Foundation.timeZoneWithAbbreviation
 actual fun todayIsoDate(): String {
     val formatter = NSDateFormatter().apply {
         dateFormat = "yyyy-MM-dd"
-        timeZone = NSTimeZone.timeZoneWithAbbreviation("UTC")
+        timeZone = NSTimeZone.timeZoneWithAbbreviation("UTC")!!
     }
     return formatter.stringFromDate(NSDate())
 }
