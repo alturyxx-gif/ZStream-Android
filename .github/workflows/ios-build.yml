@@ -56,15 +56,51 @@ jobs:
           sudo xcode-select -s "$latest"
           xcodebuild -version
 
-      - name: Install XcodeGen and xcbeautify
-        run: brew install xcodegen xcbeautify
+      # Homebrew itself is preinstalled on macOS runners, but xcodegen/xcbeautify's own
+      # bottles get re-downloaded every run without this -- cache keyed on the exact package
+      # list so a formula bump invalidates it automatically instead of silently going stale.
+      - name: Cache Homebrew packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/Homebrew
+            /opt/homebrew/Cellar/xcodegen
+            /opt/homebrew/Cellar/xcbeautify
+          key: brew-xcodegen-xcbeautify-${{ runner.os }}
 
-      # The runner doesn't ship an iOS Simulator runtime pre-installed for every Xcode version,
-      # which is why earlier attempts at a generic/placeholder simulator destination failed
-      # ("no available devices matched the request") -- there was no iOS Simulator runtime at
-      # all. Installing it explicitly, then creating one concrete simulator device to target.
-      - name: Install iOS Simulator runtime
-        run: xcodebuild -downloadPlatform iOS
+      # `brew install` on a cache hit reports "already installed, not linked" and exits without
+      # symlinking the binary into PATH (seen in CI: xcodegen: command not found even though the
+      # Cellar dir was restored) -- `brew link --overwrite` after install makes this idempotent
+      # whether or not the cache actually had the package.
+      - name: Install XcodeGen and xcbeautify
+        run: |
+          brew install xcodegen xcbeautify
+          brew link --overwrite xcodegen xcbeautify
+
+      # Earlier attempts at a generic/placeholder simulator destination failed ("no available
+      # devices matched the request") because the newest-installed Xcode (needed for iOS 26
+      # APIs like GlassEffectContainer) had no runtime bundled with it on this runner image.
+      # But macos-15 runners do ship at least one iOS Simulator runtime pre-installed (for
+      # whichever Xcode version is the image's default) -- only fall back to downloading a
+      # fresh ~8GB runtime if simctl genuinely reports none available, instead of always
+      # re-downloading unconditionally.
+      #
+      # NOT cached even when a download does happen: modern Xcode (16+) installs simulator
+      # runtimes as a Cryptex disk image mounted as a system volume, not plain files under a
+      # home-directory path -- there's nothing at
+      # ~/Library/Developer/CoreSimulator/Profiles/Runtimes for actions/cache to snapshot
+      # (confirmed in CI: "Path Validation Error ... do(es) not exist").
+      - name: Install iOS Simulator runtime (only if none available)
+        run: |
+          if xcrun simctl list runtimes available -j \
+            | python3 -c "import json,sys; d=json.load(sys.stdin)['runtimes']; sys.exit(0 if any(r['platform']=='iOS' for r in d) else 1)"
+          then
+            echo "An iOS Simulator runtime is already available on this runner -- skipping download."
+            xcrun simctl list runtimes available
+          else
+            echo "No iOS Simulator runtime available -- downloading."
+            xcodebuild -downloadPlatform iOS
+          fi
 
       - name: Create a simulator device
         id: sim
@@ -83,10 +119,34 @@ jobs:
         working-directory: ios
         run: xcodegen generate
 
+      # Kotlin/Native downloads its own LLVM/sysroot toolchain into ~/.konan on first use --
+      # multiple hundred MB, otherwise re-fetched every run. Gradle's own wrapper/dependency/
+      # build cache is handled by setup-gradle below.
+      - name: Cache Kotlin/Native toolchain
+        uses: actions/cache@v4
+        with:
+          path: ~/.konan
+          key: konan-${{ runner.os }}-${{ hashFiles('gradle/libs.versions.toml') }}
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
+
       - name: Build :shared XCFramework (debug)
         run: |
           chmod +x gradlew
           ./gradlew :shared:assembleSharedDebugXCFramework --stacktrace
+
+      # DerivedData holds incremental Swift compilation state -- without caching it, every run
+      # recompiles the whole app target from scratch instead of only changed files.
+      - name: Cache Xcode DerivedData
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Developer/Xcode/DerivedData
+          key: deriveddata-ios-build-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            deriveddata-ios-build-${{ runner.os }}-
 
       - name: Build for iOS Simulator (unsigned, no archive/export)
         working-directory: ios
@@ -130,12 +190,38 @@ jobs:
           sudo xcode-select -s "$latest"
           xcodebuild -version
 
+      - name: Cache Homebrew packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/Homebrew
+            /opt/homebrew/Cellar/xcodegen
+            /opt/homebrew/Cellar/xcbeautify
+          key: brew-xcodegen-xcbeautify-${{ runner.os }}
+
+      # `brew install` on a cache hit reports "already installed, not linked" and exits without
+      # symlinking the binary into PATH (seen in CI: xcodegen: command not found even though the
+      # Cellar dir was restored) -- `brew link --overwrite` after install makes this idempotent
+      # whether or not the cache actually had the package.
       - name: Install XcodeGen and xcbeautify
-        run: brew install xcodegen xcbeautify
+        run: |
+          brew install xcodegen xcbeautify
+          brew link --overwrite xcodegen xcbeautify
 
       - name: Generate Xcode project
         working-directory: ios
         run: xcodegen generate
+
+      - name: Cache Kotlin/Native toolchain
+        uses: actions/cache@v4
+        with:
+          path: ~/.konan
+          key: konan-${{ runner.os }}-${{ hashFiles('gradle/libs.versions.toml') }}
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
 
       - name: Build :shared XCFramework (release)
         run: |
