@@ -40,3 +40,8 @@
 
 # The TV ADB client registers Bouncy Castle at runtime to generate its RSA certificate.
 -keep class org.bouncycastle.** { *; }
+
+# Firebase Messaging bundles its own consumer rules, but keep explicitly in case that stops
+# being auto-applied on a future AGP/R8 upgrade -- FCM silently failing to init is hard to notice.
+-keep class com.google.firebase.** { *; }
+-keep class com.google.android.gms.** { *; }
