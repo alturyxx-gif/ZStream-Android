@@ -1,5 +1,6 @@
 package com.zstream.android.data
 
+import android.util.Log
 import com.zstream.android.data.model.*
 import com.zstream.android.data.model.PagedResponse
 import com.zstream.android.data.remote.TmdbApi
@@ -8,6 +9,7 @@ import javax.inject.Singleton
 
 @Singleton
 class TmdbRepository @Inject constructor(private val api: TmdbApi) {
+    private val seasonCatalogCache = java.util.concurrent.ConcurrentHashMap<Int, TvSeasonCatalog>()
     suspend fun trendingMovies() = api.trendingMovies().results.map { it.copy(mediaType = "movie") }
     suspend fun trendingTv() = api.trendingTv().results.map { it.copy(mediaType = "tv") }
     suspend fun popularMovies() = api.popularMovies().results.map { it.copy(mediaType = "movie") }
@@ -45,4 +47,61 @@ class TmdbRepository @Inject constructor(private val api: TmdbApi) {
     suspend fun collection(id: Int) = api.collection(id)
     suspend fun tvDetail(id: Int) = api.tvDetail(id)
     suspend fun season(id: Int, season: Int) = api.season(id, season)
+
+    suspend fun seasonCatalog(tvId: Int, detail: TvDetail? = null): TvSeasonCatalog {
+        seasonCatalogCache[tvId]?.let { return it }
+        val tvDetail = detail ?: runCatching { tvDetail(tvId) }.getOrNull()
+        val catalog = resolveSeasonCatalog(tvId, tvDetail)
+        seasonCatalogCache[tvId] = catalog
+        return catalog
+    }
+
+    fun cachedSeasonCatalog(tvId: Int): TvSeasonCatalog? = seasonCatalogCache[tvId]
+
+    fun clearSeasonCatalogCache(tvId: Int? = null) {
+        if (tvId == null) seasonCatalogCache.clear() else seasonCatalogCache.remove(tvId)
+    }
+
+    suspend fun seasonForPlayback(tvId: Int, seasonNumber: Int, detail: TvDetail? = null): Season? {
+        val catalog = seasonCatalog(tvId, detail)
+        if (catalog.usingEpisodeGroups) {
+            return catalog.season(seasonNumber)
+        }
+        return runCatching { season(tvId, seasonNumber) }.getOrNull()
+    }
+
+    private suspend fun resolveSeasonCatalog(tvId: Int, detail: TvDetail?): TvSeasonCatalog {
+        if (detail == null) {
+            return TvSeasonCatalog(seasons = emptyList(), usingEpisodeGroups = false)
+        }
+        if (!EpisodeGroupResolver.shouldPreferEpisodeGroups(detail)) {
+            return EpisodeGroupResolver.defaultCatalogFromDetail(detail)
+        }
+        val summaries = runCatching { api.episodeGroups(tvId).results }
+            .onFailure { Log.w(TAG, "episode_groups failed for tv $tvId", it) }
+            .getOrDefault(emptyList())
+        val best = EpisodeGroupResolver.pickBestGroup(summaries)
+            ?: return EpisodeGroupResolver.defaultCatalogFromDetail(detail)
+
+        val groupDetail = runCatching { api.episodeGroupDetail(best.id) }
+            .onFailure { Log.w(TAG, "episode_group detail failed for ${best.id}", it) }
+            .getOrNull()
+            ?: return EpisodeGroupResolver.defaultCatalogFromDetail(detail)
+
+        val mapped = EpisodeGroupResolver.mapGroupDetailToCatalog(groupDetail)
+        if (mapped.seasons.size < 2) {
+            return EpisodeGroupResolver.defaultCatalogFromDetail(detail)
+        }
+        Log.i(
+            TAG,
+            "Using episode group '${mapped.groupName}' (${mapped.groupId}) for tv $tvId " +
+                "— ${mapped.seasons.size} display seasons",
+        )
+        return mapped
+    }
+
+    private companion object {
+        private const val TAG = "TmdbRepository"
+    }
 }
+

@@ -360,6 +360,8 @@ class PlayerViewModel @OptIn(UnstableApi::class)
     private val _movieDetail = MutableStateFlow<com.zstream.android.data.model.MovieDetail?>(null)
     val movieDetail = _movieDetail.asStateFlow()
 
+    private var seasonCatalog: com.zstream.android.data.model.TvSeasonCatalog? = null
+
     val pauseMetadata = combine(
         _movieDetail,
         _tvDetail,
@@ -581,16 +583,43 @@ class PlayerViewModel @OptIn(UnstableApi::class)
                 if (attempt < 2) kotlinx.coroutines.delay(800L * (attempt + 1))
             }
             val d = detail ?: return@launch
-            _tvDetail.value = d
-            val sNum = season ?: d.seasons?.firstOrNull()?.seasonNumber ?: 1
+            val catalog = runCatching { tmdbRepo.seasonCatalog(id, d) }.getOrNull()
+            seasonCatalog = catalog
+            val detailForUi = if (catalog != null && catalog.usingEpisodeGroups) {
+                d.copy(
+                    seasons = catalog.seasons.map { it.copy(episodes = null) },
+                    numberOfSeasons = catalog.seasons.size,
+                )
+            } else {
+                d
+            }
+            _tvDetail.value = detailForUi
+
+            // Remap route/progress S/E that still use absolute TMDB numbering onto display S/E.
+            val matched = catalog?.findEpisode(season, episode, episodeId)
+            if (matched != null) {
+                season = matched.seasonNumber
+                episode = matched.episodeNumber
+                episodeId = matched.id.toString()
+            }
+
+            val sNum = season
+                ?: catalog?.seasons?.firstOrNull { it.seasonNumber > 0 }?.seasonNumber
+                ?: detailForUi.seasons?.firstOrNull { it.seasonNumber > 0 }?.seasonNumber
+                ?: 1
             loadSeason(sNum)
         }
     }
 
     /** Transient TMDB failures (rate limiting, network blips) shouldn't permanently show "no episodes found". */
     private suspend fun fetchSeasonWithRetry(number: Int, attempts: Int = 3): com.zstream.android.data.model.Season? {
+        val catalog = seasonCatalog ?: tmdbRepo.cachedSeasonCatalog(id)
+        if (catalog != null && catalog.usingEpisodeGroups) {
+            catalog.season(number)?.let { return it }
+        }
         repeat(attempts) { attempt ->
-            val sDetail = runCatching { tmdbRepo.season(id, number) }.getOrNull()
+            val sDetail = runCatching { tmdbRepo.seasonForPlayback(id, number) }.getOrNull()
+                ?: runCatching { tmdbRepo.season(id, number) }.getOrNull()
             if (sDetail != null) return sDetail
             Log.e("PlayerVM", "Failed to load season $number (attempt ${attempt + 1}/$attempts)")
             if (attempt < attempts - 1) kotlinx.coroutines.delay(800L * (attempt + 1))
@@ -615,9 +644,13 @@ class PlayerViewModel @OptIn(UnstableApi::class)
             } else _currentSeasonDetail.value
 
             val ep = sDetail?.episodes?.find { it.episodeNumber == episodeNumber }
+                ?: seasonCatalog?.findEpisode(seasonNumber, episodeNumber)
             if (ep != null) {
                 episodeId = ep.id.toString()
-                seasonId = sDetail?.id?.toString() ?: ""
+                seasonId = sDetail?.id?.toString() ?: seasonCatalog?.season(ep.seasonNumber)?.id?.toString() ?: ""
+                // Keep season/episode as display numbers (what MediaRequest scrapes).
+                season = ep.seasonNumber
+                episode = ep.episodeNumber
             }
 
             _state.value = PlayerState.Idle
@@ -1595,7 +1628,25 @@ class PlayerViewModel @OptIn(UnstableApi::class)
         val currentEpisode = episode ?: return@withContext null
 
         runCatching {
-            val currentSeasonDetail = tmdbRepo.season(id, currentSeason)
+            // Prefer the remapped catalog so autoplay walks display seasons (S2E1 after S1E20),
+            // not absolute TMDB numbering.
+            val catalog = seasonCatalog
+                ?: tmdbRepo.cachedSeasonCatalog(id)
+                ?: runCatching { tmdbRepo.seasonCatalog(id) }.getOrNull()
+
+            if (catalog != null && catalog.usingEpisodeGroups) {
+                val next = catalog.nextEpisode(currentSeason, currentEpisode) ?: return@withContext null
+                val nextSeason = catalog.season(next.seasonNumber)
+                return@withContext AutoplayEpisodeTarget(
+                    seasonNumber = next.seasonNumber,
+                    episodeNumber = next.episodeNumber,
+                    seasonId = nextSeason?.id?.toString().orEmpty(),
+                    episodeId = next.id.toString(),
+                )
+            }
+
+            val currentSeasonDetail = tmdbRepo.seasonForPlayback(id, currentSeason)
+                ?: tmdbRepo.season(id, currentSeason)
             val nextEpisode = currentSeasonDetail.episodes
                 .orEmpty()
                 .airedEpisodes()
@@ -1610,12 +1661,13 @@ class PlayerViewModel @OptIn(UnstableApi::class)
             }
 
             val showDetail = tmdbRepo.tvDetail(id)
-            val nextSeason = showDetail.seasons
-                .orEmpty()
+            val layoutSeasons = catalog?.seasons ?: showDetail.seasons.orEmpty()
+            val nextSeason = layoutSeasons
                 .firstOrNull { it.seasonNumber == currentSeason + 1 }
                 ?: return@withContext null
 
-            val nextSeasonDetail = tmdbRepo.season(id, nextSeason.seasonNumber)
+            val nextSeasonDetail = tmdbRepo.seasonForPlayback(id, nextSeason.seasonNumber)
+                ?: tmdbRepo.season(id, nextSeason.seasonNumber)
             val firstAiredEpisode = nextSeasonDetail.episodes
                 .orEmpty()
                 .airedEpisodes()
