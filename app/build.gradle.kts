@@ -23,7 +23,7 @@ android {
         minSdk = 24
         targetSdk = 36
         versionCode = 2
-        versionName = "v1.4.1"
+        versionName = "v1.5"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         val props = Properties()
@@ -43,10 +43,17 @@ android {
 
     signingConfigs {
         create("release") {
+            // Keystore password never committed (public repo): ZSTREAM_SIGNING_PASSWORD env var
+            // (CI secret) -> `zstream.signing_password` in local.properties (gitignored).
+            val signingProps = Properties()
+            rootProject.file("local.properties").takeIf { it.exists() }
+                ?.inputStream()?.use { signingProps.load(it) }
+            val signingPassword = System.getenv("ZSTREAM_SIGNING_PASSWORD")
+                ?: signingProps.getProperty("zstream.signing_password", "")
             storeFile = file("../zstream.jks")
-            storePassword = "REDACTED"
+            storePassword = signingPassword
             keyAlias = "zstream"
-            keyPassword = "REDACTED"
+            keyPassword = signingPassword
         }
     }
 
