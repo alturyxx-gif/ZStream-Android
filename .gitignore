@@ -50,3 +50,6 @@ replay_pid9984.log
 *.jks
 *.json
 *.keystore
+
+# Firebase client config -- per-project, not committed (see app/build.gradle.kts conditional apply)
+app/google-services.json

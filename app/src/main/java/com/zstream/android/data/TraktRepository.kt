@@ -8,6 +8,7 @@ import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.google.gson.Gson
+import com.zstream.android.BuildConfig
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.zstream.android.data.local.dao.BookmarkDao
@@ -39,10 +40,12 @@ import javax.inject.Singleton
 
 private val Context.traktStore by preferencesDataStore("trakt")
 
-// Keep embedded credentials isolated here so string obfuscation has one target.
+// Credentials come from BuildConfig (trakt.client_id / trakt.client_secret in local.properties,
+// or TRAKT_CLIENT_ID / TRAKT_CLIENT_SECRET env vars in CI) -- never hardcoded, this is a public
+// repo. Empty values just make Trakt connect fail; the rest of the app is unaffected.
 private object TraktCredentials {
-    const val CLIENT_ID = "REDACTED"
-    const val CLIENT_SECRET = "REDACTED"
+    val CLIENT_ID = BuildConfig.TRAKT_CLIENT_ID
+    val CLIENT_SECRET = BuildConfig.TRAKT_CLIENT_SECRET
 }
 
 data class TraktState(
