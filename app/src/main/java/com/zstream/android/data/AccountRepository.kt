@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.google.gson.Gson
+import com.google.gson.JsonParser
 import com.google.gson.reflect.TypeToken
 import com.zstream.android.data.CryptoUtils.toBase64Url
 import com.zstream.android.data.remote.*
@@ -130,24 +131,60 @@ class AccountRepository @Inject constructor(
 
     //  Passkey auth 
 
-    suspend fun loginWithPasskey(activityContext: Context, deviceName: String = "Android"): AccountSession {
-        val credId = CryptoUtils.authenticatePasskey(activityContext)
-        val keys   = CryptoUtils.keysFromSeed(CryptoUtils.pbkdf2(credId))
-        return challengeLogin(keys.publicKey.toBase64Url(), keys.privateKey, keys.seed, deviceName, true)
+    suspend fun loginWithPasskey(activityContext: Context, deviceName: String = "Android"): AccountSession =
+        passkeyLogin(activityContext, deviceName).also { persist(it) }
+
+    /**
+     * Real WebAuthn login: fetch server options -> run the authenticator assertion -> post it to
+     * /login/verify, which returns a full session. Does NOT persist -- callers that want to log
+     * this device in wrap it with persist(); TV sync hands the session to another device instead.
+     *
+     * MIGRATION BRIDGE (temporary): accounts created before the real-WebAuthn backend existed have
+     * no record in webauthn_credentials, so /login/verify returns 401/404 for them. In that case we
+     * fall back to the legacy scheme -- derive a keypair from the passkey's credential id and log in
+     * through the challenge endpoints -- so those users keep their account. The passkey itself is
+     * unchanged, so the same authenticator assertion yields the same credential id and thus the same
+     * derived account as before. Remove once legacy passkey accounts are migrated.
+     * See docs/passkey-migration-bridge.md.
+     */
+    private suspend fun passkeyLogin(activityContext: Context, deviceName: String): AccountSession {
+        val opts = api.passkeyLoginOptions(PasskeyLoginOptionsBody())
+        val assertionJson = CryptoUtils.passkeyAuthenticationResponse(activityContext, opts.options.toString())
+        val assertion = JsonParser.parseString(assertionJson).asJsonObject
+        return try {
+            sessionFromVerify(api.passkeyLoginVerify(PasskeyLoginVerifyBody(opts.stateToken, assertion, deviceName)), deviceName)
+        } catch (e: HttpException) {
+            if (e.code() != 401 && e.code() != 404) throw e
+            Log.i(TAG, "passkey login/verify ${e.code()} -> legacy credential-id fallback")
+            val credentialId = assertion.get("id").asString
+            val keys = CryptoUtils.keysFromSeed(CryptoUtils.pbkdf2(credentialId))
+            challengeLogin(keys.publicKey.toBase64Url(), keys.privateKey, keys.seed, deviceName, usesPasskey = true, persistSession = false)
+        }
     }
 
-    /** Login using a raw 32-byte seed (e.g. received via TV sync from a passkey account). */
-    suspend fun loginWithSeed(seedBase64Url: String, deviceName: String): AccountSession {
-        @OptIn(kotlin.io.encoding.ExperimentalEncodingApi::class)
-        val seed = kotlin.io.encoding.Base64.UrlSafe.withPadding(kotlin.io.encoding.Base64.PaddingOption.ABSENT).decode(seedBase64Url)
-        val keys = CryptoUtils.keysFromSeed(seed)
-        return challengeLogin(keys.publicKey.toBase64Url(), keys.privateKey, keys.seed, deviceName, true)
+    /**
+     * Authenticate the phone's passkey and return the resulting session WITHOUT logging this
+     * device in -- used by TV sync so the session can be forwarded to the TV. Real WebAuthn keys
+     * can't leave the authenticator, so we transfer the issued session rather than a derived seed.
+     */
+    suspend fun passkeyLoginForTransfer(activityContext: Context, deviceName: String): AccountSession =
+        passkeyLogin(activityContext, deviceName)
+
+    /** Persist a session obtained elsewhere (e.g. a phone passkey login forwarded to this TV). */
+    suspend fun adoptSession(session: AccountSession) = persist(session)
+
+    private fun sessionFromVerify(resp: LoginResponse, deviceName: String): AccountSession {
+        val userId = resp.user?.id ?: resp.session.userId
+        return AccountSession(userId, resp.token, resp.user?.nickname ?: "", deviceName, usesPasskey = true)
     }
 
-    suspend fun registerWithPasskey(activityContext: Context, userName: String, deviceName: String = "Android"): AccountSession {
-        val credId = CryptoUtils.createPasskey(activityContext, userName)
-        val keys   = CryptoUtils.keysFromSeed(CryptoUtils.pbkdf2(credId))
-        return challengeRegister(keys.publicKey.toBase64Url(), keys.privateKey, keys.seed, deviceName, true)
+    suspend fun registerWithPasskey(activityContext: Context, deviceName: String = "Android"): AccountSession {
+        val opts = api.passkeyRegisterOptions(PasskeyRegisterOptionsBody(deviceName))
+        val attestation = CryptoUtils.passkeyRegisterResponse(activityContext, opts.options.toString())
+        val resp = api.passkeyRegisterVerify(
+            PasskeyRegisterVerifyBody(opts.stateToken, JsonParser.parseString(attestation).asJsonObject)
+        )
+        return sessionFromVerify(resp, deviceName).also { persist(it) }
     }
 
     /** Signs out of the active session only -- other cached profiles on this device are left intact. */
@@ -205,7 +242,7 @@ class AccountRepository @Inject constructor(
 
     //  Private 
 
-    private suspend fun challengeLogin(pubB64: String, privKey: ByteArray, seed: ByteArray, device: String, usesPasskey: Boolean): AccountSession {
+    private suspend fun challengeLogin(pubB64: String, privKey: ByteArray, seed: ByteArray, device: String, usesPasskey: Boolean, persistSession: Boolean = true): AccountSession {
         Log.d(TAG, "login/start pubKey=$pubB64")
         val challenge = runCatching { api.loginStart(LoginStartBody(pubB64)) }.onFailure {
             val http = it as? HttpException
@@ -223,7 +260,7 @@ class AccountRepository @Inject constructor(
         }.getOrThrow()
         val userId = resp.user?.id ?: resp.session.userId
         Log.d(TAG, "login/complete resp token=${resp.token.take(20)}… userId=$userId session=${resp.session}")
-        return AccountSession(userId, resp.token, resp.user?.nickname ?: "", device, usesPasskey).also { persist(it) }
+        return AccountSession(userId, resp.token, resp.user?.nickname ?: "", device, usesPasskey).also { if (persistSession) persist(it) }
     }
 
     private suspend fun challengeRegister(pubB64: String, privKey: ByteArray, seed: ByteArray, device: String, usesPasskey: Boolean): AccountSession {

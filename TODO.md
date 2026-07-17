@@ -1,5 +1,5 @@
 bugs to fix:
-1. w
+1. remove the passkey fallback bridge
 
 features to add:
 1. multiple user accounts on TV

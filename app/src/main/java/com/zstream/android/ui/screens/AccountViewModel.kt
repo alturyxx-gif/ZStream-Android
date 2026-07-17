@@ -99,8 +99,8 @@ class AccountViewModel @Inject constructor(
         repo.loginWithPasskey(activityContext, device)
     }
 
-    fun registerWithPasskey(activityContext: android.content.Context, userName: String, device: String = "Android") = launch(isNewAccount = true) {
-        repo.registerWithPasskey(activityContext, userName, device)
+    fun registerWithPasskey(activityContext: android.content.Context, device: String = "Android") = launch(isNewAccount = true) {
+        repo.registerWithPasskey(activityContext, device)
     }
 
     fun logout() {

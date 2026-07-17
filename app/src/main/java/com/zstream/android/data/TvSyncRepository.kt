@@ -95,9 +95,10 @@ data class TvSyncPayload(
     val traktSession: TraktSessionExport? = null,
     val passphrase: String? = null,
     val accountDeviceName: String? = null,
-    /** Base64Url-encoded 32-byte Ed25519 seed derived from the phone's passkey credential ID.
-     *  TV calls keysFromSeed(seed) and runs the normal challenge-login flow. */
-    val passkeyKeySeed: String? = null,
+    /** A live account session the phone obtained via passkey (WebAuthn), forwarded for the TV to
+     *  adopt directly. Real WebAuthn keys can't leave the authenticator, so unlike the old model
+     *  there is no seed for the TV to re-derive -- it uses this issued session as-is. */
+    val passkeySession: PasskeySessionTransfer? = null,
 ) {
     fun summaryLines(): List<String> = buildList {
         if (tmdbApiKey != null) add("TMDB API key")
@@ -107,9 +108,16 @@ data class TvSyncPayload(
         if (wyzieKey != null) add("Wyzie key")
         if (traktSession != null) add("Trakt session")
         if (passphrase != null) add("Account login via passphrase")
-        if (passkeyKeySeed != null) add("Account login via passkey")
+        if (passkeySession != null) add("Account login via passkey")
     }
 }
+
+/** A passkey-authenticated session forwarded phone -> TV during sync. */
+data class PasskeySessionTransfer(
+    val token: String,
+    val userId: String,
+    val nickname: String,
+)
 
 /**
  * A TV this phone has successfully paired with, persisted to disk so casting/syncing keeps
@@ -1074,7 +1082,7 @@ class TvSyncRepository @Inject constructor(
             pendingPayload = null,
             pendingToken = null,
             status = when {
-                payload.passphrase != null || payload.passkeyKeySeed != null -> "Signed in and synced from your phone"
+                payload.passphrase != null || payload.passkeySession != null -> "Signed in and synced from your phone"
                 else -> "Synced from your phone"
             },
         )
@@ -1091,9 +1099,17 @@ class TvSyncRepository @Inject constructor(
             Log.d(tag, "applyPendingPayload account login passphraseLength=${payload.passphrase.length} deviceName=${payload.accountDeviceName}")
             accountRepository.login(payload.passphrase, payload.accountDeviceName ?: payload.tvName)
         }
-        if (payload.passkeyKeySeed != null) {
-            Log.d(tag, "applyPendingPayload account login via passkey seed deviceName=${payload.accountDeviceName}")
-            accountRepository.loginWithSeed(payload.passkeyKeySeed, payload.accountDeviceName ?: payload.tvName)
+        if (payload.passkeySession != null) {
+            Log.d(tag, "applyPendingPayload adopting forwarded passkey session deviceName=${payload.accountDeviceName}")
+            accountRepository.adoptSession(
+                AccountSession(
+                    userId = payload.passkeySession.userId,
+                    token = payload.passkeySession.token,
+                    nickname = payload.passkeySession.nickname,
+                    deviceName = payload.accountDeviceName ?: payload.tvName,
+                    usesPasskey = true,
+                )
+            )
         }
         val current = settingsPreferences.settings.first()
         settingsPreferences.updateSettings(
@@ -1481,7 +1497,7 @@ class TvSyncRepository @Inject constructor(
         payload.wyzieKey?.let { put("wyzieKey", it) }
         payload.passphrase?.let { put("passphrase", it) }
         payload.accountDeviceName?.let { put("accountDeviceName", it) }
-        payload.passkeyKeySeed?.let { put("passkeyKeySeed", it) }
+        payload.passkeySession?.let { put("passkeySession", gson.toJson(it)) }
         payload.traktSession?.let { put("traktSession", gson.toJson(it)) }
     }.toString()
 
@@ -1498,7 +1514,9 @@ class TvSyncRepository @Inject constructor(
             wyzieKey = obj.optString("wyzieKey").takeIf { it.isNotBlank() },
             passphrase = obj.optString("passphrase").takeIf { it.isNotBlank() },
             accountDeviceName = obj.optString("accountDeviceName").takeIf { it.isNotBlank() },
-            passkeyKeySeed = obj.optString("passkeyKeySeed").takeIf { it.isNotBlank() },
+            passkeySession = obj.optString("passkeySession").takeIf { it.isNotBlank() }?.let {
+                gson.fromJson(it, PasskeySessionTransfer::class.java)
+            },
             traktSession = obj.optString("traktSession").takeIf { it.isNotBlank() }?.let {
                 gson.fromJson(it, TraktSessionExport::class.java)
             },

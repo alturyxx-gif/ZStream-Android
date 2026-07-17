@@ -63,6 +63,7 @@ import com.zstream.android.data.TvSyncDiscoveredReceiver
 import com.zstream.android.data.TvSyncPayload
 import com.zstream.android.data.TvSyncReceiverState
 import com.zstream.android.data.TvSyncRepository
+import com.zstream.android.data.PasskeySessionTransfer
 import com.zstream.android.data.local.entity.SettingsEntity
 import com.zstream.android.theme.LocalZStreamTheme
 import com.zstream.android.ui.LocalIsTv
@@ -95,7 +96,7 @@ class TvSyncViewModel @Inject constructor(
     private val repo: TvSyncRepository,
     settingsPreferences: SettingsPreferences,
     private val traktRepository: TraktRepository,
-    accountRepository: AccountRepository,
+    private val accountRepository: AccountRepository,
 ) : ViewModel() {
     val receiverState: StateFlow<TvSyncReceiverState> = repo.receiverState
     val pairedTvs: StateFlow<List<com.zstream.android.data.PairedTv>> = repo.pairedTvs
@@ -126,7 +127,7 @@ class TvSyncViewModel @Inject constructor(
         selected: Map<String, Boolean>,
         passphrase: String?,
         accountDeviceName: String?,
-        passkeyKeySeed: String? = null,
+        passkeySession: PasskeySessionTransfer? = null,
     ): TvSyncPayload {
         val current = settings.value
         val traktSession = if (selected["trakt"] == true) traktRepository.exportSession() else null
@@ -142,18 +143,17 @@ class TvSyncViewModel @Inject constructor(
             traktSession = traktSession,
             passphrase = passphrase?.trim()?.takeIf(String::isNotBlank),
             accountDeviceName = accountDeviceName?.trim()?.takeIf(String::isNotBlank),
-            passkeyKeySeed = passkeyKeySeed,
+            passkeySession = passkeySession,
         )
     }
 
-    /** Authenticates the phone's passkey and returns the Base64Url-encoded 32-byte seed.
-     *  The TV can call CryptoUtils.keysFromSeed(decode(seed)) to derive the same Ed25519
-     *  key pair and run the normal challenge-login against the backend.
+    /** Authenticates the phone's passkey against the backend and returns the resulting session
+     *  (token + user id + nickname) for the TV to adopt. Real WebAuthn keys can't leave the
+     *  authenticator, so we forward the issued session rather than a derivable seed.
      *  Needs an Activity-based context -- CredentialManager can't launch its selector UI off appContext. */
-    suspend fun resolvePasskeySeed(activityContext: android.content.Context): String {
-        val credId = com.zstream.android.data.CryptoUtils.authenticatePasskey(activityContext)
-        val seed = com.zstream.android.data.CryptoUtils.pbkdf2(credId)
-        return with(com.zstream.android.data.CryptoUtils) { seed.toBase64Url() }
+    suspend fun resolvePasskeySession(activityContext: android.content.Context, deviceName: String): PasskeySessionTransfer {
+        val session = accountRepository.passkeyLoginForTransfer(activityContext, deviceName)
+        return PasskeySessionTransfer(session.token, session.userId, session.nickname)
     }
 
     suspend fun sendPayload(host: String, port: Int, payload: TvSyncPayload) = repo.sendPayload(host, port, payload)
@@ -493,7 +493,7 @@ private fun TvSyncSenderScreen(
     var passphraseEnabled by remember { mutableStateOf(false) }
     var passphrase by remember { mutableStateOf("") }
     var accountDeviceName by remember { mutableStateOf("ZStream TV") }
-    var passkeyKeySeed by remember { mutableStateOf<String?>(null) }
+    var passkeySession by remember { mutableStateOf<PasskeySessionTransfer?>(null) }
     var passkeyDeclined by remember { mutableStateOf(false) }
     var transferResult by remember { mutableStateOf<String?>(null) }
     val selected = remember { mutableStateMapOf<String, Boolean>() }
@@ -533,7 +533,7 @@ private fun TvSyncSenderScreen(
             passphraseEnabled = false
             passphrase = ""
         } else {
-            passkeyKeySeed = null
+            passkeySession = null
             passkeyDeclined = false
         }
     }
@@ -775,7 +775,7 @@ private fun TvSyncSenderScreen(
                         Text("Sign this TV into your ZStream account?", color = theme.colors.type.emphasis, fontWeight = FontWeight.SemiBold)
                         Text("Your phone will prompt for your passkey. The TV will use it to create its own login session.", color = theme.colors.type.secondary)
                         when {
-                            passkeyKeySeed != null -> {
+                            passkeySession != null -> {
                                 ZsStatusBanner(message = "Passkey authenticated — TV will sign in on apply.", variant = ZsStatusBannerVariant.Info)
                                 OutlinedTextField(
                                     value = accountDeviceName,
@@ -785,7 +785,7 @@ private fun TvSyncSenderScreen(
                                 )
                                 ZsButton(
                                     text = "Change to: No",
-                                    onClick = { passkeyKeySeed = null; passkeyDeclined = true },
+                                    onClick = { passkeySession = null; passkeyDeclined = true },
                                     variant = ZsButtonVariant.Secondary,
                                     modifier = Modifier.fillMaxWidth(),
                                 )
@@ -808,8 +808,8 @@ private fun TvSyncSenderScreen(
                                             scope.launch {
                                                 loading = true
                                                 status = null
-                                                runCatching { vm.resolvePasskeySeed(context) }
-                                                    .onSuccess { seed -> passkeyKeySeed = seed; status = null }
+                                                runCatching { vm.resolvePasskeySession(context, accountDeviceName.ifBlank { tvName }) }
+                                                    .onSuccess { session -> passkeySession = session; status = null }
                                                     .onFailure { status = it.message ?: "Passkey authentication failed" }
                                                 loading = false
                                             }
@@ -860,7 +860,7 @@ private fun TvSyncSenderScreen(
                         onClick = {
                             if (passphraseEnabled && passphrase.isBlank()) {
                                 status = "Enter your passphrase before continuing"
-                            } else if (passkeyKeySeed != null && accountDeviceName.isBlank()) {
+                            } else if (passkeySession != null && accountDeviceName.isBlank()) {
                                 status = "Enter a device name for the TV account session"
                             } else {
                                 page = if (passphraseEnabled) TvSyncPhonePage.ACCOUNT_DEVICE else TvSyncPhonePage.REVIEW
@@ -902,7 +902,7 @@ private fun TvSyncSenderScreen(
                             "wyzie" to "Wyzie key",
                         ).filter { selected[it.first] == true }.forEach { add(it.second) }
                         if (passphraseEnabled) add("ZStream account sign-in")
-                        if (passkeyKeySeed != null) add("ZStream account sign-in via passkey")
+                        if (passkeySession != null) add("ZStream account sign-in via passkey")
                     }
                     val canSend = pendingSummary.isNotEmpty()
                     SyncInstructionCard("Nothing changes yet", "After sending, review and apply this request on the TV.")
@@ -917,7 +917,7 @@ private fun TvSyncSenderScreen(
                                 loading = true
                                 Log.d(TV_SYNC_UI_TAG, "send start host=${receiver.host} port=${receiver.port} selected=${selected.filterValues { it }.keys} passphrase=$passphraseEnabled passphraseLength=${passphrase.length} leadingOrTrailingWhitespace=${passphrase != passphrase.trim()} accountDeviceName=$accountDeviceName")
                                 runCatching {
-                                    val payload = vm.buildPayload(tvName, selected.toMap(), passphrase.takeIf { passphraseEnabled }, accountDeviceName.takeIf { passphraseEnabled || passkeyKeySeed != null }, passkeyKeySeed)
+                                    val payload = vm.buildPayload(tvName, selected.toMap(), passphrase.takeIf { passphraseEnabled }, accountDeviceName.takeIf { passphraseEnabled || passkeySession != null }, passkeySession)
                                     vm.sendPayload(receiver.host, receiver.port, payload)
                                 }.onSuccess {
                                     Log.d(TV_SYNC_UI_TAG, "send success host=${receiver.host} port=${receiver.port}")

@@ -123,52 +123,30 @@ object CryptoUtils {
 
     //  Passkey helpers 
 
-    @OptIn(ExperimentalEncodingApi::class)
-    private fun randomBase64Url(bytes: Int = 32): String {
-        val buf = ByteArray(bytes).also { SecureRandom().nextBytes(it) }
-        return Base64.UrlSafe.encode(buf).trimEnd('=')
-    }
-
-    /** Register a new passkey, returns credential ID. */
-    suspend fun createPasskey(ctx: Context, userName: String): String {
-        val requestJson = JSONObject().apply {
-            put("challenge", randomBase64Url())
-            put("rp", JSONObject().put("name", "Z-Stream").put("id", com.zstream.android.Urls.PASSKEY_RP_ID))
-            put("user", JSONObject()
-                .put("id", randomBase64Url(8))
-                .put("name", userName)
-                .put("displayName", userName))
-            put("pubKeyCredParams", JSONArray().apply {
-                put(JSONObject().put("type", "public-key").put("alg", -7))
-                put(JSONObject().put("type", "public-key").put("alg", -257))
-            })
-            put("authenticatorSelection", JSONObject()
-                .put("userVerification", "preferred")
-                .put("residentKey", "preferred"))
-            put("timeout", 60000)
-            put("attestation", "none")
-        }.toString()
-
+    /**
+     * Runs the WebAuthn *registration* ceremony against server-issued [optionsJson] (the
+     * `options` object from POST /auth/passkey/register/options, serialized as-is) and returns the
+     * authenticator's attestation response JSON, ready to post to /register/verify.
+     *
+     * The challenge and RP id must come from the server -- the app no longer mints its own -- so
+     * that @simplewebauthn's verify step accepts them.
+     */
+    suspend fun passkeyRegisterResponse(ctx: Context, optionsJson: String): String {
         val result = CredentialManager.create(ctx)
-            .createCredential(ctx, CreatePublicKeyCredentialRequest(requestJson))
-        val responseJson = result.data.getString(
+            .createCredential(ctx, CreatePublicKeyCredentialRequest(optionsJson))
+        return result.data.getString(
             "androidx.credentials.BUNDLE_KEY_REGISTRATION_RESPONSE_JSON"
         ) ?: error("No registration response JSON")
-        return JSONObject(responseJson).getString("id")
     }
 
-    /** Authenticate with an existing passkey, returns credential ID. */
-    suspend fun authenticatePasskey(ctx: Context): String {
-        val requestJson = JSONObject().apply {
-            put("challenge", randomBase64Url())
-            put("timeout", 60000)
-            put("userVerification", "preferred")
-            put("rpId", com.zstream.android.Urls.PASSKEY_RP_ID)
-        }.toString()
-
+    /**
+     * Runs the WebAuthn *authentication* ceremony against server-issued [optionsJson] (the
+     * `options` object from POST /auth/passkey/login/options) and returns the authenticator's
+     * assertion response JSON, ready to post to /login/verify.
+     */
+    suspend fun passkeyAuthenticationResponse(ctx: Context, optionsJson: String): String {
         val result = CredentialManager.create(ctx)
-            .getCredential(ctx, GetCredentialRequest(listOf(GetPublicKeyCredentialOption(requestJson))))
-        val cred = result.credential as PublicKeyCredential
-        return JSONObject(cred.authenticationResponseJson).getString("id")
+            .getCredential(ctx, GetCredentialRequest(listOf(GetPublicKeyCredentialOption(optionsJson))))
+        return (result.credential as PublicKeyCredential).authenticationResponseJson
     }
 }

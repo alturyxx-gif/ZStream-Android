@@ -47,6 +47,25 @@ data class UserResponse(
 data class UserWithSession(val user: UserResponse, val session: SessionResponse)
 data class RegisterResponse(val token: String, val session: SessionResponse, val user: UserResponse)
 
+//  Passkey (WebAuthn) auth
+// The server issues the WebAuthn challenge inside `options` (and echoes it in the short-lived
+// signed `stateToken`); the app passes `options` verbatim to Android's Credential Manager and posts
+// the authenticator's attestation/assertion back to /verify. `options` and the response JSONs are
+// opaque WebAuthn blobs, so they ride as raw JsonObjects rather than typed models.
+data class PasskeyRegisterOptionsBody(val device: String)
+class PasskeyLoginOptionsBody
+data class PasskeyOptionsResponse(val options: com.google.gson.JsonObject, val stateToken: String)
+data class PasskeyRegisterVerifyBody(
+    val stateToken: String,
+    val attestationResponse: com.google.gson.JsonObject,
+    val profile: ProfileBody = ProfileBody(),
+)
+data class PasskeyLoginVerifyBody(
+    val stateToken: String,
+    val assertionResponse: com.google.gson.JsonObject,
+    val device: String,
+)
+
 data class UpdateUserProfileBody(val nickname: String)
 
 data class MetaSeasonEpisode(val id: String? = null, val number: Int? = null)
@@ -173,6 +192,18 @@ interface BackendApi {
 
     @POST("auth/register/complete")
     suspend fun registerComplete(@Body body: RegisterCompleteBody): RegisterResponse
+
+    @POST("auth/passkey/register/options")
+    suspend fun passkeyRegisterOptions(@Body body: PasskeyRegisterOptionsBody): PasskeyOptionsResponse
+
+    @POST("auth/passkey/register/verify")
+    suspend fun passkeyRegisterVerify(@Body body: PasskeyRegisterVerifyBody): LoginResponse
+
+    @POST("auth/passkey/login/options")
+    suspend fun passkeyLoginOptions(@Body body: PasskeyLoginOptionsBody): PasskeyOptionsResponse
+
+    @POST("auth/passkey/login/verify")
+    suspend fun passkeyLoginVerify(@Body body: PasskeyLoginVerifyBody): LoginResponse
 
     @GET("users/@me")
     suspend fun getMe(@Header("Authorization") auth: String): UserWithSession
