@@ -37,6 +37,11 @@ const val MAGNOLIA_PARALLEL_MODE_SEGMENT_WORKERS = 8
 const val MAGNOLIA_ADAPTIVE_MAX_WORKERS_SINGLE = 24
 const val MAGNOLIA_ADAPTIVE_MAX_WORKERS_PARALLEL = 16
 
+const val ARTEMIS_SEGMENT_WORKERS = 16
+const val ARTEMIS_PARALLEL_MODE_SEGMENT_WORKERS = 12
+const val ARTEMIS_ADAPTIVE_MAX_WORKERS_SINGLE = 24
+const val ARTEMIS_ADAPTIVE_MAX_WORKERS_PARALLEL = 16
+
 
 private class AdaptiveConcurrencyController(startLimit: Int, private val maxLimit: Int) {
     private val mutex = kotlinx.coroutines.sync.Mutex()

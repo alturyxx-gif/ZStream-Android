@@ -438,7 +438,7 @@ class PluginManager @Inject constructor(
             context, 4103, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val notification = NotificationCompat.Builder(context, PLUGIN_UPDATE_CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_group_megaphone)
+            .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle("Plugin update ready")
             .setContentText("Source plugin v$displayVersion is staged — restart ZStream to apply it.")
             .setContentIntent(pendingIntent)

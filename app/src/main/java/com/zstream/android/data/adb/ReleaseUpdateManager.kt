@@ -250,7 +250,7 @@ class ReleaseUpdateManager @Inject constructor(
             "A new APK is available for this phone."
         }
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_group_megaphone)
+            .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle("ZStream update available")
             .setContentText(message)
             .setStyle(NotificationCompat.BigTextStyle().bigText(message))

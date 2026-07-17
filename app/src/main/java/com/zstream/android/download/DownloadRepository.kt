@@ -167,11 +167,12 @@ class DownloadRepository @Inject constructor(
 
             when (request.streamType) {
                 "file" -> {
+                    workDir.mkdirs()
                     var speedLastAtMs = System.currentTimeMillis()
                     var speedLastBytes = 0L
                     var speedEwma: Long? = null
                     storage.openOutputStream(videoFile).use { out ->
-                        DirectFileDownloader.download(client, request.streamUrl, request.headers, out) { received, total ->
+                        DirectFileDownloader.download(client, request.streamUrl, request.headers, out, workDir) { received, total ->
                             val pct = if (total != null && total > 0) ((received * 100) / total).toInt() else 0
                             val now = System.currentTimeMillis()
                             val deltaMs = now - speedLastAtMs
@@ -205,15 +206,20 @@ class DownloadRepository @Inject constructor(
                     val stateMutex = kotlinx.coroutines.sync.Mutex()
                     val parallelDownload = settingsPrefs.settings.first().allowParallelDownload
                     val isMagnolia = request.sourceId.equals("magnolia", ignoreCase = true)
+                    val isArtemis = request.sourceId.equals("artemis", ignoreCase = true)
                     val segmentWorkers = when {
                         isMagnolia && parallelDownload -> MAGNOLIA_PARALLEL_MODE_SEGMENT_WORKERS
                         isMagnolia -> MAGNOLIA_SEGMENT_WORKERS
+                        isArtemis && parallelDownload -> ARTEMIS_PARALLEL_MODE_SEGMENT_WORKERS
+                        isArtemis -> ARTEMIS_SEGMENT_WORKERS
                         parallelDownload -> PARALLEL_MODE_SEGMENT_WORKERS
                         else -> DEFAULT_SEGMENT_WORKERS
                     }
                     val maxSegmentWorkers = when {
                         isMagnolia && parallelDownload -> MAGNOLIA_ADAPTIVE_MAX_WORKERS_PARALLEL
                         isMagnolia -> MAGNOLIA_ADAPTIVE_MAX_WORKERS_SINGLE
+                        isArtemis && parallelDownload -> ARTEMIS_ADAPTIVE_MAX_WORKERS_PARALLEL
+                        isArtemis -> ARTEMIS_ADAPTIVE_MAX_WORKERS_SINGLE
                         parallelDownload -> ADAPTIVE_MAX_WORKERS_PARALLEL
                         else -> ADAPTIVE_MAX_WORKERS_SINGLE
                     }

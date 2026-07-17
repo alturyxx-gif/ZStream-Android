@@ -15,6 +15,8 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import okhttp3.OkHttpClient
 import okhttp3.Cache
+import okhttp3.ConnectionPool
+import okhttp3.Dispatcher
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
@@ -35,8 +37,22 @@ object NetworkModule {
     @Provides @Singleton
     fun okHttp(@ApplicationContext context: Context): OkHttpClient = OkHttpClient.Builder()
         .cache(Cache(context.cacheDir.resolve("http_cache"), 100L * 1024 * 1024))
+        // Default OkHttp caps concurrent requests to the SAME host at 5 (Dispatcher.maxRequestsPerHost)
+        // regardless of how many coroutines are "allowed" to run by our own AdaptiveConcurrencyController
+        // — every HLS/segment download target is one host, so without this every download tier above
+        // segmentWorkers=5 was silently throttled back down to 5 real concurrent connections by OkHttp
+        // itself. Raised well above the highest configured tier (24) with headroom for future tiers.
+        .dispatcher(Dispatcher().apply {
+            maxRequests = 64
+            maxRequestsPerHost = 48
+        })
+        // Matches maxRequestsPerHost so a full-concurrency download doesn't spend most of its time
+        // opening fresh TCP+TLS connections instead of reusing pooled ones (default pool is only 5).
+        .connectionPool(ConnectionPool(48, 5, TimeUnit.MINUTES))
         .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(20, TimeUnit.SECONDS)
+        .writeTimeout(20, TimeUnit.SECONDS)
+        .retryOnConnectionFailure(true)
         .build()
 
     @Provides @Singleton @TmdbRetrofit
