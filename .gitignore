@@ -45,3 +45,5 @@ xp-turnstile/
 replay_pid9984.log
 
 *.png
+*.jks
+*.json
