@@ -247,6 +247,7 @@ fun DetailScreen(nav: NavController, vm: DetailViewModel = hiltViewModel()) {
     val downloadedEpisodes by vm.downloadedEpisodes.collectAsState()
     val isOffline by vm.isOffline.collectAsState()
     val pendingDownloads by vm.pendingDownloads.collectAsState()
+    val seasonDownloadProgress by vm.seasonDownloadProgress.collectAsState()
     val hasProgress = progress?.let { it.watched >= 20 } ?: false
 
     if (!isTv) {
@@ -328,6 +329,7 @@ fun DetailScreen(nav: NavController, vm: DetailViewModel = hiltViewModel()) {
                 onDownloadEpisode = vm::downloadEpisode,
                 onDownloadSeason = vm::downloadSeason,
                 pendingDownloads = pendingDownloads,
+                seasonDownloadProgress = seasonDownloadProgress,
                 isOffline = isOffline,
                 onBookmarkCollection = vm::bookmarkCollection,
                 onBrowseCollection = vm::loadCollection,

@@ -381,6 +381,7 @@ internal fun ColumnScope.SharedTvDetailContent(
     onDownloadEpisode: (Episode) -> Unit = {},
     onDownloadSeason: () -> Unit = {},
     pendingDownloads: Set<String> = emptySet(),
+    seasonDownloadProgress: Pair<Int, Int>? = null,
     isOffline: Boolean = false,
     firstItemFocusRequester: FocusRequester? = null,
     trackedReleaseVm: TrackedReleaseViewModel,
@@ -517,15 +518,39 @@ internal fun ColumnScope.SharedTvDetailContent(
             airedEpisodesForDownload.all { downloadedEpisodes.containsKey("${it.seasonNumber}|${it.episodeNumber}") }
         if (!isOffline && !seasonFullyDownloaded) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp), horizontalArrangement = Arrangement.End) {
-                TextButton(onClick = onDownloadSeason, enabled = !seasonPending) {
+                val (queued, total) = seasonDownloadProgress ?: (0 to 0)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(
+                            if (seasonPending) {
+                                theme.colors.background.secondary.copy(alpha = 0.6f)
+                            } else {
+                                theme.colors.global.accentA.copy(alpha = 0.14f)
+                            }
+                        )
+                        .then(
+                            if (seasonPending) Modifier else Modifier.clickable(onClick = onDownloadSeason)
+                        )
+                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                ) {
                     if (seasonPending) {
                         CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp, color = theme.colors.type.secondary)
                         Spacer(Modifier.width(8.dp))
-                        Text("Downloading Season ${selectedSeason.seasonNumber}…", color = theme.colors.type.secondary)
+                        Text(
+                            if (total > 0) {
+                                "Queueing Season ${selectedSeason.seasonNumber}… ($queued/$total)"
+                            } else {
+                                "Queueing Season ${selectedSeason.seasonNumber}…"
+                            },
+                            color = theme.colors.type.secondary,
+                            fontSize = 13.sp,
+                        )
                     } else {
                         Icon(Icons.Filled.Download, null, modifier = Modifier.size(16.dp), tint = theme.colors.global.accentA)
                         Spacer(Modifier.width(8.dp))
-                        Text("Download Season ${selectedSeason.seasonNumber}", color = theme.colors.global.accentA)
+                        Text("Download Season ${selectedSeason.seasonNumber}", color = theme.colors.global.accentA, fontSize = 13.sp)
                     }
                 }
             }

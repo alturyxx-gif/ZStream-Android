@@ -89,6 +89,10 @@ class DetailViewModel @Inject constructor(
     private val _pendingDownloads = MutableStateFlow<Set<String>>(emptySet())
     val pendingDownloads: kotlinx.coroutines.flow.StateFlow<Set<String>> = _pendingDownloads.asStateFlow()
 
+    /** (queued so far, total) while [downloadSeason] is running, so the season button can show real progress instead of a static label. Null when no season batch is in flight. */
+    private val _seasonDownloadProgress = MutableStateFlow<Pair<Int, Int>?>(null)
+    val seasonDownloadProgress: kotlinx.coroutines.flow.StateFlow<Pair<Int, Int>?> = _seasonDownloadProgress.asStateFlow()
+
     // Add flows for bookmark and progress
     val isBookmarked = bookmarkRepo.observeBookmark(id.toString())
         .map { it != null }
@@ -537,28 +541,37 @@ class DetailViewModel @Inject constructor(
         val targets = season.episodes.orEmpty()
             .airedEpisodes()
             .filterNot { alreadyDownloaded.contains("${it.seasonNumber}|${it.episodeNumber}") }
+        if (targets.isEmpty()) return
         viewModelScope.launch {
             // Asked once for the whole season, not once per episode.
             val destination = com.zstream.android.download.DownloadDestinationBroker.chooseTreeUri() ?: return@launch
-            targets.forEach { episode ->
-                val key = "${episode.seasonNumber}|${episode.episodeNumber}"
-                if (key in _pendingDownloads.value) return@forEach
-                _pendingDownloads.value = _pendingDownloads.value + key
-                try {
-                    downloadResolver.resolveAndEnqueue(
-                        mediaType = "tv",
-                        tmdbId = id.toString(),
-                        title = current.detail.name,
-                        year = current.detail.firstAirDate?.take(4)?.toIntOrNull(),
-                        posterPath = current.detail.posterPath,
-                        season = episode.seasonNumber,
-                        episode = episode.episodeNumber,
-                        episodeTitle = episode.name,
-                        destinationTreeUri = destination.treeUri,
-                    )
-                } finally {
-                    _pendingDownloads.value = _pendingDownloads.value - key
+            _seasonDownloadProgress.value = 0 to targets.size
+            try {
+                targets.forEachIndexed { index, episode ->
+                    val key = "${episode.seasonNumber}|${episode.episodeNumber}"
+                    if (key in _pendingDownloads.value) return@forEachIndexed
+                    _pendingDownloads.value = _pendingDownloads.value + key
+                    try {
+                        downloadResolver.resolveAndEnqueue(
+                            mediaType = "tv",
+                            tmdbId = id.toString(),
+                            title = current.detail.name,
+                            year = current.detail.firstAirDate?.take(4)?.toIntOrNull(),
+                            posterPath = current.detail.posterPath,
+                            season = episode.seasonNumber,
+                            episode = episode.episodeNumber,
+                            episodeTitle = episode.name,
+                            destinationTreeUri = destination.treeUri,
+                        )
+                    } finally {
+                        _pendingDownloads.value = _pendingDownloads.value - key
+                        // Advance even on failure -- a stuck-at-3/12 counter reads as a hang, and
+                        // one episode failing to resolve shouldn't block visibility into the rest.
+                        _seasonDownloadProgress.value = (index + 1) to targets.size
+                    }
                 }
+            } finally {
+                _seasonDownloadProgress.value = null
             }
         }
     }

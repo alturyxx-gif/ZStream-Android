@@ -8,7 +8,11 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import okhttp3.OkHttpClient
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+
+private const val ARTEMIS_RATE_LIMIT_MAX_RETRIES = 5
+private const val ARTEMIS_RATE_LIMIT_BACKOFF_MS = 4000L
 
 @Singleton
 class DownloadResolver @Inject constructor(
@@ -50,7 +54,22 @@ class DownloadResolver @Inject constructor(
         var success: StreamResult.Success? = null
         var successSourceId: String? = null
         for (source in ordered) {
-            val result = pluginManager.resolve(media, source.id)
+            var result = pluginManager.resolve(media, source.id)
+            // Artemis's own rate limiter (8 req/25s) surfaces as a distinguishable
+            // StreamResult.Error("RATE_LIMITED") rather than NotFound -- don't treat that as
+            // "Artemis has nothing" and fall through to the next source in priority order, back
+            // off and retry Artemis itself instead, same as we'd want for a season batch that's
+            // hammering it episode after episode.
+            if (source.id == "artemis") {
+                var attempt = 0
+                while (result is StreamResult.Error && result.message == "RATE_LIMITED" &&
+                    attempt < ARTEMIS_RATE_LIMIT_MAX_RETRIES
+                ) {
+                    attempt++
+                    delay(ARTEMIS_RATE_LIMIT_BACKOFF_MS)
+                    result = pluginManager.resolve(media, source.id)
+                }
+            }
             if (result !is StreamResult.Success) continue
             if (result.streamType == "hls" && !result.skipProbe) {
                 if (!probeHlsSegment(httpClient, result.streamUrl, result.headers)) continue
