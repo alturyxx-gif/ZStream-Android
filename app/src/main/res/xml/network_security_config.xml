@@ -5,11 +5,18 @@
         causing TLS handshake failures against image.tmdb.org and other Let's Encrypt
         backed servers. Bundling it here extends the system store for all connections
         made by the app, fixing the issue on all API levels without affecting security.
+
+        User-added CAs are trusted too (src="user") so self-hosted custom backends using a
+        private/internal CA, which users install into the device trust store themselves,
+        work the same way they already do in a browser. Since API 24, apps must opt in to this
+        explicitly; installing a user CA still requires device unlock/confirmation, so this
+        doesn't weaken the app's security beyond what the user already granted at the OS level.
     -->
     <base-config cleartextTrafficPermitted="true">
         <trust-anchors>
             <certificates src="system" />
             <certificates src="@raw/isrg_root_x1" />
+            <certificates src="user" />
         </trust-anchors>
     </base-config>
     <domain-config cleartextTrafficPermitted="true">
