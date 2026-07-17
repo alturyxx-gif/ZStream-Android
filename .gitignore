@@ -45,5 +45,8 @@ xp-turnstile/
 replay_pid9984.log
 
 *.png
+
+# Signing keys -- never commit
 *.jks
 *.json
+*.keystore
