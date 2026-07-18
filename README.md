@@ -8,6 +8,10 @@ Official Android client for ZStream.
 
 This app plays streams from various sources. To work properly, it requires a **plugin APK** to access streaming sources.
 
+For local testing / your own forks you NEED to make your OWN plugin with how the app accepts it.
+
+For official usage, Download the latest release, it will auto-install.
+
 ### Then download the latest release
 
 1. Go to [Releases](https://github.com/alturyxx-gif/ZStream-Android/releases)
