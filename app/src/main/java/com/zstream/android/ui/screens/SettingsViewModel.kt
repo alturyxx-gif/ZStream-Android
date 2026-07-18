@@ -718,6 +718,7 @@ class SettingsViewModel @Inject constructor(
     private fun com.google.gson.JsonElement.safeString(): String? = takeIf { it.isJsonPrimitive }?.asString
     private fun com.google.gson.JsonElement.safeInt(): Int? = takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }?.asInt
     private fun com.google.gson.JsonElement.safeNumberAsInt(): Int? = takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }?.asDouble?.toInt()
+    private fun com.google.gson.JsonElement.safeLong(): Long? = takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }?.asLong
 
     // Different export versions store `bookmarks`/`progress` either as a map keyed by tmdbId
     // (MediaWatch's current shape) or as a flat array of entries carrying their own id field.
@@ -750,7 +751,14 @@ class SettingsViewModel @Inject constructor(
         var bookmarksImported = 0
         var progressImported = 0
 
-        root.entryPairs("bookmarks").forEach { (tmdbId, obj) ->
+        // Both the local Room updatedAt and the backend's own sync-receipt timestamp are stamped
+        // in call order, not from any value in this file, so entries must be replayed oldest-first
+        // by their original `updatedAt` or "most recently watched/bookmarked" ends up scrambled
+        // (JSON object keys with integer-like names iterate in numeric-ascending order in Gson,
+        // not insertion/recency order, which is what caused the reversed ordering).
+        root.entryPairs("bookmarks")
+            .sortedBy { (_, obj) -> obj.get("updatedAt")?.safeLong() ?: 0L }
+            .forEach { (tmdbId, obj) ->
             runCatching {
                 val title = obj.get("title")?.safeString() ?: return@runCatching
                 val type = obj.get("type")?.safeString() ?: "movie"
@@ -764,7 +772,9 @@ class SettingsViewModel @Inject constructor(
             }.onFailure { e -> Log.w("SettingsViewModel", "Skipping malformed bookmark entry $tmdbId", e) }
         }
 
-        root.entryPairs("progress").forEach { (tmdbId, obj) ->
+        root.entryPairs("progress")
+            .sortedBy { (_, obj) -> obj.get("updatedAt")?.safeLong() ?: 0L }
+            .forEach { (tmdbId, obj) ->
             runCatching {
                 val title = obj.get("title")?.safeString() ?: return@runCatching
                 val type = obj.get("type")?.safeString() ?: "movie"
@@ -796,7 +806,9 @@ class SettingsViewModel @Inject constructor(
                 }
 
                 val seasons = obj.safeObject("seasons")
-                obj.safeObject("episodes")?.entrySet()?.forEach { (episodeId, epElement) ->
+                obj.safeObject("episodes")?.entrySet()
+                    ?.sortedBy { (_, epElement) -> epElement.asJsonObject.get("updatedAt")?.safeLong() ?: 0L }
+                    ?.forEach { (episodeId, epElement) ->
                     runCatching {
                         val ep = epElement.asJsonObject
                         val epProgress = ep.safeObject("progress") ?: return@runCatching
