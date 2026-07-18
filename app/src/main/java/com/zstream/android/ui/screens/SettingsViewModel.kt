@@ -1,5 +1,6 @@
 package com.zstream.android.ui.screens
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.zstream.android.data.AuroraKeyInfo
@@ -703,52 +704,73 @@ class SettingsViewModel @Inject constructor(
      * than ZStream's own backup format. Skips entries missing a title/type since
      * those can't be reconstructed.
      */
+    // JsonObject.getAsJsonObject/getAsJsonArray do a raw, unchecked cast on whatever value is
+    // stored for that key, so a differently-shaped field elsewhere in a hand-edited or
+    // differently-versioned export (e.g. a null or a scalar where an object is expected) throws
+    // a bare ClassCastException. These helpers check the element's actual type first so one
+    // oddly-shaped field can't abort the whole import.
+    private fun com.google.gson.JsonObject.safeObject(key: String): com.google.gson.JsonObject? =
+        get(key)?.takeIf { it.isJsonObject }?.asJsonObject
+
+    private fun com.google.gson.JsonObject.safeArray(key: String): com.google.gson.JsonArray? =
+        get(key)?.takeIf { it.isJsonArray }?.asJsonArray
+
+    private fun com.google.gson.JsonElement.safeString(): String? = takeIf { it.isJsonPrimitive }?.asString
+    private fun com.google.gson.JsonElement.safeInt(): Int? = takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }?.asInt
+    private fun com.google.gson.JsonElement.safeNumberAsInt(): Int? = takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }?.asDouble?.toInt()
+
     suspend fun importDataJson(json: String): ImportSummary = withContext(kotlinx.coroutines.Dispatchers.IO) {
         val root = JsonParser.parseString(json).asJsonObject
         var bookmarksImported = 0
         var progressImported = 0
 
-        root.getAsJsonObject("bookmarks")?.entrySet()?.forEach { (tmdbId, element) ->
-            val obj = element.asJsonObject
-            val title = obj.get("title")?.takeIf { it.isJsonPrimitive }?.asString ?: return@forEach
-            val type = obj.get("type")?.takeIf { it.isJsonPrimitive }?.asString ?: "movie"
-            val year = obj.get("year")?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }?.asInt
-            val poster = obj.get("poster")?.takeIf { it.isJsonPrimitive }?.asString
-            val groups = obj.getAsJsonArray("group")?.map { it.asString }
-            bookmarkRepo.addBookmark(tmdbId, title, type, year, poster, groups)
-            bookmarksImported++
+        root.safeObject("bookmarks")?.entrySet()?.forEach { (tmdbId, element) ->
+            runCatching {
+                val obj = element.asJsonObject
+                val title = obj.get("title")?.safeString() ?: return@runCatching
+                val type = obj.get("type")?.safeString() ?: "movie"
+                val year = obj.get("year")?.safeInt()
+                val poster = obj.get("poster")?.safeString()
+                val groups = obj.safeArray("group")?.mapNotNull { it.safeString() }
+                bookmarkRepo.addBookmark(tmdbId, title, type, year, poster, groups)
+                bookmarksImported++
+            }.onFailure { e -> Log.w("SettingsViewModel", "Skipping malformed bookmark entry $tmdbId", e) }
         }
 
-        root.getAsJsonObject("progress")?.entrySet()?.forEach { (tmdbId, element) ->
-            val obj = element.asJsonObject
-            val title = obj.get("title")?.takeIf { it.isJsonPrimitive }?.asString ?: return@forEach
-            val type = obj.get("type")?.takeIf { it.isJsonPrimitive }?.asString ?: "movie"
-            val year = obj.get("year")?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }?.asInt
-            val poster = obj.get("poster")?.takeIf { it.isJsonPrimitive }?.asString
+        root.safeObject("progress")?.entrySet()?.forEach { (tmdbId, element) ->
+            runCatching {
+                val obj = element.asJsonObject
+                val title = obj.get("title")?.safeString() ?: return@runCatching
+                val type = obj.get("type")?.safeString() ?: "movie"
+                val year = obj.get("year")?.safeInt()
+                val poster = obj.get("poster")?.safeString()
 
-            obj.getAsJsonObject("progress")?.let { p ->
-                val watched = p.get("watched")?.asDouble?.toInt() ?: 0
-                val duration = p.get("duration")?.asDouble?.toInt() ?: 0
-                progressRepo.updateProgress(tmdbId, title, type, watched, duration, year, poster)
-                progressImported++
-            }
+                obj.safeObject("progress")?.let { p ->
+                    val watched = p.get("watched")?.safeNumberAsInt() ?: 0
+                    val duration = p.get("duration")?.safeNumberAsInt() ?: 0
+                    progressRepo.updateProgress(tmdbId, title, type, watched, duration, year, poster)
+                    progressImported++
+                }
 
-            val seasons = obj.getAsJsonObject("seasons")
-            obj.getAsJsonObject("episodes")?.entrySet()?.forEach { (episodeId, epElement) ->
-                val ep = epElement.asJsonObject
-                val epProgress = ep.getAsJsonObject("progress") ?: return@forEach
-                val watched = epProgress.get("watched")?.asDouble?.toInt() ?: 0
-                val duration = epProgress.get("duration")?.asDouble?.toInt() ?: 0
-                val seasonId = ep.get("seasonId")?.takeIf { it.isJsonPrimitive }?.asString
-                val episodeNumber = ep.get("number")?.takeIf { it.isJsonPrimitive }?.asInt
-                val seasonNumber = seasonId?.let { sid -> seasons?.getAsJsonObject(sid)?.get("number")?.asInt }
-                progressRepo.updateProgress(
-                    tmdbId, title, type, watched, duration, year, poster,
-                    episodeId = episodeId, seasonId = seasonId,
-                    episodeNumber = episodeNumber, seasonNumber = seasonNumber,
-                )
-                progressImported++
-            }
+                val seasons = obj.safeObject("seasons")
+                obj.safeObject("episodes")?.entrySet()?.forEach { (episodeId, epElement) ->
+                    runCatching {
+                        val ep = epElement.asJsonObject
+                        val epProgress = ep.safeObject("progress") ?: return@runCatching
+                        val watched = epProgress.get("watched")?.safeNumberAsInt() ?: 0
+                        val duration = epProgress.get("duration")?.safeNumberAsInt() ?: 0
+                        val seasonId = ep.get("seasonId")?.safeString()
+                        val episodeNumber = ep.get("number")?.safeInt()
+                        val seasonNumber = seasonId?.let { sid -> seasons?.safeObject(sid)?.get("number")?.safeInt() }
+                        progressRepo.updateProgress(
+                            tmdbId, title, type, watched, duration, year, poster,
+                            episodeId = episodeId, seasonId = seasonId,
+                            episodeNumber = episodeNumber, seasonNumber = seasonNumber,
+                        )
+                        progressImported++
+                    }.onFailure { e -> Log.w("SettingsViewModel", "Skipping malformed episode entry $tmdbId/$episodeId", e) }
+                }
+            }.onFailure { e -> Log.w("SettingsViewModel", "Skipping malformed progress entry $tmdbId", e) }
         }
 
         ImportSummary(bookmarksImported, progressImported)
