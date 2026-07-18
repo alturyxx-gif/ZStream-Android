@@ -50,7 +50,14 @@ class TmdbRepository @Inject constructor(private val api: TmdbApi) {
 
     suspend fun seasonCatalog(tvId: Int, detail: TvDetail? = null): TvSeasonCatalog {
         seasonCatalogCache[tvId]?.let { return it }
-        val tvDetail = detail ?: runCatching { tvDetail(tvId) }.getOrNull()
+
+        val tvDetail = if (detail != null) {
+            detail
+        } else {
+            runCatching { tvDetail(tvId) }.getOrNull()
+                ?: return TvSeasonCatalog(seasons = emptyList(), usingEpisodeGroups = false)
+        }
+
         val catalog = resolveSeasonCatalog(tvId, tvDetail)
         seasonCatalogCache[tvId] = catalog
         return catalog
