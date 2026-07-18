@@ -48,6 +48,21 @@ class ProgressRepository @Inject constructor(
     }
 
     /**
+     * Picks the entry to represent a show's single backend progress row. Unlike
+     * findLatestEpisode() (furthest-along episode, used for the detail screen's resume point),
+     * this must match toContinueWatchingResult()'s definition of "latest" (most recently
+     * *watched*, by updatedAt) -- otherwise a rewatch of an earlier episode never gets pushed as
+     * the show's latest, syncFromRemote() later pulls back the stale higher-episode row with a
+     * fresh push timestamp, and it silently outranks and hides the real latest watch in Continue
+     * Watching.
+     */
+    private fun findMostRecentlyWatched(entries: List<ProgressEntity>): ProgressEntity {
+        val nonCompleted = entries.filter { it.duration <= 0 || it.watched < it.duration * 0.95f }
+        val candidates = if (nonCompleted.isNotEmpty()) nonCompleted else entries
+        return candidates.maxByOrNull { it.updatedAt } ?: candidates.first()
+    }
+
+    /**
      * Get all progress items (movies watched)
      */
     fun observeAllProgress(): Flow<List<ProgressEntity>> {
@@ -246,7 +261,7 @@ class ProgressRepository @Inject constructor(
 
             for ((tmdbId, entries) in grouped) {
                 try {
-                    val latest = findLatestEpisode(entries)
+                    val latest = findMostRecentlyWatched(entries)
                     val input = ProgressInput(
                         tmdbId = latest.tmdbId,
                         meta = com.zstream.android.data.remote.ProgressMeta(
