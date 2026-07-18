@@ -719,31 +719,74 @@ class SettingsViewModel @Inject constructor(
     private fun com.google.gson.JsonElement.safeInt(): Int? = takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }?.asInt
     private fun com.google.gson.JsonElement.safeNumberAsInt(): Int? = takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }?.asDouble?.toInt()
 
+    // Different export versions store `bookmarks`/`progress` either as a map keyed by tmdbId
+    // (MediaWatch's current shape) or as a flat array of entries carrying their own id field.
+    // Normalizes both into (tmdbId, entryObject) pairs so the rest of the import doesn't care
+    // which shape it got. Returns empty (with a log) if the key is missing or neither shape.
+    private fun com.google.gson.JsonObject.entryPairs(key: String): List<Pair<String, com.google.gson.JsonObject>> {
+        val value = get(key)
+        if (value == null || value.isJsonNull) return emptyList()
+        return when {
+            value.isJsonObject -> value.asJsonObject.entrySet().mapNotNull { (k, v) ->
+                v.takeIf { it.isJsonObject }?.asJsonObject?.let { k to it }
+            }
+            value.isJsonArray -> value.asJsonArray.mapNotNull { el ->
+                val obj = el.takeIf { it.isJsonObject }?.asJsonObject ?: return@mapNotNull null
+                val id = obj.get("tmdbId")?.safeString()
+                    ?: obj.get("tmdbId")?.safeNumberAsInt()?.toString()
+                    ?: obj.get("id")?.safeString()
+                    ?: obj.get("id")?.safeNumberAsInt()?.toString()
+                id?.let { it to obj }
+            }
+            else -> {
+                Log.w("SettingsViewModel", "Import: '$key' is neither an object nor an array, skipping")
+                emptyList()
+            }
+        }
+    }
+
     suspend fun importDataJson(json: String): ImportSummary = withContext(kotlinx.coroutines.Dispatchers.IO) {
         val root = JsonParser.parseString(json).asJsonObject
         var bookmarksImported = 0
         var progressImported = 0
 
-        root.safeObject("bookmarks")?.entrySet()?.forEach { (tmdbId, element) ->
+        root.entryPairs("bookmarks").forEach { (tmdbId, obj) ->
             runCatching {
-                val obj = element.asJsonObject
                 val title = obj.get("title")?.safeString() ?: return@runCatching
                 val type = obj.get("type")?.safeString() ?: "movie"
                 val year = obj.get("year")?.safeInt()
-                val poster = obj.get("poster")?.safeString()
-                val groups = obj.safeArray("group")?.mapNotNull { it.safeString() }
+                // "poster"/"group" match MediaWatch's export shape; "posterPath"/"groups" match
+                // ZStream's own BookmarkEntity export shape (exportDataJson dumps entities as-is).
+                val poster = obj.get("poster")?.safeString() ?: obj.get("posterPath")?.safeString()
+                val groups = (obj.safeArray("group") ?: obj.safeArray("groups"))?.mapNotNull { it.safeString() }
                 bookmarkRepo.addBookmark(tmdbId, title, type, year, poster, groups)
                 bookmarksImported++
             }.onFailure { e -> Log.w("SettingsViewModel", "Skipping malformed bookmark entry $tmdbId", e) }
         }
 
-        root.safeObject("progress")?.entrySet()?.forEach { (tmdbId, element) ->
+        root.entryPairs("progress").forEach { (tmdbId, obj) ->
             runCatching {
-                val obj = element.asJsonObject
                 val title = obj.get("title")?.safeString() ?: return@runCatching
                 val type = obj.get("type")?.safeString() ?: "movie"
                 val year = obj.get("year")?.safeInt()
-                val poster = obj.get("poster")?.safeString()
+                val poster = obj.get("poster")?.safeString() ?: obj.get("posterPath")?.safeString()
+
+                // ZStream's own ProgressEntity export shape: watched/duration/episodeId/seasonId
+                // sit directly on the entry (one flat row per movie or per episode), unlike
+                // MediaWatch's nested `progress`/`episodes`/`seasons` shape handled below.
+                val flatWatched = obj.get("watched")?.safeNumberAsInt()
+                val flatDuration = obj.get("duration")?.safeNumberAsInt()
+                if (flatWatched != null && flatDuration != null) {
+                    progressRepo.updateProgress(
+                        tmdbId, title, type, flatWatched, flatDuration, year, poster,
+                        episodeId = obj.get("episodeId")?.safeString(),
+                        seasonId = obj.get("seasonId")?.safeString(),
+                        episodeNumber = obj.get("episodeNumber")?.safeInt(),
+                        seasonNumber = obj.get("seasonNumber")?.safeInt(),
+                    )
+                    progressImported++
+                    return@runCatching
+                }
 
                 obj.safeObject("progress")?.let { p ->
                     val watched = p.get("watched")?.safeNumberAsInt() ?: 0
