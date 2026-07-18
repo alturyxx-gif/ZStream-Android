@@ -24,6 +24,7 @@ import com.zstream.android.plugin.SourceInfo
 import com.zstream.android.plugin.SourceOrderStore
 import com.zstream.android.plugin.pluginVersionLabel
 import com.google.gson.Gson
+import com.google.gson.JsonParser
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.*
@@ -695,4 +696,63 @@ class SettingsViewModel @Inject constructor(
         }
         fileName
     }
+
+    /**
+     * Imports bookmarks and watch progress from an external app's export JSON
+     * (e.g. MediaWatch's `account/bookmarks/progress/watchHistory` shape) rather
+     * than ZStream's own backup format. Skips entries missing a title/type since
+     * those can't be reconstructed.
+     */
+    suspend fun importDataJson(json: String): ImportSummary = withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val root = JsonParser.parseString(json).asJsonObject
+        var bookmarksImported = 0
+        var progressImported = 0
+
+        root.getAsJsonObject("bookmarks")?.entrySet()?.forEach { (tmdbId, element) ->
+            val obj = element.asJsonObject
+            val title = obj.get("title")?.takeIf { it.isJsonPrimitive }?.asString ?: return@forEach
+            val type = obj.get("type")?.takeIf { it.isJsonPrimitive }?.asString ?: "movie"
+            val year = obj.get("year")?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }?.asInt
+            val poster = obj.get("poster")?.takeIf { it.isJsonPrimitive }?.asString
+            val groups = obj.getAsJsonArray("group")?.map { it.asString }
+            bookmarkRepo.addBookmark(tmdbId, title, type, year, poster, groups)
+            bookmarksImported++
+        }
+
+        root.getAsJsonObject("progress")?.entrySet()?.forEach { (tmdbId, element) ->
+            val obj = element.asJsonObject
+            val title = obj.get("title")?.takeIf { it.isJsonPrimitive }?.asString ?: return@forEach
+            val type = obj.get("type")?.takeIf { it.isJsonPrimitive }?.asString ?: "movie"
+            val year = obj.get("year")?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }?.asInt
+            val poster = obj.get("poster")?.takeIf { it.isJsonPrimitive }?.asString
+
+            obj.getAsJsonObject("progress")?.let { p ->
+                val watched = p.get("watched")?.asDouble?.toInt() ?: 0
+                val duration = p.get("duration")?.asDouble?.toInt() ?: 0
+                progressRepo.updateProgress(tmdbId, title, type, watched, duration, year, poster)
+                progressImported++
+            }
+
+            val seasons = obj.getAsJsonObject("seasons")
+            obj.getAsJsonObject("episodes")?.entrySet()?.forEach { (episodeId, epElement) ->
+                val ep = epElement.asJsonObject
+                val epProgress = ep.getAsJsonObject("progress") ?: return@forEach
+                val watched = epProgress.get("watched")?.asDouble?.toInt() ?: 0
+                val duration = epProgress.get("duration")?.asDouble?.toInt() ?: 0
+                val seasonId = ep.get("seasonId")?.takeIf { it.isJsonPrimitive }?.asString
+                val episodeNumber = ep.get("number")?.takeIf { it.isJsonPrimitive }?.asInt
+                val seasonNumber = seasonId?.let { sid -> seasons?.getAsJsonObject(sid)?.get("number")?.asInt }
+                progressRepo.updateProgress(
+                    tmdbId, title, type, watched, duration, year, poster,
+                    episodeId = episodeId, seasonId = seasonId,
+                    episodeNumber = episodeNumber, seasonNumber = seasonNumber,
+                )
+                progressImported++
+            }
+        }
+
+        ImportSummary(bookmarksImported, progressImported)
+    }
 }
+
+data class ImportSummary(val bookmarksImported: Int, val progressImported: Int)

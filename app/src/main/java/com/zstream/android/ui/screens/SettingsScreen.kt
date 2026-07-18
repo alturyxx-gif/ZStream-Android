@@ -201,6 +201,24 @@ private fun TvSettingsScreen(
         }
     }
 
+    val importLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        uri?.let {
+            scope.launch {
+                runCatching {
+                    val json = context.contentResolver.openInputStream(it)?.bufferedReader()?.use { r -> r.readText() }
+                        ?: throw IllegalStateException("Could not read file")
+                    vm.importDataJson(json)
+                }.onSuccess { summary ->
+                    Toast.makeText(context, "Imported ${summary.bookmarksImported} bookmarks, ${summary.progressImported} progress entries", Toast.LENGTH_LONG).show()
+                }.onFailure { e ->
+                    Toast.makeText(context, "Import failed: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
     val tabs = listOf("Account", "Preferences", "Appearance", "Subtitles", "Connections")
     val selectedTab = currentTab.coerceIn(0, tabs.lastIndex)
     val tabFocusRequesters = remember { List(tabs.size) { FocusRequester() } }
@@ -339,6 +357,7 @@ private fun TvSettingsScreen(
                                 session, theme, vm, accountVm, showLogoutConfirm,
                                 { showLogoutConfirm = it }, nav,
                                 onExport = { exportLauncher.launch("zstream_backup_${System.currentTimeMillis()}.json") },
+                                onImport = { importLauncher.launch(arrayOf("application/json")) },
                                 isTv = true,
                                 firstItemFocusRequester = contentFirstItemFocusRequester,
                             )
@@ -711,6 +730,24 @@ private fun PhoneSettingsScreen(
         }
     }
 
+    val importLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        uri?.let {
+            scope.launch {
+                runCatching {
+                    val json = context.contentResolver.openInputStream(it)?.bufferedReader()?.use { r -> r.readText() }
+                        ?: throw IllegalStateException("Could not read file")
+                    vm.importDataJson(json)
+                }.onSuccess { summary ->
+                    Toast.makeText(context, "Imported ${summary.bookmarksImported} bookmarks, ${summary.progressImported} progress entries", Toast.LENGTH_LONG).show()
+                }.onFailure { e ->
+                    Toast.makeText(context, "Import failed: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
     val tabs = listOf("Account", "Preferences", "Appearance", "Player", "Subtitles", "Connections")
     val tabFocusRequesters = remember { List(tabs.size) { FocusRequester() } }
     val contentFirstItemFocusRequester = remember { FocusRequester() }
@@ -767,6 +804,8 @@ private fun PhoneSettingsScreen(
                     when (currentTab) {
                         0 -> AccountSection(session, theme, vm, accountVm, showLogoutConfirm, { showLogoutConfirm = it }, nav, onExport = {
                             exportLauncher.launch("zstream_backup_${System.currentTimeMillis()}.json")
+                        }, onImport = {
+                            importLauncher.launch(arrayOf("application/json"))
                         })
                         1 -> PreferencesSection(settings, bookmarks, theme, vm)
                         2 -> AppearanceSection(settings, theme, vm, nav)
@@ -1401,6 +1440,7 @@ private fun AccountSection(
     onLogoutConfirmChange: (Boolean) -> Unit,
     nav: NavController,
     onExport: () -> Unit,
+    onImport: () -> Unit,
     isTv: Boolean = false,
     firstItemFocusRequester: FocusRequester? = null,
 ) {
@@ -1510,6 +1550,10 @@ private fun AccountSection(
                         Text("Export Data", color = theme.colors.type.link, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 12.dp, top = 14.dp, bottom = 14.dp))
                     }
                     HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
+                    TvSettingsRow(theme, onActivate = onImport) {
+                        Text("Import Data", color = theme.colors.type.link, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 12.dp, top = 14.dp, bottom = 14.dp))
+                    }
+                    HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                     TvSettingsRow(theme, onActivate = { onLogoutConfirmChange(true) }) {
                         Text("Log out", color = theme.colors.buttons.danger, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 12.dp, top = 14.dp, bottom = 14.dp))
                     }
@@ -1531,6 +1575,17 @@ private fun AccountSection(
                             .padding(horizontal = 4.dp)
                     ) {
                         Text("Export Data", color = theme.colors.type.link, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+                SettingsCard(theme) {
+                    TextButton(
+                        onClick = onImport,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 4.dp)
+                    ) {
+                        Text("Import Data", color = theme.colors.type.link, fontWeight = FontWeight.SemiBold)
                     }
                 }
                 Spacer(Modifier.height(12.dp))
@@ -1571,6 +1626,10 @@ private fun AccountSection(
                     TvSettingsRow(theme, onActivate = requestExportToDownloads) {
                         Text("Export Data", color = theme.colors.type.link, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 12.dp, top = 14.dp, bottom = 14.dp))
                     }
+                    HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
+                    TvSettingsRow(theme, onActivate = onImport) {
+                        Text("Import Data", color = theme.colors.type.link, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 12.dp, top = 14.dp, bottom = 14.dp))
+                    }
                 }
             } else {
                 SettingsCard(theme) {
@@ -1592,6 +1651,17 @@ private fun AccountSection(
                             .padding(horizontal = 4.dp)
                     ) {
                         Text("Export Data", color = theme.colors.type.link, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+                SettingsCard(theme) {
+                    TextButton(
+                        onClick = onImport,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 4.dp)
+                    ) {
+                        Text("Import Data", color = theme.colors.type.link, fontWeight = FontWeight.SemiBold)
                     }
                 }
             }
