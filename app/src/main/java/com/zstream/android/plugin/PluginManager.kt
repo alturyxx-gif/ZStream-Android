@@ -133,6 +133,11 @@ class PluginManager @Inject constructor(
      */
     fun initialize() {
         if (!initStarted.compareAndSet(false, true)) return
+        if (BuildConfig.DEBUG) {
+            // Debug builds can't use the plugin — skip fetching/downloading it entirely to avoid wasting bandwidth.
+            _pluginState.value = PluginState.NotInstalled
+            return
+        }
         createNotificationChannel()
         schedulePeriodicCheck()
         scope.launch {

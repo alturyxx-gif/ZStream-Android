@@ -155,6 +155,9 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
 import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
+import androidx.media3.common.AdViewProvider
+import androidx.media3.exoplayer.source.ads.AdsLoader
+import androidx.media3.exoplayer.ima.ImaAdsLoader
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.CacheDataSource.EventListener
 import androidx.media3.datasource.DefaultDataSource
@@ -841,6 +844,32 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                 val clipboardManager = LocalClipboardManager.current
 
                 val context = LocalContext.current
+                val playerViewRef = remember { androidx.compose.runtime.mutableStateOf<PlayerView?>(null) }
+                // Testing hook: forces a VAST pre-roll ad on every online stream via IMA. Test tag only.
+                val preRollAdTagUri = "https://youradexchange.com/video/select.php?r=11761118"
+                val adOnCooldown by vm.adOnCooldown.collectAsState()
+                var isAdPlaying by remember { mutableStateOf(false) }
+                val adsLoader = remember {
+                    ImaAdsLoader.Builder(context)
+                        .setAdEventListener { event ->
+                            when (event.type) {
+                                com.google.ads.interactivemedia.v3.api.AdEvent.AdEventType.STARTED -> isAdPlaying = true
+                                com.google.ads.interactivemedia.v3.api.AdEvent.AdEventType.ALL_ADS_COMPLETED,
+                                com.google.ads.interactivemedia.v3.api.AdEvent.AdEventType.SKIPPED -> {
+                                    isAdPlaying = false
+                                    vm.markAdWatched()
+                                }
+                                else -> {}
+                            }
+                        }
+                        .build()
+                }
+                DisposableEffect(adsLoader) {
+                    onDispose {
+                        adsLoader.setPlayer(null)
+                        adsLoader.release()
+                    }
+                }
                 fun mimeTypeFor(streamType: String): String = when {
                     streamType.equals("file", ignoreCase = true) -> MimeTypes.VIDEO_MP4
                     streamType.equals("dash", ignoreCase = true) -> MimeTypes.APPLICATION_MPD
@@ -875,7 +904,10 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                         minOf(1_000L * (loadErrorInfo.errorCount), 5_000L)
 
                     override fun getMinimumLoadableRetryCount(dataType: Int): Int = 6
-                })
+                }).setLocalAdInsertionComponents(
+                    AdsLoader.Provider { adsLoader },
+                    AdViewProvider { playerViewRef.value ?: error("PlayerView not attached yet") }
+                )
 
                 val player = remember {
                     val subtitleConfigs = if (settings.enableNativeSubtitles) {
@@ -899,11 +931,16 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                         emptyList()
                     }
 
-                    val mediaItem = MediaItem.Builder()
+                    val initialMediaItemBuilder = MediaItem.Builder()
                         .setUri(s.streamUrl)
                         .setMimeType(mimeTypeFor(s.streamType))
                         .setSubtitleConfigurations(subtitleConfigs)
-                        .build()
+                    if (!adOnCooldown) {
+                        initialMediaItemBuilder.setAdsConfiguration(
+                            MediaItem.AdsConfiguration.Builder(Uri.parse(preRollAdTagUri)).build()
+                        )
+                    }
+                    val mediaItem = initialMediaItemBuilder.build()
 
                     ExoPlayer.Builder(
                         context,
@@ -918,6 +955,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                             )
                             .build()
                     ).build().apply {
+                        adsLoader.setPlayer(this)
                         setMediaSource(mediaSourceFactory(s.headers).createMediaSource(mediaItem))
                         videoScalingMode = androidx.media3.common.C.VIDEO_SCALING_MODE_SCALE_TO_FIT
                         addListener(object : androidx.media3.common.Player.Listener {
@@ -999,13 +1037,20 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     val positionMs = if (episodeChanged) 0L else player.currentPosition
                     val shouldPlay = player.playWhenReady && !isPlaybackFailed
                     Log.d("PlaybackDebug", "switching stream variant/source")
-                    val mediaItem = MediaItem.Builder()
+                    val mediaItemBuilder = MediaItem.Builder()
                         .setUri(s.streamUrl)
                         .setMimeType(mimeTypeFor(s.streamType))
                         .setSubtitleConfigurations(
                             player.currentMediaItem?.localConfiguration?.subtitleConfigurations.orEmpty()
                         )
-                        .build()
+                    // Only re-trigger the pre-roll on a genuine episode change, not a same-episode
+                    // quality/source variant swap, so it doesn't replay on every stream retry.
+                    if (episodeChanged && !adOnCooldown) {
+                        mediaItemBuilder.setAdsConfiguration(
+                            MediaItem.AdsConfiguration.Builder(Uri.parse(preRollAdTagUri)).build()
+                        )
+                    }
+                    val mediaItem = mediaItemBuilder.build()
                     player.setMediaSource(mediaSourceFactory(s.headers).createMediaSource(mediaItem), positionMs)
                     player.prepare()
                     player.playWhenReady = shouldPlay
@@ -1324,6 +1369,13 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                 }
 
                 var controlsVisible by remember { mutableStateOf(true) }
+                LaunchedEffect(isAdPlaying, isTv) {
+                    if (isAdPlaying && isTv) {
+                        // Give IMA's ad UI a moment to attach its skip button, then hand it D-pad focus.
+                        delay(300)
+                        runCatching { adsLoader.focusSkipButton() }
+                    }
+                }
                 var isPlaying by remember { mutableStateOf(player.isPlaying) }
                 val menuBackstack = remember { mutableStateListOf<PlayerMenuPage>() }
                 val menuPage = menuBackstack.lastOrNull()
@@ -1376,7 +1428,6 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                 }
 
                 // Re-apply the native resize mode when codec resolution changes.
-                val playerViewRef = remember { androidx.compose.runtime.mutableStateOf<PlayerView?>(null) }
                 var currentVideoSize by remember { mutableStateOf(androidx.media3.common.VideoSize.UNKNOWN) }
                 DisposableEffect(player) {
                     val listener = object : Player.Listener {
@@ -1543,6 +1594,11 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                         }
                     }
                     .onKeyEvent { keyEvent ->
+                        if (isAdPlaying) {
+                            // Let D-pad/remote input fall through to IMA's own skip/clickthrough
+                            // ad UI instead of our content controls while an ad is playing.
+                            return@onKeyEvent false
+                        }
                         if (isTv && keyEvent.type == KeyEventType.KeyDown) {
                             when (keyEvent.nativeKeyEvent.keyCode) {
                                 android.view.KeyEvent.KEYCODE_DPAD_CENTER,
@@ -1797,6 +1853,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     }
                 }
 
+                if (!isAdPlaying) {
                 CompositionLocalProvider(
                     LocalIndication provides ripple(color = Color.White)
                 ) {
@@ -1963,6 +2020,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     currentSeasonDetail = currentSeasonDetail,
                     pauseMetadata = vm.pauseMetadata.collectAsState().value
                 )
+                }
                 }
 
                 val infoSheetFocusRequester = remember { FocusRequester() }

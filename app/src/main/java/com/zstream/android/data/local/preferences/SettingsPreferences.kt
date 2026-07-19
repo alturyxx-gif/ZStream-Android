@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.google.gson.Gson
@@ -47,6 +48,7 @@ class SettingsPreferences @Inject constructor(
     private val KEY_HOME_SECTION_CAROUSEL_LIMIT = intPreferencesKey("home_section_carousel_limit")
     private val KEY_ENABLE_LOW_PERFORMANCE_MODE = booleanPreferencesKey("enable_low_performance_mode")
     private val KEY_ENABLE_PAUSE_OVERLAY = booleanPreferencesKey("enable_pause_overlay")
+    private val KEY_LAST_AD_WATCHED_AT = longPreferencesKey("last_ad_watched_at")
 
     // Playback Settings
     private val KEY_DEFAULT_SUBTITLE_LANGUAGE = stringPreferencesKey("default_subtitle_language")
@@ -439,6 +441,19 @@ class SettingsPreferences @Inject constructor(
         context.settingsStore.edit { prefs ->
             prefs[KEY_GROUP_ORDER] = order.joinToString(",")
         }
+    }
+
+    // Timestamp (epoch millis) of the last time a pre-roll ad finished playing, used to
+    // suppress ads app-wide for a cooldown window regardless of which show/movie is opened next.
+    suspend fun markAdWatchedNow() {
+        context.settingsStore.edit { prefs ->
+            prefs[KEY_LAST_AD_WATCHED_AT] = System.currentTimeMillis()
+        }
+    }
+
+    suspend fun isAdCooldownActive(cooldownMs: Long): Boolean {
+        val lastWatchedAt = context.settingsStore.data.map { it[KEY_LAST_AD_WATCHED_AT] ?: 0L }.first()
+        return System.currentTimeMillis() - lastWatchedAt < cooldownMs
     }
 
     suspend fun setApplicationTheme(theme: String) {

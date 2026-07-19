@@ -119,7 +119,6 @@ import com.zstream.android.data.local.entity.DownloadEntity
 import com.zstream.android.data.model.Media
 import com.zstream.android.theme.LocalZStreamTheme
 import com.zstream.android.ui.LocalIsTv
-import com.zstream.android.ui.components.AdBannerWebView
 import com.zstream.android.ui.components.themed.ZsIconButton
 import com.zstream.android.ui.components.themed.ZsIconButtonVariant
 import com.zstream.android.ui.components.themed.ZsTextButton
@@ -141,7 +140,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 private const val HOME_FOCUS_DEBUG_TAG = "HomeFocusDebug"
-private const val HOME_AD_ZONE_ID = "11283226"
 
 /** Cross-screen signal so Settings' "Edit home sections" row can open Home's layout dialog. */
 object HomeLayoutMenuSignal {
@@ -1147,17 +1145,6 @@ fun HomeScreen(
                                 )
                             } else {
                                 Spacer(Modifier.height(maxOf(160.dp, headerHeightDp))) // Height for header
-                            }
-                        }
-
-                        item {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 10.dp),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                AdBannerWebView(zoneId = HOME_AD_ZONE_ID, theme = theme, isTv = false)
                             }
                         }
 
@@ -5114,17 +5101,6 @@ private fun TvHomeScreenContent(
                 } else {
                     item {
                         Spacer(Modifier.height(TvHomeMetrics.topBarHeight))
-                    }
-                }
-
-                item {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 10.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        AdBannerWebView(zoneId = HOME_AD_ZONE_ID, theme = theme, isTv = true)
                     }
                 }
 

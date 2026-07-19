@@ -282,6 +282,8 @@ data class AutoplayEpisodeTarget(
     val episodeId: String,
 )
 
+private const val AD_COOLDOWN_MS = 30 * 60 * 1000L
+
 @HiltViewModel
 class PlayerViewModel @OptIn(UnstableApi::class)
 @Inject constructor(
@@ -306,6 +308,22 @@ class PlayerViewModel @OptIn(UnstableApi::class)
 ) : ViewModel() {
     val settings = settingsPrefs.settings
         .stateIn(viewModelScope, SharingStarted.Eagerly, SettingsEntity())
+
+    // Defaults to "on cooldown" (no ad) until the real check resolves, so a slow disk read
+    // never causes an extra ad to slip through — errs toward saving the user's data instead.
+    private val _adOnCooldown = MutableStateFlow(true)
+    val adOnCooldown: StateFlow<Boolean> = _adOnCooldown.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            _adOnCooldown.value = settingsPrefs.isAdCooldownActive(AD_COOLDOWN_MS)
+        }
+    }
+
+    fun markAdWatched() {
+        _adOnCooldown.value = true
+        viewModelScope.launch { settingsPrefs.markAdWatchedNow() }
+    }
 
     private val id = savedState.get<Int>("id") ?: 0
     val mediaType = savedState.get<String>("mediaType") ?: "movie"
