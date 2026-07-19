@@ -227,22 +227,27 @@ class MainActivity : ComponentActivity() {
 fun AppBehaviorEffect(navController: NavController, isTv: Boolean) {
     val context = LocalContext.current
     DisposableEffect(navController, isTv) {
-        if (isTv) return@DisposableEffect onDispose {}
-
         val listener = NavController.OnDestinationChangedListener { _, destination, _ ->
             val activity = context as? Activity ?: return@OnDestinationChangedListener
             val route = destination.route ?: ""
+            val isPlayerRoute = route.startsWith("player") || route.startsWith("localPlayer") ||
+                route.startsWith("localFilePlayer") || route.startsWith("trailer")
+            if (isPlayerRoute) {
+                activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            } else {
+                activity.window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            }
+
+            if (isTv) return@OnDestinationChangedListener
+
             if (route.startsWith("player") || route.startsWith("localPlayer") || route.startsWith("localFilePlayer")) {
                 activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-                activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             } else if (route.startsWith("trailer")) {
                 // Trailers follow whichever orientation the phone is physically held in,
                 // instead of being forced landscape like the main player.
                 activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-                activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             } else {
                 activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-                activity.window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             }
         }
         navController.addOnDestinationChangedListener(listener)
