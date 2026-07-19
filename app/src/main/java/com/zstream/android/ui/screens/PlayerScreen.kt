@@ -852,6 +852,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                 val adsLoader = remember {
                     ImaAdsLoader.Builder(context)
                         .setAdEventListener { event ->
+                            Log.d("PlayerAds", "AdEvent: ${event.type}")
                             when (event.type) {
                                 com.google.ads.interactivemedia.v3.api.AdEvent.AdEventType.STARTED -> isAdPlaying = true
                                 com.google.ads.interactivemedia.v3.api.AdEvent.AdEventType.ALL_ADS_COMPLETED,
@@ -861,6 +862,9 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                                 }
                                 else -> {}
                             }
+                        }
+                        .setAdErrorListener { errorEvent ->
+                            Log.e("PlayerAds", "AdError: ${errorEvent.error.errorCode} ${errorEvent.error.message}")
                         }
                         .build()
                 }
