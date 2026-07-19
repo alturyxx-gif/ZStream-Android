@@ -268,6 +268,13 @@ internal fun stripSubtitleMarkup(text: String): String {
     return result
 }
 
+
+private val SUBTITLE_DOMAIN_REGEX = Regex(
+    """\b[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.[a-zA-Z]{2,}\b"""
+)
+
+internal fun looksLikeAdLine(text: String): Boolean = SUBTITLE_DOMAIN_REGEX.containsMatchIn(text)
+
 data class AutoplayEpisodeTarget(
     val seasonNumber: Int,
     val episodeNumber: Int,
@@ -1794,7 +1801,8 @@ class PlayerViewModel @OptIn(UnstableApi::class)
     internal fun parseSubtitleText(text: String): List<SubtitleCue> {
         val trimmed = text.trim()
         val isVtt = trimmed.startsWith("WEBVTT")
-        return if (isVtt) parseVtt(trimmed) else parseSrt(trimmed)
+        val cues = if (isVtt) parseVtt(trimmed) else parseSrt(trimmed)
+        return cues.filterNot { looksLikeAdLine(it.text) }
     }
 
     private fun parseSrt(text: String): List<SubtitleCue> {
