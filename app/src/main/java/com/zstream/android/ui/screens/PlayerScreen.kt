@@ -845,8 +845,6 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
 
                 val context = LocalContext.current
                 val playerViewRef = remember { androidx.compose.runtime.mutableStateOf<PlayerView?>(null) }
-                // Testing hook: forces a VAST pre-roll ad on every online stream via IMA. Test tag only.
-                val preRollAdTagUri = "https://youradexchange.com/video/select.php?r=11761118"
                 val adOnCooldown by vm.adOnCooldown.collectAsState()
                 var isAdPlaying by remember { mutableStateOf(false) }
                 val adsLoader = remember {
@@ -939,9 +937,9 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                         .setUri(s.streamUrl)
                         .setMimeType(mimeTypeFor(s.streamType))
                         .setSubtitleConfigurations(subtitleConfigs)
-                    if (!adOnCooldown) {
+                    if (!adOnCooldown && s.preRollAdUri != null) {
                         initialMediaItemBuilder.setAdsConfiguration(
-                            MediaItem.AdsConfiguration.Builder(Uri.parse(preRollAdTagUri)).build()
+                            MediaItem.AdsConfiguration.Builder(Uri.parse(s.preRollAdUri)).build()
                         )
                     }
                     val mediaItem = initialMediaItemBuilder.build()
@@ -1049,9 +1047,9 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                         )
                     // Only re-trigger the pre-roll on a genuine episode change, not a same-episode
                     // quality/source variant swap, so it doesn't replay on every stream retry.
-                    if (episodeChanged && !adOnCooldown) {
+                    if (episodeChanged && !adOnCooldown && s.preRollAdUri != null) {
                         mediaItemBuilder.setAdsConfiguration(
-                            MediaItem.AdsConfiguration.Builder(Uri.parse(preRollAdTagUri)).build()
+                            MediaItem.AdsConfiguration.Builder(Uri.parse(s.preRollAdUri)).build()
                         )
                     }
                     val mediaItem = mediaItemBuilder.build()

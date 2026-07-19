@@ -1,11 +1,15 @@
 package com.zstream.android.ui.screens
 
+import android.app.UiModeManager
+import android.content.Context
+import android.content.res.Configuration
 import android.util.Log
 import androidx.annotation.OptIn
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.PlaybackException
+import androidx.media3.common.util.Util
 import androidx.media3.common.util.UnstableApi
 import com.zstream.android.data.BookmarkRepository
 import com.zstream.android.data.TmdbRepository
@@ -27,6 +31,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.CacheControl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -36,6 +41,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URLDecoder
 import java.util.UUID
+import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import com.zstream.android.data.local.preferences.SettingsPreferences
 import com.zstream.android.data.local.entity.SettingsEntity
@@ -109,6 +115,7 @@ sealed class PlayerState {
         val failedVariantUrls: Set<String> = emptySet(),
         val candidates: Map<String, ResolvedSourceCandidate> = emptyMap(),
         val playbackFailure: PlaybackFailure? = null,
+        val preRollAdUri: String? = null,
     ) : PlayerState()
     data class Error(val message: String, val sources: List<SourceResult>) : PlayerState()
 }
@@ -283,6 +290,14 @@ data class AutoplayEpisodeTarget(
 )
 
 private const val AD_COOLDOWN_MS = 30 * 60 * 1000L
+internal const val PRE_ROLL_AD_TAG_URL = "https://youradexchange.com/video/select.php?r=11761118"
+private const val MOBILE_AD_USER_AGENT =
+    "Mozilla/5.0 (Linux; Android 13; Pixel 7 Build/TQ3A.230805.001; wv) " +
+        "AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 " +
+        "Chrome/131.0.0.0 Mobile Safari/537.36"
+private const val MAX_VAST_BYTES = 512 * 1024
+
+internal fun containsVastAd(vast: String): Boolean = Regex("""<Ad(?:\s|>)""").containsMatchIn(vast)
 
 @HiltViewModel
 class PlayerViewModel @OptIn(UnstableApi::class)
@@ -306,6 +321,10 @@ class PlayerViewModel @OptIn(UnstableApi::class)
     @dagger.hilt.android.qualifiers.ApplicationContext private val appContext: android.content.Context,
     savedState: SavedStateHandle,
 ) : ViewModel() {
+    private val isTv = (appContext.getSystemService(Context.UI_MODE_SERVICE) as UiModeManager)
+        .currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
+    private val adHttpClient = httpClient.newBuilder().callTimeout(5, TimeUnit.SECONDS).build()
+
     val settings = settingsPrefs.settings
         .stateIn(viewModelScope, SharingStarted.Eagerly, SettingsEntity())
 
@@ -992,6 +1011,7 @@ class PlayerViewModel @OptIn(UnstableApi::class)
                                 sources    = success,
                                 sourceId   = source.id,
                                 variants   = variants,
+                                preRollAdUri = if (previousReady == null) resolvePreRollAdUri() else null,
                             )
 
                             if (settingsValue.subtitlesEnabled && subtitles.isNotEmpty()) {
@@ -1390,9 +1410,14 @@ class PlayerViewModel @OptIn(UnstableApi::class)
         val sourceStates = clearTryingStatuses(current.sources)
         sources.clear()
         sources.addAll(sourceStates)
-        _state.value = readyStateFromCandidate(candidate, sourceStates, current.candidates)
-        if (settings.value.subtitlesEnabled && candidate.subtitles.isNotEmpty()) {
-            downloadAndParseSubtitles(candidate.subtitles)
+        _state.value = PlayerState.Scraping(sourceStates)
+        viewModelScope.launch {
+            _state.value = readyStateFromCandidate(candidate, sourceStates, current.candidates).copy(
+                preRollAdUri = resolvePreRollAdUri(),
+            )
+            if (settings.value.subtitlesEnabled && candidate.subtitles.isNotEmpty()) {
+                downloadAndParseSubtitles(candidate.subtitles)
+            }
         }
     }
 
@@ -1447,6 +1472,39 @@ class PlayerViewModel @OptIn(UnstableApi::class)
         variants = candidate.variants,
         candidates = candidates,
     )
+
+    private suspend fun resolvePreRollAdUri(): String? {
+        if (_adOnCooldown.value) return null
+        if (!isTv) return PRE_ROLL_AD_TAG_URL
+
+        return withContext(Dispatchers.IO) {
+            runCatching {
+                val request = Request.Builder()
+                    .url(PRE_ROLL_AD_TAG_URL)
+                    .header("User-Agent", MOBILE_AD_USER_AGENT)
+                    .header("Accept", "application/xml,text/xml,*/*")
+                    .cacheControl(CacheControl.FORCE_NETWORK)
+                    .build()
+                adHttpClient.newCall(request).execute().use { response ->
+                    check(response.isSuccessful) { "VAST request failed with HTTP ${response.code}" }
+                    val body = response.body ?: error("VAST response body was empty")
+                    val contentLength = body.contentLength()
+                    check(contentLength < 0 || contentLength <= MAX_VAST_BYTES) { "VAST response was too large" }
+                    val vast = body.string()
+                    check(vast.toByteArray().size <= MAX_VAST_BYTES) { "VAST response was too large" }
+                    if (!containsVastAd(vast)) {
+                        Log.d("PlayerAds", "TV mobile VAST returned no ad")
+                        null
+                    } else {
+                        Log.d("PlayerAds", "TV mobile VAST loaded (${vast.length} chars)")
+                        Util.getDataUriForString("application/xml", vast).toString()
+                    }
+                }
+            }.onFailure {
+                Log.w("PlayerAds", "TV mobile VAST request failed: ${it.message}")
+            }.getOrNull()
+        }
+    }
 
     private suspend fun resolveSourceCandidate(sourceId: String): Result<ResolvedSourceCandidate> = runCatching {
         val media = buildPluginMediaRequest()
