@@ -1,59 +1,84 @@
 package com.zstream.android.ui.screens
 
-import androidx.compose.ui.layout.ContentScale
 import android.app.Activity
 import android.app.PictureInPictureParams
 import android.content.Intent
-import android.content.pm.ActivityInfo
 import android.content.res.Resources
 import android.media.audiofx.LoudnessEnhancer
+import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import android.util.Log
 import android.util.Rational
-import android.view.View
-import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.util.TypedValue
+import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.WindowManager
 import android.widget.FrameLayout
+import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalActivity
 import androidx.annotation.DrawableRes
 import androidx.annotation.OptIn
-import androidx.activity.compose.BackHandler
-import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.animation.*
-import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.focusable
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusGroup
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.drag
-import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.LocalIndication
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.absolutePadding
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
@@ -63,21 +88,18 @@ import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Cast
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ErrorOutline
-import androidx.compose.material.icons.filled.Event
-import androidx.compose.material.icons.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
-import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Speed
@@ -90,68 +112,88 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.ui.AbsoluteAlignment
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.positionInWindow
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.res.pluralStringResource
-import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.TextFieldValue
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.TextRange
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.PlatformTextStyle
-import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.vectorResource
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.PlatformTextStyle
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.zIndex
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import androidx.core.view.WindowCompat
-import androidx.core.view.WindowInsetsCompat
-import androidx.core.view.WindowInsetsControllerCompat
+import androidx.compose.ui.zIndex
 import androidx.core.app.OnPictureInPictureModeChangedProvider
 import androidx.core.app.PictureInPictureModeChangedInfo
 import androidx.core.util.Consumer
-import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.media3.common.MediaItem
+import androidx.media3.common.C
 import androidx.media3.common.Format
+import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaItem.SubtitleConfiguration
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
-import androidx.media3.common.C
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.cache.CacheDataSource
+import androidx.media3.datasource.cache.CacheDataSource.EventListener
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
@@ -161,59 +203,43 @@ import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
 import androidx.media3.common.AdViewProvider
 import androidx.media3.exoplayer.source.ads.AdsLoader
 import androidx.media3.exoplayer.ima.ImaAdsLoader
-import androidx.media3.datasource.cache.CacheDataSource
-import androidx.media3.datasource.cache.CacheDataSource.EventListener
-import androidx.media3.datasource.DefaultDataSource
-import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.ui.PlayerView
 import androidx.navigation.NavController
+import coil.compose.AsyncImage
 import com.zstream.android.R
 import com.zstream.android.Urls
-import com.zstream.android.player.PlayerBackgroundController
-import androidx.media3.common.MediaItem.SubtitleConfiguration
-import android.net.Uri
-import android.widget.Toast
-import androidx.compose.foundation.focusGroup
-import androidx.compose.ui.ExperimentalComposeUiApi
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.res.vectorResource
-import androidx.compose.ui.input.key.*
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusProperties
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
-import com.zstream.android.ui.LocalIsTv
-import com.zstream.android.ui.components.themed.ZsOutlinedWrapper
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.launch
-import com.zstream.android.di.RepositoryEntryPoint
-import kotlin.math.roundToInt
-import kotlin.math.abs
-import dagger.hilt.android.EntryPointAccessors
+import com.zstream.android.data.WatchPartyAction
 import com.zstream.android.data.model.MovieDetail
 import com.zstream.android.data.model.Season
 import com.zstream.android.data.model.TvDetail
+import com.zstream.android.di.RepositoryEntryPoint
+import com.zstream.android.player.PlayerBackgroundController
 import com.zstream.android.theme.LocalZStreamTheme
 import com.zstream.android.theme.ZStreamTheme
+import com.zstream.android.ui.LocalIsTv
+import com.zstream.android.ui.components.themed.ZsBottomSheetSectionCard
 import com.zstream.android.ui.components.themed.ZsButton
 import com.zstream.android.ui.components.themed.ZsButtonVariant
-import com.zstream.android.ui.components.themed.ZsBottomSheetSectionCard
 import com.zstream.android.ui.components.themed.ZsCard
 import com.zstream.android.ui.components.themed.ZsCardVariant
 import com.zstream.android.ui.components.themed.ZsChip
 import com.zstream.android.ui.components.themed.ZsChipVariant
 import com.zstream.android.ui.components.themed.ZsIconButton
 import com.zstream.android.ui.components.themed.ZsIconButtonVariant
+import com.zstream.android.ui.components.themed.ZsOutlinedWrapper
 import com.zstream.android.ui.components.themed.ZsStatusBanner
 import com.zstream.android.ui.components.themed.ZsStatusBannerVariant
 import com.zstream.android.ui.components.themed.ZsTextButton
 import com.zstream.android.ui.components.themed.ZsTextField
 import com.zstream.android.ui.navigation.rememberSafeNavigateBack
-import com.zstream.android.data.WatchPartyAction
-import coil.compose.AsyncImage
+import dagger.hilt.android.EntryPointAccessors
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.time.Instant
 import java.util.Date
+import kotlin.math.abs
+import kotlin.math.roundToInt
 
 //  Layout constants
 private val SCRUBBER_SIDE_PADDING = 36.dp      // horizontal padding on progress bar
@@ -1966,13 +1992,29 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                             infoState = PlayerInfoState.Loading
                             infoState = runCatching {
                                 if (vm.mediaType == "tv") {
-                                    val detail = tmdbRepo.tvDetail(vm.tmdbId.toInt())
+                                    val rawDetail = tmdbRepo.tvDetail(vm.tmdbId.toInt())
+                                    val catalog = runCatching { tmdbRepo.seasonCatalog(vm.tmdbId.toInt(), rawDetail) }.getOrNull()
+                                    val detail = if (catalog != null && catalog.usingEpisodeGroups) {
+                                        rawDetail.copy(
+                                            seasons = catalog.seasons.map { it.copy(episodes = null) },
+                                            numberOfSeasons = catalog.seasons.size,
+                                        )
+                                    } else {
+                                        rawDetail
+                                    }
                                     val certification = certRepo.getCertification(detail.id, "tv")
+                                    val matched = catalog?.findEpisode(
+                                        vm.season ?: existingProgress?.seasonNumber,
+                                        vm.episode ?: existingProgress?.episodeNumber,
+                                        vm.episodeId ?: existingProgress?.episodeId,
+                                    )
                                     val initialSeasonNumber = vm.season
+                                        ?: matched?.seasonNumber
                                         ?: existingProgress?.seasonNumber
                                         ?: detail.seasons?.firstOrNull { it.seasonNumber > 0 }?.seasonNumber
                                     val initialSeason = initialSeasonNumber?.let {
-                                        tmdbRepo.season(vm.tmdbId.toInt(), it)
+                                        tmdbRepo.seasonForPlayback(vm.tmdbId.toInt(), it)
+                                            ?: tmdbRepo.season(vm.tmdbId.toInt(), it)
                                     }
                                     val trailers = (detail.imdbId ?: detail.externalIds?.imdbId)
                                         ?.let { id -> runCatching { imdbTrailerRepo.getTrailers(id) }.getOrDefault(emptyList()) }
@@ -2116,7 +2158,8 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                             playerScope.launch {
                                 val current = infoState as? PlayerInfoState.Tv ?: return@launch
                                 infoState = current.copy(
-                                    selectedSeason = tmdbRepo.season(vm.tmdbId.toInt(), seasonNumber)
+                                    selectedSeason = tmdbRepo.seasonForPlayback(vm.tmdbId.toInt(), seasonNumber)
+                                        ?: tmdbRepo.season(vm.tmdbId.toInt(), seasonNumber)
                                 )
                             }
                         }
