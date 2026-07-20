@@ -1,16 +1,22 @@
 package com.zstream.android.ui.screens
 
+import android.content.Context
+
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.zstream.android.data.PairedPhone
 import com.zstream.android.data.ReleaseSubscriptionRequest
+import com.zstream.android.data.ReleaseSubscriptionUserException
+import com.zstream.android.data.NotificationUnavailableException
 import com.zstream.android.data.TrackedReleaseRepository
 import com.zstream.android.data.TvSyncRepository
 import com.zstream.android.data.local.entity.trackedEpisodeKey
 import com.zstream.android.data.local.entity.trackedMovieKey
 import com.zstream.android.data.model.Episode
 import com.zstream.android.data.model.MovieDetail
+import com.zstream.android.R
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -29,6 +35,7 @@ sealed interface TrackedReleaseUiEvent {
 
 @HiltViewModel
 class TrackedReleaseViewModel @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val repo: TrackedReleaseRepository,
     private val tvSyncRepository: TvSyncRepository,
 ) : ViewModel() {
@@ -50,23 +57,28 @@ class TrackedReleaseViewModel @Inject constructor(
         ) {
             val tracked = repo.toggleMovie(detail)
             if (tracked) {
-                "Release notification enabled for \u201c${detail.title}\u201d"
+                context.getString(R.string.release_notification_enabled, detail.title)
             } else {
-                "Release notification disabled for \u201c${detail.title}\u201d"
+                context.getString(R.string.release_notification_disabled, detail.title)
             }
         }
     }
 
     fun toggleEpisode(showId: Int, showTitle: String, posterPath: String?, episode: Episode) {
-        val label = "$showTitle S${episode.seasonNumber}E${episode.episodeNumber}"
+        val label = context.getString(
+            R.string.system_episode_title,
+            showTitle,
+            episode.seasonNumber,
+            episode.episodeNumber,
+        )
         change(
             key = trackedEpisodeKey(showId, episode.seasonNumber, episode.episodeNumber),
         ) {
             val tracked = repo.toggleEpisode(showId, showTitle, posterPath, episode)
             if (tracked) {
-                "Release notification enabled for \u201c$label\u201d"
+                context.getString(R.string.release_notification_enabled, label)
             } else {
-                "Release notification disabled for \u201c$label\u201d"
+                context.getString(R.string.release_notification_disabled, label)
             }
         }
     }
@@ -79,29 +91,38 @@ class TrackedReleaseViewModel @Inject constructor(
         val label = if (request.mediaType == "movie") {
             request.title
         } else {
-            "${request.title} S${request.seasonNumber}E${request.episodeNumber}"
+            context.getString(
+                R.string.system_episode_title,
+                request.title,
+                request.seasonNumber,
+                request.episodeNumber,
+            )
         }
         change(
             key = request.key,
             failureMessage = { error ->
-                val fallback = "${phone.phoneName} couldn\u2019t be reached. Open ZStream on that phone and try again."
                 when (error) {
-                    is IOException -> fallback
-                    else -> error.message
-                        ?.trim()
-                        ?.takeIf { it.length <= 180 && !it.startsWith('{') && "http://" !in it && "https://" !in it }
-                        ?: fallback
+                    is ReleaseSubscriptionUserException -> error.message
+                        ?: context.getString(R.string.release_phone_subscription_failed, phone.phoneName)
+                    is IOException -> context.getString(R.string.release_phone_unreachable, phone.phoneName)
+                    else -> context.getString(R.string.release_phone_subscription_failed, phone.phoneName)
                 }
             },
         ) {
             tvSyncRepository.sendReleaseSubscription(phone, request)
-                .ifBlank { "Subscribed ${phone.phoneName} for \u201c$label\u201d" }
+            context.getString(R.string.release_phone_subscribed, phone.phoneName, label)
         }
     }
 
     private fun change(
         key: String,
-        failureMessage: (Throwable) -> String = { it.message ?: "Couldn\u2019t update the release notification." },
+        failureMessage: (Throwable) -> String = {
+            if (it is NotificationUnavailableException) {
+                it.message ?: context.getString(R.string.release_notification_update_failed)
+            } else {
+                context.getString(R.string.release_notification_update_failed)
+            }
+        },
         block: suspend () -> String,
     ) {
         if (key in _pendingKeys.value) return

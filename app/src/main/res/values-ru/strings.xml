@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">ZStream</string>
+    <string name="shortcut_home">Главная</string>
+    <string name="shortcut_discover">Обзор</string>
+    <string name="shortcut_settings">Настройки</string>
+    <string name="shortcut_migration">Перенос данных</string>
+</resources>

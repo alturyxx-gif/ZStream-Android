@@ -22,9 +22,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.zstream.android.R
 import com.zstream.android.theme.LocalZStreamTheme
 
 @Composable
@@ -88,7 +90,7 @@ fun ZsSearchField(
             ZsIconButton(
                 onClick = { onValueChange("") },
                 icon = Icons.Default.Close,
-                contentDescription = "Clear search",
+                contentDescription = stringResource(R.string.system_clear_search),
                 variant = ZsIconButtonVariant.Ghost,
                 containerSize = 22.dp,
                 iconSize = 14.dp,

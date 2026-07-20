@@ -95,6 +95,7 @@ sealed class LocalPlaybackSource {
 
 @HiltViewModel
 class LocalPlayerViewModel @Inject constructor(
+    @dagger.hilt.android.qualifiers.ApplicationContext private val context: android.content.Context,
     savedState: SavedStateHandle,
     private val downloadDao: DownloadDao,
     private val storage: DownloadStorage,
@@ -162,7 +163,14 @@ class LocalPlayerViewModel @Inject constructor(
         val seasonNumbers = withContext(Dispatchers.IO) { cachedEpisodeDao.getAvailableSeasonsSync(tmdbId) }
         if (seasonNumbers.isEmpty()) return
         val seasons = seasonNumbers.sorted().map { num ->
-            com.zstream.android.data.model.Season(id = 0, seasonNumber = num, name = "Season $num", episodeCount = null, posterPath = null, episodes = null)
+            com.zstream.android.data.model.Season(
+                id = 0,
+                seasonNumber = num,
+                name = context.getString(com.zstream.android.R.string.detail_season_number, num),
+                episodeCount = null,
+                posterPath = null,
+                episodes = null,
+            )
         }
         _tvDetail.value = com.zstream.android.data.model.TvDetail(
             id = tmdbId.toIntOrNull() ?: 0, name = showTitle, overview = null, posterPath = posterPath, backdropPath = null,
@@ -177,7 +185,7 @@ class LocalPlayerViewModel @Inject constructor(
             _currentSeasonDetail.value = if (cached.isEmpty()) null else com.zstream.android.data.model.Season(
                 id = 0,
                 seasonNumber = number,
-                name = "Season $number",
+                name = context.getString(com.zstream.android.R.string.detail_season_number, number),
                 episodeCount = cached.size,
                 posterPath = null,
                 episodes = cached.map { entry ->

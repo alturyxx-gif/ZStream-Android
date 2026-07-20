@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">ZStream</string>
+    <string name="shortcut_home">Beranda</string>
+    <string name="shortcut_discover">Jelajahi</string>
+    <string name="shortcut_settings">Pengaturan</string>
+    <string name="shortcut_migration">Migrasi</string>
+</resources>

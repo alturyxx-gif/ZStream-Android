@@ -24,11 +24,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
+import com.zstream.android.R
 import com.zstream.android.theme.LocalZStreamTheme
 import com.zstream.android.data.local.entity.BookmarkEntity
 import com.zstream.android.data.local.entity.ProgressEntity
@@ -77,7 +79,7 @@ fun MoreScreen(
                 ZsIconButton(
                     onClick = { nav.popBackStack() },
                     icon = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Back",
+                    contentDescription = stringResource(R.string.more_back),
                 )
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
@@ -100,13 +102,13 @@ fun MoreScreen(
                         }
                     } else {
                         Text(
-                            text = state.title.replace('_', ' '),
+                            text = localizedMoreTitle(state.title),
                             style = MaterialTheme.typography.headlineSmall,
                             color = theme.colors.type.emphasis,
                         )
                     }
                     Text(
-                        text = "Browse everything in this section",
+                        text = stringResource(R.string.more_browse_section),
                         color = theme.colors.type.secondary,
                         style = MaterialTheme.typography.bodyMedium,
                     )
@@ -116,14 +118,14 @@ fun MoreScreen(
                         ZsIconButton(
                             onClick = { editingGroup = true },
                             icon = Icons.Default.Settings,
-                            contentDescription = "Section settings",
+                            contentDescription = stringResource(R.string.more_section_settings),
                         )
                         Spacer(Modifier.width(8.dp))
                     }
                     ZsIconButton(
                         onClick = { editing = !editing },
                         icon = if (editing) Icons.Default.Check else Icons.Default.Edit,
-                        contentDescription = if (editing) "Done editing" else "Edit section",
+                        contentDescription = stringResource(if (editing) R.string.more_done_editing else R.string.more_edit_section),
                         variant = ZsIconButtonVariant.Secondary,
                         selected = editing,
                     )
@@ -135,7 +137,11 @@ fun MoreScreen(
                     CircularProgressIndicator(color = theme.colors.global.accentA)
                 }
                 state.error != null -> ZsStatusBanner(
-                    message = state.error!!,
+                    message = if (state.error == "No connection") {
+                        stringResource(R.string.more_no_connection)
+                    } else {
+                        state.error!!
+                    },
                     variant = ZsStatusBannerVariant.Error,
                 )
                 else -> {
@@ -176,7 +182,7 @@ fun MoreScreen(
                                         ZsIconButton(
                                             onClick = { editingBookmark = state.bookmarks[media.id.toString()] },
                                             icon = Icons.Default.Edit,
-                                            contentDescription = "Edit bookmark",
+                                            contentDescription = stringResource(R.string.more_edit_bookmark),
                                             variant = ZsIconButtonVariant.Overlay,
                                             modifier = Modifier.align(Alignment.TopStart).padding(8.dp),
                                             containerSize = 34.dp,
@@ -186,7 +192,7 @@ fun MoreScreen(
                                     ZsIconButton(
                                         onClick = { vm.remove(media) },
                                         icon = Icons.Default.Close,
-                                        contentDescription = "Remove",
+                                        contentDescription = stringResource(R.string.more_remove),
                                         variant = ZsIconButtonVariant.Overlay,
                                         modifier = Modifier.align(Alignment.TopCenter).offset(y = 62.dp),
                                         containerSize = 40.dp,
@@ -214,7 +220,7 @@ fun MoreScreen(
                             item(span = { GridItemSpan(maxLineSpan) }) {
                                 Box(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 48.dp), contentAlignment = Alignment.Center) {
                                     ZsButton(
-                                        text = "View more",
+                                        text = stringResource(R.string.more_view_more),
                                         onClick = vm::loadMore,
                                         variant = ZsButtonVariant.Secondary,
                                     )
@@ -248,6 +254,23 @@ fun MoreScreen(
 }
 
 @Composable
+private fun localizedMoreTitle(title: String): String = when (title.replace('_', ' ')) {
+    "Continue Watching" -> stringResource(R.string.more_continue_watching)
+    "My Bookmarks", "Bookmarks" -> stringResource(R.string.more_my_bookmarks)
+    "Popular Movies" -> stringResource(R.string.more_popular_movies)
+    "Now Playing Movies" -> stringResource(R.string.more_now_playing_movies)
+    "Top Rated Movies" -> stringResource(R.string.more_top_rated_movies)
+    "Trending Movies" -> stringResource(R.string.more_trending_movies)
+    "Popular Tv" -> stringResource(R.string.more_popular_tv)
+    "On Air Tv" -> stringResource(R.string.more_on_air_tv)
+    "Top Rated Tv" -> stringResource(R.string.more_top_rated_tv)
+    "Trending Tv" -> stringResource(R.string.more_trending_tv)
+    "Editor Movies" -> stringResource(R.string.more_editor_movies)
+    "Editor Tv" -> stringResource(R.string.more_editor_tv)
+    else -> title.replace('_', ' ')
+}
+
+@Composable
 private fun BookmarkEditDialog(
     bookmark: BookmarkEntity,
     allGroups: List<String>,
@@ -262,10 +285,10 @@ private fun BookmarkEditDialog(
     Dialog(onDismissRequest = onDismiss) {
         Surface(color = theme.colors.modal.background, shape = RoundedCornerShape(20.dp)) {
             Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Edit bookmark", style = MaterialTheme.typography.titleLarge, color = theme.colors.type.emphasis)
-                OutlinedTextField(title, { title = it }, label = { Text("Title") }, singleLine = true)
-                OutlinedTextField(year, { year = it.filter(Char::isDigit).take(4) }, label = { Text("Year") }, singleLine = true)
-                Text("Groups", color = theme.colors.type.secondary)
+                Text(stringResource(R.string.more_edit_bookmark), style = MaterialTheme.typography.titleLarge, color = theme.colors.type.emphasis)
+                OutlinedTextField(title, { title = it }, label = { Text(stringResource(R.string.more_title)) }, singleLine = true)
+                OutlinedTextField(year, { year = it.filter(Char::isDigit).take(4) }, label = { Text(stringResource(R.string.more_year)) }, singleLine = true)
+                Text(stringResource(R.string.more_groups), color = theme.colors.type.secondary)
                 allGroups.forEach { group ->
                     Row(
                         Modifier.fillMaxWidth().clickable {
@@ -277,10 +300,10 @@ private fun BookmarkEditDialog(
                         Text(normalizeGroupName(group), color = theme.colors.type.emphasis)
                     }
                 }
-                TextButton(onClick = { creatingGroup = true }) { Text("Create group") }
+                TextButton(onClick = { creatingGroup = true }) { Text(stringResource(R.string.more_create_group)) }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    TextButton(onClick = onDismiss) { Text("Cancel") }
-                    TextButton(onClick = { onSave(title.trim(), year.toIntOrNull(), groups) }) { Text("Save") }
+                    TextButton(onClick = onDismiss) { Text(stringResource(R.string.more_cancel)) }
+                    TextButton(onClick = { onSave(title.trim(), year.toIntOrNull(), groups) }) { Text(stringResource(R.string.more_save)) }
                 }
             }
         }
@@ -305,8 +328,8 @@ private fun GroupEditDialog(group: String, onSave: (String) -> Unit, onDismiss: 
     Dialog(onDismissRequest = onDismiss) {
         Surface(color = theme.colors.modal.background, shape = RoundedCornerShape(20.dp)) {
             Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                Text("Section settings", style = MaterialTheme.typography.titleLarge, color = theme.colors.type.emphasis)
-                OutlinedTextField(name, { name = it }, label = { Text("Group name") }, singleLine = true)
+                Text(stringResource(R.string.more_section_settings), style = MaterialTheme.typography.titleLarge, color = theme.colors.type.emphasis)
+                OutlinedTextField(name, { name = it }, label = { Text(stringResource(R.string.more_group_name)) }, singleLine = true)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     groupIconOptions.forEach { (key, icon) ->
                         Surface(
@@ -319,8 +342,8 @@ private fun GroupEditDialog(group: String, onSave: (String) -> Unit, onDismiss: 
                     }
                 }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    TextButton(onClick = onDismiss) { Text("Cancel") }
-                    TextButton(enabled = name.isNotBlank(), onClick = { onSave("[${iconKey.lowercase()}]${name.trim()}") }) { Text("Save") }
+                    TextButton(onClick = onDismiss) { Text(stringResource(R.string.more_cancel)) }
+                    TextButton(enabled = name.isNotBlank(), onClick = { onSave("[${iconKey.lowercase()}]${name.trim()}") }) { Text(stringResource(R.string.more_save)) }
                 }
             }
         }

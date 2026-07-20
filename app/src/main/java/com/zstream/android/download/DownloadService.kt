@@ -111,7 +111,16 @@ class DownloadService : Service() {
         // stopForeground call), and onCreate() never runs again for an already-running instance.
         // Skipping this on a subsequent startForegroundService() call is exactly what throws
         // ForegroundServiceDidNotStartInTimeException after Android's 5-second grace period.
-        startForeground(NOTIFICATION_ID, buildNotification("ZStream Download", "Preparing download…", 0, downloadId = -1, status = DownloadStatus.QUEUED))
+        startForeground(
+            NOTIFICATION_ID,
+            buildNotification(
+                getString(R.string.system_download_title),
+                getString(R.string.system_download_preparing),
+                0,
+                downloadId = -1,
+                status = DownloadStatus.QUEUED,
+            ),
+        )
         val downloadId = intent?.getLongExtra(EXTRA_DOWNLOAD_ID, -1L) ?: -1L
         if (downloadId >= 0) {
             when (intent?.action) {
@@ -134,12 +143,12 @@ class DownloadService : Service() {
             job.cancelAndJoin()
             val entity = downloadDao.getById(downloadId) ?: return
             val title = DownloadQueue.get(downloadId)?.let { titleFor(it.target) } ?: entity.title
-            updateNotification(title, "Paused at ${entity.progressPercent}%", entity.progressPercent, downloadId, DownloadStatus.PAUSED)
+            updateNotification(title, getString(R.string.system_download_paused_at, entity.progressPercent), entity.progressPercent, downloadId, DownloadStatus.PAUSED)
         } else {
             val entity = downloadDao.getById(downloadId) ?: return
             if (entity.status == DownloadStatus.QUEUED) {
                 downloadDao.update(entity.copy(status = DownloadStatus.PAUSED))
-                updateNotification(entity.title, "Paused at ${entity.progressPercent}%", entity.progressPercent, downloadId, DownloadStatus.PAUSED)
+                updateNotification(entity.title, getString(R.string.system_download_paused_at, entity.progressPercent), entity.progressPercent, downloadId, DownloadStatus.PAUSED)
             }
         }
     }
@@ -179,18 +188,36 @@ class DownloadService : Service() {
         if (entity.status == DownloadStatus.PAUSED || entity.status == DownloadStatus.CANCELLED) return
 
         val title = titleFor(request.target)
-        updateNotification(title, "Starting download…", 0, downloadId, DownloadStatus.DOWNLOADING)
+        updateNotification(title, getString(R.string.system_download_starting), 0, downloadId, DownloadStatus.DOWNLOADING)
         repository.run(downloadId, request) { progress ->
             val text = when (progress.status) {
-                DownloadStatus.REMUXING -> "Remuxing… ${progress.percent}%"
+                DownloadStatus.REMUXING -> getString(R.string.system_download_remuxing, progress.percent)
                 else -> {
                     val sizeInfo = progress.bytesDownloaded?.let { downloaded ->
                         val downloadedMb = downloaded / (1024 * 1024)
                         val estimatedMb = progress.estimatedTotalBytes?.let { it / (1024 * 1024) }
-                        if (estimatedMb != null) "$downloadedMb MB / ~$estimatedMb MB" else "$downloadedMb MB"
+                        if (estimatedMb != null) {
+                            getString(R.string.system_download_size_estimated, downloadedMb, estimatedMb)
+                        } else {
+                            getString(R.string.system_download_size, downloadedMb)
+                        }
                     }
-                    "${request.qualityLabel} via ${request.sourceDisplayName} — ${progress.percent}%" +
-                        (sizeInfo?.let { " ($it)" } ?: "")
+                    if (sizeInfo == null) {
+                        getString(
+                            R.string.system_download_progress,
+                            request.qualityLabel,
+                            request.sourceDisplayName,
+                            progress.percent,
+                        )
+                    } else {
+                        getString(
+                            R.string.system_download_progress_with_size,
+                            request.qualityLabel,
+                            request.sourceDisplayName,
+                            progress.percent,
+                            sizeInfo,
+                        )
+                    }
                 }
             }
             updateNotification(title, text, progress.percent, downloadId, progress.status)
@@ -199,10 +226,10 @@ class DownloadService : Service() {
         when (finalEntity?.status) {
             DownloadStatus.DONE -> {
                 DownloadQueue.remove(downloadId)
-                updateNotification(title, "Download complete", 100, downloadId, DownloadStatus.DONE, ongoing = false)
+                updateNotification(title, getString(R.string.system_download_complete), 100, downloadId, DownloadStatus.DONE, ongoing = false)
             }
             DownloadStatus.PAUSED -> {
-                updateNotification(title, "Paused", finalEntity.progressPercent, downloadId, DownloadStatus.PAUSED)
+                updateNotification(title, getString(R.string.system_download_paused), finalEntity.progressPercent, downloadId, DownloadStatus.PAUSED)
             }
             null -> {
                 // Row was deleted — a true cancel already cleaned everything up.
@@ -210,14 +237,29 @@ class DownloadService : Service() {
             }
             else -> {
                 DownloadQueue.remove(downloadId)
-                updateNotification(title, "Download failed: ${finalEntity?.errorMessage ?: "Unknown error"}", 0, downloadId, DownloadStatus.FAILED, ongoing = false)
+                updateNotification(
+                    title,
+                    getString(
+                        R.string.system_download_failed,
+                        finalEntity?.errorMessage ?: getString(R.string.system_unknown_error),
+                    ),
+                    0,
+                    downloadId,
+                    DownloadStatus.FAILED,
+                    ongoing = false,
+                )
             }
         }
     }
 
     private fun titleFor(target: DownloadTarget): String = when (target) {
         is DownloadTarget.Movie -> target.title
-        is DownloadTarget.Episode -> "${target.showTitle} S${target.season.toString().padStart(2, '0')}E${target.episode.toString().padStart(2, '0')}"
+        is DownloadTarget.Episode -> getString(
+            R.string.system_episode_title,
+            target.showTitle,
+            target.season,
+            target.episode,
+        )
     }
 
     private fun updateNotification(title: String, text: String, percent: Int, downloadId: Long, status: DownloadStatus, ongoing: Boolean = true) {
@@ -252,8 +294,12 @@ class DownloadService : Service() {
 
         if (ongoing && downloadId >= 0) {
             val isPaused = status == DownloadStatus.PAUSED
-            builder.addAction(0, if (isPaused) "Resume" else "Pause", actionPendingIntent(if (isPaused) ACTION_RESUME else ACTION_PAUSE, downloadId))
-            builder.addAction(0, "Cancel", actionPendingIntent(ACTION_CANCEL, downloadId))
+            builder.addAction(
+                0,
+                getString(if (isPaused) R.string.system_resume else R.string.system_pause),
+                actionPendingIntent(if (isPaused) ACTION_RESUME else ACTION_PAUSE, downloadId),
+            )
+            builder.addAction(0, getString(R.string.system_cancel), actionPendingIntent(ACTION_CANCEL, downloadId))
         }
         return builder.build()
     }
@@ -270,7 +316,7 @@ class DownloadService : Service() {
         val manager = getSystemService(NotificationManager::class.java)
         if (manager.getNotificationChannel(CHANNEL_ID) == null) {
             manager.createNotificationChannel(
-                NotificationChannel(CHANNEL_ID, "Downloads", NotificationManager.IMPORTANCE_LOW)
+                NotificationChannel(CHANNEL_ID, getString(R.string.system_download_channel_name), NotificationManager.IMPORTANCE_LOW)
             )
         }
     }

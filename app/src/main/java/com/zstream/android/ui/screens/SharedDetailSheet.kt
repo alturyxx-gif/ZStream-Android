@@ -54,6 +54,8 @@ import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -336,18 +338,22 @@ internal fun ColumnScope.SharedMovieDetailContent(
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Box(Modifier.weight(1f)) {
-                        SharedDetailSpec("Runtime", detail.runtime?.let { "$it min" } ?: "-", theme)
+                        SharedDetailSpec(
+                            stringResource(R.string.shared_detail_runtime),
+                            detail.runtime?.let { pluralStringResource(R.plurals.shared_detail_minutes, it, it) } ?: "-",
+                            theme,
+                        )
                     }
                     Box(Modifier.weight(1f)) {
-                        SharedDetailSpec("Release Date", detail.releaseDate ?: "-", theme)
+                        SharedDetailSpec(stringResource(R.string.shared_detail_release_date), detail.releaseDate ?: "-", theme)
                     }
                 }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Box(Modifier.weight(1f)) {
-                        SharedDetailSpec("Language", "EN", theme)
+                        SharedDetailSpec(stringResource(R.string.shared_detail_language), "EN", theme)
                     }
                     Box(Modifier.weight(1f)) {
-                        SharedDetailSpec("Rating", certification?.takeIf { it.isNotBlank() } ?: "—", theme)
+                        SharedDetailSpec(stringResource(R.string.shared_detail_rating), certification?.takeIf { it.isNotBlank() } ?: "—", theme)
                     }
                 }
                 specActions()
@@ -355,11 +361,11 @@ internal fun ColumnScope.SharedMovieDetailContent(
         }
     }
 
-    ZsBottomSheetSectionHeader("Cast")
+    ZsBottomSheetSectionHeader(stringResource(R.string.shared_detail_cast))
     SharedCastRow(cast, theme, context)
-    ZsBottomSheetSectionHeader("Trailers")
+    ZsBottomSheetSectionHeader(stringResource(R.string.shared_detail_trailers))
     SharedTrailerGrid(trailers, theme, context, nav, openTrailersInApp, onTrailerWillPlay)
-    ZsBottomSheetSectionHeader("Similar")
+    ZsBottomSheetSectionHeader(stringResource(R.string.shared_detail_similar))
     SharedSimilarGrid(detail.similar?.results.orEmpty(), theme, nav)
 }
 
@@ -425,18 +431,18 @@ internal fun ColumnScope.SharedTvDetailContent(
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Box(Modifier.weight(1f)) {
-                        SharedDetailSpec("Seasons", detail.numberOfSeasons?.toString() ?: "—", theme)
+                        SharedDetailSpec(stringResource(R.string.shared_detail_seasons), detail.numberOfSeasons?.toString() ?: "—", theme)
                     }
                     Box(Modifier.weight(1f)) {
-                        SharedDetailSpec("Release Date", detail.firstAirDate ?: "—", theme)
+                        SharedDetailSpec(stringResource(R.string.shared_detail_release_date), detail.firstAirDate ?: "—", theme)
                     }
                 }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Box(Modifier.weight(1f)) {
-                        SharedDetailSpec("Language", "EN", theme)
+                        SharedDetailSpec(stringResource(R.string.shared_detail_language), "EN", theme)
                     }
                     Box(Modifier.weight(1f)) {
-                        SharedDetailSpec("Rating", certification?.takeIf { it.isNotBlank() } ?: "—", theme)
+                        SharedDetailSpec(stringResource(R.string.shared_detail_rating), certification?.takeIf { it.isNotBlank() } ?: "—", theme)
                     }
                 }
                 specActions()
@@ -444,7 +450,7 @@ internal fun ColumnScope.SharedTvDetailContent(
         }
     }
 
-    ZsBottomSheetSectionHeader("Seasons")
+    ZsBottomSheetSectionHeader(stringResource(R.string.shared_detail_seasons))
     val isTv = LocalIsTv.current
     LazyRow(
         horizontalArrangement = Arrangement.spacedBy(if (isTv) 12.dp else 8.dp),
@@ -466,7 +472,7 @@ internal fun ColumnScope.SharedTvDetailContent(
                 FilterChip(
                     selected = isSelected,
                     onClick = { onSelectSeason(season.seasonNumber) },
-                    label = { Text("S${season.seasonNumber}") },
+                    label = { Text(stringResource(R.string.shared_detail_season_short, season.seasonNumber)) },
                     colors = FilterChipDefaults.filterChipColors(
                         selectedContainerColor = theme.colors.background.secondaryHover.copy(alpha = 0.8f),
                         selectedLabelColor = theme.colors.type.emphasis,
@@ -511,7 +517,7 @@ internal fun ColumnScope.SharedTvDetailContent(
         val progressMap = allProgress
             .filter { it.seasonNumber == selectedSeason.seasonNumber }
             .associateBy { it.episodeNumber }
-        ZsBottomSheetSectionHeader("Episodes")
+        ZsBottomSheetSectionHeader(stringResource(R.string.shared_detail_episodes))
         val airedEpisodesForDownload = episodes.airedEpisodes()
         val seasonPending = airedEpisodesForDownload.any { pendingDownloads.contains("${it.seasonNumber}|${it.episodeNumber}") }
         val seasonFullyDownloaded = airedEpisodesForDownload.isNotEmpty() &&
@@ -540,9 +546,14 @@ internal fun ColumnScope.SharedTvDetailContent(
                         Spacer(Modifier.width(8.dp))
                         Text(
                             if (total > 0) {
-                                "Queueing Season ${selectedSeason.seasonNumber}… ($queued/$total)"
+                                stringResource(
+                                    R.string.shared_detail_queueing_season_progress,
+                                    selectedSeason.seasonNumber,
+                                    queued,
+                                    total,
+                                )
                             } else {
-                                "Queueing Season ${selectedSeason.seasonNumber}…"
+                                stringResource(R.string.shared_detail_queueing_season, selectedSeason.seasonNumber)
                             },
                             color = theme.colors.type.secondary,
                             fontSize = 13.sp,
@@ -550,7 +561,11 @@ internal fun ColumnScope.SharedTvDetailContent(
                     } else {
                         Icon(Icons.Filled.Download, null, modifier = Modifier.size(16.dp), tint = theme.colors.global.accentA)
                         Spacer(Modifier.width(8.dp))
-                        Text("Download Season ${selectedSeason.seasonNumber}", color = theme.colors.global.accentA, fontSize = 13.sp)
+                        Text(
+                            stringResource(R.string.shared_detail_download_season, selectedSeason.seasonNumber),
+                            color = theme.colors.global.accentA,
+                            fontSize = 13.sp,
+                        )
                     }
                 }
             }
@@ -584,11 +599,11 @@ internal fun ColumnScope.SharedTvDetailContent(
         }
     }
 
-    ZsBottomSheetSectionHeader("Cast")
+    ZsBottomSheetSectionHeader(stringResource(R.string.shared_detail_cast))
     SharedCastRow(detail.credits?.cast.orEmpty().take(8), theme, context)
-    ZsBottomSheetSectionHeader("Trailers")
+    ZsBottomSheetSectionHeader(stringResource(R.string.shared_detail_trailers))
     SharedTrailerGrid(trailers, theme, context, nav, openTrailersInApp, onTrailerWillPlay)
-    ZsBottomSheetSectionHeader("Similar")
+    ZsBottomSheetSectionHeader(stringResource(R.string.shared_detail_similar))
     SharedSimilarGrid(detail.similar?.results.orEmpty(), theme, nav)
 }
 
@@ -760,7 +775,7 @@ internal fun SharedTrailerGrid(
 ) {
     if (trailers.isEmpty()) {
         ZsStatusBanner(
-            message = "No trailers available",
+            message = stringResource(R.string.shared_detail_no_trailers),
             variant = ZsStatusBannerVariant.Info,
             modifier = modifier.padding(horizontal = 20.dp, vertical = 12.dp),
         )
@@ -844,7 +859,7 @@ internal fun SharedSimilarGrid(
 ) {
     if (similar.isEmpty()) {
         ZsStatusBanner(
-            message = "No similar movies available",
+            message = stringResource(R.string.shared_detail_no_similar),
             variant = ZsStatusBannerVariant.Info,
             modifier = modifier.padding(horizontal = 20.dp, vertical = 12.dp),
         )
@@ -898,9 +913,11 @@ internal fun SharedSimilarGrid(
                             color = theme.colors.type.emphasis
                         )
                         val year = (movie.releaseDate ?: movie.firstAirDate)?.take(4) ?: "—"
-                        val capitalizedMovie = movie.type.replaceFirstChar { it.uppercase() }
+                        val localizedType = stringResource(
+                            if (movie.type == "movie") R.string.shared_detail_movie else R.string.shared_detail_tv_show,
+                        )
                         Text(
-                            "$capitalizedMovie • $year",
+                            stringResource(R.string.shared_detail_type_year, localizedType, year),
                             style = MaterialTheme.typography.labelSmall,
                             color = theme.colors.type.secondary
                         )
@@ -933,7 +950,7 @@ fun SharedTmdbRating(rating: Double, theme: ZStreamTheme) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Image(
             painter = androidx.compose.ui.res.painterResource(id = R.drawable.tmdb_logo),
-            contentDescription = "TMDB Logo",
+            contentDescription = stringResource(R.string.shared_detail_tmdb_logo),
             modifier = Modifier.size(24.dp)
         )
         Spacer(Modifier.width(4.dp))

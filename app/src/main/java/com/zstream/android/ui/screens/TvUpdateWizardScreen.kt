@@ -2,6 +2,7 @@ package com.zstream.android.ui.screens
 
 import android.content.Intent
 import android.provider.Settings
+import android.util.Log
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
@@ -50,6 +51,7 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -57,6 +59,9 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
+import com.zstream.android.R
+import com.zstream.android.data.adb.AdbFailureKind
+import com.zstream.android.data.adb.AdbOperationException
 import com.zstream.android.data.adb.DEFAULT_RELEASE_REPOSITORY
 import com.zstream.android.data.adb.GithubApkAsset
 import com.zstream.android.data.adb.GithubReleaseCatalog
@@ -78,6 +83,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.text.DateFormat
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
@@ -183,18 +189,23 @@ fun TvUpdateWizardScreen(onDismiss: () -> Unit) {
     fun scanReleases() {
         activeJob = scope.launch {
             lastError = null
-            status = "Scanning GitHub releases…"
+            status = context.getString(R.string.tv_update_scanning_releases)
             try {
                 val url = releaseUpdateManager.repositoryUrl.ifBlank { DEFAULT_RELEASE_REPOSITORY }
                 apks = withContext(Dispatchers.IO) { releaseCatalog.loadAllApks(url) }
                 releaseUpdateManager.recordScan(apks)
                 selectedApk = apks.firstOrNull()
-                status = if (apks.isEmpty()) "No APK assets found." else "Found ${apks.size} APK${if (apks.size == 1) "" else "s"}."
+                status = if (apks.isEmpty()) {
+                    context.getString(R.string.tv_update_no_apks)
+                } else {
+                    context.resources.getQuantityString(R.plurals.tv_update_found_apks, apks.size, apks.size)
+                }
             } catch (_: CancellationException) {
-                status = "Cancelled."
+                status = context.getString(R.string.tv_update_cancelled)
             } catch (t: Throwable) {
-                lastError = t.message ?: "Unknown error"
-                status = "Scan failed."
+                Log.w("TvUpdateWizard", "Release scan failed", t)
+                lastError = tvUpdateScanError(context, t)
+                status = context.getString(R.string.tv_update_scan_failed)
             } finally {
                 activeJob = null
             }
@@ -252,27 +263,28 @@ fun TvUpdateWizardScreen(onDismiss: () -> Unit) {
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
                     Text(
-                        "ZStream update available",
+                        stringResource(R.string.tv_update_available),
                         color = theme.colors.type.emphasis,
                         fontSize = 20.sp,
                         fontWeight = FontWeight.Bold,
                     )
                     Text(
-                        "A new APK release${version.takeIf { it.isNotBlank() }?.let { " ($it)" } ?: ""} is available. Would you like to update now?",
+                        if (version.isBlank()) stringResource(R.string.tv_update_prompt)
+                        else stringResource(R.string.tv_update_prompt_version, version),
                         color = theme.colors.type.text,
                         fontSize = 15.sp,
                         lineHeight = 22.sp,
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         ZsButton(
-                            text = "Update from phone",
+                            text = stringResource(R.string.tv_update_from_phone),
                             onClick = {
                                 step = WizardStep.PHONE
                             },
                             modifier = Modifier.focusRequester(primaryFocusRequester).tvAdbFocusClampVertical(),
                         )
                         ZsButton(
-                            text = "Update on this TV",
+                            text = stringResource(R.string.tv_update_on_tv),
                             onClick = {
                                 step = WizardStep.CHECKING
                                 detect()
@@ -280,7 +292,7 @@ fun TvUpdateWizardScreen(onDismiss: () -> Unit) {
                             modifier = Modifier.tvAdbFocusClampVertical(),
                         )
                         ZsButton(
-                            text = "Not now",
+                            text = stringResource(R.string.tv_update_not_now),
                             onClick = onDismiss,
                             variant = ZsButtonVariant.Secondary,
                             modifier = Modifier.tvAdbFocusClampVertical(),
@@ -317,10 +329,10 @@ fun TvUpdateWizardScreen(onDismiss: () -> Unit) {
                 ) {
                     Text(
                         text = when (step) {
-                            WizardStep.CHECKING -> "Checking…"
-                            WizardStep.UNLOCK_DEV -> "Enable developer options"
-                            WizardStep.ENABLE_ADB -> "Enable ADB debugging"
-                            WizardStep.RELEASES -> "Available releases"
+                            WizardStep.CHECKING -> stringResource(R.string.tv_update_checking)
+                            WizardStep.UNLOCK_DEV -> stringResource(R.string.tv_update_enable_developer_options)
+                            WizardStep.ENABLE_ADB -> stringResource(R.string.tv_update_enable_adb)
+                            WizardStep.RELEASES -> stringResource(R.string.tv_update_available_releases)
                             else -> ""
                         },
                         color = theme.colors.type.emphasis,
@@ -352,24 +364,24 @@ fun TvUpdateWizardScreen(onDismiss: () -> Unit) {
                                 verticalArrangement = Arrangement.spacedBy(12.dp),
                             ) {
                                 Text(
-                                    "Phone update flow",
+                                    stringResource(R.string.tv_update_phone_flow),
                                     color = theme.colors.type.emphasis,
                                     fontSize = 20.sp,
                                     fontWeight = FontWeight.Bold,
                                 )
                                 Text(
-                                    "Use the phone to do the real setup. In ZStream on your phone, open the TV button in the top nav bar and follow the update steps there.",
+                                    stringResource(R.string.tv_update_phone_flow_description),
                                     color = theme.colors.type.text,
                                     fontSize = 15.sp,
                                     lineHeight = 22.sp,
                                 )
                                 ZsStatusBanner(
-                                    message = "Keep the phone and TV on the same Wi-Fi. If the TV is on Ethernet, that is fine as long as it is on the same local network.",
+                                    message = stringResource(R.string.tv_update_same_network),
                                     variant = ZsStatusBannerVariant.Info,
                                 )
-                                StepCard(theme, "What to do on the phone") {
+                                StepCard(theme, stringResource(R.string.tv_update_phone_instructions_title)) {
                                     Text(
-                                        "Open ZStream on the phone, tap the TV button in the top navigation bar, and follow the in-app update instructions. This page only links to the Android settings you may need.",
+                                        stringResource(R.string.tv_update_phone_instructions),
                                         color = theme.colors.type.secondary,
                                         fontSize = 14.sp,
                                         lineHeight = 20.sp,
@@ -381,7 +393,7 @@ fun TvUpdateWizardScreen(onDismiss: () -> Unit) {
                                 verticalArrangement = Arrangement.spacedBy(10.dp),
                             ) {
                                 ZsButton(
-                                    text = "Wi-Fi settings",
+                                    text = stringResource(R.string.tv_update_wifi_settings),
                                     onClick = { openSettings(Settings.ACTION_WIFI_SETTINGS) },
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -390,14 +402,14 @@ fun TvUpdateWizardScreen(onDismiss: () -> Unit) {
                                     buttonModifier = Modifier.fillMaxWidth(),
                                 )
                                 ZsButton(
-                                    text = "About / Build number",
+                                    text = stringResource(R.string.tv_update_about_build_number),
                                     onClick = { openAboutDevice() },
                                     variant = ZsButtonVariant.Secondary,
                                     modifier = Modifier.fillMaxWidth().tvAdbFocusClampHorizontal(),
                                     buttonModifier = Modifier.fillMaxWidth(),
                                 )
                                 ZsButton(
-                                    text = "Developer options/ADB debugging/Wireless debugging",
+                                    text = stringResource(R.string.tv_update_developer_adb_wireless),
                                     onClick = { openSettings(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS) },
                                     variant = ZsButtonVariant.Secondary,
                                     modifier = Modifier.fillMaxWidth().tvAdbFocusClampHorizontal(),
@@ -419,19 +431,19 @@ fun TvUpdateWizardScreen(onDismiss: () -> Unit) {
 
                     WizardStep.UNLOCK_DEV -> {
                         ZsStatusBanner(
-                            message = "Developer options are not enabled on this TV.",
+                            message = stringResource(R.string.tv_update_developer_not_enabled),
                             variant = ZsStatusBannerVariant.Info,
                         )
-                        StepCard(theme, "Step 1 — Open About") {
+                        StepCard(theme, stringResource(R.string.tv_update_step_open_about)) {
                             Text(
-                                "Go to Settings → Device Preferences → About. If your TV hides it elsewhere, the buttons below jump to the right places.",
+                                stringResource(R.string.tv_update_open_about_description),
                                 color = theme.colors.type.secondary,
                                 fontSize = 14.sp,
                                 lineHeight = 20.sp,
                             )
                             Spacer(Modifier.height(8.dp))
                                 ZsButton(
-                                    text = "About / Build number",
+                                    text = stringResource(R.string.tv_update_about_build_number),
                                     onClick = { openAboutDevice() },
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -439,17 +451,17 @@ fun TvUpdateWizardScreen(onDismiss: () -> Unit) {
                                         .tvAdbFocusClampAll(),
                                 )
                         }
-                        StepCard(theme, "Step 2 — Tap Build Number 7 times") {
+                        StepCard(theme, stringResource(R.string.tv_update_step_tap_build_number)) {
                             Text(
-                                "Find the Build Number entry and tap it 7 times. You'll see a message confirming that Developer Options are now enabled.",
+                                stringResource(R.string.tv_update_tap_build_number_description),
                                 color = theme.colors.type.secondary,
                                 fontSize = 14.sp,
                                 lineHeight = 20.sp,
                             )
                         }
-                        StepCard(theme, "Step 3 — Come back here") {
+                        StepCard(theme, stringResource(R.string.tv_update_step_come_back)) {
                             Text(
-                                "Press Back or return to ZStream. This screen detects the change automatically.",
+                                stringResource(R.string.tv_update_return_description),
                                 color = theme.colors.type.secondary,
                                 fontSize = 14.sp,
                                 lineHeight = 20.sp,
@@ -459,19 +471,19 @@ fun TvUpdateWizardScreen(onDismiss: () -> Unit) {
 
                     WizardStep.ENABLE_ADB -> {
                         ZsStatusBanner(
-                            message = "Developer options are enabled. Turn on ADB debugging, then come back here.",
+                            message = stringResource(R.string.tv_update_developer_enabled),
                             variant = ZsStatusBannerVariant.Info,
                         )
-                        StepCard(theme, "Step 1 — Open the right settings page") {
+                        StepCard(theme, stringResource(R.string.tv_update_step_open_settings)) {
                             Text(
-                                "Open Developer Options on the TV and switch on ADB debugging. The buttons below jump there directly.",
+                                stringResource(R.string.tv_update_open_settings_description),
                                 color = theme.colors.type.secondary,
                                 fontSize = 14.sp,
                                 lineHeight = 20.sp,
                             )
                             Spacer(Modifier.height(8.dp))
                                 ZsButton(
-                                    text = "Developer options/ADB debugging/Wireless debugging",
+                                    text = stringResource(R.string.tv_update_developer_adb_wireless),
                                     onClick = { openSettings(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS) },
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -479,17 +491,17 @@ fun TvUpdateWizardScreen(onDismiss: () -> Unit) {
                                         .tvAdbFocusClampAll(),
                                 )
                         }
-                        StepCard(theme, "Step 2 — Enable Wireless Debugging") {
+                        StepCard(theme, stringResource(R.string.tv_update_step_enable_wireless)) {
                             Text(
-                                "Turn on USB Debugging, then find Wireless Debugging and enable it too. Both are needed to push the APK over Wi-Fi.",
+                                stringResource(R.string.tv_update_enable_wireless_description),
                                 color = theme.colors.type.secondary,
                                 fontSize = 14.sp,
                                 lineHeight = 20.sp,
                             )
                         }
-                        StepCard(theme, "Step 3 — Come back here") {
+                        StepCard(theme, stringResource(R.string.tv_update_step_come_back)) {
                             Text(
-                                "Press Back or return to ZStream. When ADB is on, this screen will confirm it and unlock the releases page.",
+                                stringResource(R.string.tv_update_return_adb_description),
                                 color = theme.colors.type.secondary,
                                 fontSize = 14.sp,
                                 lineHeight = 20.sp,
@@ -499,19 +511,19 @@ fun TvUpdateWizardScreen(onDismiss: () -> Unit) {
 
                     WizardStep.READY -> {
                         ZsStatusBanner(
-                            message = "ADB debugging is on. You did the right thing.",
+                            message = stringResource(R.string.tv_update_adb_enabled),
                             variant = ZsStatusBannerVariant.Success,
                         )
-                        StepCard(theme, "Next step") {
+                        StepCard(theme, stringResource(R.string.tv_update_next_step)) {
                             Text(
-                                "You can continue to the available releases page now. There you can choose the APK and install the update in the background.",
+                                stringResource(R.string.tv_update_next_step_description),
                                 color = theme.colors.type.secondary,
                                 fontSize = 14.sp,
                                 lineHeight = 20.sp,
                             )
                         }
                         ZsButton(
-                            text = "Open available releases",
+                            text = stringResource(R.string.tv_update_open_releases),
                             onClick = { step = WizardStep.RELEASES },
                             modifier = Modifier.focusRequester(primaryFocusRequester).tvAdbFocusClampHorizontal(),
                         )
@@ -550,7 +562,7 @@ fun TvUpdateWizardScreen(onDismiss: () -> Unit) {
                                     }
                                 }
                                 ZsButton(
-                                    text = if (running) "Cancel" else "Refresh releases",
+                                    text = stringResource(if (running) R.string.tv_update_cancel else R.string.tv_update_refresh_releases),
                                     onClick = { if (running) activeJob?.cancel() else scanReleases() },
                                     variant = ZsButtonVariant.Secondary,
                                     modifier = Modifier
@@ -582,7 +594,7 @@ fun TvUpdateWizardScreen(onDismiss: () -> Unit) {
                                     activeJob = scope.launch {
                                         val operationJob = coroutineContext.job
                                         lastError = null
-                                        status = "Connecting…"
+                                        status = context.getString(R.string.tv_update_connecting)
                                         try {
                                             val tvManager = TvAdbManager.get(context)
                                             val result = withContext(Dispatchers.IO) {
@@ -593,14 +605,20 @@ fun TvUpdateWizardScreen(onDismiss: () -> Unit) {
                                                     isCancelled = { !operationJob.isActive },
                                                 )
                                             }
-                                            status = "Installed on ${result.model}."
+                                            status = context.getString(R.string.tv_update_installed_on, result.model)
                                             progress = null
                                         } catch (_: CancellationException) {
-                                            status = "Cancelled."
+                                            status = context.getString(R.string.tv_update_cancelled)
                                             progress = null
                                         } catch (t: Throwable) {
-                                            lastError = t.message ?: "Unknown error"
-                                            status = "Install failed."
+                                            Log.w("TvUpdateWizard", "TV update install failed", t)
+                                            if (t is AdbOperationException && t.kind == AdbFailureKind.CANCELLED) {
+                                                lastError = null
+                                                status = context.getString(R.string.tv_update_cancelled)
+                                            } else {
+                                                lastError = tvUpdateInstallError(context, t)
+                                                status = context.getString(R.string.tv_update_install_failed)
+                                            }
                                             progress = null
                                         } finally {
                                             activeJob = null
@@ -620,6 +638,32 @@ fun TvUpdateWizardScreen(onDismiss: () -> Unit) {
         }
     }
 }
+
+private fun tvUpdateScanError(context: android.content.Context, error: Throwable): String =
+    context.getString(tvUpdateScanErrorResource(error))
+
+internal fun tvUpdateScanErrorResource(error: Throwable): Int =
+    if (error is IllegalArgumentException) {
+        R.string.tv_update_invalid_repository
+    } else {
+        R.string.tv_update_release_scan_error
+    }
+
+private fun tvUpdateInstallError(context: android.content.Context, error: Throwable): String =
+    context.getString(tvUpdateInstallErrorResource(error))
+
+internal fun tvUpdateInstallErrorResource(error: Throwable): Int =
+    when ((error as? AdbOperationException)?.kind) {
+        AdbFailureKind.DISCOVERY -> R.string.transport_error_discovery
+        AdbFailureKind.PAIRING -> R.string.transport_error_pairing
+        AdbFailureKind.PAIRING_REQUIRED -> R.string.transport_error_pairing_required
+        AdbFailureKind.CONNECTION -> R.string.transport_error_connection
+        AdbFailureKind.DOWNLOAD -> R.string.transport_error_download
+        AdbFailureKind.INSTALL -> R.string.transport_error_install
+        AdbFailureKind.WRONG_DEVICE -> R.string.transport_error_wrong_device
+        AdbFailureKind.CANCELLED -> R.string.transport_cancelled
+        AdbFailureKind.UNKNOWN, null -> R.string.transport_operation_failed
+    }
 
 @Composable
 private fun StepCard(
@@ -644,7 +688,9 @@ private fun ApkRow(
     onSelect: () -> Unit,
 ) {
     val fmt = remember {
-        SimpleDateFormat("MMM d, yyyy", Locale.US).apply { timeZone = TimeZone.getDefault() }
+        DateFormat.getDateInstance(DateFormat.MEDIUM, Locale.getDefault()).apply {
+            timeZone = TimeZone.getDefault()
+        }
     }
     val date = remember(apk.releasePublishedAt ?: apk.releaseCreatedAt) {
         runCatching {
@@ -729,7 +775,7 @@ private fun ReleaseDetailContent(
                 fontSize = 16.sp,
             )
             Text(apk.apkName, color = theme.colors.type.secondary, fontSize = 13.sp)
-            Text("Size: %.1f MB".format(apk.size / 1_048_576.0), color = theme.colors.type.dimmed, fontSize = 12.sp)
+            Text(stringResource(R.string.tv_update_size_mb, apk.size / 1_048_576.0), color = theme.colors.type.dimmed, fontSize = 12.sp)
             if (apk.releaseDescription.isNotBlank()) {
                 Spacer(Modifier.height(4.dp))
                 Text(apk.releaseDescription, color = theme.colors.type.text, fontSize = 13.sp, lineHeight = 18.sp)
@@ -743,10 +789,10 @@ private fun ReleaseDetailContent(
 
     progress?.let { p ->
         val (label, fraction) = when (p) {
-            InstallProgress.Connecting -> "Connecting to TV…" to null
-            is InstallProgress.Downloading -> "Downloading…" to if (p.totalBytes > 0) p.bytes.toFloat() / p.totalBytes else null
-            is InstallProgress.Transferring -> "Transferring to TV…" to if (p.totalBytes > 0) p.bytes.toFloat() / p.totalBytes else null
-            InstallProgress.Installing -> "Installing on TV…" to null
+            InstallProgress.Connecting -> stringResource(R.string.tv_update_connecting_to_tv) to null
+            is InstallProgress.Downloading -> stringResource(R.string.tv_update_downloading) to if (p.totalBytes > 0) p.bytes.toFloat() / p.totalBytes else null
+            is InstallProgress.Transferring -> stringResource(R.string.tv_update_transferring) to if (p.totalBytes > 0) p.bytes.toFloat() / p.totalBytes else null
+            InstallProgress.Installing -> stringResource(R.string.tv_update_installing) to null
         }
         Text(label, color = theme.colors.type.secondary, fontSize = 12.sp)
         if (fraction != null) {
@@ -769,7 +815,7 @@ private fun ReleaseDetailContent(
 
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         ZsButton(
-            text = if (running) "Cancel" else "Install on TV",
+            text = stringResource(if (running) R.string.tv_update_cancel else R.string.tv_update_install_on_tv),
             onClick = if (running) onCancel else onInstall,
             variant = if (running) ZsButtonVariant.Danger else ZsButtonVariant.Primary,
             modifier = Modifier
@@ -782,7 +828,7 @@ private fun ReleaseDetailContent(
         )
     }
     Text(
-        "Always allow the ADB debugging prompt on the TV when it appears. If the update was successful, the app will close. You can then restart the app.",
+        stringResource(R.string.tv_update_allow_adb_prompt),
         color = theme.colors.type.success,
         fontSize = 15.sp,
         lineHeight = 18.sp,

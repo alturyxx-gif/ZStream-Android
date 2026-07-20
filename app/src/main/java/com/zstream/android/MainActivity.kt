@@ -8,8 +8,9 @@ import android.net.Uri
 import android.content.Intent
 import android.os.Bundle
 import android.view.WindowManager
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.appcompat.app.AppCompatDelegate
+import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -20,6 +21,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.view.WindowCompat
+import androidx.core.os.LocaleListCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -60,17 +62,39 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+private val supportedApplicationLanguageTags = listOf(
+    "en", "zh-CN", "hi", "es", "ar", "fr", "bn", "pt-BR", "id", "ur-PK", "ru",
+)
+
+internal fun supportedApplicationLanguageTag(tag: String): String? {
+    val locale = java.util.Locale.forLanguageTag(tag)
+    if (locale.language.isBlank()) return null
+    return supportedApplicationLanguageTags.firstOrNull { supportedTag ->
+        val supported = java.util.Locale.forLanguageTag(supportedTag)
+        supported.language == locale.language && when {
+            supported.country.isBlank() -> true
+            locale.country.isNotBlank() ->
+                supported.country == locale.country &&
+                    (supported.language != "zh" || !locale.script.equals("Hant", ignoreCase = true))
+            supported.language == "zh" -> locale.script.equals("Hans", ignoreCase = true)
+            else -> false
+        }
+    }
+}
+
 @AndroidEntryPoint
-class MainActivity : ComponentActivity() {
+class MainActivity : AppCompatActivity() {
     @Inject lateinit var watchPartyManager: WatchPartyManager
     @Inject lateinit var releaseUpdateManager: ReleaseUpdateManager
     @Inject lateinit var pluginManager: PluginManager
     @Inject lateinit var tvSyncRepository: com.zstream.android.data.TvSyncRepository
+    @Inject lateinit var settingsPreferences: SettingsPreferences
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -88,6 +112,29 @@ class MainActivity : ComponentActivity() {
         handlePluginUpdateIntent(intent)
         handleOpenDownloadsIntent(intent)
         handleOpenTrackedReleaseIntent(intent)
+        lifecycleScope.launch {
+            var reconcilePlatformSelection = true
+            settingsPreferences.settings
+                .map { it.applicationLanguage }
+                .distinctUntilChanged()
+                .collect { storedTag ->
+                    val platformTags = AppCompatDelegate.getApplicationLocales().toLanguageTags()
+                    val languageTag = if (reconcilePlatformSelection) {
+                        supportedApplicationLanguageTag(platformTags.substringBefore(',')).orEmpty()
+                    } else {
+                        supportedApplicationLanguageTag(storedTag).orEmpty()
+                    }
+                    reconcilePlatformSelection = false
+                    if (storedTag != languageTag) {
+                        settingsPreferences.setApplicationLanguage(languageTag)
+                    }
+                    if (platformTags != languageTag) {
+                        AppCompatDelegate.setApplicationLocales(
+                            LocaleListCompat.forLanguageTags(languageTag),
+                        )
+                    }
+                }
+        }
         val uiModeManager = getSystemService(UI_MODE_SERVICE) as UiModeManager
         val isTv = uiModeManager.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
         if (!isTv) {

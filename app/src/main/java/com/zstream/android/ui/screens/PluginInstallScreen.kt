@@ -30,11 +30,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.zstream.android.BuildConfig
+import com.zstream.android.R
 import com.zstream.android.plugin.PluginGateViewModel
 import com.zstream.android.plugin.PluginState
 import com.zstream.android.theme.LocalZStreamTheme
@@ -101,7 +103,7 @@ fun PluginInstallScreen(vm: PluginGateViewModel, onContinue: (() -> Unit)? = nul
             Spacer(modifier = Modifier.height(28.dp))
 
             Text(
-                text = "one more step",
+                text = stringResource(R.string.plugin_install_one_more_step),
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center,
@@ -111,8 +113,7 @@ fun PluginInstallScreen(vm: PluginGateViewModel, onContinue: (() -> Unit)? = nul
             Spacer(modifier = Modifier.height(10.dp))
 
             Text(
-                text = "download the content plugin to start watching. " +
-                    "it updates on its own from here, so this only takes a second.",
+                text = stringResource(R.string.plugin_install_description),
                 style = MaterialTheme.typography.bodyMedium,
                 textAlign = TextAlign.Center,
                 color = theme.colors.type.secondary,
@@ -136,7 +137,7 @@ fun PluginInstallScreen(vm: PluginGateViewModel, onContinue: (() -> Unit)? = nul
                             )
                             Spacer(modifier = Modifier.height(10.dp))
                             Text(
-                                text = "verifying...",
+                                text = stringResource(R.string.plugin_install_verifying),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = theme.colors.type.secondary,
                             )
@@ -149,7 +150,7 @@ fun PluginInstallScreen(vm: PluginGateViewModel, onContinue: (() -> Unit)? = nul
                             )
                             Spacer(modifier = Modifier.height(10.dp))
                             Text(
-                                text = "downloading — ${(p * 100).toInt()}%",
+                                text = stringResource(R.string.plugin_install_downloading, (p * 100).toInt()),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = theme.colors.type.secondary,
                             )
@@ -161,7 +162,7 @@ fun PluginInstallScreen(vm: PluginGateViewModel, onContinue: (() -> Unit)? = nul
             AnimatedVisibility(visible = error != null, enter = fadeIn(), exit = fadeOut()) {
                 Column(modifier = Modifier.fillMaxWidth().padding(bottom = 20.dp)) {
                     ZsStatusBanner(
-                        message = error?.lowercase() ?: "",
+                        message = error.orEmpty(),
                         variant = ZsStatusBannerVariant.Error,
                     )
                 }
@@ -169,9 +170,9 @@ fun PluginInstallScreen(vm: PluginGateViewModel, onContinue: (() -> Unit)? = nul
 
             ZsButton(
                 text = when {
-                    pluginState is PluginState.Failed -> "retry"
-                    error != null -> "retry"
-                    else -> "download plugin"
+                    pluginState is PluginState.Failed -> stringResource(R.string.plugin_install_retry)
+                    error != null -> stringResource(R.string.plugin_install_retry)
+                    else -> stringResource(R.string.plugin_install_download)
                 },
                 onClick = { vm.install() },
                 enabled = progress == null,
@@ -183,7 +184,7 @@ fun PluginInstallScreen(vm: PluginGateViewModel, onContinue: (() -> Unit)? = nul
             if (BuildConfig.DEBUG) {
                 Spacer(modifier = Modifier.height(12.dp))
                 ZsTextButton(
-                    text = "dev: sideload plugin",
+                    text = stringResource(R.string.plugin_install_dev_sideload),
                     onClick = {
                         val path = context.getExternalFilesDir(null)
                             ?.resolve("plugin-debug.apk")?.absolutePath

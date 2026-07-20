@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">ZStream</string>
+    <string name="shortcut_home">Inicio</string>
+    <string name="shortcut_discover">Descubrir</string>
+    <string name="shortcut_settings">Ajustes</string>
+    <string name="shortcut_migration">Migración</string>
+</resources>

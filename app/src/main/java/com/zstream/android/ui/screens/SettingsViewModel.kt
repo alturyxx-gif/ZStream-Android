@@ -3,6 +3,7 @@ package com.zstream.android.ui.screens
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.zstream.android.R
 import com.zstream.android.data.AuroraKeyInfo
 import com.zstream.android.data.AuroraKeyManager
 import com.zstream.android.data.BackendConfig
@@ -72,7 +73,7 @@ class SettingsViewModel @Inject constructor(
 
     /** Returns null on success, or an error message if [url] isn't a valid http(s) URL. */
     fun setBackendUrl(url: String): String? {
-        if (!backendConfig.setCustomUrl(url)) return "Enter a valid URL (e.g. https://example.com/)"
+        if (!backendConfig.setCustomUrl(url)) return appContext.getString(R.string.settings_enter_valid_url)
         _backendUrl.value = backendConfig.baseUrl
         return null
     }
@@ -158,19 +159,26 @@ class SettingsViewModel @Inject constructor(
                 val stagedVersion = pluginManager.checkForUpdate()
                 _pluginUpdateMessage.value = if (stagedVersion != null) {
                     val display = pluginManager.stagedDisplayVersion() ?: stagedVersion.toString()
-                    "Plugin ${pluginVersionLabel(display)} will be applied on next launch."
+                    appContext.getString(R.string.settings_plugin_update_next_launch, pluginVersionLabel(display))
                 } else {
                     val current = pluginManager.pluginDisplayVersion()
-                    "Plugin is up to date${if (current != null) " (${pluginVersionLabel(current)})" else ""}."
+                    if (current != null) {
+                        appContext.getString(R.string.settings_plugin_up_to_date_version, pluginVersionLabel(current))
+                    } else {
+                        appContext.getString(R.string.settings_plugin_up_to_date)
+                    }
                 }
             }.onFailure {
-                _pluginUpdateMessage.value = "Update check failed: ${it.message}"
+                _pluginUpdateMessage.value = appContext.getString(
+                    R.string.settings_update_check_failed,
+                    it.message ?: appContext.getString(R.string.account_unknown_error),
+                )
             }
         }
     }
 
     fun setReleaseChecksEnabled(enabled: Boolean) = releaseUpdateManager.setEnabled(enabled)
-    fun setReleaseCheckInterval(label: String) = releaseUpdateManager.setInterval(ReleaseCheckInterval.fromLabel(label))
+    fun setReleaseCheckInterval(interval: ReleaseCheckInterval) = releaseUpdateManager.setInterval(interval)
 
     private val _appUpdateMessage = MutableStateFlow<String?>(null)
     val appUpdateMessage = _appUpdateMessage.asStateFlow()
@@ -184,13 +192,22 @@ class SettingsViewModel @Inject constructor(
                     com.zstream.android.data.adb.GithubReleaseCatalog().loadAllApks(repositoryUrl)
                 }
                 if (releaseUpdateManager.checkForUpdate(apks)) {
-                    _appUpdateMessage.value = "Update ${releaseUpdateManager.pendingVersion} is available."
+                    _appUpdateMessage.value = appContext.getString(
+                        R.string.settings_app_update_available,
+                        releaseUpdateManager.pendingVersion,
+                    )
                     com.zstream.android.data.adb.ReleaseUpdateNavigation.dispatch(false)
                 } else {
-                    _appUpdateMessage.value = "App is up to date (${com.zstream.android.BuildConfig.VERSION_NAME})."
+                    _appUpdateMessage.value = appContext.getString(
+                        R.string.settings_app_up_to_date,
+                        com.zstream.android.BuildConfig.VERSION_NAME,
+                    )
                 }
             }.onFailure {
-                _appUpdateMessage.value = "Update check failed: ${it.message}"
+                _appUpdateMessage.value = appContext.getString(
+                    R.string.settings_update_check_failed,
+                    it.message ?: appContext.getString(R.string.account_unknown_error),
+                )
             }
         }
     }
@@ -205,7 +222,12 @@ class SettingsViewModel @Inject constructor(
                 .onSuccess {
                     traktRepo.state.value.activationCode?.let { code ->
                         val clipboard = context.getSystemService(android.content.ClipboardManager::class.java)
-                        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Trakt activation code", code))
+                        clipboard.setPrimaryClip(
+                            android.content.ClipData.newPlainText(
+                                appContext.getString(R.string.settings_trakt_activation_code),
+                                code,
+                            ),
+                        )
                     }
                     context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(it)))
                 }
@@ -233,7 +255,9 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun setApplicationLanguage(lang: String) {
-        update { copy(applicationLanguage = lang) }
+        viewModelScope.launch {
+            settingsPrefs.setApplicationLanguage(lang)
+        }
     }
 
     fun setApplicationTheme(theme: String) {
@@ -440,7 +464,7 @@ class SettingsViewModel @Inject constructor(
                         val errorBody = response.body?.string().orEmpty()
                         val errorMessage = runCatching { JSONObject(errorBody).optString("status_message") }.getOrNull()
                         throw IllegalStateException(errorMessage?.takeIf { it.isNotBlank() }
-                            ?: "Validation request failed (${response.code})")
+                            ?: appContext.getString(R.string.settings_validation_request_failed, response.code))
                     }
                 }
             }
@@ -475,7 +499,7 @@ class SettingsViewModel @Inject constructor(
                         val errorBody = response.body?.string().orEmpty()
                         val errorMessage = runCatching { JSONObject(errorBody).optString("error") }.getOrNull()
                         throw IllegalStateException(errorMessage?.takeIf { it.isNotBlank() }
-                            ?: "Validation request failed (${response.code})")
+                            ?: appContext.getString(R.string.settings_validation_request_failed, response.code))
                     }
                 }
             }
@@ -493,7 +517,7 @@ class SettingsViewModel @Inject constructor(
         runCatching {
             httpClient.newCall(Request.Builder().url(url).build()).execute().use { response ->
                 isAcceptedWyzieStatus(response.code)
-                    ?: throw IllegalStateException("Validation request failed (${response.code})")
+                    ?: throw IllegalStateException(appContext.getString(R.string.settings_validation_request_failed, response.code))
             }
         }
     }
@@ -686,9 +710,9 @@ class SettingsViewModel @Inject constructor(
             }
             val resolver = appContext.contentResolver
             val uri = resolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
-                ?: throw IllegalStateException("Could not create file in Downloads")
+                ?: throw IllegalStateException(appContext.getString(R.string.settings_backup_create_failed))
             resolver.openOutputStream(uri)?.use { it.write(json.toByteArray()) }
-                ?: throw IllegalStateException("Could not open output stream for Downloads file")
+                ?: throw IllegalStateException(appContext.getString(R.string.settings_backup_open_failed))
         } else {
             @Suppress("DEPRECATION")
             val dir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)

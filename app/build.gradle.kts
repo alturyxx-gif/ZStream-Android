@@ -25,7 +25,6 @@ android {
         versionCode = 3
         versionName = "v1.5.3"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-
         val props = Properties()
         val localProps = rootProject.file("local.properties")
         if (localProps.exists()) {
@@ -77,6 +76,23 @@ android {
         buildConfig = true
     }
 
+    androidResources {
+        generateLocaleConfig = true
+        localeFilters += listOf(
+            "en",
+            "zh-rCN",
+            "hi",
+            "es",
+            "ar",
+            "fr",
+            "bn",
+            "pt-rBR",
+            "id",
+            "ur-rPK",
+            "ru",
+        )
+    }
+
     compileOptions {
         isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_11
@@ -89,6 +105,7 @@ android {
 }
 
 dependencies {
+    implementation("androidx.appcompat:appcompat:1.7.1")
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.documentfile)
     implementation(libs.androidx.activity.compose)

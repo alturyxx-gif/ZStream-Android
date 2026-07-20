@@ -1,8 +1,12 @@
 package com.zstream.android.plugin
 
+import android.content.Context
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.zstream.android.R
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -16,6 +20,7 @@ import javax.inject.Inject
 @HiltViewModel
 class PluginGateViewModel @Inject constructor(
     private val pluginManager: PluginManager,
+    @ApplicationContext private val appContext: Context,
 ) : ViewModel() {
 
     val pluginState: StateFlow<PluginState> = pluginManager.pluginState
@@ -38,7 +43,8 @@ class PluginGateViewModel @Inject constructor(
             }.onSuccess {
                 _installProgress.value = null
             }.onFailure { e ->
-                _installError.value = e.message ?: "Install failed"
+                Log.e("PluginGateViewModel", "Plugin installation failed", e)
+                _installError.value = appContext.getString(R.string.tv_update_install_failed)
                 _installProgress.value = null
             }
         }
@@ -48,7 +54,10 @@ class PluginGateViewModel @Inject constructor(
     fun checkForUpdate() {
         viewModelScope.launch {
             runCatching { pluginManager.checkForUpdate() }
-                .onFailure { _installError.value = it.message ?: "Update check failed" }
+                .onFailure {
+                    Log.e("PluginGateViewModel", "Plugin update check failed", it)
+                    _installError.value = appContext.getString(R.string.settings_update_check_failed_prefix)
+                }
         }
     }
 
@@ -57,7 +66,10 @@ class PluginGateViewModel @Inject constructor(
         viewModelScope.launch {
             _installError.value = null
             runCatching { pluginManager.debugSideload(path) }
-                .onFailure { _installError.value = it.message ?: "Sideload failed" }
+                .onFailure {
+                    Log.e("PluginGateViewModel", "Plugin sideload failed", it)
+                    _installError.value = appContext.getString(R.string.tv_update_install_failed)
+                }
         }
     }
 }

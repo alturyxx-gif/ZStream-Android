@@ -50,7 +50,7 @@ fun parseStreamResultJson(json: String): StreamResult {
             skipProbe = root.optBoolean("skipProbe", false),
         )
         "notFound" -> StreamResult.NotFound
-        else -> StreamResult.Error(root.optString("message", "Plugin error"))
+        else -> StreamResult.Error(root.optString("message"))
     }
 }
 

@@ -1,11 +1,15 @@
 package com.zstream.android.ui.screens
 
+import android.content.Context
+
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.zstream.android.data.*
 import com.zstream.android.data.local.preferences.SettingsPreferences
+import com.zstream.android.R
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -19,6 +23,7 @@ sealed interface AuthState {
 
 @HiltViewModel
 class AccountViewModel @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val repo: AccountRepository,
     private val syncManager: DataSyncManager,
     private val progressRepo: ProgressRepository,
@@ -132,7 +137,7 @@ class AccountViewModel @Inject constructor(
     fun updateNickname(newNickname: String, onSuccess: () -> Unit) {
         val trimmed = newNickname.trim()
         if (trimmed.isEmpty()) {
-            _nicknameUpdateError.value = "Nickname can't be empty"
+            _nicknameUpdateError.value = context.getString(R.string.account_nickname_empty)
             return
         }
         viewModelScope.launch {
@@ -140,7 +145,9 @@ class AccountViewModel @Inject constructor(
             _nicknameUpdateError.value = null
             runCatching { repo.updateNickname(trimmed) }
                 .onSuccess { onSuccess() }
-                .onFailure { _nicknameUpdateError.value = it.message ?: "Failed to update nickname" }
+                .onFailure {
+                    _nicknameUpdateError.value = it.message ?: context.getString(R.string.account_nickname_update_failed)
+                }
             _nicknameUpdating.value = false
         }
     }
@@ -233,7 +240,7 @@ class AccountViewModel @Inject constructor(
                     // Failed registration attempt -- don't let a later successful login push
                     // local settings over the (unrelated) account's real synced settings.
                     if (isNewAccount) pendingNewAccount = false
-                    authState.value = AuthState.Error(it.message ?: "Unknown error")
+                    authState.value = AuthState.Error(it.message ?: context.getString(R.string.account_unknown_error))
                 }
         }
     }

@@ -3,6 +3,7 @@ package com.zstream.android.ui.screens
 import android.app.UiModeManager
 import android.content.Context
 import android.content.res.Configuration
+import android.os.Build
 import android.util.Log
 import androidx.annotation.OptIn
 import androidx.lifecycle.SavedStateHandle
@@ -11,6 +12,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.util.Util
 import androidx.media3.common.util.UnstableApi
+import com.zstream.android.R
 import com.zstream.android.data.BookmarkRepository
 import com.zstream.android.data.TmdbRepository
 import com.zstream.android.plugin.PluginManager
@@ -75,7 +77,7 @@ data class ResolvedSourceCandidate(
 data class PlaybackFailure(
     val message: String,
     val details: String,
-    val title: String = "Source error",
+    val title: String,
 )
 
 private fun playbackFailureDetails(message: String): String = Throwable(message).stackTraceToString()
@@ -415,7 +417,7 @@ class PlayerViewModel @OptIn(UnstableApi::class)
                 overview = movie?.overview,
                 year = movie?.releaseDate?.take(4) ?: year.toString(),
                 rating = movie?.voteAverage?.let { "%.1f".format(it) },
-                runtime = movie?.runtime?.let { "$it min" },
+                runtime = movie?.runtime?.let { appContext.getString(R.string.player_runtime_minutes, it) },
                 logoUrl = movie?.logoUrl(),
                 posterUrl = movie?.posterUrl(),
                 type = "movie",
@@ -433,8 +435,8 @@ class PlayerViewModel @OptIn(UnstableApi::class)
                 posterUrl = tv?.posterUrl(),
                 type = "tv",
                 mediaLabel = buildList<String> {
-                    season?.let { add("S$it") }
-                    episode?.let { add("E$it") }
+                    season?.let { add(appContext.getString(R.string.player_season_short, it)) }
+                    episode?.let { add(appContext.getString(R.string.player_episode_short, it)) }
                 }.takeIf { it.isNotEmpty() }?.joinToString(" • "),
                 genres = tv?.genres.orEmpty().map { it.name },
             )
@@ -532,7 +534,7 @@ class PlayerViewModel @OptIn(UnstableApi::class)
                         val crossed = listOf(50, 25, 10).filter { percent <= it && it !in notifiedBandwidthThresholds }
                         if (crossed.isNotEmpty()) {
                             notifiedBandwidthThresholds += crossed
-                            _bandwidthNotice.emit("Aurora key: $percent% bandwidth left today")
+                            _bandwidthNotice.emit(appContext.getString(R.string.player_bandwidth_left_today, percent))
                         }
                     }
                 }
@@ -552,8 +554,7 @@ class PlayerViewModel @OptIn(UnstableApi::class)
         val settingsNow = settingsPrefs.settings.first()
         val freshKey = auroraKeyManager.findFreshKey(settingsNow.febboxKeys, excluding = exhaustedKey)
         if (freshKey == null) {
-            _bandwidthAlert.value = "No more Aurora keys available to switch to. Either switch to " +
-                "another source, or this source will start buffering or lower quality."
+            _bandwidthAlert.value = appContext.getString(R.string.player_no_more_aurora_keys)
             delay(10_000)
             if (_bandwidthAlert.value != null) _bandwidthAlert.value = null
             return
@@ -564,12 +565,12 @@ class PlayerViewModel @OptIn(UnstableApi::class)
                 _bandwidthAlert.value = null
                 return
             }
-            _bandwidthAlert.value = "Switching to a different Aurora key in ${secondsLeft}s…"
+            _bandwidthAlert.value = appContext.getString(R.string.player_switching_aurora_key, secondsLeft)
             delay(1000)
         }
         _bandwidthAlert.value = null
         settingsPrefs.updateSettings(settingsNow.copy(febboxKey = freshKey), syncToRemote = false)
-        _recoveryNotice.emit("Auto retrying")
+        _recoveryNotice.emit(appContext.getString(R.string.player_auto_retrying))
         loadInternal(automaticRecovery = true, prioritizedSourceId = "aurora")
     }
 
@@ -816,7 +817,7 @@ class PlayerViewModel @OptIn(UnstableApi::class)
     suspend fun submitSkipSegment(submission: SkipSegmentSubmission): Result<Unit> = withContext(Dispatchers.IO) {
         val tidbKey = settingsPrefs.settings.first().tidbKey
         if (tidbKey.isNullOrBlank()) {
-            return@withContext Result.failure(IllegalStateException("TIDB API key is not set"))
+            return@withContext Result.failure(IllegalStateException(appContext.getString(R.string.player_tidb_api_key_not_set)))
         }
 
         val body = JSONObject().apply {
@@ -844,7 +845,7 @@ class PlayerViewModel @OptIn(UnstableApi::class)
                     val message = runCatching { JSONObject(errorBody).optString("error") }.getOrNull()
                         ?.takeIf { it.isNotBlank() }
                         ?: response.message
-                    throw IllegalStateException(message.ifBlank { "Failed to submit segment" })
+                    throw IllegalStateException(message.ifBlank { appContext.getString(R.string.player_segment_submit_failed) })
                 }
             }
         }.onSuccess {
@@ -930,12 +931,14 @@ class PlayerViewModel @OptIn(UnstableApi::class)
                 }
 
                 if (orderedSources.isEmpty()) {
+                    val message = appContext.getString(R.string.player_plugin_no_sources)
                     _state.value = previousReady?.copy(
                         playbackFailure = PlaybackFailure(
-                            message = "Plugin has no sources available",
-                            details = playbackFailureDetails("Plugin has no sources available"),
+                            message = message,
+                            details = playbackFailureDetails(message),
+                            title = appContext.getString(R.string.player_source_error),
                         )
-                    ) ?: PlayerState.Error("Plugin has no sources available", emptyList())
+                    ) ?: PlayerState.Error(message, emptyList())
                     return@runCatching
                 }
 
@@ -1030,23 +1033,27 @@ class PlayerViewModel @OptIn(UnstableApi::class)
                     }
                 }
 
+                val message = appContext.getString(R.string.player_no_playable_stream)
                 _state.value = previousReady?.copy(
                     sources = sources.toList(),
                     playbackFailure = PlaybackFailure(
-                        message = "No playable stream found",
-                        details = playbackFailureDetails("No playable stream found"),
+                        message = message,
+                        details = playbackFailureDetails(message),
+                        title = appContext.getString(R.string.player_source_error),
                     )
-                ) ?: PlayerState.Error("No playable stream found", sources.toList())
+                ) ?: PlayerState.Error(message, sources.toList())
 
             }.onFailure {
                 Log.e("PlayerVM", "load error: ${it.message}", it)
+                val message = it.message ?: appContext.getString(R.string.player_unknown_error)
                 _state.value = previousReady?.copy(
                     sources = sources.toList(),
                     playbackFailure = PlaybackFailure(
-                        message = it.message ?: "Unknown error",
+                        message = message,
                         details = it.stackTraceToString(),
+                        title = appContext.getString(R.string.player_source_error),
                     )
-                ) ?: PlayerState.Error(it.message ?: "Unknown error", sources.toList())
+                ) ?: PlayerState.Error(message, sources.toList())
             }
         }
     }
@@ -1092,7 +1099,11 @@ class PlayerViewModel @OptIn(UnstableApi::class)
                 val state = _state.value as? PlayerState.ManualSourceSelection ?: return@onFailure
                 val failed = state.sources.map { if (it.id == sourceId) it.copy(status = SourceStatus.FAILED) else it }
                 sources.clear(); sources.addAll(failed)
-                _state.value = state.copy(sources = failed, candidates = state.candidates - sourceId, message = it.message ?: "Failed to probe source")
+                _state.value = state.copy(
+                    sources = failed,
+                    candidates = state.candidates - sourceId,
+                    message = it.message ?: appContext.getString(R.string.player_failed_probe_source),
+                )
             }.also {
                 probeJobs.remove(sourceId)
             }
@@ -1284,25 +1295,26 @@ class PlayerViewModel @OptIn(UnstableApi::class)
             )
             val downloadId = downloadRepository.enqueue(request)
             com.zstream.android.download.DownloadService.enqueue(appContext, downloadId, request)
-            _recoveryNotice.tryEmit("Download started: $qualityLabel")
+            _recoveryNotice.tryEmit(appContext.getString(R.string.player_download_started, qualityLabel))
         }
     }
 
     fun onPlaybackError(
-        title: String = "Playback error",
+        title: String? = null,
         message: String,
         errorCode: Int = 0,
         httpStatus: Int = 0,
         details: String = message,
     ) {
         val current = _state.value as? PlayerState.Ready ?: return
+        val failureTitle = title ?: appContext.getString(R.string.player_playback_error)
         viewModelScope.launch {
             if (!settingsPrefs.settings.first().enableAutoResumeOnPlaybackError) {
                 _state.value = current.copy(
                     playbackFailure = PlaybackFailure(
-                        message = "Playback failed: $message",
+                        message = appContext.getString(R.string.player_playback_failed_message, message),
                         details = details,
-                        title = title,
+                        title = failureTitle,
                     )
                 )
                 return@launch
@@ -1315,7 +1327,7 @@ class PlayerViewModel @OptIn(UnstableApi::class)
                         // Pass the currently-playing variant as a hint so the source
                         // can prioritise refreshing that URL.
                         awaitingRecoveryPlayback = true
-                        _recoveryNotice.emit("Auto retrying")
+                        _recoveryNotice.emit(appContext.getString(R.string.player_auto_retrying))
                         val playingVariantId = current.variants
                             .firstOrNull { it.streamUrl == current.streamUrl }?.id
                         Log.w("PlaybackRecovery", "403 on source ${current.sourceId}; re-resolving (URL expired, variant=$playingVariantId)")
@@ -1327,7 +1339,7 @@ class PlayerViewModel @OptIn(UnstableApi::class)
                         // re-resolve rather than cycling variants (a rate limit tends to apply
                         // to the whole source, not just this URL).
                         awaitingRecoveryPlayback = true
-                        _recoveryNotice.emit("Auto retrying")
+                        _recoveryNotice.emit(appContext.getString(R.string.player_auto_retrying))
                         Log.w("PlaybackRecovery", "429 on source ${current.sourceId}; waiting 5s before re-resolve")
                         failedVariantUrls += current.streamUrl
                         kotlinx.coroutines.delay(5_000)
@@ -1347,13 +1359,13 @@ class PlayerViewModel @OptIn(UnstableApi::class)
             val variantLabel = current.variants.find { it.streamUrl == current.streamUrl }?.displayLabel()
             Log.w("PlaybackRecovery", "variant failed; sourceId=${current.sourceId} variant=$variantLabel")
             awaitingRecoveryPlayback = false
-            _recoveryNotice.tryEmit("$title: $message")
+            _recoveryNotice.tryEmit(appContext.getString(R.string.player_error_notice, failureTitle, message))
             _state.value = current.copy(
                 failedVariantUrls = failedVariantUrls.toSet(),
                 playbackFailure = PlaybackFailure(
                     message = message,
                     details = details,
-                    title = title,
+                    title = failureTitle,
                 ),
             )
         }
@@ -1365,7 +1377,13 @@ class PlayerViewModel @OptIn(UnstableApi::class)
         awaitingRecoveryPlayback = false
         val source = current.sourceId.orEmpty().replaceFirstChar { it.uppercase() }
         val variant = current.variants.find { it.streamUrl == current.streamUrl }?.displayLabel()
-        _recoveryNotice.tryEmit("Use source: $source${variant?.let { " · $it" }.orEmpty()}")
+        _recoveryNotice.tryEmit(
+            appContext.getString(
+                R.string.player_use_source_notice,
+                source,
+                variant?.let { " · $it" }.orEmpty(),
+            )
+        )
     }
 
     private fun Caption.toSubtitleTrack() = SubtitleTrack(
@@ -1448,7 +1466,7 @@ class PlayerViewModel @OptIn(UnstableApi::class)
         val sourceId = current.sourceId ?: return
         failedPlaybackSourceIds += sourceId
         awaitingRecoveryPlayback = true
-        _recoveryNotice.tryEmit("Auto retrying")
+        _recoveryNotice.tryEmit(appContext.getString(R.string.player_auto_retrying))
         loadInternal(automaticRecovery = true, deprioritizedSourceId = sourceId)
     }
 
@@ -1509,14 +1527,16 @@ class PlayerViewModel @OptIn(UnstableApi::class)
     private suspend fun resolveSourceCandidate(sourceId: String): Result<ResolvedSourceCandidate> = runCatching {
         val media = buildPluginMediaRequest()
         when (val result = pluginManager.resolve(media, sourceId)) {
-            is StreamResult.NotFound -> error("Not available")
-            is StreamResult.Error -> error(result.message.ifBlank { "Failed to probe source" })
+            is StreamResult.NotFound -> error(appContext.getString(R.string.player_not_available))
+            is StreamResult.Error -> error(
+                result.message.ifBlank { appContext.getString(R.string.player_failed_probe_source) }
+            )
             is StreamResult.Success -> {
                 // Probe HLS segment before accepting as valid.
                 if (result.streamType == "hls" && !result.skipProbe) {
                     val probeOk = com.zstream.android.download.probeHlsSegment(httpClient, result.streamUrl, result.headers)
                     if (!probeOk) {
-                        error("Source stream is not reachable")
+                        error(appContext.getString(R.string.player_source_unreachable))
                     }
                 }
                 val subtitles = result.captions.map { it.toSubtitleTrack() }.toMutableList()
@@ -1615,7 +1635,7 @@ class PlayerViewModel @OptIn(UnstableApi::class)
         val sourceId = ready?.sourceId
         val receiver = tvSyncRepository.activeReceiver.value
         if (receiver == null || sourceId == null) {
-            onResult(Result.failure(IllegalStateException("No TV paired")))
+            onResult(Result.failure(IllegalStateException(appContext.getString(R.string.player_no_tv_paired))))
             return
         }
         val variantId = ready.variants.find { it.streamUrl == ready.streamUrl }?.id
@@ -1635,7 +1655,15 @@ class PlayerViewModel @OptIn(UnstableApi::class)
         )
         viewModelScope.launch {
             val result = runCatching { tvSyncRepository.sendCast(receiver.host, receiver.port, request) }
-            onResult(result)
+            result.exceptionOrNull()?.let { Log.e("PlayerVM", "Cast to TV failed", it) }
+            onResult(
+                result.fold(
+                    onSuccess = { Result.success(Unit) },
+                    onFailure = {
+                        Result.failure(IllegalStateException(appContext.getString(R.string.player_cast_failed)))
+                    },
+                )
+            )
         }
     }
 
@@ -1729,10 +1757,16 @@ class PlayerViewModel @OptIn(UnstableApi::class)
                     com.zstream.android.subtitle.SubtitleTranslator(httpClient).translateCues(cues, targetLanguage)
                 }
 
-                val targetLangName = java.util.Locale.forLanguageTag(targetLanguage).getDisplayLanguage(java.util.Locale.getDefault())
+                @Suppress("DEPRECATION")
+                val displayLocale = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    appContext.resources.configuration.locales[0]
+                } else {
+                    appContext.resources.configuration.locale
+                }
+                val targetLangName = java.util.Locale.forLanguageTag(targetLanguage).getDisplayLanguage(displayLocale)
                     .takeIf { it.isNotBlank() } ?: targetLanguage
                 val newTrack = SubtitleTrack(
-                    label = "$targetLangName (translated)",
+                    label = appContext.getString(R.string.player_translated_language, targetLangName),
                     url = "${track.url}#translated-$targetLanguage",
                     language = targetLanguage,
                     type = "srt",

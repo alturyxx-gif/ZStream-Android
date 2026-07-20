@@ -56,9 +56,13 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.VolumeDown
+import androidx.compose.material.icons.automirrored.filled.VolumeMute
+import androidx.compose.material.icons.automirrored.filled.VolumeOff
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Cast
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
@@ -81,13 +85,10 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.WbSunny
-import androidx.compose.material.icons.filled.VolumeUp
-import androidx.compose.material.icons.filled.VolumeDown
-import androidx.compose.material.icons.filled.VolumeMute
-import androidx.compose.material.icons.filled.VolumeOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.snapshots.SnapshotStateMap
+import androidx.compose.ui.AbsoluteAlignment
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -105,6 +106,8 @@ import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -290,12 +293,19 @@ private fun sourceStatusColor(theme: ZStreamTheme, status: SourceStatus): Color 
     SourceStatus.TRYING -> theme.colors.dropdown.highlightHover
 }
 
-private fun subtitleLanguageName(code: String): String =
-    java.util.Locale.forLanguageTag(
+private fun subtitleLanguageName(code: String, resources: Resources): String {
+    @Suppress("DEPRECATION")
+    val displayLocale = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+        resources.configuration.locales[0]
+    } else {
+        resources.configuration.locale
+    }
+    return java.util.Locale.forLanguageTag(
         normalizeSubtitleLanguageCode(code)?.replace('_', '-') ?: code.replace('_', '-')
-    ).getDisplayLanguage(java.util.Locale.getDefault())
+    ).getDisplayLanguage(displayLocale)
         .takeIf { it.isNotBlank() && !it.equals(code, ignoreCase = true) }
-        ?: code.ifBlank { "Unknown language" }
+        ?: code.ifBlank { resources.getString(R.string.player_unknown_language) }
+}
 
 @Composable
 private fun SubtitleTrackBadges(track: SubtitleTrack) {
@@ -423,10 +433,10 @@ private fun BoxScope.DoubleTapSeekIndicator(
 
     Box(
         modifier = Modifier
-            .align(if (direction == DoubleTapSeekDirection.Backward) Alignment.CenterStart else Alignment.CenterEnd)
-            .padding(
-                start = if (direction == DoubleTapSeekDirection.Backward) 128.dp else 0.dp,
-                end = if (direction == DoubleTapSeekDirection.Forward) 128.dp else 0.dp,
+            .align(if (direction == DoubleTapSeekDirection.Backward) AbsoluteAlignment.CenterLeft else AbsoluteAlignment.CenterRight)
+            .absolutePadding(
+                left = if (direction == DoubleTapSeekDirection.Backward) 128.dp else 0.dp,
+                right = if (direction == DoubleTapSeekDirection.Forward) 128.dp else 0.dp,
             )
             .size(80.dp)
             .zIndex(2f)
@@ -458,6 +468,7 @@ private fun publishNowPlaying(
     player: ExoPlayer,
     currentSeasonDetail: com.zstream.android.data.model.Season?,
     pauseMetadata: PauseMetadata?,
+    resources: Resources,
 ) {
     val subtitle = if (vm.mediaType == "tv") {
         val season = vm.season
@@ -468,7 +479,7 @@ private fun publishNowPlaying(
             ?.firstOrNull { it.episodeNumber == episode }
             ?.name
         buildList {
-            if (season != null && episode != null) add("S$season · E$episode")
+            if (season != null && episode != null) add(resources.getString(R.string.player_season_episode_short, season, episode))
             episodeName?.let { add(it) }
         }.joinToString(" · ").takeIf { it.isNotBlank() }
     } else {
@@ -690,15 +701,15 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    Text("Available on this device", color = theme.colors.type.emphasis, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
-                    Text("How would you like to play it?", color = theme.colors.type.secondary, fontSize = 14.sp)
+                    Text(stringResource(R.string.player_available_on_device), color = theme.colors.type.emphasis, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                    Text(stringResource(R.string.player_choose_playback_method), color = theme.colors.type.secondary, fontSize = 14.sp)
                     Button(onClick = {
                         val playerRoute = nav.currentDestination?.route
                         nav.navigate(s.route) {
                             playerRoute?.let { popUpTo(it) { inclusive = true } }
                         }
-                    }) { Text("Play on device") }
-                    OutlinedButton(onClick = vm::playOnline) { Text("Use online sources") }
+                    }) { Text(stringResource(R.string.player_play_on_device)) }
+                    OutlinedButton(onClick = vm::playOnline) { Text(stringResource(R.string.player_use_online_sources)) }
                 }
                 IconButton(onClick = onBack, modifier = Modifier
                     .align(Alignment.TopStart)
@@ -719,7 +730,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.type.emphasis.copy(alpha = 0.08f))
                 ) {
                     Column(Modifier.fillMaxSize()) {
-                        PlayerMenuHeader(title = "Sources", showBack = false, onBack = {})
+                        PlayerMenuHeader(title = stringResource(R.string.player_sources), showBack = false, onBack = {})
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -783,7 +794,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                         border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.type.emphasis.copy(alpha = 0.2f)),
                         shape = RoundedCornerShape(8.dp)
                     ) {
-                        Text("Retry")
+                        Text(stringResource(R.string.player_retry))
                     }
                 }
                 IconButton(onClick = onBack, modifier = Modifier
@@ -971,6 +982,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                                     message = error.message,
                                     causeMessages = generateSequence(error.cause) { it.cause }.mapNotNull { it.message }.toList(),
                                     httpStatus = httpStatus,
+                                    resources = context.resources,
                                 )
                                 vm.onPlaybackError(
                                     title = presentation.title,
@@ -1066,9 +1078,9 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                         !player.isPlaying &&
                         !isPlaybackFailed
                     ) vm.onPlaybackError(
-                        message = "Playback did not start within 45 seconds",
+                        message = context.getString(R.string.player_playback_start_timeout),
                         details = buildGenericPlaybackErrorDetails(
-                            message = "Playback did not start within 45 seconds",
+                            message = context.getString(R.string.player_playback_start_timeout),
                             sourceId = s.sourceId,
                             title = vm.title,
                             mediaType = vm.mediaType,
@@ -1167,6 +1179,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                                 player = player,
                                 currentSeasonDetail = currentSeasonDetail,
                                 pauseMetadata = pauseMetadataForNotification,
+                                resources = context.resources,
                             )
                         }
                     }
@@ -1192,6 +1205,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                         player = player,
                         currentSeasonDetail = currentSeasonDetail,
                         pauseMetadata = pauseMetadataForNotification,
+                        resources = context.resources,
                     )
                 }
 
@@ -1862,11 +1876,11 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                 PlayerControls(
                     player = player,
                     title = vm.title,
-                    episodeLabel = if (vm.mediaType == "tv") {
-                        buildList<String> {
-                            vm.season?.let { add("S$it") }
-                            vm.episode?.let { add("E$it") }
-                        }.takeIf { it.isNotEmpty() }?.joinToString(" • ")
+                    episodeLabel = if (vm.mediaType == "tv") when {
+                        vm.season != null && vm.episode != null -> stringResource(R.string.player_season_episode_short, vm.season!!, vm.episode!!)
+                        vm.season != null -> stringResource(R.string.player_season_short, vm.season!!)
+                        vm.episode != null -> stringResource(R.string.player_episode_short, vm.episode!!)
+                        else -> null
                     } else null,
                     readyState = s,
                     settings = settings,
@@ -1879,16 +1893,16 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     },
                     onCast = {
                         if (!vm.hasPairedTv()) {
-                            Toast.makeText(context, "No TV paired — pair one first", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, R.string.player_no_tv_paired, Toast.LENGTH_SHORT).show()
                             nav.navigate("tvSync")
                         } else {
                             val positionSec = currentPositionMs / 1000
                             vm.castToTv(positionSec) { result ->
                                 result.onSuccess {
                                     player.pause()
-                                    Toast.makeText(context, "Casting to TV", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, R.string.player_casting_to_tv, Toast.LENGTH_SHORT).show()
                                 }.onFailure {
-                                    Toast.makeText(context, it.message ?: "Cast failed", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, it.message ?: context.getString(R.string.player_cast_failed), Toast.LENGTH_SHORT).show()
                                 }
                             }
                         }
@@ -1972,7 +1986,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                                         .orEmpty()
                                     PlayerInfoState.Movie(detail, certification, trailers)
                                 }
-                            }.getOrElse { PlayerInfoState.Error(it.message ?: "Failed to load details") }
+                            }.getOrElse { PlayerInfoState.Error(it.message ?: context.getString(R.string.player_failed_load_details)) }
                         }
                     },
                     onBack = onBack,
@@ -2118,8 +2132,8 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     AlertDialog(
                         onDismissRequest = {},
                         containerColor = theme.colors.modal.background,
-                        title = { Text("Continue Watching?", color = theme.colors.type.emphasis) },
-                        text = { Text("You're $pct% through. Resume from where you left off?", color = theme.colors.type.secondary) },
+                        title = { Text(stringResource(R.string.player_continue_watching_title), color = theme.colors.type.emphasis) },
+                        text = { Text(stringResource(R.string.player_resume_prompt, pct), color = theme.colors.type.secondary) },
                         confirmButton = {
                             TextButton(
                                 onClick = {
@@ -2134,7 +2148,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                                 },
                                 border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.buttons.purple.copy(alpha = 0.3f)),
                                 shape = RoundedCornerShape(8.dp)
-                            ) { Text("Resume", color = theme.colors.buttons.purple) }
+                            ) { Text(stringResource(R.string.player_resume), color = theme.colors.buttons.purple) }
                         },
                         dismissButton = {
                             TextButton(
@@ -2145,7 +2159,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                                 },
                                 border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.type.emphasis.copy(alpha = 0.15f)),
                                 shape = RoundedCornerShape(8.dp)
-                            ) { Text("Restart", color = theme.colors.type.secondary) }
+                            ) { Text(stringResource(R.string.player_restart), color = theme.colors.type.secondary) }
                         }
                     )
                 }
@@ -2155,7 +2169,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     AlertDialog(
                         onDismissRequest = { showPlaybackErrorDetails = false },
                         containerColor = theme.colors.modal.background,
-                        title = { Text("Error details", color = theme.colors.type.emphasis) },
+                        title = { Text(stringResource(R.string.player_error_details), color = theme.colors.type.emphasis) },
                         text = {
                             Text(
                                 text = playbackErrorDetailsSnapshot,
@@ -2174,12 +2188,12 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                                     onClick = { clipboardManager.setText(AnnotatedString(playbackErrorDetailsSnapshot)) },
                                     border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.type.emphasis.copy(alpha = 0.15f)),
                                     shape = RoundedCornerShape(8.dp)
-                                ) { Text("Copy", color = theme.colors.type.secondary) }
+                                ) { Text(stringResource(R.string.player_copy), color = theme.colors.type.secondary) }
                                 TextButton(
                                     onClick = { showPlaybackErrorDetails = false },
                                     border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.type.emphasis.copy(alpha = 0.15f)),
                                     shape = RoundedCornerShape(8.dp)
-                                ) { Text("Close", color = theme.colors.type.secondary) }
+                                ) { Text(stringResource(R.string.player_close), color = theme.colors.type.secondary) }
                             }
                         }
                     )
@@ -2445,7 +2459,7 @@ fun LocalPlayerScreen(nav: NavController, vm: LocalPlayerViewModel = hiltViewMod
             source == null -> CircularProgressIndicator(color = Color.White, modifier = Modifier.align(Alignment.Center))
             source is LocalPlaybackSource.NotFound -> {
                 ZsStatusBanner(
-                    message = "This file could not be found. It may have been moved or removed.",
+                    message = stringResource(R.string.player_local_file_missing),
                     variant = ZsStatusBannerVariant.Error,
                     modifier = Modifier.align(Alignment.Center).padding(horizontal = 24.dp),
                 )
@@ -2628,7 +2642,7 @@ fun LocalPlayerScreen(nav: NavController, vm: LocalPlayerViewModel = hiltViewMod
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             ZsStatusBanner(
-                                message = playbackError ?: "Playback error",
+                                message = playbackError ?: stringResource(R.string.player_playback_error),
                                 variant = ZsStatusBannerVariant.Error,
                                 modifier = Modifier.padding(horizontal = 24.dp),
                             )
@@ -2637,7 +2651,7 @@ fun LocalPlayerScreen(nav: NavController, vm: LocalPlayerViewModel = hiltViewMod
                                 playbackError = null
                                 player.prepare()
                                 player.playWhenReady = true
-                            }) { Text("Retry") }
+                            }) { Text(stringResource(R.string.player_retry)) }
                         }
                     }
                 }
@@ -2935,9 +2949,11 @@ internal fun PlayerControls(
     val rawQualityOptions = remember(tracksSnapshot) { collectQualityOptions(tracksSnapshot) }
     val autoQualitySelected = rawQualityOptions.count { it.selected } != 1
     val qualityOptions = if (autoQualitySelected) rawQualityOptions.map { it.copy(selected = false) } else rawQualityOptions
-    val audioOptions = remember(tracksSnapshot) { collectAudioOptions(tracksSnapshot) }
-    val selectedQualityLabel = if (autoQualitySelected) "Auto" else qualityOptions.firstOrNull { it.selected }?.label ?: "Auto"
-    val selectedAudioLabel = audioOptions.firstOrNull { it.selected }?.label ?: "Default"
+    val audioOptions = remember(tracksSnapshot) {
+        collectAudioOptions(tracksSnapshot, context.resources)
+    }
+    val selectedQualityLabel = if (autoQualitySelected) stringResource(R.string.player_auto) else qualityOptions.firstOrNull { it.selected }?.label ?: stringResource(R.string.player_auto)
+    val selectedAudioLabel = audioOptions.firstOrNull { it.selected }?.label ?: stringResource(R.string.player_default)
     val currentTimeSeconds = positionMs / 1000f
     val activeSkipSegments = remember(skipSegments, currentTimeSeconds) {
         skipSegments.filter { shouldShowSkipButton(currentTimeSeconds, it) != SkipButtonVisibility.None }
@@ -3306,7 +3322,10 @@ internal fun PlayerControls(
                 gesture = gesture,
                 value = sideGestureValue,
                 theme = theme,
-                modifier = Modifier.align(if (gesture == SideGesture.Brightness) Alignment.CenterStart else Alignment.CenterEnd)
+                modifier = Modifier.align(
+                    if (gesture == SideGesture.Brightness) AbsoluteAlignment.CenterLeft
+                    else AbsoluteAlignment.CenterRight,
+                ),
             )
         }
         pauseMetadata?.let { metadata ->
@@ -3339,13 +3358,13 @@ internal fun PlayerControls(
             ) {
                 Icon(
                     Icons.Filled.Lock,
-                    contentDescription = "locked",
+                    contentDescription = stringResource(R.string.player_locked),
                     tint = Color.White,
                     modifier = Modifier.size(18.dp),
                 )
                 AnimatedVisibility(visible = showLockHint, enter = fadeIn(), exit = fadeOut()) {
                     Text(
-                        text = "double tap to unlock",
+                        text = stringResource(R.string.player_double_tap_to_unlock),
                         color = Color.White,
                         fontSize = 13.sp,
                     )
@@ -3381,7 +3400,7 @@ internal fun PlayerControls(
                         ZsIconButton(
                             onClick = onBack,
                             icon = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
+                            contentDescription = stringResource(R.string.player_back),
                             variant = ZsIconButtonVariant.Ghost,
                             containerSize = TOP_BAR_BUTTON_SIZE,
                             iconSize = TOP_BAR_ICON_SIZE,
@@ -3393,7 +3412,7 @@ internal fun PlayerControls(
                             } else Modifier,
                         )
                         if (!isTv) {
-                            Text("Back to home", color = theme.colors.type.secondary, fontSize = 13.sp, modifier = Modifier.clickable(onClick = onBack))
+                            Text(stringResource(R.string.player_back_to_home), color = theme.colors.type.secondary, fontSize = 13.sp, modifier = Modifier.clickable(onClick = onBack))
                             Text("  /  ", color = theme.colors.type.dimmed.copy(alpha = 0.6f), fontSize = 13.sp)
                         }
                         Column(modifier = Modifier.widthIn(max = 320.dp)) {
@@ -3406,7 +3425,7 @@ internal fun PlayerControls(
                         ZsIconButton(
                             onClick = onInfo,
                             icon = Icons.Default.Info,
-                            contentDescription = "Info",
+                            contentDescription = stringResource(R.string.player_info),
                             variant = ZsIconButtonVariant.Ghost,
                             containerSize = TOP_BAR_BUTTON_SIZE,
                             iconSize = TOP_BAR_ICON_SIZE,
@@ -3420,7 +3439,7 @@ internal fun PlayerControls(
                         ZsIconButton(
                             onClick = onToggleBookmark,
                             icon = if (isBookmarked) ImageVector.vectorResource(R.drawable.ic_player_bookmark_filled) else ImageVector.vectorResource(R.drawable.ic_player_bookmark_outline),
-                            contentDescription = "Bookmark",
+                            contentDescription = stringResource(R.string.player_bookmark),
                             variant = ZsIconButtonVariant.Ghost,
                             selected = isBookmarked,
                             containerSize = TOP_BAR_BUTTON_SIZE,
@@ -3439,7 +3458,7 @@ internal fun PlayerControls(
                             ZsIconButton(
                                 onClick = onCast,
                                 icon = Icons.Default.Cast,
-                                contentDescription = "Cast to TV",
+                                contentDescription = stringResource(R.string.player_cast_to_tv),
                                 variant = ZsIconButtonVariant.Ghost,
                                 containerSize = TOP_BAR_BUTTON_SIZE,
                                 iconSize = TOP_BAR_ICON_SIZE,
@@ -3750,7 +3769,7 @@ internal fun PlayerControls(
                         Spacer(Modifier.weight(1f))
                         if (roomCode != null && !isHost) {
                             ZsTextButton(
-                                text = "Force Sync",
+                                text = stringResource(R.string.player_force_sync),
                                 onClick = onManualSync,
                                 modifier = Modifier.padding(end = 8.dp)
                             )
@@ -3766,7 +3785,7 @@ internal fun PlayerControls(
                                     gap = 4.dp,
                                 ) {
                                     ZsTextButton(
-                                        text = "Episodes",
+                                        text = stringResource(R.string.player_episodes),
                                         leadingIcon = ImageVector.vectorResource(R.drawable.ic_player_episodes),
                                         contentColor = Color.White,
                                         customWhiteOverlay = true,
@@ -3887,7 +3906,7 @@ internal fun PlayerControls(
                                 ) {
                                     Icon(
                                         Icons.Filled.PictureInPictureAlt,
-                                        "Picture in picture",
+                                        stringResource(R.string.player_picture_in_picture),
                                         tint = theme.colors.type.emphasis,
                                         modifier = Modifier.size(BOTTOM_BAR_MENU_ICON_SIZE)
                                     )
@@ -3897,7 +3916,7 @@ internal fun PlayerControls(
                         if (!isTv) {
                             if (mediaType == "tv") {
                                 ZsTextButton(
-                                    text = "Episodes",
+                                    text = stringResource(R.string.player_episodes),
                                     leadingIcon = ImageVector.vectorResource(R.drawable.ic_player_episodes),
                                     contentColor = Color.White,
                                     customWhiteOverlay = true,
@@ -3929,7 +3948,7 @@ internal fun PlayerControls(
                             }, modifier = Modifier.size(BOTTOM_BAR_MENU_BUTTON_SIZE)) {
                                 Icon(
                                     Icons.Filled.LockOpen,
-                                    contentDescription = "lock controls",
+                                    contentDescription = stringResource(R.string.player_lock_controls),
                                     tint = theme.colors.type.emphasis,
                                     modifier = Modifier.size(BOTTOM_BAR_MENU_ICON_SIZE)
                                 )
@@ -3992,7 +4011,7 @@ internal fun PlayerControls(
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Text(
-                            text = "Host connection stale. Holding room for a few seconds...",
+                            text = stringResource(R.string.player_watch_party_host_stale),
                             color = theme.colors.type.emphasis,
                             fontSize = 13.sp,
                             textAlign = TextAlign.Center
@@ -4012,7 +4031,7 @@ internal fun PlayerControls(
                 exit = fadeOut() + slideOutVertically()
             ) {
                 ZsStatusBanner(
-                    message = "Host is watching a different episode. Auto-following...",
+                    message = stringResource(R.string.player_watch_party_different_episode),
                     variant = ZsStatusBannerVariant.Info
                 )
             }
@@ -4022,7 +4041,7 @@ internal fun PlayerControls(
                 exit = fadeOut() + slideOutVertically()
             ) {
                 ZsStatusBanner(
-                    message = "Connection to Watch Party lost. Reconnecting...",
+                    message = stringResource(R.string.player_watch_party_reconnecting),
                     variant = ZsStatusBannerVariant.Error
                 )
             }
@@ -4032,7 +4051,7 @@ internal fun PlayerControls(
                 exit = fadeOut() + slideOutVertically()
             ) {
                 ZsStatusBanner(
-                    message = "Host stream duration differs. Play/pause sync still works, time sync is limited.",
+                    message = stringResource(R.string.player_watch_party_duration_differs),
                     variant = ZsStatusBannerVariant.Info
                 )
             }
@@ -4180,7 +4199,7 @@ internal fun PlayerControls(
                             listOf(
                                 StreamVariant(
                                     id = "current",
-                                    name = "Current Stream",
+                                    name = stringResource(R.string.player_current_stream),
                                     quality = "",
                                     codec = "",
                                     tag = "",
@@ -4366,12 +4385,6 @@ private fun localSubtitleLanguageTag(path: String): String {
     return name.substringAfterLast('.', "").ifBlank { "und" }
 }
 
-private fun videoScaleModeLabel(mode: String): String = when (mode.lowercase()) {
-    "fill" -> "Fill"
-    "stretch" -> "Stretch"
-    else -> "Fit"
-}
-
 private enum class SkipButtonVisibility { Always, Hover, None }
 
 private fun shouldShowSkipButton(currentTimeSeconds: Float, segment: SkipSegment): SkipButtonVisibility {
@@ -4386,19 +4399,21 @@ private fun shouldShowSkipButton(currentTimeSeconds: Float, segment: SkipSegment
 private fun skipSegmentId(segment: SkipSegment): String =
     "${segment.type}-${segment.startMs ?: "null"}-${segment.endMs ?: "null"}"
 
+@Composable
 private fun skipSegmentLabel(type: String): String = when (type) {
-    "intro" -> "Skip Intro"
-    "recap" -> "Skip Recap"
-    "credits" -> "Skip Credits"
-    "preview" -> "Skip Preview"
+    "intro" -> stringResource(R.string.player_skip_intro)
+    "recap" -> stringResource(R.string.player_skip_recap)
+    "credits" -> stringResource(R.string.player_skip_credits)
+    "preview" -> stringResource(R.string.player_skip_preview)
     else -> type.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
 }
 
+@Composable
 private fun segmentTypeLabel(type: String): String = when (type) {
-    "intro" -> "Intro"
-    "recap" -> "Recap"
-    "credits" -> "Credits"
-    "preview" -> "Preview"
+    "intro" -> stringResource(R.string.player_intro)
+    "recap" -> stringResource(R.string.player_recap)
+    "credits" -> stringResource(R.string.player_credits)
+    "preview" -> stringResource(R.string.player_preview)
     else -> type.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
 }
 
@@ -4432,32 +4447,36 @@ private fun RowScope.GuideColumn(theme: ZStreamTheme, title: String, body: Strin
     }
 }
 
+@Composable
 private fun guideStart(segmentType: String): String = when (segmentType) {
-    "intro", "recap" -> "Optional. Leave blank to start from the beginning."
-    "credits", "preview" -> "Required. Set where the segment begins."
-    else -> "Set where the segment begins."
+    "intro", "recap" -> stringResource(R.string.player_segment_start_optional)
+    "credits", "preview" -> stringResource(R.string.player_segment_start_required)
+    else -> stringResource(R.string.player_segment_start_default)
 }
 
+@Composable
 private fun guideEnd(segmentType: String): String = when (segmentType) {
-    "intro", "recap" -> "Required. Set where playback should resume."
-    "credits" -> "Optional. Leave blank if credits run to the end."
-    "preview" -> "Optional. Leave blank if preview runs to the end."
-    else -> "Set where playback should resume."
+    "intro", "recap" -> stringResource(R.string.player_segment_end_required)
+    "credits" -> stringResource(R.string.player_segment_end_credits_optional)
+    "preview" -> stringResource(R.string.player_segment_end_preview_optional)
+    else -> stringResource(R.string.player_segment_end_default)
 }
 
+@Composable
 private fun guideDuration(segmentType: String): String = when (segmentType) {
-    "intro", "recap" -> "Usually short and near the start of the episode."
-    "credits" -> "Usually late in the runtime and may continue to the end."
-    "preview" -> "Usually after the main content, often near the end."
-    else -> "Use timestamps that match the visible segment."
+    "intro", "recap" -> stringResource(R.string.player_segment_duration_intro_recap)
+    "credits" -> stringResource(R.string.player_segment_duration_credits)
+    "preview" -> stringResource(R.string.player_segment_duration_preview)
+    else -> stringResource(R.string.player_segment_duration_default)
 }
 
+@Composable
 private fun guideExclude(segmentType: String): String = when (segmentType) {
-    "intro" -> "Do not include studio logos or unrelated cold open content."
-    "recap" -> "Only include the recap block, not the opening titles."
-    "credits" -> "Do not include post-credit scenes if playback should continue."
-    "preview" -> "Only include the next-episode preview block."
-    else -> "Avoid overlapping unrelated content."
+    "intro" -> stringResource(R.string.player_segment_exclude_intro)
+    "recap" -> stringResource(R.string.player_segment_exclude_recap)
+    "credits" -> stringResource(R.string.player_segment_exclude_credits)
+    "preview" -> stringResource(R.string.player_segment_exclude_preview)
+    else -> stringResource(R.string.player_segment_exclude_default)
 }
 
 @Composable
@@ -4493,17 +4512,21 @@ private fun SkipSegmentSubmissionDialog(
     var endText by remember(seed) { mutableStateOf(seed?.endMs?.let { (it / 1000).toString() }.orEmpty()) }
     var errorText by remember { mutableStateOf<String?>(null) }
     var isSubmitting by remember { mutableStateOf(false) }
+    val endRequiredError = stringResource(R.string.player_segment_end_time_required)
+    val startRequiredError = stringResource(R.string.player_segment_start_time_required)
+    val invalidTimeError = stringResource(R.string.player_segment_invalid_time)
+    val submitFailedError = stringResource(R.string.player_segment_submit_failed)
 
     fun submit() {
         val startSeconds = parseTimeToSeconds(startText)
         val endSeconds = parseTimeToSeconds(endText)
         when {
             (segmentType == "intro" || segmentType == "recap") && (endSeconds == null || endSeconds.isNaN()) ->
-                errorText = "End time is required for this segment type."
+                errorText = endRequiredError
             (segmentType == "credits" || segmentType == "preview") && (startSeconds == null || startSeconds.isNaN()) ->
-                errorText = "Start time is required for this segment type."
+                errorText = startRequiredError
             (startSeconds != null && startSeconds.isNaN()) || (endSeconds != null && endSeconds.isNaN()) ->
-                errorText = "Invalid time format."
+                errorText = invalidTimeError
             else -> {
                 errorText = null
                 scope.launch {
@@ -4523,7 +4546,7 @@ private fun SkipSegmentSubmissionDialog(
                     isSubmitting = false
                     result
                         .onSuccess { onDismiss() }
-                        .onFailure { errorText = it.message ?: "Failed to submit segment." }
+                        .onFailure { errorText = it.message ?: submitFailedError }
                 }
             }
         }
@@ -4586,11 +4609,11 @@ private fun SkipSegmentSubmissionDialog(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Filled.Download, null, tint = theme.colors.type.emphasis, modifier = Modifier.size(20.dp))
                             Spacer(Modifier.width(8.dp))
-                            Text("Submit Segment", color = theme.colors.type.emphasis, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                            Text(stringResource(R.string.player_submit_segment), color = theme.colors.type.emphasis, fontSize = 22.sp, fontWeight = FontWeight.Bold)
                         }
                         Spacer(Modifier.height(8.dp))
                         Text(
-                            "Submit skip segment timings to TheIntroDB.",
+                            stringResource(R.string.player_submit_segment_description),
                             color = theme.colors.type.secondary,
                             fontSize = 14.sp,
                             lineHeight = 20.sp
@@ -4608,7 +4631,7 @@ private fun SkipSegmentSubmissionDialog(
                                     .padding(18.dp),
                                 verticalArrangement = Arrangement.spacedBy(14.dp)
                             ) {
-                                Text("Segment Type", color = theme.colors.type.emphasis, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                                Text(stringResource(R.string.player_segment_type), color = theme.colors.type.emphasis, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
                                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     listOf("intro", "recap", "credits", "preview").forEach { type ->
                                         ZsChip(
@@ -4622,34 +4645,34 @@ private fun SkipSegmentSubmissionDialog(
                                         )
                                     }
                                 }
-                                Text("Choose the segment type and enter timestamps in `seconds`, `mm:ss`, or `hh:mm:ss`.", color = theme.colors.type.secondary, fontSize = 12.sp)
+                                Text(stringResource(R.string.player_segment_time_instructions), color = theme.colors.type.secondary, fontSize = 12.sp)
                                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
                                     ZsTextField(
                                         value = startText,
                                         onValueChange = { startText = it },
-                                        label = "Start time",
-                                        placeholder = if (segmentType == "credits" || segmentType == "preview") "2:30 or 150" else "2:30 or 150 (optional)",
+                                        label = stringResource(R.string.player_start_time),
+                                        placeholder = if (segmentType == "credits" || segmentType == "preview") stringResource(R.string.player_start_time_example) else stringResource(R.string.player_start_time_example_optional),
                                         singleLine = true,
                                         modifier = Modifier.weight(1f),
                                     )
                                     ZsTextField(
                                         value = endText,
                                         onValueChange = { endText = it },
-                                        label = "End time",
-                                        placeholder = if (segmentType == "intro" || segmentType == "recap") "3:30 or 210" else "3:30 or 210 (optional)",
+                                        label = stringResource(R.string.player_end_time),
+                                        placeholder = if (segmentType == "intro" || segmentType == "recap") stringResource(R.string.player_end_time_example) else stringResource(R.string.player_end_time_example_optional),
                                         singleLine = true,
                                         modifier = Modifier.weight(1f),
                                     )
                                 }
-                                ZsBottomSheetSectionCard(title = "Timing Guide") {
+                                ZsBottomSheetSectionCard(title = stringResource(R.string.player_timing_guide)) {
                                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                            GuideColumn(theme, "Start", guideStart(segmentType))
-                                            GuideColumn(theme, "End", guideEnd(segmentType))
+                                            GuideColumn(theme, stringResource(R.string.player_start), guideStart(segmentType))
+                                            GuideColumn(theme, stringResource(R.string.player_end), guideEnd(segmentType))
                                         }
                                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                            GuideColumn(theme, "Duration", guideDuration(segmentType))
-                                            GuideColumn(theme, "Exclude", guideExclude(segmentType))
+                                            GuideColumn(theme, stringResource(R.string.player_duration), guideDuration(segmentType))
+                                            GuideColumn(theme, stringResource(R.string.player_exclude), guideExclude(segmentType))
                                         }
                                     }
                                 }
@@ -4672,7 +4695,7 @@ private fun SkipSegmentSubmissionDialog(
                                 enabled = !isSubmitting,
                                 colors = ButtonDefaults.textButtonColors(contentColor = theme.colors.buttons.secondaryText)
                             ) {
-                                Text("Cancel")
+                                Text(stringResource(R.string.player_cancel))
                             }
                             Button(
                                 onClick = ::submit,
@@ -4685,7 +4708,7 @@ private fun SkipSegmentSubmissionDialog(
                                 ),
                                 shape = RoundedCornerShape(12.dp)
                             ) {
-                                Text(if (isSubmitting) "Submitting..." else "Submit")
+                                Text(if (isSubmitting) stringResource(R.string.player_submitting) else stringResource(R.string.player_submit))
                             }
                         }
                         Spacer(Modifier.height(8.dp))
@@ -4795,7 +4818,7 @@ private fun SkipSegmentOverlay(
                         )
                         Spacer(Modifier.width(6.dp))
                         Text(
-                            if (segment.type == "credits" && segment.endMs == null && durationMs > 0L) "Next Episode" else skipSegmentLabel(
+                            if (segment.type == "credits" && segment.endMs == null && durationMs > 0L) stringResource(R.string.player_next_episode) else skipSegmentLabel(
                                 segment.type
                             ),
                             color = theme.colors.buttons.primaryText,
@@ -4912,6 +4935,7 @@ private fun PlayerMenuContent(
 ) {
     val theme = LocalZStreamTheme.current
     val isTv = LocalIsTv.current
+    val resources = LocalContext.current.resources
     val focusManager = LocalFocusManager.current
     var isJoiningRoom by remember { mutableStateOf(false) }
     var joinRoomCode by remember { mutableStateOf("") }
@@ -4941,25 +4965,25 @@ private fun PlayerMenuContent(
             PlayerMenuHeader(
                 title = when (page) {
                     PlayerMenuPage.Root -> ""
-                    PlayerMenuPage.Captions -> "Subtitles"
-                    PlayerMenuPage.CaptionLanguage -> captionLanguage?.let(::subtitleLanguageName) ?: "Subtitles"
-                    PlayerMenuPage.CaptionSettings -> "Subtitle Settings"
-                    PlayerMenuPage.Playback -> "Playback"
-                    PlayerMenuPage.Sources -> "Source"
-                    PlayerMenuPage.Quality -> "Quality"
-                    PlayerMenuPage.Audio -> "Audio"
-                    PlayerMenuPage.Download -> "Download"
-                    PlayerMenuPage.DownloadQuality -> "Choose Quality"
-                    PlayerMenuPage.DownloadAudio -> "Choose Audio"
-                    PlayerMenuPage.WatchParty -> "Watch Party"
-                    PlayerMenuPage.SkipSegments -> "Skip Segments"
-                    PlayerMenuPage.Seasons -> "Seasons"
-                    PlayerMenuPage.Episodes -> currentSeason?.let { "Season $it" } ?: "Episodes"
-                    PlayerMenuPage.Variants -> "Stream Variants"
-                    PlayerMenuPage.LocalFile -> "File"
+                    PlayerMenuPage.Captions -> stringResource(R.string.player_subtitles)
+                    PlayerMenuPage.CaptionLanguage -> captionLanguage?.let { subtitleLanguageName(it, resources) } ?: stringResource(R.string.player_subtitles)
+                    PlayerMenuPage.CaptionSettings -> stringResource(R.string.player_subtitle_settings)
+                    PlayerMenuPage.Playback -> stringResource(R.string.player_playback)
+                    PlayerMenuPage.Sources -> stringResource(R.string.player_source)
+                    PlayerMenuPage.Quality -> stringResource(R.string.player_quality)
+                    PlayerMenuPage.Audio -> stringResource(R.string.player_audio)
+                    PlayerMenuPage.Download -> stringResource(R.string.player_download)
+                    PlayerMenuPage.DownloadQuality -> stringResource(R.string.player_choose_quality)
+                    PlayerMenuPage.DownloadAudio -> stringResource(R.string.player_choose_audio)
+                    PlayerMenuPage.WatchParty -> stringResource(R.string.player_watch_party)
+                    PlayerMenuPage.SkipSegments -> stringResource(R.string.player_skip_segments)
+                    PlayerMenuPage.Seasons -> stringResource(R.string.player_seasons)
+                    PlayerMenuPage.Episodes -> currentSeason?.let { stringResource(R.string.player_season_number, it) } ?: stringResource(R.string.player_episodes)
+                    PlayerMenuPage.Variants -> stringResource(R.string.player_stream_variants)
+                    PlayerMenuPage.LocalFile -> stringResource(R.string.player_file)
                     PlayerMenuPage.TranslateSubtitle -> translateSourceTrack?.let {
-                        "Translate ${subtitleLanguageName(it.language)}"
-                    } ?: "Translate"
+                        stringResource(R.string.player_translate_language, subtitleLanguageName(it.language, resources))
+                    } ?: stringResource(R.string.player_translate)
                 },
                 showBack = !hideBackButton,
                 onBack = onBack,
@@ -4969,7 +4993,7 @@ private fun PlayerMenuContent(
                             onClick = { onOpenPage(PlayerMenuPage.CaptionSettings) },
                             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
                         ) {
-                            Text("Customize", color = theme.colors.type.text, fontSize = 14.sp)
+                            Text(stringResource(R.string.player_customize), color = theme.colors.type.text, fontSize = 14.sp)
                         }
                     }
                 } else null,
@@ -5006,24 +5030,24 @@ private fun PlayerMenuContent(
                         PlayerMenuGridSection(
                             firstItemFocusRequester = firstItemFocusRequester,
                             items = listOf(
-                                PlayerMenuTileItem("Quality", selectedQualityLabel) {
+                                PlayerMenuTileItem(stringResource(R.string.player_quality), selectedQualityLabel) {
                                     onOpenPage(
                                         PlayerMenuPage.Quality
                                     )
                                 },
                                 if (localFileInfo != null) {
-                                    PlayerMenuTileItem("File", localFileInfo.fileName) { onOpenPage(PlayerMenuPage.LocalFile) }
+                                    PlayerMenuTileItem(stringResource(R.string.player_file), localFileInfo.fileName) { onOpenPage(PlayerMenuPage.LocalFile) }
                                 } else {
                                     PlayerMenuTileItem(
-                                        "Source",
+                                        stringResource(R.string.player_source),
                                         sourceId?.replaceFirstChar { it.titlecase() }
-                                            ?: "Auto") { onOpenPage(PlayerMenuPage.Sources) }
+                                            ?: stringResource(R.string.player_auto)) { onOpenPage(PlayerMenuPage.Sources) }
                                 },
                                 PlayerMenuTileItem(
-                                    "Subtitles",
-                                    selectedSubtitleLanguage?.let(::subtitleLanguageName) ?: "Off"
+                                    stringResource(R.string.player_subtitles),
+                                    selectedSubtitleLanguage?.let { subtitleLanguageName(it, resources) } ?: stringResource(R.string.player_off)
                                 ) { onOpenPage(PlayerMenuPage.Captions) },
-                                PlayerMenuTileItem("Audio", selectedAudioLabel) {
+                                PlayerMenuTileItem(stringResource(R.string.player_audio), selectedAudioLabel) {
                                     onOpenPage(
                                         PlayerMenuPage.Audio
                                     )
@@ -5032,10 +5056,10 @@ private fun PlayerMenuContent(
                         )
                         if (localFileInfo == null) {
                             PlayerMenuSection {
-                                PlayerMenuLinkRow("Download", rightIcon = Icons.Filled.Download) {
+                                PlayerMenuLinkRow(stringResource(R.string.player_download), rightIcon = Icons.Filled.Download) {
                                     onOpenPage(PlayerMenuPage.Download)
                                 }
-                                PlayerMenuLinkRow("Watch Party", rightIcon = Icons.Filled.Group) {
+                                PlayerMenuLinkRow(stringResource(R.string.player_watch_party), rightIcon = Icons.Filled.Group) {
                                     onOpenPage(PlayerMenuPage.WatchParty)
                                 }
                             }
@@ -5043,22 +5067,22 @@ private fun PlayerMenuContent(
                         if (localFileInfo == null && variants.size > 1) {
                             PlayerMenuSection {
                                 PlayerMenuChevronRow(
-                                    title = "Stream Variants",
+                                    title = stringResource(R.string.player_stream_variants),
                                     value = "${variants.size}",
                                 ) { onOpenPage(PlayerMenuPage.Variants) }
                             }
                         }
                         PlayerMenuSection {
                             PlayerMenuToggleRow(
-                                "Enable subtitles",
+                                stringResource(R.string.player_enable_subtitles),
                                 subtitlesEnabled,
                                 onToggle = onToggleSubtitles
                             )
-                            PlayerMenuChevronRow("Playback") {
+                            PlayerMenuChevronRow(stringResource(R.string.player_playback)) {
                                 onOpenPage(PlayerMenuPage.Playback)
                             }
                             if (localFileInfo == null) {
-                                PlayerMenuChevronRow("Skip Segments") {
+                                PlayerMenuChevronRow(stringResource(R.string.player_skip_segments)) {
                                     onOpenPage(PlayerMenuPage.SkipSegments)
                                 }
                             }
@@ -5068,35 +5092,36 @@ private fun PlayerMenuContent(
                     PlayerMenuPage.Captions -> {
                         PlayerMenuSection {
                             PlayerMenuSelectableRow(
-                                title = "Off",
+                                title = stringResource(R.string.player_off),
                                 selected = !subtitlesEnabled || selectedSubtitleLanguage == null,
                                 onClick = onDisableSubtitles,
                                 focusRequester = firstItemFocusRequester,
                             )
                             if (subtitleTracks.isNotEmpty()) {
                                 PlayerMenuSelectableRow(
-                                    title = "Automatically select subtitles",
-                                    subtitle = if (subtitlesEnabled) "Select a different subtitle" else null,
+                                    title = stringResource(R.string.player_auto_select_subtitles),
+                                    subtitle = if (subtitlesEnabled) stringResource(R.string.player_select_different_subtitle) else null,
                                     selected = subtitlesEnabled && selectedSubtitleId != null,
                                     onClick = onAutoSelectSubtitle,
                                 )
                             }
                         }
                         if (subtitleTracks.isEmpty()) {
-                            PlayerMenuStubCard("No subtitles were returned for this stream.")
+                            PlayerMenuStubCard(stringResource(R.string.player_no_subtitles_returned))
                         } else {
+                            val preferredSubtitleLanguage = settings.defaultSubtitleLanguage
                             val groups = subtitleTracks.groupBy { it.language }.entries.sortedWith(
                                 compareBy<Map.Entry<String, List<SubtitleTrack>>> {
-                                    if (it.key == settings.applicationLanguage || it.key.startsWith(
-                                            "${settings.applicationLanguage}-"
-                                        )
+                                    if (preferredSubtitleLanguage != null &&
+                                        (it.key == preferredSubtitleLanguage ||
+                                            it.key.startsWith("$preferredSubtitleLanguage-"))
                                     ) 0 else 1
-                                }.thenBy { subtitleLanguageName(it.key) }
+                                }.thenBy { subtitleLanguageName(it.key, resources) }
                             )
                             PlayerMenuSection {
                                 groups.forEach { (language, tracks) ->
                                     PlayerMenuChevronRow(
-                                        title = subtitleLanguageName(language),
+                                        title = subtitleLanguageName(language, resources),
                                         value = tracks.size.toString(),
                                         icon = languageToFlag(language),
                                         onClick = { onOpenCaptionLanguage(language) },
@@ -5118,8 +5143,13 @@ private fun PlayerMenuContent(
                             }
                         PlayerMenuSection {
                             tracks.forEachIndexed { index, track ->
+                                val trackTitle = when {
+                                    track.label.isBlank() -> stringResource(R.string.player_subtitle_number, index + 1)
+                                    track.label.equals("Unknown", ignoreCase = true) -> stringResource(R.string.player_unknown)
+                                    else -> track.label
+                                }
                                 PlayerMenuSelectableRow(
-                                    title = track.label.ifBlank { "Subtitle ${index + 1}" },
+                                    title = trackTitle,
                                     selected = subtitlesEnabled && selectedSubtitleId == track.id,
                                     onClick = { onSelectSubtitle(track.id) },
                                     focusRequester = firstItemFocusRequester.takeIf { index == 0 },
@@ -5129,7 +5159,7 @@ private fun PlayerMenuContent(
                                             IconButton(onClick = { onOpenTranslate(track) }, modifier = Modifier.size(28.dp)) {
                                                 Icon(
                                                     Icons.Filled.Translate,
-                                                    contentDescription = "Translate",
+                                                    contentDescription = stringResource(R.string.player_translate),
                                                     tint = playerMenuDimText(),
                                                     modifier = Modifier.size(18.dp),
                                                 )
@@ -5145,7 +5175,7 @@ private fun PlayerMenuContent(
                     PlayerMenuPage.TranslateSubtitle -> {
                         val sourceTrack = translateSourceTrack
                         if (sourceTrack == null) {
-                            PlayerMenuStubCard("No subtitle selected to translate.")
+                            PlayerMenuStubCard(stringResource(R.string.player_no_subtitle_selected_to_translate))
                         } else {
                             PlayerMenuSection {
                                 TRANSLATE_TARGET_LANGUAGES
@@ -5154,7 +5184,7 @@ private fun PlayerMenuContent(
                                         val isThisTarget = translateTask?.targetLanguage == lang &&
                                             translateTask.sourceTrack.id == sourceTrack.id
                                         PlayerMenuSelectableRow(
-                                            title = subtitleLanguageName(lang),
+                                            title = subtitleLanguageName(lang, resources),
                                             selected = isThisTarget && translateTask?.done == true,
                                             disabled = translateTask != null && !translateTask.done && !translateTask.error && !isThisTarget,
                                             onClick = {
@@ -5168,7 +5198,7 @@ private fun PlayerMenuContent(
                                             rightContent = {
                                                 when {
                                                     isThisTarget && translateTask?.error == true -> Icon(
-                                                        Icons.Filled.ErrorOutline, contentDescription = "Failed",
+                                                        Icons.Filled.ErrorOutline, contentDescription = stringResource(R.string.player_failed),
                                                         tint = theme.colors.type.danger, modifier = Modifier.size(18.dp),
                                                     )
                                                     isThisTarget && translateTask?.done == false -> CircularProgressIndicator(
@@ -5186,7 +5216,7 @@ private fun PlayerMenuContent(
                     PlayerMenuPage.CaptionSettings -> {
                         PlayerMenuSection {
                             PlayerMenuToggleRow(
-                                title = "Use native video subtitles",
+                                title = stringResource(R.string.player_use_native_video_subtitles),
                                 checked = settings.enableNativeSubtitles,
                                 focusRequester = firstItemFocusRequester,
                             ) { onUpdateSettings(settings.copy(enableNativeSubtitles = !settings.enableNativeSubtitles)) }
@@ -5194,9 +5224,15 @@ private fun PlayerMenuContent(
                         if (!settings.enableNativeSubtitles) {
                             PlayerMenuSection {
                                 PlayerMenuSliderRow(
-                                    label = "Subtitle delay",
+                                    label = stringResource(R.string.player_subtitle_delay),
                                     value = subtitleDelay,
-                                    valueText = { "${if (it > 0f) "+" else ""}${"%.1f".format(it)}s" },
+                                    valueText = {
+                                        resources.getString(
+                                            R.string.player_seconds_value,
+                                            if (it > 0f) "+" else "",
+                                            it,
+                                        )
+                                    },
                                     range = -40f..40f,
                                     steps = 0,
                                     onValueChange = onSetSubtitleDelay,
@@ -5204,13 +5240,13 @@ private fun PlayerMenuContent(
                                     isDefault = subtitleDelay == 0f,
                                     tickStep = 0.1f,
                                 )
-                                PlayerMenuToggleRow("Fix capitals", overrideCasing) {
+                                PlayerMenuToggleRow(stringResource(R.string.player_fix_capitals), overrideCasing) {
                                     onSetOverrideCasing(!overrideCasing)
                                 }
                                 PlayerMenuSliderRow(
-                                    label = "Background opacity",
+                                    label = stringResource(R.string.player_background_opacity),
                                     value = settings.subtitleBackgroundOpacity * 100f,
-                                    valueText = { "${it.toInt()}%" },
+                                    valueText = { resources.getString(R.string.player_percent, it.toInt()) },
                                     range = 0f..100f,
                                     steps = 0,
                                     onValueChange = {
@@ -5231,16 +5267,16 @@ private fun PlayerMenuContent(
                                     tickStep = 5f,
                                 )
                                 PlayerMenuToggleRow(
-                                    "Background blur",
+                                    stringResource(R.string.player_background_blur),
                                     settings.subtitleBackgroundBlurEnabled
                                 ) {
                                     onUpdateSettings(settings.copy(subtitleBackgroundBlurEnabled = !settings.subtitleBackgroundBlurEnabled))
                                 }
                                 if (settings.subtitleBackgroundBlurEnabled) {
                                     PlayerMenuSliderRow(
-                                        label = "Blur amount",
+                                        label = stringResource(R.string.player_blur_amount),
                                         value = settings.subtitleBackgroundBlur * 100f,
-                                        valueText = { "${it.toInt()}%" },
+                                        valueText = { resources.getString(R.string.player_percent, it.toInt()) },
                                         range = 0f..100f,
                                         steps = 0,
                                         onValueChange = {
@@ -5262,9 +5298,9 @@ private fun PlayerMenuContent(
                                     )
                                 }
                                 PlayerMenuSliderRow(
-                                    label = "Text size",
+                                    label = stringResource(R.string.player_text_size),
                                     value = settings.subtitleSize * 100f,
-                                    valueText = { "${it.toInt()}%" },
+                                    valueText = { resources.getString(R.string.player_percent, it.toInt()) },
                                     range = 1f..200f,
                                     steps = 0,
                                     onValueChange = { onUpdateSettings(settings.copy(subtitleSize = it / 100f)) },
@@ -5272,14 +5308,14 @@ private fun PlayerMenuContent(
                                     isDefault = settings.subtitleSize == .75f,
                                     tickStep = 5f,
                                 )
-                                PlayerMenuFieldTitle("Font style")
+                                PlayerMenuFieldTitle(stringResource(R.string.player_font_style))
                                 PlayerMenuSegmentedOptions(
                                     options = listOf(
-                                        "default" to "Default",
-                                        "raised" to "Raised",
-                                        "depressed" to "Inset",
-                                        "Border" to "Border",
-                                        "dropShadow" to "Shadow"
+                                        "default" to stringResource(R.string.player_default),
+                                        "raised" to stringResource(R.string.player_raised),
+                                        "depressed" to stringResource(R.string.player_inset),
+                                        "Border" to stringResource(R.string.player_border),
+                                        "dropShadow" to stringResource(R.string.player_shadow)
                                     ),
                                     selected = settings.subtitleFontStyle,
                                     onSelect = { onUpdateSettings(settings.copy(subtitleFontStyle = it)) },
@@ -5292,9 +5328,9 @@ private fun PlayerMenuContent(
 //                                )
                                 if (settings.subtitleFontStyle == "Border") {
                                     PlayerMenuSliderRow(
-                                        label = "Border thickness",
+                                        label = stringResource(R.string.player_border_thickness),
                                         value = settings.subtitleBorderThickness,
-                                        valueText = { "${String.format("%.1f", it)}px" },
+                                        valueText = { resources.getString(R.string.player_pixels, it) },
                                         range = 0f..10f,
                                         steps = 0,
                                         onValueChange = {
@@ -5315,15 +5351,15 @@ private fun PlayerMenuContent(
                                         tickStep = .5f,
                                     )
                                 }
-                                PlayerMenuToggleRow("Bold text", settings.subtitleBold) {
+                                PlayerMenuToggleRow(stringResource(R.string.player_bold_text), settings.subtitleBold) {
                                     onUpdateSettings(settings.copy(subtitleBold = !settings.subtitleBold))
                                 }
-                                PlayerMenuFieldTitle("Text color")
+                                PlayerMenuFieldTitle(stringResource(R.string.player_text_color))
                                 PlayerMenuColorOptions(settings.subtitleColor) {
                                     onUpdateSettings(settings.copy(subtitleColor = it))
                                 }
                                 PlayerMenuSliderRow(
-                                    label = "Vertical position",
+                                    label = stringResource(R.string.player_vertical_position),
                                     value = settings.subtitleVerticalPosition,
                                     valueText = { "${it.toInt()}" },
                                     range = -15f..30f,
@@ -5346,9 +5382,9 @@ private fun PlayerMenuContent(
                                     tickStep = 1f,
                                 )
                                 PlayerMenuSliderRow(
-                                    label = "Line spacing",
+                                    label = stringResource(R.string.player_line_spacing),
                                     value = settings.subtitleLineHeight * 100f,
-                                    valueText = { "${it.toInt()}%" },
+                                    valueText = { resources.getString(R.string.player_percent, it.toInt()) },
                                     range = 100f..250f,
                                     steps = 0,
                                     onValueChange = {
@@ -5363,7 +5399,7 @@ private fun PlayerMenuContent(
                                     tickStep = 5f,
                                 )
                                 ZsButton(
-                                    text = "Reset",
+                                    text = stringResource(R.string.player_reset),
                                     onClick = {
                                         onUpdateSettings(
                                             settings.copy(
@@ -5390,7 +5426,7 @@ private fun PlayerMenuContent(
 
                     PlayerMenuPage.Playback -> {
                         PlayerMenuSection {
-                            PlayerMenuFieldTitle("Speed")
+                            PlayerMenuFieldTitle(stringResource(R.string.player_speed))
                             Spacer(Modifier.height(12.dp))
                             PlayerMenuSpeedOptions(
                                 playbackSpeed = playbackSpeed,
@@ -5400,9 +5436,9 @@ private fun PlayerMenuContent(
                         }
                         PlayerMenuSection {
                             PlayerMenuSliderRow(
-                                label = "Custom speed",
+                                label = stringResource(R.string.player_custom_speed),
                                 value = playbackSpeed,
-                                valueText = { "${String.format("%.2f", it)}x" },
+                                valueText = { resources.getString(R.string.player_speed_multiplier, it) },
                                 range = PLAYBACK_SPEED_MIN..PLAYBACK_SPEED_MAX,
                                 steps = 0,
                                 onValueChange = { onSetPlaybackSpeed((it * 20).roundToInt() / 20f) },
@@ -5410,13 +5446,13 @@ private fun PlayerMenuContent(
                                 isDefault = playbackSpeed == 1f,
                                 tickStep = 0.05f,
                             )
-                            PlayerMenuToggleRow("Autoplay next episode", settings.enableAutoplay) {
+                            PlayerMenuToggleRow(stringResource(R.string.player_autoplay_next_episode), settings.enableAutoplay) {
                                 onSetEnableAutoplay(!settings.enableAutoplay)
                             }
                             PlayerMenuSliderRow(
-                                label = "Brightness",
+                                label = stringResource(R.string.player_brightness),
                                 value = settings.videoBrightness.toFloat(),
-                                valueText = { "${it.toInt()}%" },
+                                valueText = { resources.getString(R.string.player_percent, it.toInt()) },
                                 range = 10f..200f,
                                 steps = 0,
                                 onValueChange = { onSetVideoBrightness((it / 5f).roundToInt() * 5) },
@@ -5424,14 +5460,14 @@ private fun PlayerMenuContent(
                                 isDefault = settings.videoBrightness == 100,
                                 tickStep = 5f,
                             )
-                            PlayerMenuToggleRow("Volume Boost", settings.volumeBoost > 100) {
+                            PlayerMenuToggleRow(stringResource(R.string.player_volume_boost), settings.volumeBoost > 100) {
                                 onSetVolumeBoost(if (settings.volumeBoost > 100) 100 else 150)
                             }
                             if (settings.volumeBoost > 100) {
                                 PlayerMenuSliderRow(
-                                    label = "Boost level",
+                                    label = stringResource(R.string.player_boost_level),
                                     value = settings.volumeBoost.toFloat(),
-                                    valueText = { "${it.toInt()}%" },
+                                    valueText = { resources.getString(R.string.player_percent, it.toInt()) },
                                     range = 100f..300f,
                                     steps = 0,
                                     onValueChange = { onSetVolumeBoost((it / 10f).roundToInt() * 10) },
@@ -5440,13 +5476,13 @@ private fun PlayerMenuContent(
                                     tickStep = 10f,
                                 )
                             }
-                            PlayerMenuFieldTitle("Video mode")
+                            PlayerMenuFieldTitle(stringResource(R.string.player_video_mode))
                             Spacer(Modifier.height(12.dp))
                             PlayerMenuSegmentedOptions(
                                 options = listOf(
-                                    "fit" to "Fit",
-                                    "fill" to "Fill",
-                                    "stretch" to "Stretch"
+                                    "fit" to stringResource(R.string.player_fit),
+                                    "fill" to stringResource(R.string.player_fill),
+                                    "stretch" to stringResource(R.string.player_stretch)
                                 ),
                                 selected = settings.videoScaleMode,
                                 onSelect = onSetVideoScaleMode
@@ -5492,7 +5528,7 @@ private fun PlayerMenuContent(
                         }
 
                         if (sourceResults.isEmpty()) {
-                            PlayerMenuStubCard("No sources are available for manual selection yet.")
+                            PlayerMenuStubCard(stringResource(R.string.player_no_manual_sources))
                         }
                     }
 
@@ -5519,7 +5555,7 @@ private fun PlayerMenuContent(
                                     rightContent = if (isFailed) ({
                                         Icon(
                                             Icons.Default.Close,
-                                            contentDescription = "Failed",
+                                            contentDescription = stringResource(R.string.player_failed),
                                             tint = LocalZStreamTheme.current.colors.type.danger,
                                             modifier = Modifier.size(16.dp),
                                         )
@@ -5528,15 +5564,15 @@ private fun PlayerMenuContent(
                             }
                         }
                         if (variants.isEmpty()) {
-                            PlayerMenuStubCard("No stream variants available for this source.")
+                            PlayerMenuStubCard(stringResource(R.string.player_no_stream_variants))
                         }
                     }
 
                     PlayerMenuPage.Quality -> {
                         PlayerMenuSection {
                             PlayerMenuSelectableRow(
-                                title = "Auto",
-                                subtitle = "Adaptive streaming",
+                                title = stringResource(R.string.player_auto),
+                                subtitle = stringResource(R.string.player_adaptive_streaming),
                                 selected = qualityOptions.none { it.selected },
                                 onClick = onSelectAutoQuality,
                                 focusRequester = firstItemFocusRequester
@@ -5551,7 +5587,7 @@ private fun PlayerMenuContent(
                             }
                         }
                         if (qualityOptions.isEmpty()) {
-                            PlayerMenuStubCard("No manual quality tracks exposed by Media3 for this stream.")
+                            PlayerMenuStubCard(stringResource(R.string.player_no_manual_quality_tracks))
                         }
                     }
 
@@ -5560,7 +5596,8 @@ private fun PlayerMenuContent(
                             audioOptions.forEachIndexed { index, option ->
                                 PlayerMenuSelectableRow(
                                     title = option.label,
-                                    subtitle = option.language ?: "Unknown",
+                                    subtitle = option.language?.let { subtitleLanguageName(it, resources) }
+                                        ?: stringResource(R.string.player_unknown),
                                     selected = option.selected,
                                     onClick = { onSelectAudio(option) },
                                     focusRequester = if (index == 0) firstItemFocusRequester else null
@@ -5568,40 +5605,48 @@ private fun PlayerMenuContent(
                             }
                         }
                         if (audioOptions.isEmpty()) {
-                            PlayerMenuStubCard("No selectable audio tracks exposed by Media3 for this stream.")
+                            PlayerMenuStubCard(stringResource(R.string.player_no_selectable_audio_tracks))
                         }
                     }
 
                     PlayerMenuPage.LocalFile -> {
                         localFileInfo?.let { info ->
+                            val localFile = stringResource(R.string.player_local_file)
                             PlayerMenuSection {
                                 PlayerMenuSummaryCard(
                                     title = info.fileName,
-                                    value = info.relativePath ?: "Local file",
+                                    value = info.relativePath ?: localFile,
                                     subtitle = listOfNotNull(
                                         info.size?.let(::formatBytes),
                                         info.durationMs?.let(::formatTime),
-                                    ).joinToString(" · ").ifBlank { "Local file" },
+                                    ).joinToString(" · ").ifBlank { localFile },
                                 )
                             }
                             PlayerMenuSection {
                                 PlayerMenuSummaryCard(
-                                    title = "Match",
-                                    value = info.matchSource?.replaceFirstChar { it.titlecase() } ?: "Local",
-                                    subtitle = info.tmdbId?.let { "${info.tmdbType ?: "tmdb"} #$it" } ?: "No TMDB match",
+                                    title = stringResource(R.string.player_match),
+                                    value = info.matchSource?.replaceFirstChar { it.titlecase() } ?: stringResource(R.string.player_local),
+                                    subtitle = info.tmdbId?.let { "${info.tmdbType ?: "tmdb"} #$it" } ?: stringResource(R.string.player_no_tmdb_match),
                                 )
                             }
-                        } ?: PlayerMenuStubCard("No local file information available.")
+                        } ?: PlayerMenuStubCard(stringResource(R.string.player_no_local_file_info))
                     }
 
                     PlayerMenuPage.Download -> {
-                        val freeSpaceText = remember {
+                        val freeSpace = remember {
                             runCatching {
                                 @Suppress("DEPRECATION")
                                 val root = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
                                 val stat = android.os.StatFs(root.absolutePath)
-                                formatFreeSpace(stat.availableBytes, stat.totalBytes)
+                                stat.availableBytes to stat.totalBytes
                             }.getOrNull()
+                        }
+                        val freeSpaceText = freeSpace?.let { (free, total) ->
+                            stringResource(
+                                R.string.player_storage_free,
+                                free / (1024.0 * 1024.0 * 1024.0),
+                                total / (1024.0 * 1024.0 * 1024.0),
+                            )
                         }
                         if (freeSpaceText != null) {
                             Text(
@@ -5615,7 +5660,7 @@ private fun PlayerMenuContent(
                             downloadableVariants.forEachIndexed { index, variant ->
                                 PlayerMenuSelectableRow(
                                     title = variant.displayLabel(),
-                                    subtitle = if (variant.streamType == "hls") "Tap to choose a quality" else "Tap to download",
+                                    subtitle = if (variant.streamType == "hls") stringResource(R.string.player_tap_choose_quality) else stringResource(R.string.player_tap_download),
                                     selected = false,
                                     onClick = {
                                         onDownloadVariant(variant)
@@ -5626,12 +5671,12 @@ private fun PlayerMenuContent(
                             }
                         }
                         if (downloadableVariants.isEmpty()) {
-                            PlayerMenuStubCard("No downloadable quality found for this source.")
+                            PlayerMenuStubCard(stringResource(R.string.player_no_downloadable_quality))
                         }
                     }
                     PlayerMenuPage.DownloadQuality -> {
                         if (downloadQualityLoading) {
-                            PlayerMenuStubCard("Checking available qualities…")
+                            PlayerMenuStubCard(stringResource(R.string.player_checking_qualities))
                         } else {
                             PlayerMenuSection {
                                 downloadQualityOptions.forEachIndexed { index, option ->
@@ -5647,7 +5692,7 @@ private fun PlayerMenuContent(
                                 }
                             }
                             if (downloadQualityOptions.isEmpty()) {
-                                PlayerMenuStubCard("No quality options found for this source.")
+                                PlayerMenuStubCard(stringResource(R.string.player_no_quality_options))
                             }
                         }
                     }
@@ -5655,7 +5700,7 @@ private fun PlayerMenuContent(
                         PlayerMenuSection {
                             downloadAudioOptions.forEachIndexed { index, rendition ->
                                 PlayerMenuSelectableRow(
-                                    title = rendition.name.ifBlank { rendition.language.ifBlank { "Audio ${index + 1}" } },
+                                    title = rendition.name.ifBlank { rendition.language.ifBlank { stringResource(R.string.player_audio_number, index + 1) } },
                                     subtitle = rendition.language.takeIf { it.isNotBlank() && it != rendition.name },
                                     selected = false,
                                     onClick = {
@@ -5667,7 +5712,7 @@ private fun PlayerMenuContent(
                             }
                         }
                         if (downloadAudioOptions.isEmpty()) {
-                            PlayerMenuStubCard("No audio options found for this source.")
+                            PlayerMenuStubCard(stringResource(R.string.player_no_audio_options))
                         }
                     }
                     PlayerMenuPage.WatchParty -> {
@@ -5679,7 +5724,7 @@ private fun PlayerMenuContent(
                                     verticalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
                                     ZsButton(
-                                        text = "Host a Watch Party",
+                                        text = stringResource(R.string.player_host_watch_party),
                                         onClick = {
                                             isJoiningRoom = false
                                             joinRoomCode = ""
@@ -5694,7 +5739,7 @@ private fun PlayerMenuContent(
 
                                     if (isOffline) {
                                         ZsStatusBanner(
-                                            message = "Failed to connect to room",
+                                            message = stringResource(R.string.player_failed_connect_room),
                                             variant = ZsStatusBannerVariant.Error,
                                             modifier = Modifier.padding(top = 8.dp)
                                         )
@@ -5747,7 +5792,7 @@ private fun PlayerMenuContent(
                                                 Box(contentAlignment = Alignment.Center) {
                                                     if (joinRoomCode.isEmpty()) {
                                                         Text(
-                                                            "CODE",
+                                                            stringResource(R.string.player_code),
                                                             color = playerMenuMutedText(),
                                                             fontSize = 16.sp
                                                         )
@@ -5768,14 +5813,14 @@ private fun PlayerMenuContent(
                                                 focusManager.clearFocus()
                                             }) {
                                                 Text(
-                                                    "Cancel",
+                                                    stringResource(R.string.player_cancel),
                                                     color = theme.colors.type.secondary,
                                                     fontSize = 12.sp
                                                 )
                                             }
 
                                             ZsButton(
-                                                text = "Join",
+                                                text = stringResource(R.string.player_join),
                                                 onClick = {
                                                     if (joinRoomCode.length >= 4) {
                                                         onJoinWatchParty(joinRoomCode)
@@ -5789,7 +5834,7 @@ private fun PlayerMenuContent(
                                         }
                                     } else {
                                         ZsButton(
-                                            text = "Join Watch Party",
+                                            text = stringResource(R.string.player_join_watch_party),
                                             onClick = { isJoiningRoom = true },
                                             variant = ZsButtonVariant.Secondary,
                                             modifier = Modifier
@@ -5853,7 +5898,7 @@ private fun PlayerMenuContent(
                                                     )
                                                     Spacer(Modifier.width(8.dp))
                                                     Text(
-                                                        text = if (isHost) "Hosting" else "Viewing",
+                                                        text = if (isHost) stringResource(R.string.player_hosting) else stringResource(R.string.player_viewing),
                                                         color = theme.colors.type.emphasis,
                                                         fontSize = 12.sp,
                                                         fontWeight = FontWeight.Medium
@@ -5877,7 +5922,7 @@ private fun PlayerMenuContent(
                                                     ) {
                                                         Icon(
                                                             imageVector = Icons.Default.Edit,
-                                                            contentDescription = "Edit",
+                                                            contentDescription = stringResource(R.string.player_edit),
                                                             tint = if (isEditing) theme.colors.buttons.purple else theme.colors.type.secondary,
                                                             modifier = Modifier.size(18.dp)
                                                         )
@@ -5916,7 +5961,7 @@ private fun PlayerMenuContent(
                                                 )
                                             } else if (isRegistering) {
                                                 Text(
-                                                    text = "Registering Watch Party...",
+                                                    text = stringResource(R.string.player_registering_watch_party),
                                                     color = theme.colors.buttons.secondary.copy(
                                                         alpha = 0.7f
                                                     ),
@@ -5940,7 +5985,7 @@ private fun PlayerMenuContent(
                                                     verticalArrangement = Arrangement.spacedBy(6.dp)
                                                 ) {
                                                     Text(
-                                                        text = "Host offline grace period",
+                                                        text = stringResource(R.string.player_host_offline_grace_period),
                                                         color = theme.colors.type.secondary,
                                                         fontSize = 11.sp,
                                                         textAlign = TextAlign.Center,
@@ -5959,7 +6004,7 @@ private fun PlayerMenuContent(
 
                                             if (durationMismatch) {
                                                 Text(
-                                                    text = "Duration mismatch detected. Drift sync is limited.",
+                                                    text = stringResource(R.string.player_duration_mismatch_limited),
                                                     color = theme.colors.type.secondary,
                                                     fontSize = 11.sp,
                                                     textAlign = TextAlign.Center
@@ -6018,7 +6063,7 @@ private fun PlayerMenuContent(
                                                             )
                                                             Spacer(Modifier.width(8.dp))
                                                             Text(
-                                                                text = "Copy Code",
+                                                                text = stringResource(R.string.player_copy_code),
                                                                 color = theme.colors.type.secondary,
                                                                 fontSize = 12.sp,
                                                                 fontWeight = FontWeight.Medium
@@ -6090,7 +6135,7 @@ private fun PlayerMenuContent(
                                                             )
                                                             Spacer(Modifier.width(8.dp))
                                                             Text(
-                                                                text = "Copy Link",
+                                                                text = stringResource(R.string.player_copy_link),
                                                                 color = theme.colors.type.secondary,
                                                                 fontSize = 12.sp,
                                                                 fontWeight = FontWeight.Medium
@@ -6102,13 +6147,19 @@ private fun PlayerMenuContent(
                                         }
                                     }
 
-                                    PlayerMenuSectionTitle(if (participants.size <= 1) "ALONE" else "${participants.size} PARTICIPANTS")
+                                    PlayerMenuSectionTitle(
+                                        if (participants.size <= 1) stringResource(R.string.player_alone)
+                                        else pluralStringResource(R.plurals.player_participants, participants.size, participants.size)
+                                    )
                                     Column(
                                         modifier = Modifier.fillMaxWidth(),
                                         verticalArrangement = Arrangement.spacedBy(10.dp)
                                     ) {
                                         participants.forEach { participant ->
                                             val isMe = participant.userId == myUserId
+                                            val participantName = if (isMe) stringResource(R.string.player_you) else participant.userId.take(12)
+                                            val hostSuffix = if (participant.isHost) stringResource(R.string.player_host_suffix) else ""
+                                            val reconnectingSuffix = if (participant.isStale) stringResource(R.string.player_reconnecting_suffix) else ""
                                             Box(
                                                 modifier = Modifier
                                                     .fillMaxWidth()
@@ -6139,13 +6190,7 @@ private fun PlayerMenuContent(
                                                         )
                                                         Spacer(Modifier.width(8.dp))
                                                         Text(
-                                                            text = buildString {
-                                                                if (isMe) append("You") else append(
-                                                                    participant.userId.take(12)
-                                                                )
-                                                                if (participant.isHost) append(" (Host)")
-                                                                if (participant.isStale) append(" - reconnecting")
-                                                            },
+                                                            text = participantName + hostSuffix + reconnectingSuffix,
                                                             color = if (participant.isHost) Color(
                                                                 0xFFFFD700
                                                             ) else theme.colors.type.emphasis,
@@ -6157,9 +6202,12 @@ private fun PlayerMenuContent(
                                                     }
                                                     Text(
                                                         text = if (participant.duration > 0) {
-                                                            "${((participant.time * 100) / participant.duration).toInt()}%"
+                                                            stringResource(
+                                                                R.string.player_percent,
+                                                                ((participant.time * 100) / participant.duration).toInt(),
+                                                            )
                                                         } else {
-                                                            "${participant.time.toInt()}s"
+                                                            stringResource(R.string.player_seconds_short, participant.time.toInt())
                                                         },
                                                         color = playerMenuMutedText(),
                                                         fontSize = 13.sp
@@ -6170,7 +6218,7 @@ private fun PlayerMenuContent(
                                     }
 
                                     ZsButton(
-                                        text = "Leave Watch Party",
+                                        text = stringResource(R.string.player_leave_watch_party),
                                         onClick = {
                                             onLeaveWatchParty()
                                             onBack()
@@ -6188,9 +6236,10 @@ private fun PlayerMenuContent(
                     PlayerMenuPage.Seasons -> {
                         PlayerMenuSection {
                             tvDetail?.seasons?.forEachIndexed { index, season ->
+                                val episodeCount = season.episodeCount ?: 0
                                 PlayerMenuSelectableRow(
-                                    title = if (season.seasonNumber == 0) "Specials" else "Season ${season.seasonNumber}",
-                                    subtitle = "${season.episodeCount} Episodes",
+                                    title = if (season.seasonNumber == 0) stringResource(R.string.player_specials) else stringResource(R.string.player_season_number, season.seasonNumber),
+                                    subtitle = pluralStringResource(R.plurals.player_episode_count, episodeCount, episodeCount),
                                     selected = season.seasonNumber == currentSeason,
                                     onClick = {
                                         onLoadSeason(season.seasonNumber)
@@ -6201,7 +6250,7 @@ private fun PlayerMenuContent(
                             }
                         }
                         if (tvDetail?.seasons.isNullOrEmpty()) {
-                            PlayerMenuStubCard("No seasons found.")
+                            PlayerMenuStubCard(stringResource(R.string.player_no_seasons_found))
                         }
                     }
 
@@ -6242,7 +6291,7 @@ private fun PlayerMenuContent(
                             }
                         }
                         if (currentSeasonDetail?.episodes.isNullOrEmpty()) {
-                            PlayerMenuStubCard("No episodes found for this season.")
+                            PlayerMenuStubCard(stringResource(R.string.player_no_episodes_found))
                         }
                     }
 
@@ -6259,7 +6308,7 @@ private fun PlayerMenuContent(
                                         gap = 2.dp,
                                     ) {
                                         ZsButton(
-                                            text = "Submit Segment",
+                                            text = stringResource(R.string.player_submit_segment),
                                             onClick = { onOpenSkipSubmission(null) },
                                             variant = ZsButtonVariant.Purple,
                                             modifier = Modifier
@@ -6280,11 +6329,11 @@ private fun PlayerMenuContent(
                                     }
                                     Spacer(Modifier.height(8.dp))
                                 } else {
-                                    PlayerMenuStubCard("To submit new segments, enter your TheIntroDB API key in the connections settings.")
+                                    PlayerMenuStubCard(stringResource(R.string.player_tidb_key_required))
                                 }
                             }
                             if (skipSegments.isEmpty()) {
-                                PlayerMenuStubCard("No skip segments available.")
+                                PlayerMenuStubCard(stringResource(R.string.player_no_skip_segments))
                             } else {
                                 skipSegments.forEachIndexed { index, segment ->
                                     PlayerMenuSkipSegmentRow(
@@ -6538,7 +6587,10 @@ private fun PlayerMenuSpeedOptions(playbackSpeed: Float, onSetPlaybackSpeed: (Fl
                         }
                     }
             ) {
-                Text("${speed}x", color = if (selected) theme.colors.type.emphasis else playerMenuMutedText())
+                Text(
+                    stringResource(R.string.player_speed_option, speed),
+                    color = if (selected) theme.colors.type.emphasis else playerMenuMutedText(),
+                )
             }
         }
     }
@@ -6688,7 +6740,7 @@ private fun PlayerMenuChevronRow(title: String, value: String? = null, icon: Str
                     )
                     Spacer(Modifier.width(4.dp))
                 }
-                Icon(Icons.Filled.ChevronRight, null, tint = theme.colors.type.emphasis, modifier = Modifier.size(20.dp))
+                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = theme.colors.type.emphasis, modifier = Modifier.size(20.dp))
             }
         }
     }
@@ -7096,7 +7148,11 @@ private fun PlayerMenuSkipSegmentRow(
                     modifier = Modifier.weight(1.3f),
                 )
                 Text(
-                    "${formatTime(segment.startMs ?: 0L)} - ${segment.endMs?.let(::formatTime) ?: "End of video"}",
+                    stringResource(
+                        R.string.player_segment_time_range,
+                        formatTime(segment.startMs ?: 0L),
+                        segment.endMs?.let(::formatTime) ?: stringResource(R.string.player_end_of_video),
+                    ),
                     color = theme.colors.video.context.type.secondary,
                     fontSize = 12.sp,
                     maxLines = 1,
@@ -7159,7 +7215,7 @@ private fun ManualSourceStatusContent(
                             .then(if (useButtonFocusRequester != null) Modifier.focusRequester(useButtonFocusRequester) else Modifier)
                             .onFocusChanged { useButtonFocused = it.isFocused }
                     ) {
-                        Text("Use", fontSize = 12.sp)
+                        Text(stringResource(R.string.player_use), fontSize = 12.sp)
                     }
                 }
             }
@@ -7225,38 +7281,6 @@ private fun PlayerMenuStubCard(message: String) {
 }
 
 @Composable
-private fun PlayerMenuSourceRow(source: SourceResult) {
-    val theme = LocalZStreamTheme.current
-    val color = sourceStatusColor(theme, source.status)
-    Surface(
-        color = theme.colors.background.secondary.copy(alpha = 0.45f),
-        shape = RoundedCornerShape(8.dp),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Row(Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier
-                .size(8.dp)
-                .background(color, CircleShape))
-            Spacer(Modifier.width(10.dp))
-            Text(source.id, color = theme.colors.type.emphasis, modifier = Modifier.weight(1f))
-            Text(source.status.name.lowercase().replaceFirstChar { it.uppercase() }, color = playerMenuMutedText(), fontSize = 12.sp)
-        }
-    }
-}
-
-@Composable
-private fun PlayerMenuHintText(text: String) {
-    Text(
-        text = text,
-        color = playerMenuMutedText(),
-        fontSize = 12.sp,
-        modifier = Modifier.padding(top = 18.dp)
-    )
-}
-
-@Composable
 private fun PlaybackErrorOverlay(
     failure: PlaybackFailure?,
     sourceId: String?,
@@ -7319,7 +7343,7 @@ private fun PlaybackErrorOverlay(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(
-                    text = failure?.title ?: "Playback error",
+                    text = failure?.title ?: stringResource(R.string.player_playback_error),
                     color = theme.colors.type.emphasis,
                     fontSize = 24.sp,
                     fontWeight = FontWeight.Bold,
@@ -7327,7 +7351,7 @@ private fun PlaybackErrorOverlay(
                 )
                 Spacer(Modifier.height(10.dp))
                 Text(
-                    text = failure?.message ?: "Playback failed.",
+                    text = failure?.message ?: stringResource(R.string.player_playback_failed),
                     color = theme.colors.type.secondary,
                     fontSize = 14.sp,
                     textAlign = TextAlign.Center,
@@ -7335,7 +7359,7 @@ private fun PlaybackErrorOverlay(
                 sourceId?.let {
                     Spacer(Modifier.height(12.dp))
                     Text(
-                        text = "Current source: ${sourceDisplayName(it)}",
+                        text = stringResource(R.string.player_current_source, sourceDisplayName(it)),
                         color = playerMenuMutedText(),
                         fontSize = 12.sp,
                     )
@@ -7357,7 +7381,7 @@ private fun PlaybackErrorOverlay(
                                 .onFocusChanged { tryNextFocused = it.isFocused },
                             shape = RoundedCornerShape(12.dp)
                         ) {
-                            Text("Try next source")
+                            Text(stringResource(R.string.player_try_next_source))
                         }
                     }
                     var sourcesFocused by remember { mutableStateOf(false) }
@@ -7370,7 +7394,7 @@ private fun PlaybackErrorOverlay(
                                 .onFocusChanged { sourcesFocused = it.isFocused },
                             shape = RoundedCornerShape(12.dp)
                         ) {
-                            Text("Sources")
+                            Text(stringResource(R.string.player_sources))
                         }
                     }
                 }
@@ -7386,7 +7410,7 @@ private fun PlaybackErrorOverlay(
                                 .onFocusChanged { variantsFocused = it.isFocused },
                             shape = RoundedCornerShape(12.dp)
                         ) {
-                            Text("Variants")
+                            Text(stringResource(R.string.player_variants))
                         }
                     }
                 }
@@ -7404,7 +7428,7 @@ private fun PlaybackErrorOverlay(
                                 .onFocusChanged { detailsFocused = it.isFocused },
                             shape = RoundedCornerShape(12.dp)
                         ) {
-                            Text("Show error details")
+                            Text(stringResource(R.string.player_show_error_details))
                         }
                     }
                     var reloadFocused by remember { mutableStateOf(false) }
@@ -7416,7 +7440,7 @@ private fun PlaybackErrorOverlay(
                                 .onFocusChanged { reloadFocused = it.isFocused },
                             shape = RoundedCornerShape(12.dp)
                         ) {
-                            Text("Reload source")
+                            Text(stringResource(R.string.player_reload_source))
                         }
                     }
                 }
@@ -7469,35 +7493,69 @@ internal fun playbackErrorPresentation(
     message: String?,
     causeMessages: List<String> = emptyList(),
     httpStatus: Int = 0,
+    resources: Resources? = null,
 ): PlaybackErrorPresentation {
+    fun text(id: Int, fallback: String): String = resources?.getString(id) ?: fallback
     val diagnostic = (listOfNotNull(message) + causeMessages).joinToString(" ")
     val isAudio = diagnostic.contains("AudioRenderer", ignoreCase = true) || diagnostic.contains("audio/", ignoreCase = true)
     return when {
         diagnostic.contains("EXCEEDS_CAPABILITIES", ignoreCase = true) && isAudio ->
-            PlaybackErrorPresentation("Unsupported audio", "This audio format exceeds your device's playback capabilities.")
+            PlaybackErrorPresentation(
+                text(R.string.player_unsupported_audio, "Unsupported audio"),
+                text(R.string.player_unsupported_audio_message, "This audio format exceeds your device's playback capabilities."),
+            )
         diagnostic.contains("EXCEEDS_CAPABILITIES", ignoreCase = true) ||
             errorCodeName == "ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES" ->
-            PlaybackErrorPresentation("Unsupported video", "This video exceeds your device's playback capabilities. Try a lower quality.")
+            PlaybackErrorPresentation(
+                text(R.string.player_unsupported_video, "Unsupported video"),
+                text(R.string.player_unsupported_video_message, "This video exceeds your device's playback capabilities. Try a lower quality."),
+            )
         errorCodeName.contains("AUDIO_TRACK", ignoreCase = true) ||
             isAudio ->
-            PlaybackErrorPresentation("Audio playback error", "Your device could not play this audio format.")
+            PlaybackErrorPresentation(
+                text(R.string.player_audio_playback_error, "Audio playback error"),
+                text(R.string.player_audio_playback_error_message, "Your device could not play this audio format."),
+            )
         errorCodeName.contains("DECODER", ignoreCase = true) ||
             errorCodeName.contains("DECODING", ignoreCase = true) ||
             diagnostic.contains("MediaCodecVideoRenderer", ignoreCase = true) ->
-            PlaybackErrorPresentation("Video decoder error", "Your device could not decode this video. Try a different quality or source.")
+            PlaybackErrorPresentation(
+                text(R.string.player_video_decoder_error, "Video decoder error"),
+                text(R.string.player_video_decoder_error_message, "Your device could not decode this video. Try a different quality or source."),
+            )
         errorCodeName == "ERROR_CODE_IO_BAD_HTTP_STATUS" ->
-            PlaybackErrorPresentation("Stream unavailable", if (httpStatus > 0) "The stream server returned HTTP $httpStatus." else "The stream server rejected the request.")
+            PlaybackErrorPresentation(
+                text(R.string.player_stream_unavailable, "Stream unavailable"),
+                if (httpStatus > 0) resources?.getString(R.string.player_stream_http_error, httpStatus)
+                    ?: "The stream server returned HTTP $httpStatus."
+                else text(R.string.player_stream_rejected, "The stream server rejected the request."),
+            )
         errorCodeName.contains("TIMEOUT", ignoreCase = true) ->
-            PlaybackErrorPresentation("Connection timed out", "The stream took too long to respond.")
+            PlaybackErrorPresentation(
+                text(R.string.player_connection_timed_out, "Connection timed out"),
+                text(R.string.player_connection_timed_out_message, "The stream took too long to respond."),
+            )
         errorCodeName.contains("NETWORK", ignoreCase = true) ->
-            PlaybackErrorPresentation("Connection error", "The stream connection failed. Check your network and try again.")
+            PlaybackErrorPresentation(
+                text(R.string.player_connection_error, "Connection error"),
+                text(R.string.player_connection_error_message, "The stream connection failed. Check your network and try again."),
+            )
         errorCodeName.contains("PARSING", ignoreCase = true) ->
-            PlaybackErrorPresentation("Invalid stream", "The stream manifest or media data could not be read.")
+            PlaybackErrorPresentation(
+                text(R.string.player_invalid_stream, "Invalid stream"),
+                text(R.string.player_invalid_stream_message, "The stream manifest or media data could not be read."),
+            )
         errorCodeName.contains("DRM", ignoreCase = true) ->
-            PlaybackErrorPresentation("Protected content error", "This device could not open the stream's content protection.")
+            PlaybackErrorPresentation(
+                text(R.string.player_protected_content_error, "Protected content error"),
+                text(R.string.player_protected_content_error_message, "This device could not open the stream's content protection."),
+            )
         errorCodeName.startsWith("ERROR_CODE_IO_") ->
-            PlaybackErrorPresentation("Stream error", "The player could not read this stream. Try reloading or use another source.")
-        else -> PlaybackErrorPresentation("Playback error", message ?: errorCodeName)
+            PlaybackErrorPresentation(
+                text(R.string.player_stream_error, "Stream error"),
+                text(R.string.player_stream_error_message, "The player could not read this stream. Try reloading or use another source."),
+            )
+        else -> PlaybackErrorPresentation(text(R.string.player_playback_error, "Playback error"), message ?: errorCodeName)
     }
 }
 
@@ -7561,7 +7619,7 @@ private fun PlayerInfoSheet(
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(state.message, color = theme.colors.type.emphasis)
                 Spacer(Modifier.height(12.dp))
-                TextButton(onClick = onClose) { Text("Close") }
+                TextButton(onClick = onClose) { Text(stringResource(R.string.player_close)) }
             }
         }
         is PlayerInfoState.Movie -> {
@@ -7649,7 +7707,7 @@ private fun collectQualityOptions(tracks: Tracks): List<QualityOption> {
     }
 
 @OptIn(ExperimentalComposeUiApi::class, UnstableApi::class)
-private fun collectAudioOptions(tracks: Tracks): List<AudioOption> {
+private fun collectAudioOptions(tracks: Tracks, resources: Resources): List<AudioOption> {
     return tracks.groups
         .filter { it.type == C.TRACK_TYPE_AUDIO }
         .flatMap { group ->
@@ -7659,7 +7717,7 @@ private fun collectAudioOptions(tracks: Tracks): List<AudioOption> {
                     val format = group.getTrackFormat(i)
                     add(
                         AudioOption(
-                            label = format.label ?: format.language ?: "Track ${i + 1}",
+                            label = format.label ?: format.language ?: resources.getString(R.string.player_track_number, i + 1),
                             language = format.language,
                             group = group.mediaTrackGroup,
                             trackIndex = i,
@@ -7680,10 +7738,12 @@ private fun PauseOverlay(
     fallbackRuntimeMinutes: Int,
     modifier: Modifier = Modifier
 ) {
+    val resources = LocalContext.current.resources
     fun formatRuntime(minutes: Int): String {
         val hours = minutes / 60
         val mins = minutes % 60
-        return if (hours > 0) "${hours}h ${mins}m" else "${mins}m"
+        return if (hours > 0) resources.getString(R.string.player_runtime_hours_minutes, hours, mins)
+        else resources.getString(R.string.player_runtime_minutes, mins)
     }
 
     val runtimeText = metadata.runtime ?: fallbackRuntimeMinutes.takeIf { it > 0 }?.let(::formatRuntime)
@@ -7794,7 +7854,7 @@ private fun PauseOverlay(
                                 )
                             }
                             Text(
-                                text = "Now Playing",
+                                text = stringResource(R.string.player_now_playing),
                                 color = Color.White.copy(alpha = 0.8f),
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.SemiBold,
@@ -7928,7 +7988,7 @@ private fun PauseOverlay(
                             }
                             val fontSize = if (LocalConfiguration.current.screenWidthDp >= 768) 30.sp else 24.sp
                             Text(
-                                text = "PAUSED",
+                                text = stringResource(R.string.player_paused),
                                 color = Color.White.copy(alpha = 0.7f),
                                 fontSize = fontSize,
                                 fontWeight = FontWeight.Light,
@@ -8000,7 +8060,7 @@ private fun SpeedIndicatorOverlay(
                     modifier = Modifier.size(24.dp)
                 )
                 Text(
-                    text = if (isBoosted) "2x" else speedText,
+                    text = stringResource(R.string.player_speed_option, if (isBoosted) "2" else speedText),
                     color = theme.colors.video.context.type.main,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Normal,
@@ -8041,10 +8101,10 @@ private fun BoxScope.SideGestureOverlay(
                 )
                 SideGesture.Volume -> Icon(
                     imageVector = when {
-                        value <= 0f -> Icons.Filled.VolumeOff
-                        value <= 0.33f -> Icons.Filled.VolumeMute
-                        value <= 0.66f -> Icons.Filled.VolumeDown
-                        else -> Icons.Filled.VolumeUp
+                        value <= 0f -> Icons.AutoMirrored.Filled.VolumeOff
+                        value <= 0.33f -> Icons.AutoMirrored.Filled.VolumeMute
+                        value <= 0.66f -> Icons.AutoMirrored.Filled.VolumeDown
+                        else -> Icons.AutoMirrored.Filled.VolumeUp
                     },
                     contentDescription = null,
                     tint = theme.colors.video.context.type.main,
@@ -8068,7 +8128,7 @@ private fun BoxScope.SideGestureOverlay(
                 )
             }
             Text(
-                text = "$percent%",
+                text = stringResource(R.string.player_percent, percent),
                 color = theme.colors.video.context.type.main,
                 fontSize = 10.sp,
                 modifier = Modifier.width(IntrinsicSize.Max),

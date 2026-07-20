@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">ZStream</string>
+    <string name="shortcut_home">বাড়ি</string>
+    <string name="shortcut_discover">আবিষ্কার করুন</string>
+    <string name="shortcut_settings">সেটিংস</string>
+    <string name="shortcut_migration">মাইগ্রেশন</string>
+</resources>

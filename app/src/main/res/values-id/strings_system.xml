@@ -1,0 +1,49 @@
+<resources>
+    <string name="system_release_subscription_title">Notifikasi rilis diaktifkan</string>
+    <string name="system_release_subscription_message">Anda akan diberi tahu saat %1$s tersedia.</string>
+    <string name="system_release_episode_subject">%1$s S%2$sE%3$s</string>
+    <string name="system_release_allow_notifications">Izinkan notifikasi Z-Stream sebelum berlangganan notifikasi rilis.</string>
+    <string name="system_release_notifications_disabled">Notifikasi dinonaktifkan untuk Z-Stream dalam pengaturan sistem.</string>
+    <string name="system_release_channel_disabled">Pemberitahuan rilis dinonaktifkan dalam pengaturan sistem.</string>
+    <string name="system_release_movie_title">%1$s kini tersedia</string>
+    <string name="system_release_movie_message">Film yang Anda tunggu baru saja dirilis.</string>
+    <string name="system_release_episode_title">%1$s S%2$sE%3$s kini tersedia</string>
+    <string name="system_release_episode_message">Episode baru saja ditayangkan.</string>
+    <string name="system_release_channel_name">Notifikasi rilis</string>
+    <string name="system_release_channel_description">Memberi tahu Anda saat film atau episode yang dilacak dirilis</string>
+
+    <string name="system_broadcast_channel_name">Pengumuman</string>
+    <string name="system_broadcast_channel_description">Berita dan pengumuman dari tim ZStream</string>
+
+    <string name="system_download_title">Unduhan ZStream</string>
+    <string name="system_download_preparing">Menyiapkan unduhan…</string>
+    <string name="system_download_interrupted">Terputus</string>
+    <string name="system_download_paused_at">Dijeda pada %1$d%%</string>
+    <string name="system_download_starting">Memulai unduhan…</string>
+    <string name="system_download_remuxing">Mengemas ulang… %1$d%%</string>
+    <string name="system_download_size">%1$d MB</string>
+    <string name="system_download_size_estimated">%1$d MB / ~%2$d MB</string>
+    <string name="system_download_progress">%1$s melalui %2$s — %3$d%%</string>
+    <string name="system_download_progress_with_size">%1$s melalui %2$s — %3$d%% (%4$s)</string>
+    <string name="system_download_complete">Unduhan selesai</string>
+    <string name="system_download_paused">Dijeda</string>
+    <string name="system_download_failed">Unduhan gagal: %1$s</string>
+    <string name="system_unknown_error">Galat tak dikenal</string>
+    <string name="system_episode_title">%1$s S%2$02dE%3$02d</string>
+    <string name="system_download_channel_name">Unduhan</string>
+    <string name="system_resume">Lanjutkan</string>
+    <string name="system_pause">Jeda</string>
+    <string name="system_cancel">Batal</string>
+
+    <string name="system_play">Putar</string>
+    <string name="system_stop">Hentikan</string>
+    <string name="system_playback_channel_name">Pemutaran</string>
+    <string name="system_playback_channel_description">Kontrol media yang sedang diputar</string>
+
+    <string name="system_plugin_update_channel_name">Pembaruan plugin</string>
+    <string name="system_plugin_update_channel_description">Notifikasi saat versi baru plugin sumber siap</string>
+    <string name="system_plugin_update_ready">Pembaruan plugin siap</string>
+    <string name="system_plugin_update_message">Plugin sumber v%1$s sudah siap — mulai ulang ZStream untuk menerapkannya.</string>
+
+    <string name="system_clear_search">Bersihkan pencarian</string>
+</resources>

@@ -1,0 +1,49 @@
+<resources>
+    <string name="system_release_subscription_title">تم الاشتراك في إشعار الإصدار</string>
+    <string name="system_release_subscription_message">سنرسل إليك إشعارًا عند توفر %1$s.</string>
+    <string name="system_release_episode_subject">%1$s S%2$sE%3$s</string>
+    <string name="system_release_allow_notifications">اسمح بإشعارات Z-Stream قبل الاشتراك في إصدار.</string>
+    <string name="system_release_notifications_disabled">إشعارات Z-Stream معطلة في إعدادات النظام.</string>
+    <string name="system_release_channel_disabled">إشعارات الإصدارات معطلة في إعدادات النظام.</string>
+    <string name="system_release_movie_title">أصبح %1$s متاحًا الآن</string>
+    <string name="system_release_movie_message">صدر الآن الفيلم الذي كنت تنتظره.</string>
+    <string name="system_release_episode_title">أصبحت %1$s S%2$sE%3$s متاحة الآن</string>
+    <string name="system_release_episode_message">عُرضت حلقة جديدة للتو.</string>
+    <string name="system_release_channel_name">إشعارات الإصدارات</string>
+    <string name="system_release_channel_description">ينبهك عند إصدار فيلم أو حلقة تتابعها</string>
+
+    <string name="system_broadcast_channel_name">الإعلانات</string>
+    <string name="system_broadcast_channel_description">أخبار وإعلانات من فريق ZStream</string>
+
+    <string name="system_download_title">تنزيل ZStream</string>
+    <string name="system_download_preparing">جارٍ تحضير التنزيل…</string>
+    <string name="system_download_interrupted">توقف</string>
+    <string name="system_download_paused_at">متوقف مؤقتًا عند %1$d%%</string>
+    <string name="system_download_starting">جارٍ بدء التنزيل…</string>
+    <string name="system_download_remuxing">جارٍ إعادة الدمج… %1$d%%</string>
+    <string name="system_download_size">%1$d م.ب.</string>
+    <string name="system_download_size_estimated">%1$d م.ب. / نحو %2$d م.ب.</string>
+    <string name="system_download_progress">%1$s عبر %2$s — %3$d%%</string>
+    <string name="system_download_progress_with_size">%1$s عبر %2$s — %3$d%% (%4$s)</string>
+    <string name="system_download_complete">اكتمل التنزيل</string>
+    <string name="system_download_paused">متوقف مؤقتًا</string>
+    <string name="system_download_failed">فشل التنزيل: %1$s</string>
+    <string name="system_unknown_error">خطأ غير معروف</string>
+    <string name="system_episode_title">%1$s S%2$02dE%3$02d</string>
+    <string name="system_download_channel_name">التنزيلات</string>
+    <string name="system_resume">استئناف</string>
+    <string name="system_pause">إيقاف مؤقت</string>
+    <string name="system_cancel">إلغاء</string>
+
+    <string name="system_play">تشغيل</string>
+    <string name="system_stop">إيقاف</string>
+    <string name="system_playback_channel_name">التشغيل</string>
+    <string name="system_playback_channel_description">عناصر التحكم بالمحتوى قيد التشغيل</string>
+
+    <string name="system_plugin_update_channel_name">تحديثات الملحق</string>
+    <string name="system_plugin_update_channel_description">إشعارات عند تجهيز إصدار جديد من ملحق المصادر</string>
+    <string name="system_plugin_update_ready">تحديث الملحق جاهز</string>
+    <string name="system_plugin_update_message">تم تجهيز الإصدار %1$s من ملحق المصادر — أعد تشغيل ZStream لتطبيقه.</string>
+
+    <string name="system_clear_search">مسح البحث</string>
+</resources>

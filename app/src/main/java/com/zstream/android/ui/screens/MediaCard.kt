@@ -26,6 +26,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -36,6 +37,7 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import coil.compose.AsyncImage
 import com.zstream.android.AppChromeViewModel
+import com.zstream.android.R
 import com.zstream.android.data.model.Media
 import com.zstream.android.theme.LocalZStreamTheme
 import com.zstream.android.ui.LocalIsTv
@@ -140,7 +142,7 @@ fun MediaCardStandard(
                         if (isTv) {
                             Icon(
                                 Icons.Default.Edit,
-                                contentDescription = "Edit item",
+                                contentDescription = stringResource(R.string.media_card_edit_item),
                                 tint = Color.White,
                                 modifier = Modifier.align(Alignment.Center).size(36.dp),
                             )
@@ -219,7 +221,9 @@ fun MediaCardStandard(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.offset(y = if (isTv) (-4).dp else (-6).dp)
                 ) {
-                    val typeLabel = if (media.type == "tv") "Show" else "Movie"
+                    val typeLabel = stringResource(
+                        if (media.type == "tv") R.string.media_card_show else R.string.media_card_movie,
+                    )
                     val year = (media.displayDate).take(4).takeIf { it.length == 4 } ?: ""
                     Text(
                         text = typeLabel,
@@ -259,7 +263,12 @@ fun MediaCardStandard(
                         .background(Color.White.copy(alpha = 0.9f)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(Icons.Default.PlayArrow, "Play", tint = Color.Black, modifier = Modifier.size(24.dp))
+                    Icon(
+                        Icons.Default.PlayArrow,
+                        stringResource(R.string.media_card_play),
+                        tint = Color.Black,
+                        modifier = Modifier.size(24.dp),
+                    )
                 }
             }
         }
@@ -289,14 +298,18 @@ internal fun TvMediaEditMenu(
         ) {
             Column(Modifier.width(170.dp).padding(8.dp)) {
                 onEdit?.let {
-                    TvMediaEditMenuItem(Icons.Default.Edit, "Edit", Modifier.focusRequester(firstFocus)) {
+                    TvMediaEditMenuItem(
+                        Icons.Default.Edit,
+                        stringResource(R.string.media_card_edit),
+                        Modifier.focusRequester(firstFocus),
+                    ) {
                         it()
                         onDismiss()
                     }
                 }
                 TvMediaEditMenuItem(
                     Icons.Default.Close,
-                    "Remove",
+                    stringResource(R.string.media_card_remove),
                     if (onEdit == null) Modifier.focusRequester(firstFocus) else Modifier,
                 ) {
                     onRemove()
@@ -401,7 +414,7 @@ fun MediaCardMinimal(
                         if (isTv) {
                             Icon(
                                 Icons.Default.Edit,
-                                contentDescription = "Edit item",
+                                contentDescription = stringResource(R.string.media_card_edit_item),
                                 tint = Color.White,
                                 modifier = Modifier.align(Alignment.Center).size(36.dp),
                             )
@@ -479,7 +492,12 @@ fun MediaCardMinimal(
                         .background(Color.White.copy(alpha = 0.9f)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(Icons.Default.PlayArrow, "Play", tint = Color.Black, modifier = Modifier.size(24.dp))
+                    Icon(
+                        Icons.Default.PlayArrow,
+                        stringResource(R.string.media_card_play),
+                        tint = Color.Black,
+                        modifier = Modifier.size(24.dp),
+                    )
                 }
             }
         }
@@ -555,7 +573,7 @@ fun ViewMoreCard(
                             modifier = Modifier.size(36.dp),
                         )
                         Text(
-                            text = "View more",
+                            text = stringResource(R.string.media_card_view_more),
                             color = theme.colors.type.emphasis,
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Bold,

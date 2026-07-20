@@ -18,7 +18,8 @@ data class SettingsEntity(
     val applicationFont: String = "onest",
     // Local-only, not synced to backend.
     val kidsModeEnabled: Boolean = false,
-    val applicationLanguage: String = "en",
+    // Device-local: Android's per-app locale must not be overwritten by account sync.
+    val applicationLanguage: String = "",
     val enableThumbnails: Boolean = false,
     val enableImageLogos: Boolean = true,
     val enableCarouselView: Boolean = true,
@@ -134,7 +135,6 @@ data class SettingsEntity(
         customTheme?.let { theme ->
             json.put("customTheme", theme.toJson())
         }
-        json.put("applicationLanguage", applicationLanguage)
         defaultSubtitleLanguage?.let { json.put("defaultSubtitleLanguage", it) }
         json.put("enableThumbnails", enableThumbnails)
         json.put("enableAutoplay", enableAutoplay)

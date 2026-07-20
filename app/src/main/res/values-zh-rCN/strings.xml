@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ZStream</string>
+    <string name="shortcut_home">首页</string>
+    <string name="shortcut_discover">发现</string>
+    <string name="shortcut_settings">设置</string>
+    <string name="shortcut_migration">迁移</string>
+</resources>

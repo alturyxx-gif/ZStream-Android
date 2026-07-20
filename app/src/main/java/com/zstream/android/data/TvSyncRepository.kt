@@ -11,6 +11,7 @@ import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.google.gson.Gson
+import com.zstream.android.R
 import com.zstream.android.data.local.entity.SettingsEntity
 import com.zstream.android.data.local.preferences.SettingsPreferences
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -35,6 +36,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
+import java.io.IOException
 import java.io.InputStreamReader
 import java.io.OutputStreamWriter
 import java.net.Inet4Address
@@ -185,7 +187,9 @@ private data class ReleaseSubscriptionEnvelope(
     val request: ReleaseSubscriptionRequest,
 )
 
-private class ReleaseSubscriptionRejected(message: String) : IllegalStateException(message)
+internal class ReleaseSubscriptionUserException(message: String) : IllegalStateException(message)
+
+private class ReleaseSubscriptionRejected : IllegalStateException()
 
 data class TvSyncReceiverState(
     val active: Boolean = false,
@@ -934,12 +938,16 @@ class TvSyncRepository @Inject constructor(
         phone: PairedPhone,
         request: ReleaseSubscriptionRequest,
     ): String = withContext(Dispatchers.IO) {
-        val session = pairedPhoneSessions[phone.id] ?: error("This phone is no longer paired")
+        val session = pairedPhoneSessions[phone.id] ?: throw ReleaseSubscriptionUserException(
+            context.getString(R.string.release_phone_pair_again, phone.phoneName),
+        )
         val deviceId = session.phoneDeviceId
         val initialHost = session.host
         val initialPort = session.callbackPort
         if (deviceId.isNullOrBlank() || initialHost.isNullOrBlank() || initialPort == null) {
-            error("Pair this phone again to enable release notifications")
+            throw ReleaseSubscriptionUserException(
+                context.getString(R.string.release_phone_pair_again, session.phoneName),
+            )
         }
         val secret = secretFromBase64(session.secretBase64)
         val attemptKey = "${phone.id}:${request.key}"
@@ -974,9 +982,7 @@ class TvSyncRepository @Inject constructor(
             emptyList()
         }
         if (discovered.isEmpty()) {
-            throw IllegalStateException(
-                "Could not reach ${session.phoneName}. Open ZStream on that phone and try again",
-            )
+            throw IOException("Paired phone was not discovered")
         }
 
         var lastFailure: Exception? = null
@@ -998,10 +1004,7 @@ class TvSyncRepository @Inject constructor(
                 lastFailure = e
             }
         }
-        throw IllegalStateException(
-            "Could not confirm the subscription on ${session.phoneName}. Check that phone and try again",
-            lastFailure,
-        )
+        throw IOException("Paired phone did not confirm the release subscription", lastFailure)
     }
 
     private fun sendReleaseSubscriptionToEndpoint(
@@ -1039,14 +1042,15 @@ class TvSyncRepository @Inject constructor(
                 "Phone returned an invalid subscription acknowledgement"
             }
             if (!ack.optBoolean("ok")) {
-                throw ReleaseSubscriptionRejected(
-                    ack.optString("message").takeIf(String::isNotBlank)
-                        ?: "Subscription failed on ${session.phoneName}"
-                )
+                throw ReleaseSubscriptionRejected()
             }
             ack.optString("message")
                 .takeIf(String::isNotBlank)
-                ?: "${session.phoneName} will notify you when ${envelope.request.title} releases"
+                ?: context.getString(
+                    R.string.release_phone_subscribed,
+                    session.phoneName,
+                    envelope.request.title,
+                )
         }
     }
 
@@ -1274,9 +1278,8 @@ class TvSyncRepository @Inject constructor(
             val envelope = releaseSubscriptionFromJson(decrypted)
             acknowledgementRequestId = envelope.requestId
             val currentOwnerId = accountRepository.currentReleaseOwner()
-            require(pairedTv.releaseOwnerId != null && pairedTv.releaseOwnerId == currentOwnerId) {
-                val profile = pairedTv.releaseOwnerName?.takeIf(String::isNotBlank) ?: "the paired profile"
-                "Switch to $profile on this phone, or pair it again"
+            if (pairedTv.releaseOwnerId == null || pairedTv.releaseOwnerId != currentOwnerId) {
+                error("Release subscription belongs to a different profile")
             }
             val message = processReleaseRequestOnce(envelope) {
                 val generation = trackedReleaseRepository.subscribe(envelope.request)
@@ -1289,10 +1292,14 @@ class TvSyncRepository @Inject constructor(
                 if (!confirmationPosted) {
                     generation?.let { trackedReleaseRepository.rollbackSubscription(it) }
                     throw NotificationUnavailableException(
-                        "Notifications are disabled on this phone. Enable them and try again"
+                        context.getString(R.string.release_phone_subscription_failed, phoneName()),
                     )
                 }
-                "${phoneName()} will notify you when ${envelope.request.title} releases"
+                context.getString(
+                    R.string.release_phone_subscribed,
+                    phoneName(),
+                    envelope.request.title,
+                )
             }
             respondReleaseAcknowledgement(
                 writer,
@@ -1308,12 +1315,13 @@ class TvSyncRepository @Inject constructor(
             val secret = acknowledgementSecret
             val requestId = acknowledgementRequestId
             if (secret != null && requestId != null) {
+                val message = context.getString(R.string.release_phone_subscription_failed, phoneName())
                 respondReleaseAcknowledgement(
                     writer,
                     secret,
                     requestId,
                     ok = false,
-                    message = e.message ?: "Subscription failed",
+                    message = message,
                 )
             } else {
                 respond(writer, 400, """{"error":"Invalid subscription request"}""")

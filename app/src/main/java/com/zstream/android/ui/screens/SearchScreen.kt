@@ -30,6 +30,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.requestFocus
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
@@ -38,6 +39,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
+import com.zstream.android.R
 import com.zstream.android.data.model.Media
 import com.zstream.android.theme.LocalZStreamTheme
 import com.zstream.android.ui.LocalIsTv
@@ -97,17 +99,23 @@ fun SearchScreenTV(nav: NavController, homeVm: HomeViewModel) {
         homeResults
     }
     
-    val title = remember(query, homeState.selectedSearchGenreId, homeState.selectedSearchTab) {
-        if (query.isNotBlank()) "Search Results"
-        else if (homeState.selectedSearchGenreId != null) {
-            val genreName = when {
-                homeState.selectedSearchGenreId == 28 && homeState.selectedSearchTab == HomeTab.TV -> "Action & Adventure"
-                homeState.selectedSearchGenreId == 878 && homeState.selectedSearchTab == HomeTab.TV -> "Sci-Fi & Fantasy"
-                else -> tmdbGenres[homeState.selectedSearchGenreId] ?: "Results"
-            }
-            val tabName = if (homeState.selectedSearchTab == HomeTab.TV) "TV Shows" else "Movies"
-            "$genreName $tabName"
-        } else "Popular now"
+    val selectedGenreId = homeState.selectedSearchGenreId
+    val title = if (query.isNotBlank()) {
+        stringResource(R.string.search_results)
+    } else if (selectedGenreId != null) {
+        val genreName = when {
+            selectedGenreId == 28 && homeState.selectedSearchTab == HomeTab.TV ->
+                localizedTmdbGenreName(10759)
+            selectedGenreId == 878 && homeState.selectedSearchTab == HomeTab.TV ->
+                localizedTmdbGenreName(10765)
+            else -> localizedTmdbGenreName(selectedGenreId)
+        }
+        val tabName = stringResource(
+            if (homeState.selectedSearchTab == HomeTab.TV) R.string.search_tv_shows else R.string.search_movies,
+        )
+        stringResource(R.string.search_genre_title, genreName, tabName)
+    } else {
+        stringResource(R.string.search_popular_now)
     }
     val gridState = rememberLazyGridState()
 
@@ -175,7 +183,7 @@ fun SearchScreenTV(nav: NavController, homeVm: HomeViewModel) {
                         ZsSearchField(
                             value = query,
                             onValueChange = { homeVm.onSearchChange(it) },
-                            placeholder = "Search here",
+                            placeholder = stringResource(R.string.search_here),
                             focusRequester = textFieldFocusRequester,
                             modifier = Modifier
                                 .fillMaxSize()
@@ -246,7 +254,10 @@ fun SearchScreenTV(nav: NavController, homeVm: HomeViewModel) {
                 } else if (error != null) {
                     ZsStatusBanner(message = error!!, variant = ZsStatusBannerVariant.Error)
                 } else if (items.isEmpty() && query.isNotBlank()) {
-                    ZsStatusBanner(message = "No results found for \"$query\"", variant = ZsStatusBannerVariant.Info)
+                    ZsStatusBanner(
+                        message = stringResource(R.string.search_no_results_for, query),
+                        variant = ZsStatusBannerVariant.Info,
+                    )
                 } else {
                     LazyVerticalGrid(
                         state = gridState,
@@ -377,14 +388,15 @@ fun VirtualKeyboard(onCharClick: (String) -> Unit, onBackspace: () -> Unit, invi
                         if (isBackspace) {
                             Icon(
                                 imageVector = Icons.AutoMirrored.Filled.Backspace,
-                                contentDescription = "Backspace",
+                                contentDescription = stringResource(R.string.search_backspace),
                                 tint = if (isFocused) Color.Black else theme.colors.type.emphasis,
                                 modifier = Modifier.size(18.dp)
                             )
                         } else {
                             Text(
                                 text = when {
-                                    isCaps || isSpace -> label
+                                    isCaps -> stringResource(R.string.search_caps)
+                                    isSpace -> stringResource(R.string.search_space)
                                     isUppercase -> label.uppercase()
                                     else -> label.lowercase()
                                 },
@@ -434,7 +446,7 @@ fun SearchScreenPhone(nav: NavController, homeVm: HomeViewModel) {
                     ZsSearchField(
                         value = query,
                         onValueChange = { homeVm.onSearchChange(it) },
-                        placeholder = "Search here",
+                        placeholder = stringResource(R.string.search_here),
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                         keyboardActions = KeyboardActions(),
                         modifier = Modifier.fillMaxWidth(),
@@ -467,7 +479,7 @@ fun SearchScreenPhone(nav: NavController, homeVm: HomeViewModel) {
                         .padding(horizontal = 20.dp),
                 )
                 results.isEmpty() && query.isNotBlank() -> ZsStatusBanner(
-                    message = "No results",
+                    message = stringResource(R.string.search_no_results),
                     variant = ZsStatusBannerVariant.Info,
                     modifier = Modifier
                         .align(Alignment.Center)

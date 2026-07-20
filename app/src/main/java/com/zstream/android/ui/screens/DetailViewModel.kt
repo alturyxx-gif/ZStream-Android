@@ -1,5 +1,6 @@
 package com.zstream.android.ui.screens
 
+import android.content.Context
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -16,11 +17,13 @@ import com.zstream.android.data.model.Episode
 import com.zstream.android.data.model.MovieDetail
 import com.zstream.android.data.model.Season
 import com.zstream.android.data.model.TvDetail
+import com.zstream.android.R
 import com.zstream.android.data.model.airedEpisodes
 import com.zstream.android.data.model.CollectionSummary
 import com.zstream.android.data.remote.CollectionDetails
 import com.zstream.android.download.DownloadResolver
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
@@ -47,6 +50,7 @@ sealed interface CollectionState {
 
 @HiltViewModel
 class DetailViewModel @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val repo: TmdbRepository,
     private val progressRepo: com.zstream.android.data.ProgressRepository,
     private val bookmarkRepo: com.zstream.android.data.BookmarkRepository,
@@ -203,7 +207,12 @@ class DetailViewModel @Inject constructor(
         viewModelScope.launch {
             runCatching { repo.collection(collection.id) }
                 .onSuccess { _collection.value = CollectionState.Loaded(it) }
-                .onFailure { _collection.value = CollectionState.Error(collection, it.message ?: "Failed to load collection") }
+                .onFailure {
+                    _collection.value = CollectionState.Error(
+                        collection,
+                        it.message ?: context.getString(R.string.detail_load_collection_failed),
+                    )
+                }
         }
     }
 
@@ -224,7 +233,7 @@ class DetailViewModel @Inject constructor(
                     } else {
                         runCatching { repo.movieDetail(id) }.getOrNull() ?: buildOfflineMovieDetail()
                     }
-                    requireNotNull(detail) { "No connection and nothing cached for this title" }
+                    requireNotNull(detail) { context.getString(R.string.detail_no_connection_cache) }
                     val filteredDetail = detail.similar?.results?.let { similarItems ->
                         detail.copy(similar = detail.similar.copy(results = certRepo.filterForKids(similarItems, kidsModeEnabled)))
                     } ?: detail
@@ -237,7 +246,7 @@ class DetailViewModel @Inject constructor(
                     } else {
                         runCatching { repo.tvDetail(id) }.getOrNull() ?: buildOfflineTvDetail()
                     }
-                    requireNotNull(detail) { "No connection and nothing cached for this title" }
+                    requireNotNull(detail) { context.getString(R.string.detail_no_connection_cache) }
                     val filteredDetail = detail.similar?.results?.let { similarItems ->
                         detail.copy(similar = detail.similar.copy(results = certRepo.filterForKids(similarItems, kidsModeEnabled)))
                     } ?: detail
@@ -252,7 +261,9 @@ class DetailViewModel @Inject constructor(
                     applyPendingInitialSeason()
                     if (!offline) loadImdbTrailers(detail.imdbId ?: detail.externalIds?.imdbId)
                 }
-            }.onFailure { _state.value = DetailState.Error(it.message ?: "Failed to load") }
+            }.onFailure {
+                _state.value = DetailState.Error(it.message ?: context.getString(R.string.detail_load_failed))
+            }
         }
     }
 
@@ -275,7 +286,14 @@ class DetailViewModel @Inject constructor(
         val title = fromDownload?.title ?: bookmark.value?.title ?: progress.value?.title ?: return null
         val poster = fromDownload?.posterPath ?: bookmark.value?.posterPath ?: progress.value?.posterPath
         val seasons = cachedEpisodeDao.getAvailableSeasonsSync(id.toString()).map { seasonNumber ->
-            Season(id = 0, seasonNumber = seasonNumber, name = "Season $seasonNumber", episodeCount = null, posterPath = null, episodes = null)
+            Season(
+                id = 0,
+                seasonNumber = seasonNumber,
+                name = context.getString(R.string.detail_season_number, seasonNumber),
+                episodeCount = null,
+                posterPath = null,
+                episodes = null,
+            )
         }
         return TvDetail(
             id = id, name = title, overview = null, posterPath = poster, backdropPath = null,
@@ -298,7 +316,7 @@ class DetailViewModel @Inject constructor(
         return Season(
             id = 0,
             seasonNumber = seasonNumber,
-            name = "Season $seasonNumber",
+            name = context.getString(R.string.detail_season_number, seasonNumber),
             episodeCount = cached.size,
             posterPath = null,
             episodes = cached.map { entry ->
@@ -322,7 +340,7 @@ class DetailViewModel @Inject constructor(
                 season = season.seasonNumber,
                 episode = ep.episodeNumber,
                 episodeId = ep.id,
-                title = ep.name ?: "Episode ${ep.episodeNumber}",
+                title = ep.name ?: context.getString(R.string.detail_episode_number, ep.episodeNumber),
                 overview = ep.overview,
                 stillPath = ep.stillPath,
                 airDate = ep.airDate,

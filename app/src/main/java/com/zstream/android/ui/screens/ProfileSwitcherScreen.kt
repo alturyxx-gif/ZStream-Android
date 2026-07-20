@@ -42,6 +42,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -49,6 +50,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
+import com.zstream.android.R
 import com.zstream.android.data.SavedProfile
 import com.zstream.android.theme.LocalZStreamTheme
 import com.zstream.android.ui.components.themed.ZsIconButton
@@ -79,7 +81,7 @@ fun ProfileSwitcherScreen(nav: NavController, vm: AccountViewModel = hiltViewMod
             verticalArrangement = Arrangement.Center,
         ) {
             Text(
-                "Who's watching?",
+                stringResource(R.string.profile_who_is_watching),
                 color = theme.colors.type.emphasis,
                 fontSize = 32.sp,
                 fontWeight = FontWeight.Bold,
@@ -153,7 +155,7 @@ private fun ProfileCard(
     theme: com.zstream.android.theme.ZStreamTheme,
     modifier: Modifier = Modifier,
 ) {
-    val displayName = profile.nickname.ifBlank { profile.deviceName.ifBlank { "Profile" } }
+    val displayName = profile.nickname.ifBlank { profile.deviceName.ifBlank { stringResource(R.string.profile_default_name) } }
     val initial = displayName.take(1).uppercase()
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
@@ -186,7 +188,7 @@ private fun ProfileCard(
             ZsIconButton(
                 onClick = onRequestRemove,
                 icon = Icons.Default.Close,
-                contentDescription = "Remove profile",
+                contentDescription = stringResource(R.string.profile_remove),
                 variant = ZsIconButtonVariant.Ghost,
                 modifier = Modifier.align(Alignment.TopEnd).padding(6.dp),
             )
@@ -196,7 +198,7 @@ private fun ProfileCard(
                     contentAlignment = Alignment.Center,
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text("Remove?", color = theme.colors.type.emphasis, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
+                        Text(stringResource(R.string.profile_remove_question), color = theme.colors.type.emphasis, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Box(
                                 Modifier
@@ -204,14 +206,14 @@ private fun ProfileCard(
                                     .background(theme.colors.type.danger)
                                     .clickable { onConfirmRemove() }
                                     .padding(horizontal = 10.dp, vertical = 6.dp),
-                            ) { Text("Yes", color = androidx.compose.ui.graphics.Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold) }
+                            ) { Text(stringResource(R.string.profile_yes), color = androidx.compose.ui.graphics.Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold) }
                             Box(
                                 Modifier
                                     .clip(RoundedCornerShape(6.dp))
                                     .background(theme.colors.background.secondary)
                                     .clickable { onCancelRemove() }
                                     .padding(horizontal = 10.dp, vertical = 6.dp),
-                            ) { Text("Cancel", color = theme.colors.type.text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold) }
+                            ) { Text(stringResource(R.string.profile_cancel), color = theme.colors.type.text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold) }
                         }
                     }
                 }
@@ -228,10 +230,10 @@ private fun ProfileCard(
             modifier = Modifier.fillMaxWidth(),
         )
         if (isActive) {
-            Text("Currently watching", color = theme.colors.global.accentA, fontSize = 12.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+            Text(stringResource(R.string.profile_currently_watching), color = theme.colors.global.accentA, fontSize = 12.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
         }
         if (profile.kidsModeEnabled) {
-            Text("Kids Profile", color = theme.colors.type.secondary, fontSize = 12.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+            Text(stringResource(R.string.profile_kids), color = theme.colors.type.secondary, fontSize = 12.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
         }
     }
 }
@@ -268,7 +270,7 @@ private fun AddProfileCard(theme: com.zstream.android.theme.ZStreamTheme, onClic
         }
         }
         Spacer(Modifier.height(10.dp))
-        Text("Add Profile", color = theme.colors.type.secondary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+        Text(stringResource(R.string.profile_add), color = theme.colors.type.secondary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
     }
 }
 
@@ -305,6 +307,6 @@ private fun ContinueWithoutProfileCard(theme: com.zstream.android.theme.ZStreamT
         }
         }
         Spacer(Modifier.height(10.dp))
-        Text("Continue without\nprofile", color = theme.colors.type.secondary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+        Text(stringResource(R.string.profile_continue_without), color = theme.colors.type.secondary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
     }
 }

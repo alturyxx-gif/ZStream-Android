@@ -23,8 +23,8 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Done
@@ -86,6 +86,8 @@ import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -238,7 +240,7 @@ fun MovieDetailModal(
                         ) {
                             Icon(Icons.Filled.Movie, null, tint = theme.colors.type.secondary, modifier = Modifier.size(18.dp))
                             Column(Modifier.weight(1f)) {
-                                Text("COLLECTION", color = theme.colors.type.dimmed, fontSize = 10.sp, fontWeight = FontWeight.Medium)
+                                Text(stringResource(R.string.detail_modal_collection), color = theme.colors.type.dimmed, fontSize = 10.sp, fontWeight = FontWeight.Medium)
                                 Text(collection.name, color = theme.colors.type.text, fontSize = 12.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
                             Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = theme.colors.type.dimmed, modifier = Modifier.size(18.dp))
@@ -292,7 +294,13 @@ fun MovieDetailModal(
                             Icon(Icons.Filled.PlayArrow, null, tint = theme.colors.type.emphasis)
                             Spacer(Modifier.width(6.dp))
                             Text(
-                                if (!detail.hasReleased()) "Unreleased" else if (hasProgress) "Resume" else "Play",
+                                stringResource(
+                                    when {
+                                        !detail.hasReleased() -> R.string.detail_modal_unreleased
+                                        hasProgress -> R.string.detail_modal_resume
+                                        else -> R.string.detail_modal_play
+                                    }
+                                ),
                                 color = theme.colors.type.emphasis,
                             )
                         }
@@ -305,11 +313,10 @@ fun MovieDetailModal(
                     SharedActionPill(
                         icon = if (isTracked) Icons.Filled.NotificationsActive else Icons.Filled.NotificationsNone,
                         theme = theme,
-                        contentDescription = if (isTracked) {
-                            "Disable release notification"
-                        } else {
-                            "Enable release notification"
-                        },
+                        contentDescription = stringResource(
+                            if (isTracked) R.string.detail_modal_disable_release_notification
+                            else R.string.detail_modal_enable_release_notification
+                        ),
                         loading = com.zstream.android.data.local.entity.trackedMovieKey(detail.id) in effectiveReleasePendingKeys,
                         onFocusChanged = { focused -> if (focused && isTv) scrollRequestId++ },
                     ) {
@@ -429,9 +436,14 @@ internal fun GroupEditorDialog(
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Text(if (showExistingGroups) "Edit groups" else "Create group", color = theme.colors.type.emphasis, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    stringResource(if (showExistingGroups) R.string.detail_modal_edit_groups else R.string.detail_modal_create_group),
+                    color = theme.colors.type.emphasis,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                )
                 if (showExistingGroups) {
-                    Text("Tap groups to add or remove them.", color = theme.colors.type.text, fontSize = 14.sp)
+                    Text(stringResource(R.string.detail_modal_group_instructions), color = theme.colors.type.text, fontSize = 14.sp)
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         allGroups.forEach { group ->
                             FilterChip(
@@ -454,7 +466,7 @@ internal fun GroupEditorDialog(
                     onValueChange = { newGroupInput = it },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
-                    placeholder = { Text("New group name") },
+                    placeholder = { Text(stringResource(R.string.detail_modal_new_group_name)) },
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = theme.colors.type.emphasis,
                         unfocusedTextColor = theme.colors.type.text,
@@ -463,7 +475,7 @@ internal fun GroupEditorDialog(
                         cursorColor = theme.colors.global.accentA,
                     ),
                 )
-                Text("Icon", color = theme.colors.type.secondary, fontSize = 12.sp)
+                Text(stringResource(R.string.detail_modal_icon), color = theme.colors.type.secondary, fontSize = 12.sp)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     groupIconOptions.forEach { (key, icon) ->
                         Surface(
@@ -479,12 +491,12 @@ internal fun GroupEditorDialog(
                     }
                 }
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    TextButton(onClick = onDismiss) { Text("Cancel", color = theme.colors.type.secondary) }
+                    TextButton(onClick = onDismiss) { Text(stringResource(R.string.detail_modal_cancel), color = theme.colors.type.secondary) }
                     TextButton(onClick = {
                         val created = newGroupInput.trim().takeIf(String::isNotEmpty)?.let { "[${selectedGroupIcon.lowercase()}]$it" }
                         if (created != null) onUpdateGroups((currentGroups + created).distinct())
                         onDismiss()
-                    }) { Text("Save", color = theme.colors.global.accentA) }
+                    }) { Text(stringResource(R.string.detail_modal_save), color = theme.colors.global.accentA) }
                 }
             }
         }
@@ -522,15 +534,15 @@ private fun CollectionStatusDialog(
                 ) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                         Text(name, color = theme.colors.type.emphasis, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-                        IconButton(onClick = onDismiss) { Icon(Icons.Filled.Close, "Close", tint = theme.colors.type.secondary) }
+                        IconButton(onClick = onDismiss) { Icon(Icons.Filled.Close, stringResource(R.string.detail_modal_close), tint = theme.colors.type.secondary) }
                     }
                     Spacer(Modifier.weight(1f))
                     if (error == null) {
                         CircularProgressIndicator(color = theme.colors.global.accentA)
-                        Text("Loading collection...", color = theme.colors.type.secondary)
+                        Text(stringResource(R.string.detail_modal_loading_collection), color = theme.colors.type.secondary)
                     } else {
                         Icon(Icons.Filled.Error, null, tint = theme.colors.type.danger, modifier = Modifier.size(42.dp))
-                        Text("Error loading collection", color = theme.colors.type.danger, fontWeight = FontWeight.SemiBold)
+                        Text(stringResource(R.string.detail_modal_collection_error), color = theme.colors.type.danger, fontWeight = FontWeight.SemiBold)
                         Text(error, color = theme.colors.type.secondary, textAlign = TextAlign.Center)
                     }
                     Spacer(Modifier.weight(1f))
@@ -588,7 +600,7 @@ private fun CollectionOverlayDialog(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(collection.name, color = theme.colors.type.emphasis, fontWeight = FontWeight.Bold, fontSize = 26.sp, modifier = Modifier.weight(1f))
-                        IconButton(onClick = onDismiss) { Icon(Icons.Filled.Close, "Close", tint = theme.colors.type.secondary) }
+                        IconButton(onClick = onDismiss) { Icon(Icons.Filled.Close, stringResource(R.string.detail_modal_close), tint = theme.colors.type.secondary) }
                     }
 
                     Row(
@@ -597,7 +609,7 @@ private fun CollectionOverlayDialog(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
-                            "${parts.size} ${if (parts.size == 1) "movie" else "movies"}",
+                            pluralStringResource(R.plurals.detail_modal_movie_count, parts.size, parts.size),
                             color = theme.colors.type.secondary,
                             fontSize = 13.sp,
                         )
@@ -607,7 +619,7 @@ private fun CollectionOverlayDialog(
                         ) {
                             Icon(Icons.Filled.Bookmark, null, modifier = Modifier.size(15.dp))
                             Spacer(Modifier.width(6.dp))
-                            Text("Bookmark All")
+                            Text(stringResource(R.string.detail_modal_bookmark_all))
                         }
                     }
                     if (parts.size > 1) {
@@ -615,16 +627,16 @@ private fun CollectionOverlayDialog(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Text("Sort by:", color = theme.colors.type.secondary, fontSize = 12.sp)
+                            Text(stringResource(R.string.detail_modal_sort_by), color = theme.colors.type.secondary, fontSize = 12.sp)
                             FilterChip(
                                 selected = sortOrder == "release",
                                 onClick = { sortOrder = "release" },
-                                label = { Text("Release") },
+                                label = { Text(stringResource(R.string.detail_modal_release)) },
                             )
                             FilterChip(
                                 selected = sortOrder == "rating",
                                 onClick = { sortOrder = "rating" },
-                                label = { Text("Rating") },
+                                label = { Text(stringResource(R.string.detail_modal_rating)) },
                             )
                         }
                     }
@@ -641,7 +653,7 @@ private fun CollectionOverlayDialog(
                         ) {
                             Icon(Icons.Filled.Movie, null, tint = theme.colors.type.secondary, modifier = Modifier.size(42.dp))
                             Spacer(Modifier.height(12.dp))
-                            Text("No movies in this collection", color = theme.colors.type.secondary)
+                            Text(stringResource(R.string.detail_modal_no_collection_movies), color = theme.colors.type.secondary)
                         }
                     } else {
                         LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -824,8 +836,14 @@ fun TvDetailModal(
                 val label = if (hasProgress && resumeProgress != null) {
                     val sNum = resumeProgress.seasonNumber
                     val eNum = resumeProgress.episodeNumber
-                    if (sNum != null && eNum != null) "Resume S${sNum}:E${eNum}" else "Resume"
-                } else "Play"
+                    if (sNum != null && eNum != null) {
+                        stringResource(R.string.detail_modal_resume_episode, sNum, eNum)
+                    } else {
+                        stringResource(R.string.detail_modal_resume)
+                    }
+                } else {
+                    stringResource(R.string.detail_modal_play)
+                }
                 
                 ZsOutlinedWrapper(
                     shape = RoundedCornerShape(8.dp),
@@ -960,8 +978,8 @@ fun WatchBulkDialogs(
     onConfirm: (WatchBulkAction) -> Unit,
 ) {
     val subject = when (target) {
-        WatchBulkTarget.Movie -> "movie"
-        WatchBulkTarget.Season -> "season"
+        WatchBulkTarget.Movie -> stringResource(R.string.detail_modal_movie)
+        WatchBulkTarget.Season -> stringResource(R.string.detail_modal_season)
         null -> null
     }
 
@@ -969,44 +987,47 @@ fun WatchBulkDialogs(
         AlertDialog(
             onDismissRequest = onDismiss,
             containerColor = theme.colors.modal.background,
-            title = { Text("Update watch history", color = theme.colors.type.emphasis) },
-            text = { Text("Choose what to do with this $subject.", color = theme.colors.type.text) },
+            title = { Text(stringResource(R.string.detail_modal_update_watch_history), color = theme.colors.type.emphasis) },
+            text = { Text(stringResource(R.string.detail_modal_choose_watch_action, subject.orEmpty()), color = theme.colors.type.text) },
             confirmButton = {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     TextButton(onClick = { onChooseAction(WatchBulkAction.MarkWatched) }) {
-                        Text("Set watched", color = theme.colors.global.accentA)
+                        Text(stringResource(R.string.detail_modal_set_watched), color = theme.colors.global.accentA)
                     }
                     TextButton(onClick = { onChooseAction(WatchBulkAction.ClearHistory) }) {
-                        Text("Clear history", color = theme.colors.buttons.danger)
+                        Text(stringResource(R.string.detail_modal_clear_history), color = theme.colors.buttons.danger)
                     }
                 }
             },
             dismissButton = {
                 TextButton(onClick = onDismiss) {
-                    Text("Cancel", color = theme.colors.type.secondary)
+                    Text(stringResource(R.string.detail_modal_cancel), color = theme.colors.type.secondary)
                 }
             }
         )
     }
 
     if (target != null && pendingAction != null) {
-        val actionLabel = if (pendingAction == WatchBulkAction.MarkWatched) "set watched" else "clear watch history"
+        val actionLabel = stringResource(
+            if (pendingAction == WatchBulkAction.MarkWatched) R.string.detail_modal_set_watched_action
+            else R.string.detail_modal_clear_watch_history_action
+        )
         AlertDialog(
             onDismissRequest = onDismiss,
             containerColor = theme.colors.modal.background,
-            title = { Text("Confirm action", color = theme.colors.type.emphasis) },
-            text = { Text("Are you sure you want to $actionLabel for this $subject?", color = theme.colors.type.text) },
+            title = { Text(stringResource(R.string.detail_modal_confirm_action), color = theme.colors.type.emphasis) },
+            text = { Text(stringResource(R.string.detail_modal_confirm_watch_action, actionLabel, subject.orEmpty()), color = theme.colors.type.text) },
             confirmButton = {
                 TextButton(onClick = { onConfirm(pendingAction) }) {
                     Text(
-                        "Confirm",
+                        stringResource(R.string.detail_modal_confirm),
                         color = if (pendingAction == WatchBulkAction.ClearHistory) theme.colors.buttons.danger else theme.colors.global.accentA
                     )
                 }
             },
             dismissButton = {
                 TextButton(onClick = onDismiss) {
-                    Text("Cancel", color = theme.colors.type.secondary)
+                    Text(stringResource(R.string.detail_modal_cancel), color = theme.colors.type.secondary)
                 }
             }
         )
@@ -1015,13 +1036,13 @@ fun WatchBulkDialogs(
 
 internal fun openShareSheet(context: android.content.Context, title: String, id: Int, mediaType: String) {
    val url = "https://www.themoviedb.org/$mediaType/$id"
-   val shareText = "$title on ZStream!\n\n$url"
+   val shareText = context.getString(R.string.detail_modal_share_text, title, url)
    val intent = android.content.Intent().apply {
        action = android.content.Intent.ACTION_SEND
        putExtra(android.content.Intent.EXTRA_TEXT, shareText)
        type = "text/plain"
    }
-   val chooser = android.content.Intent.createChooser(intent, "Share")
+   val chooser = android.content.Intent.createChooser(intent, context.getString(R.string.detail_modal_share))
    context.startActivity(chooser)
 }
 
@@ -1168,7 +1189,7 @@ internal fun SharedEpisodeRow(
                                 .padding(horizontal = 6.dp, vertical = 1.dp)
                         ) {
                             Text(
-                                "E${ep.episodeNumber}",
+                                stringResource(R.string.detail_modal_episode_number, ep.episodeNumber),
                                 color = theme.colors.mediaCard.badgeText,
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold
@@ -1214,7 +1235,10 @@ internal fun SharedEpisodeRow(
                         ) {
                             Icon(
                                 imageVector = if (isTracked) Icons.Filled.NotificationsActive else Icons.Filled.NotificationsNone,
-                                contentDescription = if (isTracked) "Disable release notification" else "Enable release notification",
+                                contentDescription = stringResource(
+                                    if (isTracked) R.string.detail_modal_disable_release_notification
+                                    else R.string.detail_modal_enable_release_notification,
+                                ),
                                 tint = if (isTracked) theme.colors.global.accentA else theme.colors.type.secondary,
                                 modifier = Modifier
                                     .size(48.dp)
@@ -1224,7 +1248,12 @@ internal fun SharedEpisodeRow(
                                     .padding(14.dp),
                             )
                             Text(
-                                ep.formattedAirDate()?.let { if (isAired) "Aired $it" else "Airs $it" } ?: "Date TBD",
+                                ep.formattedAirDate()?.let {
+                                    stringResource(
+                                        if (isAired) R.string.detail_modal_aired_date else R.string.detail_modal_airs_date,
+                                        it,
+                                    )
+                                } ?: stringResource(R.string.detail_modal_date_tbd),
                                 color = theme.colors.type.secondary,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Medium,
@@ -1238,7 +1267,7 @@ internal fun SharedEpisodeRow(
                     } else if (isDownloaded) {
                         Icon(
                             imageVector = Icons.Filled.CheckCircle,
-                            contentDescription = "Downloaded",
+                            contentDescription = stringResource(R.string.detail_modal_downloaded),
                             tint = theme.colors.type.success,
                             modifier = Modifier.padding(8.dp).size(20.dp),
                         )
@@ -1251,7 +1280,7 @@ internal fun SharedEpisodeRow(
                     } else if (!isOffline && isAired) {
                         Icon(
                             imageVector = Icons.Filled.Download,
-                            contentDescription = "Download episode",
+                            contentDescription = stringResource(R.string.detail_modal_download_episode),
                             tint = theme.colors.type.secondary,
                             modifier = Modifier
                                 .padding(8.dp)
@@ -1356,8 +1385,8 @@ private fun EpisodeSwipeBackground(
                 modifier = Modifier.clickable(onClick = onCancelSwipe),
             ) {
                 Icon(
-                    imageVector = Icons.Filled.ArrowBack,
-                    contentDescription = "Cancel swipe",
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = stringResource(R.string.detail_modal_cancel_swipe),
                     tint = theme.colors.type.secondary,
                     modifier = Modifier.padding(8.dp),
                 )
@@ -1375,7 +1404,9 @@ private fun EpisodeSwipeBackground(
                         tint = if (isWatched) theme.colors.type.secondary else theme.colors.type.success,
                     )
                     Text(
-                        text = if (isWatched) "Watched" else "Mark watched",
+                        text = stringResource(
+                            if (isWatched) R.string.detail_modal_watched else R.string.detail_modal_mark_watched,
+                        ),
                         color = if (isWatched) theme.colors.type.secondary else theme.colors.type.success,
                         fontWeight = FontWeight.Normal,
                     )
@@ -1394,7 +1425,7 @@ private fun EpisodeSwipeBackground(
                         tint = theme.colors.buttons.danger,
                     )
                     Text(
-                        text = "Clear history",
+                        text = stringResource(R.string.detail_modal_clear_history),
                         color = theme.colors.buttons.danger,
                         overflow = TextOverflow.Ellipsis,
                         maxLines = 1,

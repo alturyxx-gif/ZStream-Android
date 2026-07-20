@@ -1,0 +1,49 @@
+<resources>
+    <string name="system_release_subscription_title">Подписка на уведомление о выходе оформлена</string>
+    <string name="system_release_subscription_message">Вы получите уведомление, когда %1$s станет доступно.</string>
+    <string name="system_release_episode_subject">%1$s С%2$sЭ%3$s</string>
+    <string name="system_release_allow_notifications">Разрешите уведомления Z-Stream, прежде чем подписываться на выход.</string>
+    <string name="system_release_notifications_disabled">Уведомления Z-Stream отключены в системных настройках.</string>
+    <string name="system_release_channel_disabled">Уведомления о выходе отключены в системных настройках.</string>
+    <string name="system_release_movie_title">%1$s уже вышел</string>
+    <string name="system_release_movie_message">Фильм, которого вы ждали, уже вышел.</string>
+    <string name="system_release_episode_title">%1$s С%2$sЭ%3$s уже вышел</string>
+    <string name="system_release_episode_message">Вышел новый эпизод.</string>
+    <string name="system_release_channel_name">Уведомления о выходе</string>
+    <string name="system_release_channel_description">Сообщает о выходе отслеживаемого фильма или эпизода</string>
+
+    <string name="system_broadcast_channel_name">Объявления</string>
+    <string name="system_broadcast_channel_description">Новости и объявления команды ZStream</string>
+
+    <string name="system_download_title">Загрузка ZStream</string>
+    <string name="system_download_preparing">Подготовка загрузки…</string>
+    <string name="system_download_interrupted">Прервано</string>
+    <string name="system_download_paused_at">Приостановлено на %1$d%%</string>
+    <string name="system_download_starting">Начало загрузки…</string>
+    <string name="system_download_remuxing">Ремуксинг… %1$d%%</string>
+    <string name="system_download_size">%1$d МБ</string>
+    <string name="system_download_size_estimated">%1$d МБ / ~%2$d МБ</string>
+    <string name="system_download_progress">%1$s через %2$s — %3$d%%</string>
+    <string name="system_download_progress_with_size">%1$s через %2$s — %3$d%% (%4$s)</string>
+    <string name="system_download_complete">Загрузка завершена</string>
+    <string name="system_download_paused">Приостановлено</string>
+    <string name="system_download_failed">Ошибка загрузки: %1$s</string>
+    <string name="system_unknown_error">Неизвестная ошибка</string>
+    <string name="system_episode_title">%1$s С%2$02dЭ%3$02d</string>
+    <string name="system_download_channel_name">Загрузки</string>
+    <string name="system_resume">Продолжить</string>
+    <string name="system_pause">Пауза</string>
+    <string name="system_cancel">Отмена</string>
+
+    <string name="system_play">Воспроизвести</string>
+    <string name="system_stop">Остановить</string>
+    <string name="system_playback_channel_name">Воспроизведение</string>
+    <string name="system_playback_channel_description">Элементы управления текущим воспроизведением</string>
+
+    <string name="system_plugin_update_channel_name">Обновления плагина</string>
+    <string name="system_plugin_update_channel_description">Уведомления о готовности новой сборки плагина источников</string>
+    <string name="system_plugin_update_ready">Обновление плагина готово</string>
+    <string name="system_plugin_update_message">Плагин источников версии %1$s подготовлен — перезапустите ZStream, чтобы применить его.</string>
+
+    <string name="system_clear_search">Очистить поиск</string>
+</resources>

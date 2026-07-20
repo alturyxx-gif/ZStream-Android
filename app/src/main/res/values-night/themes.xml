@@ -1,5 +1,5 @@
 <resources>
-    <style name="Theme.ZStreamAndroid" parent="android:Theme.DeviceDefault.NoActionBar">
+    <style name="Theme.ZStreamAndroid" parent="Theme.AppCompat.NoActionBar">
         <item name="android:windowBackground">@android:color/black</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>

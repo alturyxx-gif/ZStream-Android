@@ -1,0 +1,49 @@
+<resources>
+    <string name="system_release_subscription_title">रिलीज़ सूचना की सदस्यता ली गई</string>
+    <string name="system_release_subscription_message">%1$s उपलब्ध होने पर आपको सूचना मिलेगी।</string>
+    <string name="system_release_episode_subject">%1$s S%2$sE%3$s</string>
+    <string name="system_release_allow_notifications">रिलीज़ की सदस्यता लेने से पहले Z-Stream के लिए सूचनाओं की अनुमति दें।</string>
+    <string name="system_release_notifications_disabled">सिस्टम सेटिंग में Z-Stream की सूचनाएँ बंद हैं।</string>
+    <string name="system_release_channel_disabled">सिस्टम सेटिंग में रिलीज़ सूचनाएँ बंद हैं।</string>
+    <string name="system_release_movie_title">%1$s अब रिलीज़ हो गई है</string>
+    <string name="system_release_movie_message">जिस फ़िल्म का आप इंतज़ार कर रहे थे, वह अभी रिलीज़ हुई है।</string>
+    <string name="system_release_episode_title">%1$s S%2$sE%3$s अब उपलब्ध है</string>
+    <string name="system_release_episode_message">एक नया एपिसोड अभी प्रसारित हुआ है।</string>
+    <string name="system_release_channel_name">रिलीज़ सूचनाएँ</string>
+    <string name="system_release_channel_description">आपके द्वारा ट्रैक की जा रही फ़िल्म या एपिसोड के रिलीज़ होने पर सूचना देता है</string>
+
+    <string name="system_broadcast_channel_name">घोषणाएँ</string>
+    <string name="system_broadcast_channel_description">ZStream टीम की खबरें और घोषणाएँ</string>
+
+    <string name="system_download_title">ZStream डाउनलोड</string>
+    <string name="system_download_preparing">डाउनलोड तैयार हो रहा है…</string>
+    <string name="system_download_interrupted">बाधित</string>
+    <string name="system_download_paused_at">%1$d%% पर रुका हुआ</string>
+    <string name="system_download_starting">डाउनलोड शुरू हो रहा है…</string>
+    <string name="system_download_remuxing">रीमक्स हो रहा है… %1$d%%</string>
+    <string name="system_download_size">%1$d MB</string>
+    <string name="system_download_size_estimated">%1$d MB / ~%2$d MB</string>
+    <string name="system_download_progress">%2$s से %1$s — %3$d%%</string>
+    <string name="system_download_progress_with_size">%2$s से %1$s — %3$d%% (%4$s)</string>
+    <string name="system_download_complete">डाउनलोड पूरा हुआ</string>
+    <string name="system_download_paused">रुका हुआ</string>
+    <string name="system_download_failed">डाउनलोड विफल: %1$s</string>
+    <string name="system_unknown_error">अज्ञात त्रुटि</string>
+    <string name="system_episode_title">%1$s S%2$02dE%3$02d</string>
+    <string name="system_download_channel_name">डाउनलोड</string>
+    <string name="system_resume">जारी रखें</string>
+    <string name="system_pause">रोकें</string>
+    <string name="system_cancel">रद्द करें</string>
+
+    <string name="system_play">चलाएँ</string>
+    <string name="system_stop">बंद करें</string>
+    <string name="system_playback_channel_name">प्लेबैक</string>
+    <string name="system_playback_channel_description">अभी चल रहे मीडिया के नियंत्रण</string>
+
+    <string name="system_plugin_update_channel_name">प्लगइन अपडेट</string>
+    <string name="system_plugin_update_channel_description">नया स्रोत प्लगइन बिल्ड तैयार होने पर सूचनाएँ</string>
+    <string name="system_plugin_update_ready">प्लगइन अपडेट तैयार है</string>
+    <string name="system_plugin_update_message">स्रोत प्लगइन v%1$s तैयार है — इसे लागू करने के लिए ZStream फिर शुरू करें।</string>
+
+    <string name="system_clear_search">खोज साफ़ करें</string>
+</resources>

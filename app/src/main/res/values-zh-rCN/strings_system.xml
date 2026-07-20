@@ -1,0 +1,49 @@
+<resources>
+    <string name="system_release_subscription_title">已订阅上线通知</string>
+    <string name="system_release_subscription_message">%1$s 可用时会通知您。</string>
+    <string name="system_release_episode_subject">%1$s S%2$sE%3$s</string>
+    <string name="system_release_allow_notifications">订阅上线通知前，请允许 Z-Stream 发送通知。</string>
+    <string name="system_release_notifications_disabled">系统设置中已关闭 Z-Stream 的通知。</string>
+    <string name="system_release_channel_disabled">系统设置中已关闭上线通知。</string>
+    <string name="system_release_movie_title">%1$s 现已上线</string>
+    <string name="system_release_movie_message">您等待的电影刚刚上线。</string>
+    <string name="system_release_episode_title">%1$s S%2$sE%3$s 现已上线</string>
+    <string name="system_release_episode_message">新一集刚刚播出。</string>
+    <string name="system_release_channel_name">上线通知</string>
+    <string name="system_release_channel_description">在您追踪的电影或剧集上线时通知您</string>
+
+    <string name="system_broadcast_channel_name">公告</string>
+    <string name="system_broadcast_channel_description">来自 ZStream 团队的新闻和公告</string>
+
+    <string name="system_download_title">ZStream 下载</string>
+    <string name="system_download_preparing">正在准备下载…</string>
+    <string name="system_download_interrupted">已中断</string>
+    <string name="system_download_paused_at">已在 %1$d%% 暂停</string>
+    <string name="system_download_starting">正在开始下载…</string>
+    <string name="system_download_remuxing">正在重新封装… %1$d%%</string>
+    <string name="system_download_size">%1$d MB</string>
+    <string name="system_download_size_estimated">%1$d MB / 约 %2$d MB</string>
+    <string name="system_download_progress">%1$s，来源：%2$s — %3$d%%</string>
+    <string name="system_download_progress_with_size">%1$s，来源：%2$s — %3$d%%（%4$s）</string>
+    <string name="system_download_complete">下载完成</string>
+    <string name="system_download_paused">已暂停</string>
+    <string name="system_download_failed">下载失败：%1$s</string>
+    <string name="system_unknown_error">未知错误</string>
+    <string name="system_episode_title">%1$s S%2$02dE%3$02d</string>
+    <string name="system_download_channel_name">下载</string>
+    <string name="system_resume">继续</string>
+    <string name="system_pause">暂停</string>
+    <string name="system_cancel">取消</string>
+
+    <string name="system_play">播放</string>
+    <string name="system_stop">停止</string>
+    <string name="system_playback_channel_name">播放</string>
+    <string name="system_playback_channel_description">正在播放控制</string>
+
+    <string name="system_plugin_update_channel_name">插件更新</string>
+    <string name="system_plugin_update_channel_description">新的片源插件版本暂存后发送通知</string>
+    <string name="system_plugin_update_ready">插件更新已就绪</string>
+    <string name="system_plugin_update_message">片源插件 v%1$s 已暂存 — 重启 ZStream 即可应用。</string>
+
+    <string name="system_clear_search">清除搜索内容</string>
+</resources>

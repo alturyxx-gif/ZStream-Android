@@ -15,9 +15,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.res.stringResource
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.zstream.android.R
 import com.zstream.android.data.local.preferences.SettingsPreferences
 import com.zstream.android.download.DownloadDestinationBroker
 import com.zstream.android.download.DownloadDestinationChoice
@@ -75,11 +77,11 @@ fun DownloadDestinationPrompt() {
     if (pending && !awaitingFolderPick) {
         AlertDialog(
             onDismissRequest = { DownloadDestinationBroker.resolve(null) },
-            title = { Text("Save download to...") },
-            text = { Text("Choose where this download should be stored.") },
+            title = { Text(stringResource(R.string.download_destination_title)) },
+            text = { Text(stringResource(R.string.download_destination_description)) },
             confirmButton = {
                 TextButton(onClick = { DownloadDestinationBroker.resolve(DownloadDestinationChoice.AppFolder) }) {
-                    Text("ZStream folder")
+                    Text(stringResource(R.string.download_destination_app_folder))
                 }
             },
             dismissButton = {
@@ -94,7 +96,7 @@ fun DownloadDestinationPrompt() {
                         }
                     }
                 }) {
-                    Text("External")
+                    Text(stringResource(R.string.download_destination_external))
                 }
             },
         )

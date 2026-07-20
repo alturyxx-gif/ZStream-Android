@@ -1,0 +1,49 @@
+<resources>
+    <string name="system_release_subscription_title">Release notification subscribed</string>
+    <string name="system_release_subscription_message">You’ll be notified when %1$s is available.</string>
+    <string name="system_release_episode_subject">%1$s S%2$sE%3$s</string>
+    <string name="system_release_allow_notifications">Allow notifications for Z-Stream before subscribing to a release.</string>
+    <string name="system_release_notifications_disabled">Notifications are disabled for Z-Stream in system settings.</string>
+    <string name="system_release_channel_disabled">Release notifications are disabled in system settings.</string>
+    <string name="system_release_movie_title">%1$s is out now</string>
+    <string name="system_release_movie_message">The movie you were waiting on just released.</string>
+    <string name="system_release_episode_title">%1$s S%2$sE%3$s is out now</string>
+    <string name="system_release_episode_message">A new episode just aired.</string>
+    <string name="system_release_channel_name">Release notifications</string>
+    <string name="system_release_channel_description">Notifies you when a movie or episode you’re tracking releases</string>
+
+    <string name="system_broadcast_channel_name">Announcements</string>
+    <string name="system_broadcast_channel_description">News and announcements from the ZStream team</string>
+
+    <string name="system_download_title">ZStream Download</string>
+    <string name="system_download_preparing">Preparing download…</string>
+    <string name="system_download_interrupted">Interrupted</string>
+    <string name="system_download_paused_at">Paused at %1$d%%</string>
+    <string name="system_download_starting">Starting download…</string>
+    <string name="system_download_remuxing">Remuxing… %1$d%%</string>
+    <string name="system_download_size">%1$d MB</string>
+    <string name="system_download_size_estimated">%1$d MB / ~%2$d MB</string>
+    <string name="system_download_progress">%1$s via %2$s — %3$d%%</string>
+    <string name="system_download_progress_with_size">%1$s via %2$s — %3$d%% (%4$s)</string>
+    <string name="system_download_complete">Download complete</string>
+    <string name="system_download_paused">Paused</string>
+    <string name="system_download_failed">Download failed: %1$s</string>
+    <string name="system_unknown_error">Unknown error</string>
+    <string name="system_episode_title">%1$s S%2$02dE%3$02d</string>
+    <string name="system_download_channel_name">Downloads</string>
+    <string name="system_resume">Resume</string>
+    <string name="system_pause">Pause</string>
+    <string name="system_cancel">Cancel</string>
+
+    <string name="system_play">Play</string>
+    <string name="system_stop">Stop</string>
+    <string name="system_playback_channel_name">Playback</string>
+    <string name="system_playback_channel_description">Now playing controls</string>
+
+    <string name="system_plugin_update_channel_name">Plugin updates</string>
+    <string name="system_plugin_update_channel_description">Notifications when a new source plugin build is staged</string>
+    <string name="system_plugin_update_ready">Plugin update ready</string>
+    <string name="system_plugin_update_message">Source plugin v%1$s is staged — restart ZStream to apply it.</string>
+
+    <string name="system_clear_search">Clear search</string>
+</resources>

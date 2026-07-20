@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">ZStream</string>
+    <string name="shortcut_home">होम</string>
+    <string name="shortcut_discover">खोजें</string>
+    <string name="shortcut_settings">सेटिंग</string>
+    <string name="shortcut_migration">माइग्रेशन</string>
+</resources>

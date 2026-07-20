@@ -15,10 +15,12 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogWindowProvider
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
+import com.zstream.android.R
 import com.zstream.android.data.ReleaseSubscriptionRequest
 import com.zstream.android.data.model.Episode
 import com.zstream.android.data.model.MovieDetail
@@ -47,11 +49,12 @@ internal fun rememberTrackedReleaseInteraction(
     var tvRequest by remember { mutableStateOf<ReleaseSubscriptionRequest?>(null) }
     var selectedPhoneId by remember { mutableStateOf<String?>(null) }
     var afterPermission by remember { mutableStateOf<(() -> Unit)?>(null) }
+    val notificationPermissionRequired = stringResource(R.string.detail_notification_permission_required)
     val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         val action = afterPermission
         afterPermission = null
         if (granted) action?.invoke()
-        else trackedReleaseVm.reportFailure("Notification permission is required to enable release notifications.")
+        else trackedReleaseVm.reportFailure(notificationPermissionRequired)
     }
 
     fun runLocalChange(subscribing: Boolean, action: () -> Unit) {
@@ -131,16 +134,16 @@ internal fun rememberTrackedReleaseInteraction(
             AlertDialog(
                 onDismissRequest = {},
                 containerColor = theme.colors.modal.background,
-                title = { Text("No paired phones", color = theme.colors.type.emphasis) },
+                title = { Text(stringResource(R.string.detail_no_paired_phones), color = theme.colors.type.emphasis) },
                 text = {
                     Text(
-                        "Pair a phone in Settings \u2192 Sync from phone, then try again.",
+                        stringResource(R.string.detail_pair_phone_instructions),
                         color = theme.colors.type.text,
                     )
                 },
                 confirmButton = {
                     TextButton(onClick = { tvRequest = null }) {
-                        Text("OK", color = theme.colors.global.accentA)
+                        Text(stringResource(R.string.detail_ok), color = theme.colors.global.accentA)
                     }
                 },
             )
@@ -148,7 +151,7 @@ internal fun rememberTrackedReleaseInteraction(
             AlertDialog(
                 onDismissRequest = { if (!pending) tvRequest = null },
                 containerColor = theme.colors.modal.background,
-                title = { Text("Notify on a phone", color = theme.colors.type.emphasis) },
+                title = { Text(stringResource(R.string.detail_notify_on_phone), color = theme.colors.type.emphasis) },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         pairedPhones.forEach { phone ->
@@ -171,7 +174,7 @@ internal fun rememberTrackedReleaseInteraction(
                                     Text(phone.phoneName, color = theme.colors.type.text)
                                     if (phone.needsRepair) {
                                         Text(
-                                            "Pair this phone again to enable release notifications.",
+                                            stringResource(R.string.detail_repair_phone),
                                             color = theme.colors.type.secondary,
                                             style = MaterialTheme.typography.bodySmall,
                                         )
@@ -194,13 +197,13 @@ internal fun rememberTrackedReleaseInteraction(
                                 color = theme.colors.global.accentA,
                             )
                         } else {
-                            Text("Subscribe", color = theme.colors.global.accentA)
+                            Text(stringResource(R.string.detail_subscribe), color = theme.colors.global.accentA)
                         }
                     }
                 },
                 dismissButton = {
                     TextButton(enabled = !pending, onClick = { tvRequest = null }) {
-                        Text("Cancel", color = theme.colors.type.secondary)
+                        Text(stringResource(R.string.detail_cancel), color = theme.colors.type.secondary)
                     }
                 },
             )
@@ -211,11 +214,11 @@ internal fun rememberTrackedReleaseInteraction(
         AlertDialog(
             onDismissRequest = {},
             containerColor = theme.colors.modal.background,
-            title = { Text("Couldn\u2019t update notification", color = theme.colors.type.emphasis) },
+            title = { Text(stringResource(R.string.detail_notification_update_failed), color = theme.colors.type.emphasis) },
             text = { Text(message, color = theme.colors.type.text) },
             confirmButton = {
                 TextButton(onClick = { failure = null }) {
-                    Text("OK", color = theme.colors.global.accentA)
+                    Text(stringResource(R.string.detail_ok), color = theme.colors.global.accentA)
                 }
             },
         )
@@ -270,7 +273,7 @@ fun DetailScreen(nav: NavController, vm: DetailViewModel = hiltViewModel()) {
                     modifier = Modifier.padding(horizontal = 20.dp),
                 )
                 Spacer(Modifier.height(12.dp))
-                Button(onClick = vm::load) { Text("Retry") }
+                Button(onClick = vm::load) { Text(stringResource(R.string.detail_retry)) }
             }
         }
         is DetailState.Movie -> {

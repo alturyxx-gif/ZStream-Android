@@ -56,8 +56,12 @@ class BroadcastMessagingService : FirebaseMessagingService() {
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         getSystemService(NotificationManager::class.java).createNotificationChannel(
-            NotificationChannel(CHANNEL_ID, "Announcements", NotificationManager.IMPORTANCE_DEFAULT).apply {
-                description = "News and announcements from the ZStream team"
+            NotificationChannel(
+                CHANNEL_ID,
+                getString(R.string.system_broadcast_channel_name),
+                NotificationManager.IMPORTANCE_DEFAULT,
+            ).apply {
+                description = getString(R.string.system_broadcast_channel_description)
             },
         )
     }

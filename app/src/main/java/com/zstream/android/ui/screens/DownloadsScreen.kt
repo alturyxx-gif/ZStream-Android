@@ -42,6 +42,8 @@ import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -49,6 +51,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
+import com.zstream.android.R
 import com.zstream.android.Urls
 import com.zstream.android.data.local.entity.DownloadEntity
 import com.zstream.android.data.local.entity.DownloadStatus
@@ -70,8 +73,9 @@ fun formatFreeSpace(freeBytes: Long, totalBytes: Long): String {
 /** Prefixes a stored displayPath with where it actually lives, since the relative path alone
  * ("ZStream/Title (Year)/...") reads as the app's own folder even when the file is really on an
  * external SAF tree the user picked as their download destination. */
+@Composable
 private fun locationLabel(entity: DownloadEntity, path: String): String =
-    if (entity.storageTreeUri != null) "External / $path" else path
+    if (entity.storageTreeUri != null) stringResource(R.string.downloads_external_path, path) else path
 
 private fun posterUrl(posterPath: String?): String? {
     if (posterPath.isNullOrBlank()) return null
@@ -129,7 +133,7 @@ fun DownloadsScreen(nav: NavController) {
                 onClick = { if (selectedKey == null) onBack() else selectedKey = null },
                 isTv = isTv,
                 icon = Icons.AutoMirrored.Filled.ArrowBack,
-                contentDescription = "Back",
+                contentDescription = stringResource(R.string.downloads_back),
                 tint = Color.White,
                 modifier = Modifier.focusRequester(backFocusRequester),
             )
@@ -143,14 +147,14 @@ fun DownloadsScreen(nav: NavController) {
                     onClick = { folderPicker.launch(null) },
                     isTv = isTv,
                     icon = Icons.Filled.Folder,
-                    contentDescription = "Add Folder",
+                    contentDescription = stringResource(R.string.downloads_add_folder),
                     tint = theme.colors.type.secondary,
                 )
                 TvIconButton(
                     onClick = { vm.rescan(uiState.folders) },
                     isTv = isTv,
                     icon = Icons.Filled.Refresh,
-                    contentDescription = "Rescan",
+                    contentDescription = stringResource(R.string.downloads_rescan),
                     tint = theme.colors.type.secondary,
                 )
             }
@@ -206,15 +210,10 @@ fun DownloadsScreen(nav: NavController) {
         AlertDialog(
             onDismissRequest = { pendingDelete = null },
             icon = { Icon(Icons.Filled.Delete, contentDescription = null, tint = theme.colors.type.danger) },
-            title = { Text("Delete this download?") },
+            title = { Text(stringResource(R.string.downloads_delete_title)) },
             text = {
                 Column {
-                    Text(
-                        buildString {
-                            append(downloadTitleFor(entity))
-                            append(" and any sidecar files (subtitles, etc.) will be permanently removed from your device.")
-                        }
-                    )
+                    Text(stringResource(R.string.downloads_delete_message, downloadTitleFor(entity)))
                     entity.filePath?.let { path ->
                         Spacer(Modifier.height(10.dp))
                         Text(locationLabel(entity, path), color = theme.colors.type.dimmed, fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -225,14 +224,14 @@ fun DownloadsScreen(nav: NavController) {
                 var focused by remember { mutableStateOf(false) }
                 ZsOutlinedWrapper(visible = isTv && focused, shape = RoundedCornerShape(8.dp)) {
                     TextButton(onClick = { vm.delete(entity); pendingDelete = null }, modifier = Modifier.onFocusChanged { focused = it.isFocused }) {
-                        Text("Delete", color = theme.colors.type.danger)
+                        Text(stringResource(R.string.downloads_delete), color = theme.colors.type.danger)
                     }
                 }
             },
             dismissButton = {
                 var focused by remember { mutableStateOf(false) }
                 ZsOutlinedWrapper(visible = isTv && focused, shape = RoundedCornerShape(8.dp)) {
-                    TextButton(onClick = { pendingDelete = null }, modifier = Modifier.onFocusChanged { focused = it.isFocused }) { Text("Cancel") }
+                    TextButton(onClick = { pendingDelete = null }, modifier = Modifier.onFocusChanged { focused = it.isFocused }) { Text(stringResource(R.string.downloads_cancel)) }
                 }
             },
         )
@@ -241,18 +240,18 @@ fun DownloadsScreen(nav: NavController) {
     pendingFolderDelete?.let { folder ->
         AlertDialog(
             onDismissRequest = { pendingFolderDelete = null },
-            title = { Text("Remove folder?") },
+            title = { Text(stringResource(R.string.downloads_remove_folder_title)) },
             text = { Text(folder.displayName) },
             confirmButton = {
                 var focused by remember { mutableStateOf(false) }
                 ZsOutlinedWrapper(visible = isTv && focused, shape = RoundedCornerShape(8.dp)) {
-                    TextButton(onClick = { vm.removeFolder(folder); pendingFolderDelete = null }, modifier = Modifier.onFocusChanged { focused = it.isFocused }) { Text("Remove") }
+                    TextButton(onClick = { vm.removeFolder(folder); pendingFolderDelete = null }, modifier = Modifier.onFocusChanged { focused = it.isFocused }) { Text(stringResource(R.string.downloads_remove)) }
                 }
             },
             dismissButton = {
                 var focused by remember { mutableStateOf(false) }
                 ZsOutlinedWrapper(visible = isTv && focused, shape = RoundedCornerShape(8.dp)) {
-                    TextButton(onClick = { pendingFolderDelete = null }, modifier = Modifier.onFocusChanged { focused = it.isFocused }) { Text("Cancel") }
+                    TextButton(onClick = { pendingFolderDelete = null }, modifier = Modifier.onFocusChanged { focused = it.isFocused }) { Text(stringResource(R.string.downloads_cancel)) }
                 }
             },
         )
@@ -296,12 +295,12 @@ private fun LibraryContent(
 ) {
     if (items.isEmpty() && folders.isEmpty()) {
         Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-            Text("No downloads or local folders yet", color = theme.colors.type.secondary, fontSize = 15.sp)
+            Text(stringResource(R.string.downloads_empty), color = theme.colors.type.secondary, fontSize = 15.sp)
             Spacer(Modifier.height(8.dp))
             var focused by remember { mutableStateOf(false) }
             ZsOutlinedWrapper(visible = isTv && focused, shape = RoundedCornerShape(8.dp)) {
                 TextButton(onClick = onAddFolder, modifier = Modifier.onFocusChanged { focused = it.isFocused }) {
-                    Text("Add Folder")
+                    Text(stringResource(R.string.downloads_add_folder))
                 }
             }
         }
@@ -410,7 +409,8 @@ private fun DetailList(
 @Composable
 private fun SeasonHeader(season: Int, theme: ZStreamTheme) {
     Text(
-        text = if (season > 0) "Season $season" else "Season unknown",
+        text = if (season > 0) stringResource(R.string.downloads_season_number, season)
+        else stringResource(R.string.downloads_season_unknown),
         color = theme.colors.type.secondary,
         fontSize = 12.sp,
         fontWeight = FontWeight.SemiBold,
@@ -422,7 +422,7 @@ private fun SeasonHeader(season: Int, theme: ZStreamTheme) {
 private fun LibraryCard(item: LibraryItem, theme: ZStreamTheme, isTv: Boolean, focusRequester: FocusRequester?, onClick: () -> Unit) {
     val title = itemTitle(item)
     val subtitle = when (item) {
-        is LibraryItem.DownloadMovie -> "Movie · ${statusLabel(item.entity)}"
+        is LibraryItem.DownloadMovie -> stringResource(R.string.downloads_movie_status, statusLabel(item.entity))
         is LibraryItem.DownloadShow -> showSummary(item.episodes)
         is LibraryItem.LocalGroup -> libraryGroupSummary(item.mediaKind, item.items)
     }
@@ -484,14 +484,16 @@ private fun FolderStatusRow(
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
             Text(folder.displayName, color = theme.colors.type.emphasis, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            val status = if (isScanning) "Scanning..." else folder.lastScanError ?: folder.lastScanAt?.let { "Scanned" } ?: "Not scanned yet"
+            val status = if (isScanning) stringResource(R.string.downloads_scanning)
+            else folder.lastScanError ?: folder.lastScanAt?.let { stringResource(R.string.downloads_scanned) }
+            ?: stringResource(R.string.downloads_not_scanned)
             Text(status, color = if (folder.lastScanError == null) theme.colors.type.secondary else theme.colors.type.danger, fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
         if (folder.lastScanError != null && !isScanning) {
             var pickAgainFocused by remember { mutableStateOf(false) }
             ZsOutlinedWrapper(visible = isTv && pickAgainFocused, shape = RoundedCornerShape(8.dp)) {
                 TextButton(onClick = { onPickAgain(folder) }, modifier = Modifier.onFocusChanged { pickAgainFocused = it.isFocused }) {
-                    Text("Pick Again")
+                    Text(stringResource(R.string.downloads_pick_again))
                 }
             }
         }
@@ -499,7 +501,7 @@ private fun FolderStatusRow(
             onClick = { onRemove(folder) },
             isTv = isTv,
             icon = Icons.Filled.Delete,
-            contentDescription = "Remove folder",
+            contentDescription = stringResource(R.string.downloads_remove_folder),
             tint = theme.colors.type.secondary,
         )
     }
@@ -527,13 +529,13 @@ private fun LocalMediaRow(media: LocalMediaEntity, theme: ZStreamTheme, isTv: Bo
 @Composable
 private fun StatusPill(status: DownloadStatus, theme: ZStreamTheme) {
     val (label, bg, fg) = when (status) {
-        DownloadStatus.QUEUED -> Triple("Queued", theme.colors.type.dimmed.copy(alpha = 0.15f), theme.colors.type.secondary)
-        DownloadStatus.DOWNLOADING -> Triple("Downloading", theme.colors.buttons.purple.copy(alpha = 0.2f), theme.colors.buttons.purpleHover)
-        DownloadStatus.REMUXING -> Triple("Remuxing", theme.colors.buttons.purple.copy(alpha = 0.2f), theme.colors.buttons.purpleHover)
-        DownloadStatus.PAUSED -> Triple("Paused", Color.White.copy(alpha = 0.1f), theme.colors.type.secondary)
-        DownloadStatus.DONE -> Triple("Ready", theme.colors.type.success.copy(alpha = 0.2f), theme.colors.type.success)
-        DownloadStatus.FAILED -> Triple("Failed", theme.colors.type.danger.copy(alpha = 0.2f), theme.colors.type.danger)
-        DownloadStatus.CANCELLED -> Triple("Cancelled", theme.colors.type.dimmed.copy(alpha = 0.15f), theme.colors.type.secondary)
+        DownloadStatus.QUEUED -> Triple(stringResource(R.string.downloads_queued), theme.colors.type.dimmed.copy(alpha = 0.15f), theme.colors.type.secondary)
+        DownloadStatus.DOWNLOADING -> Triple(stringResource(R.string.downloads_downloading), theme.colors.buttons.purple.copy(alpha = 0.2f), theme.colors.buttons.purpleHover)
+        DownloadStatus.REMUXING -> Triple(stringResource(R.string.downloads_remuxing), theme.colors.buttons.purple.copy(alpha = 0.2f), theme.colors.buttons.purpleHover)
+        DownloadStatus.PAUSED -> Triple(stringResource(R.string.downloads_paused), Color.White.copy(alpha = 0.1f), theme.colors.type.secondary)
+        DownloadStatus.DONE -> Triple(stringResource(R.string.downloads_ready), theme.colors.type.success.copy(alpha = 0.2f), theme.colors.type.success)
+        DownloadStatus.FAILED -> Triple(stringResource(R.string.downloads_failed), theme.colors.type.danger.copy(alpha = 0.2f), theme.colors.type.danger)
+        DownloadStatus.CANCELLED -> Triple(stringResource(R.string.downloads_cancelled), theme.colors.type.dimmed.copy(alpha = 0.15f), theme.colors.type.secondary)
     }
     Text(
         label.uppercase(),
@@ -644,7 +646,7 @@ private fun DownloadItem(
 
                 if (isFailed && entity.errorMessage != null) {
                     Spacer(Modifier.height(6.dp))
-                    Text(entity.errorMessage, color = theme.colors.type.danger, fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(localizedDownloadError(entity.errorMessage), color = theme.colors.type.danger, fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
 
                 if (showProgressBar) {
@@ -683,15 +685,15 @@ private fun DownloadItem(
                     val onClick: () -> Unit,
                 )
                 val primary = when {
-                    canPlay -> Action(Icons.Filled.PlayArrow, "Play", theme.colors.buttons.purple, Color.White, onPlay)
-                    inFlight -> Action(Icons.Filled.Pause, "Pause", Color.White.copy(alpha = 0.08f), theme.colors.type.secondary, onPause)
-                    isPaused -> Action(Icons.Filled.PlayArrow, "Resume", theme.colors.buttons.purple, Color.White, onResume)
-                    isFailed -> Action(Icons.Filled.Refresh, "Retry", theme.colors.buttons.purple.copy(alpha = 0.25f), theme.colors.buttons.purpleHover, onRetry)
+                    canPlay -> Action(Icons.Filled.PlayArrow, stringResource(R.string.downloads_play), theme.colors.buttons.purple, Color.White, onPlay)
+                    inFlight -> Action(Icons.Filled.Pause, stringResource(R.string.downloads_pause), Color.White.copy(alpha = 0.08f), theme.colors.type.secondary, onPause)
+                    isPaused -> Action(Icons.Filled.PlayArrow, stringResource(R.string.downloads_resume), theme.colors.buttons.purple, Color.White, onResume)
+                    isFailed -> Action(Icons.Filled.Refresh, stringResource(R.string.downloads_retry), theme.colors.buttons.purple.copy(alpha = 0.25f), theme.colors.buttons.purpleHover, onRetry)
                     else -> null
                 }
                 val secondary = when {
-                    inFlight || isPaused -> Action(Icons.Filled.Close, "Cancel", theme.colors.buttons.danger.copy(alpha = 0.15f), theme.colors.buttons.danger, onCancel)
-                    isTerminal -> Action(Icons.Filled.Delete, "Delete", theme.colors.buttons.danger.copy(alpha = 0.15f), theme.colors.buttons.danger, onDelete)
+                    inFlight || isPaused -> Action(Icons.Filled.Close, stringResource(R.string.downloads_cancel), theme.colors.buttons.danger.copy(alpha = 0.15f), theme.colors.buttons.danger, onCancel)
+                    isTerminal -> Action(Icons.Filled.Delete, stringResource(R.string.downloads_delete), theme.colors.buttons.danger.copy(alpha = 0.15f), theme.colors.buttons.danger, onDelete)
                     else -> null
                 }
                 val actions = listOfNotNull(primary, secondary)
@@ -711,22 +713,22 @@ private fun DownloadItem(
             } else {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     if (canPlay) {
-                        RoundIconButton(Icons.Filled.PlayArrow, "Play", theme.colors.buttons.purple, Color.White, onPlay, size = 40.dp)
+                        RoundIconButton(Icons.Filled.PlayArrow, stringResource(R.string.downloads_play), theme.colors.buttons.purple, Color.White, onPlay, size = 40.dp)
                     }
                     if (inFlight) {
-                        RoundIconButton(Icons.Filled.Pause, "Pause", Color.White.copy(alpha = 0.08f), theme.colors.type.secondary, onPause)
+                        RoundIconButton(Icons.Filled.Pause, stringResource(R.string.downloads_pause), Color.White.copy(alpha = 0.08f), theme.colors.type.secondary, onPause)
                     }
                     if (isPaused) {
-                        RoundIconButton(Icons.Filled.PlayArrow, "Resume", theme.colors.buttons.purple, Color.White, onResume)
+                        RoundIconButton(Icons.Filled.PlayArrow, stringResource(R.string.downloads_resume), theme.colors.buttons.purple, Color.White, onResume)
                     }
                     if (isFailed) {
-                        RoundIconButton(Icons.Filled.Refresh, "Retry", theme.colors.buttons.purple.copy(alpha = 0.25f), theme.colors.buttons.purpleHover, onRetry)
+                        RoundIconButton(Icons.Filled.Refresh, stringResource(R.string.downloads_retry), theme.colors.buttons.purple.copy(alpha = 0.25f), theme.colors.buttons.purpleHover, onRetry)
                     }
                     if (inFlight || isPaused) {
-                        RoundIconButton(Icons.Filled.Close, "Cancel", theme.colors.buttons.danger.copy(alpha = 0.15f), theme.colors.buttons.danger, onCancel)
+                        RoundIconButton(Icons.Filled.Close, stringResource(R.string.downloads_cancel), theme.colors.buttons.danger.copy(alpha = 0.15f), theme.colors.buttons.danger, onCancel)
                     }
                     if (isTerminal) {
-                        RoundIconButton(Icons.Filled.Delete, "Delete", theme.colors.buttons.danger.copy(alpha = 0.15f), theme.colors.buttons.danger, onDelete)
+                        RoundIconButton(Icons.Filled.Delete, stringResource(R.string.downloads_delete), theme.colors.buttons.danger.copy(alpha = 0.15f), theme.colors.buttons.danger, onDelete)
                     }
                 }
             }
@@ -775,15 +777,27 @@ private fun PosterBox(poster: Any?, title: String, icon: androidx.compose.ui.gra
     }
 }
 
-private fun selectedTitle(item: LibraryItem?): String = item?.let { itemTitle(it) } ?: "Downloads"
+@Composable
+private fun selectedTitle(item: LibraryItem?): String =
+    item?.let { itemTitle(it) } ?: stringResource(R.string.downloads_title)
 
+@Composable
 private fun headerStatus(freeSpace: FreeSpaceInfo, state: DownloadsUiState): String {
     val scanning = state.scanningFolderIds.size
     val folderCount = state.folders.size
-    val storage = formatFreeSpace(freeSpace.freeBytes, freeSpace.totalBytes)
+    fun gb(bytes: Long) = bytes / (1024.0 * 1024.0 * 1024.0)
+    val storage = stringResource(
+        R.string.downloads_free_space,
+        gb(freeSpace.freeBytes),
+        gb(freeSpace.totalBytes),
+    )
     return when {
-        scanning > 0 -> "$storage · Scanning $scanning"
-        folderCount > 0 -> "$storage · $folderCount local ${if (folderCount == 1) "folder" else "folders"}"
+        scanning > 0 -> stringResource(R.string.downloads_storage_scanning, storage, scanning)
+        folderCount > 0 -> stringResource(
+            R.string.downloads_storage_folders,
+            storage,
+            pluralStringResource(R.plurals.downloads_local_folder_count, folderCount, folderCount),
+        )
         else -> storage
     }
 }
@@ -800,59 +814,82 @@ private fun itemTitle(item: LibraryItem): String = when (item) {
     is LibraryItem.LocalGroup -> item.title
 }
 
+@Composable
 private fun showSummary(episodes: List<DownloadEntity>): String {
     val seasons = episodes.mapNotNull { it.season }.distinct().size
     val status = when {
-        episodes.any { it.status == DownloadStatus.DOWNLOADING || it.status == DownloadStatus.REMUXING } -> "Downloading"
-        episodes.any { it.status == DownloadStatus.QUEUED } -> "Queued"
-        episodes.any { it.status == DownloadStatus.PAUSED } -> "Paused"
-        episodes.all { it.status == DownloadStatus.DONE } -> "Downloaded"
-        episodes.any { it.status == DownloadStatus.FAILED } -> "Has failures"
-        else -> "Not complete"
+        episodes.any { it.status == DownloadStatus.DOWNLOADING || it.status == DownloadStatus.REMUXING } -> stringResource(R.string.downloads_downloading)
+        episodes.any { it.status == DownloadStatus.QUEUED } -> stringResource(R.string.downloads_queued)
+        episodes.any { it.status == DownloadStatus.PAUSED } -> stringResource(R.string.downloads_paused)
+        episodes.all { it.status == DownloadStatus.DONE } -> stringResource(R.string.downloads_downloaded)
+        episodes.any { it.status == DownloadStatus.FAILED } -> stringResource(R.string.downloads_has_failures)
+        else -> stringResource(R.string.downloads_not_complete)
     }
-    val seasonLabel = if (seasons == 1) "1 season" else "$seasons seasons"
-    val episodeLabel = if (episodes.size == 1) "1 episode" else "${episodes.size} episodes"
-    return "$seasonLabel · $episodeLabel · $status"
+    val seasonLabel = pluralStringResource(R.plurals.downloads_season_count, seasons, seasons)
+    val episodeLabel = pluralStringResource(R.plurals.downloads_episode_count, episodes.size, episodes.size)
+    return stringResource(R.string.downloads_summary, seasonLabel, episodeLabel, status)
 }
 
 /** [items] are pure local (never actual downloads) — "Downloaded" here means TMDB-tracked, "Local" means unmatched. */
+@Composable
 private fun libraryGroupSummary(mediaKind: String, items: List<LocalMediaEntity>): String {
     val isTracked = items.any { it.tmdbId != null }
-    val status = if (isTracked) "Downloaded" else "Local"
+    val status = stringResource(if (isTracked) R.string.downloads_downloaded else R.string.downloads_local)
     return when (mediaKind) {
         "show" -> {
             val seasons = items.mapNotNull { it.season }.distinct().size
-            val seasonLabel = if (seasons == 1) "1 season" else "$seasons seasons"
-            val episodeLabel = if (items.size == 1) "1 episode" else "${items.size} episodes"
-            "$seasonLabel · $episodeLabel · $status"
+            val seasonLabel = pluralStringResource(R.plurals.downloads_season_count, seasons, seasons)
+            val episodeLabel = pluralStringResource(R.plurals.downloads_episode_count, items.size, items.size)
+            stringResource(R.string.downloads_summary, seasonLabel, episodeLabel, status)
         }
-        "movie" -> "Movie · $status"
-        else -> "${items.size} ${if (items.size == 1) "file" else "files"} · $status"
+        "movie" -> stringResource(R.string.downloads_movie_status, status)
+        else -> stringResource(
+            R.string.downloads_file_status,
+            pluralStringResource(R.plurals.downloads_file_count, items.size, items.size),
+            status,
+        )
     }
 }
 
+@Composable
 private fun downloadTitleFor(entity: DownloadEntity): String {
     if (entity.type != "show") return entity.title
     val season = entity.season?.toString()?.padStart(2, '0') ?: "?"
     val episode = entity.episode?.toString()?.padStart(2, '0') ?: "?"
-    return "${entity.title} S${season}E$episode"
+    return stringResource(R.string.system_release_episode_subject, entity.title, season, episode)
 }
 
+@Composable
 private fun localMediaTitle(media: LocalMediaEntity): String {
     if (media.mediaKind != "show") return media.displayName
     val season = media.season?.toString()?.padStart(2, '0') ?: "?"
     val episode = media.episode?.toString()?.padStart(2, '0') ?: "?"
-    return "S${season}E$episode ${media.displayName}"
+    val episodeLabel = stringResource(R.string.system_release_episode_subject, "", season, episode).trim()
+    return "$episodeLabel ${media.displayName}"
 }
 
+@Composable
+private fun localizedDownloadError(message: String?): String = when (message) {
+    null -> stringResource(R.string.downloads_unknown_error)
+    "Interrupted" -> stringResource(R.string.system_download_interrupted)
+    "Download failed" -> stringResource(R.string.downloads_failed)
+    else -> message
+}
+
+@Composable
 private fun statusLabel(entity: DownloadEntity): String = when (entity.status) {
-    DownloadStatus.QUEUED -> "Queued"
-    DownloadStatus.DOWNLOADING -> entity.statusMessage?.let { "Stalled at ${entity.progressPercent}%: $it" } ?: "Downloading ${entity.progressPercent}%"
-    DownloadStatus.REMUXING -> "Remuxing ${entity.progressPercent}%"
-    DownloadStatus.PAUSED -> "Paused at ${entity.progressPercent}%"
-    DownloadStatus.DONE -> "Downloaded"
-    DownloadStatus.FAILED -> "Failed: ${entity.errorMessage ?: "Unknown error"}"
-    DownloadStatus.CANCELLED -> "Cancelled"
+    DownloadStatus.QUEUED -> stringResource(R.string.downloads_queued)
+    DownloadStatus.DOWNLOADING -> entity.statusMessage?.let {
+        stringResource(R.string.downloads_stalled, entity.progressPercent, it)
+    } ?: stringResource(R.string.downloads_downloading_percent, entity.progressPercent)
+    DownloadStatus.REMUXING -> stringResource(R.string.downloads_remuxing_percent, entity.progressPercent)
+    DownloadStatus.PAUSED -> stringResource(R.string.downloads_paused_percent, entity.progressPercent)
+    DownloadStatus.DONE -> stringResource(R.string.downloads_downloaded)
+    DownloadStatus.FAILED -> stringResource(
+        R.string.downloads_failed_reason,
+        localizedDownloadError(entity.errorMessage),
+    )
+    DownloadStatus.CANCELLED -> stringResource(R.string.downloads_cancelled)
 }
 
 private fun formatSpeed(bytesPerSecond: Long): String {
@@ -871,6 +908,7 @@ private fun formatBytes(bytes: Long): String {
     return if (mb >= 1024.0) "%.1f GB".format(mb / 1024.0) else "%.0f MB".format(mb)
 }
 
+@Composable
 private fun leftProgressLineFor(entity: DownloadEntity): String {
     val parts = mutableListOf<String>()
     parts.add("${entity.progressPercent}%")
@@ -880,17 +918,18 @@ private fun leftProgressLineFor(entity: DownloadEntity): String {
         val total = entity.estimatedTotalBytes
         val downloaded = entity.bytesDownloaded
         if (total != null && downloaded != null && total > downloaded) {
-            parts.add("ETA ${formatEta((total - downloaded) / speed)}")
+            parts.add(stringResource(R.string.downloads_eta, formatEta((total - downloaded) / speed)))
         }
     }
     return parts.joinToString(" · ")
 }
 
+@Composable
 private fun rightProgressLineFor(entity: DownloadEntity): String {
     entity.statusMessage?.let { return it }
     val parts = mutableListOf<String>()
     if (entity.segTotal > 0) {
-        parts.add("${entity.segDone}/${entity.segTotal} segments")
+        parts.add(stringResource(R.string.downloads_segments, entity.segDone, entity.segTotal))
     } else {
         val downloaded = entity.bytesDownloaded
         val total = entity.estimatedTotalBytes
@@ -899,7 +938,7 @@ private fun rightProgressLineFor(entity: DownloadEntity): String {
         }
     }
     if (entity.remuxTotal > 0) {
-        parts.add("muxed ${entity.remuxDone}/${entity.remuxTotal}")
+        parts.add(stringResource(R.string.downloads_muxed, entity.remuxDone, entity.remuxTotal))
     }
     return parts.joinToString(" · ")
 }

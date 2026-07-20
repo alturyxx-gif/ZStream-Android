@@ -2,6 +2,7 @@ package com.zstream.android.data.model
 
 import com.google.gson.annotations.SerializedName
 import com.zstream.android.Urls
+import java.text.DateFormat
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -152,12 +153,15 @@ fun MovieDetail.hasReleased(todayIsoDate: String = todayIsoDate()): Boolean {
     return date <= todayIsoDate
 }
 
-private val displayDateFormat = SimpleDateFormat("MMM d, yyyy", Locale.US)
 private val isoDateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
 
 fun Episode.formattedAirDate(): String? =
     airDate?.takeIf { it.isNotBlank() }?.let { raw ->
-        runCatching { isoDateFormat.parse(raw)?.let { displayDateFormat.format(it) } }.getOrNull() ?: raw
+        runCatching {
+            isoDateFormat.parse(raw)?.let {
+                DateFormat.getDateInstance(DateFormat.MEDIUM, Locale.getDefault()).format(it)
+            }
+        }.getOrNull() ?: raw
     }
 
 data class Credits(val cast: List<CastMember>?)

@@ -152,12 +152,12 @@ class PlaybackNotificationService : Service() {
 
         val playPauseAction = if (info.isPlaying) {
             NotificationCompat.Action(
-                R.drawable.ic_notification, "Pause",
+                R.drawable.ic_notification, getString(R.string.system_pause),
                 MediaButtonReceiver.buildMediaButtonPendingIntent(this, PlaybackStateCompat.ACTION_PAUSE),
             )
         } else {
             NotificationCompat.Action(
-                R.drawable.ic_notification, "Play",
+                R.drawable.ic_notification, getString(R.string.system_play),
                 MediaButtonReceiver.buildMediaButtonPendingIntent(this, PlaybackStateCompat.ACTION_PLAY),
             )
         }
@@ -173,7 +173,7 @@ class PlaybackNotificationService : Service() {
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .addAction(playPauseAction)
             .addAction(
-                android.R.drawable.ic_menu_close_clear_cancel, "Stop",
+                android.R.drawable.ic_menu_close_clear_cancel, getString(R.string.system_stop),
                 MediaButtonReceiver.buildMediaButtonPendingIntent(this, PlaybackStateCompat.ACTION_STOP),
             )
             .setStyle(
@@ -218,8 +218,12 @@ class PlaybackNotificationService : Service() {
             val manager = getSystemService(NotificationManager::class.java)
             if (manager.getNotificationChannel(CHANNEL_ID) == null) {
                 manager.createNotificationChannel(
-                    NotificationChannel(CHANNEL_ID, "Playback", NotificationManager.IMPORTANCE_LOW).apply {
-                        description = "Now playing controls"
+                    NotificationChannel(
+                        CHANNEL_ID,
+                        getString(R.string.system_playback_channel_name),
+                        NotificationManager.IMPORTANCE_LOW,
+                    ).apply {
+                        description = getString(R.string.system_playback_channel_description)
                         setShowBadge(false)
                     }
                 )

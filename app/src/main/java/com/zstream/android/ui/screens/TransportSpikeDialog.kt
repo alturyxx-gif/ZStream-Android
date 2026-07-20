@@ -1,5 +1,6 @@
 package com.zstream.android.ui.screens
 
+import android.content.Context
 import android.util.Log
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -37,6 +38,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -51,6 +53,7 @@ import com.zstream.android.data.adb.ReleaseUpdateManager
 import com.zstream.android.data.adb.SavedTv
 import com.zstream.android.data.adb.TvAdbManager
 import com.zstream.android.data.adb.releasePage
+import com.zstream.android.R
 import com.zstream.android.theme.LocalZStreamTheme
 import com.zstream.android.theme.ZStreamTheme
 import com.zstream.android.ui.components.themed.ZsButton
@@ -67,6 +70,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.text.DateFormat
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
@@ -115,7 +119,9 @@ fun TvInstallerScreen(onDismiss: () -> Unit) {
     var apks by remember { mutableStateOf<List<GithubApkAsset>>(emptyList()) }
     var apkPage by remember { mutableStateOf(0) }
     var selectedApk by remember { mutableStateOf<GithubApkAsset?>(null) }
-    var status by remember { mutableStateOf(if (devices.isEmpty()) "No TV paired" else "Choose a TV") }
+    var status by remember {
+        mutableStateOf(context.getString(if (devices.isEmpty()) R.string.transport_no_tv_paired else R.string.transport_choose_tv))
+    }
     var progress by remember { mutableStateOf<InstallProgress?>(null) }
     var lastError by remember { mutableStateOf<Throwable?>(null) }
     var activeJob by remember { mutableStateOf<Job?>(null) }
@@ -129,28 +135,32 @@ fun TvInstallerScreen(onDismiss: () -> Unit) {
     fun fail(t: Throwable) {
         Log.e(tag, "operation failed", t)
         lastError = t
-        status = userMessage(t)
+        status = userMessage(context, t)
         progress = null
     }
 
     fun connectionSucceeded(model: String) {
         refreshDevices()
         pairingCode = ""
-        status = "Connected to $model"
+        status = context.getString(R.string.transport_connected_to, model)
         page = TvInstallerPage.RELEASES
     }
 
     fun scanReleases() {
         activeJob = scope.launch {
             lastError = null
-            status = "Scanning all GitHub releases…"
+            status = context.getString(R.string.transport_scanning_releases)
             try {
                 apks = withContext(Dispatchers.IO) { releaseCatalog.loadAllApks(repositoryUrl) }
                 releaseUpdateManager.recordScan(apks)
                 apkPage = 0
-                status = if (apks.isEmpty()) "No APK assets found" else "Found ${apks.size} APK${if (apks.size == 1) "" else "s"}"
+                status = if (apks.isEmpty()) {
+                    context.getString(R.string.transport_no_apk_assets)
+                } else {
+                    context.resources.getQuantityString(R.plurals.transport_apks_found, apks.size, apks.size)
+                }
             } catch (_: CancellationException) {
-                status = "Cancelled"
+                status = context.getString(R.string.transport_cancelled)
             } catch (t: Throwable) {
                 fail(t)
             } finally {
@@ -163,7 +173,7 @@ fun TvInstallerScreen(onDismiss: () -> Unit) {
         activeJob = scope.launch {
             val operationJob = coroutineContext.job
             lastError = null
-            status = "Connecting…"
+            status = context.getString(R.string.transport_connecting)
             try {
                 val result = withContext(Dispatchers.IO) {
                     manager.installFromUrl(
@@ -173,11 +183,11 @@ fun TvInstallerScreen(onDismiss: () -> Unit) {
                         isCancelled = { !operationJob.isActive },
                     )
                 }
-                status = "Installed ${apk.apkName} on ${result.model}"
+                status = context.getString(R.string.transport_installed_on, apk.apkName, result.model)
                 progress = null
                 Log.d(tag, "install succeeded output=${result.packageManagerOutput}")
             } catch (_: CancellationException) {
-                status = "Cancelled"
+                status = context.getString(R.string.transport_cancelled)
                 progress = null
             } catch (t: Throwable) {
                 fail(t)
@@ -210,11 +220,11 @@ fun TvInstallerScreen(onDismiss: () -> Unit) {
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (showBack) {
-                        ZsTextButton(text = "Back", enabled = !running, onClick = { goBack() })
+                        ZsTextButton(text = stringResource(R.string.transport_back), enabled = !running, onClick = { goBack() })
                     }
                     Text(pageTitle(page), color = theme.colors.type.emphasis, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
                 }
-                ZsTextButton(text = "Close", enabled = !running, onClick = onDismiss)
+                ZsTextButton(text = stringResource(R.string.transport_close), enabled = !running, onClick = onDismiss)
             }
             HorizontalDivider(color = theme.colors.type.divider.copy(alpha = 0.18f))
             if (page != TvInstallerPage.INTRO) {
@@ -246,23 +256,23 @@ fun TvInstallerScreen(onDismiss: () -> Unit) {
                                 )
                             }
                             Text(
-                                "Let's get your TV set up",
+                                stringResource(R.string.transport_intro_title),
                                 color = theme.colors.type.emphasis,
                                 fontSize = 24.sp,
                                 fontWeight = FontWeight.Bold,
                             )
                             Text(
-                                "We'll walk you through pairing and installing the app on your TV — it only takes a minute.",
+                                stringResource(R.string.transport_intro_description),
                                 color = theme.colors.type.secondary,
                                 fontSize = 14.sp,
                                 lineHeight = 20.sp,
                             )
                             ZsStatusBanner(
-                                message = "Keep the phone and TV on the same Wi-Fi (skip guest networks and VPNs), and leave ZStream open on the TV while you pair.",
+                                message = stringResource(R.string.transport_same_wifi_hint),
                                 variant = ZsStatusBannerVariant.Info,
                             )
                             ZsButton(
-                                text = "Get started",
+                                text = stringResource(R.string.transport_get_started),
                                 onClick = { page = TvInstallerPage.CONNECTION },
                                 modifier = Modifier.fillMaxWidth(),
                             )
@@ -272,26 +282,26 @@ fun TvInstallerScreen(onDismiss: () -> Unit) {
                     TvInstallerPage.CONNECTION -> {
                         when (setupMode) {
                             TvSetupMode.AUTOMATIC -> {
-                                Text("Automatic wireless pairing", color = theme.colors.type.emphasis, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
-                                StepCard(theme, "Step 1 — Turn on Developer options") {
+                                Text(stringResource(R.string.transport_automatic_pairing), color = theme.colors.type.emphasis, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                                StepCard(theme, stringResource(R.string.transport_auto_step_1_title)) {
                                     Text(
-                                        "On the TV: Settings → Device Preferences → About → Android TV OS build. Tap it repeatedly until Developer options unlock.",
+                                        stringResource(R.string.transport_auto_step_1_body),
                                         color = theme.colors.type.secondary,
                                         fontSize = 13.sp,
                                         lineHeight = 19.sp,
                                     )
                                 }
-                                StepCard(theme, "Step 2 — Enable Wireless debugging") {
+                                StepCard(theme, stringResource(R.string.transport_auto_step_2_title)) {
                                     Text(
-                                        "Back in Device Preferences, open Developer options, then turn on USB debugging and Wireless debugging.",
+                                        stringResource(R.string.transport_auto_step_2_body),
                                         color = theme.colors.type.secondary,
                                         fontSize = 13.sp,
                                         lineHeight = 19.sp,
                                     )
                                 }
-                                StepCard(theme, "Step 3 — Enter the pairing code") {
+                                StepCard(theme, stringResource(R.string.transport_auto_step_3_title)) {
                                     Text(
-                                        "Tap \"Pair device with pairing code\" and leave that screen open. Enter the 6-digit code below — ZStream finds the TV automatically.",
+                                        stringResource(R.string.transport_auto_step_3_body),
                                         color = theme.colors.type.secondary,
                                         fontSize = 13.sp,
                                         lineHeight = 19.sp,
@@ -300,27 +310,27 @@ fun TvInstallerScreen(onDismiss: () -> Unit) {
                                 ZsTextField(
                                     value = pairingCode,
                                     onValueChange = { pairingCode = it.filter(Char::isDigit).take(6) },
-                                    label = "6-digit pairing code",
+                                    label = stringResource(R.string.transport_pairing_code_6_digit),
                                     singleLine = true,
                                     modifier = Modifier.fillMaxWidth(),
                                 )
                                 ZsButton(
-                                    text = "Find and pair TV",
+                                    text = stringResource(R.string.transport_find_and_pair_tv),
                                     enabled = pairingCode.length == 6,
                                     loading = running,
                                     onClick = {
                                         activeJob = scope.launch {
                                             lastError = null
-                                            status = "Finding and pairing with TV…"
+                                            status = context.getString(R.string.transport_finding_and_pairing)
                                             try {
                                                 val model = withContext(Dispatchers.IO) { manager.discoverPairAndConnect(pairingCode) }
                                                 connectionSucceeded(model)
                                             } catch (_: CancellationException) {
-                                                status = "Cancelled"
+                                                status = context.getString(R.string.transport_cancelled)
                                             } catch (t: Throwable) {
                                                 fail(t)
                                                 setupMode = setupMode.fallback()
-                                                status += " Enter the wireless debugging details manually."
+                                                status = context.getString(R.string.transport_status_with_manual_hint, status)
                                             } finally {
                                                 activeJob = null
                                             }
@@ -328,59 +338,59 @@ fun TvInstallerScreen(onDismiss: () -> Unit) {
                                     },
                                     modifier = Modifier.fillMaxWidth(),
                                 )
-                                ZsTextButton(text = "Enter details manually", enabled = !running, onClick = { setupMode = TvSetupMode.MANUAL_WIRELESS })
+                                ZsTextButton(text = stringResource(R.string.transport_enter_details_manually), enabled = !running, onClick = { setupMode = TvSetupMode.MANUAL_WIRELESS })
                             }
 
                             TvSetupMode.MANUAL_WIRELESS -> {
-                                Text("Manual wireless pairing", color = theme.colors.type.emphasis, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
-                                StepCard(theme, "Step 1 — Keep the TV's pairing screen open") {
+                                Text(stringResource(R.string.transport_manual_pairing), color = theme.colors.type.emphasis, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                                StepCard(theme, stringResource(R.string.transport_manual_step_1_title)) {
                                     Text(
-                                        "On the TV, keep Wireless debugging and \"Pair device with pairing code\" open.",
+                                        stringResource(R.string.transport_manual_step_1_body),
                                         color = theme.colors.type.secondary,
                                         fontSize = 13.sp,
                                         lineHeight = 19.sp,
                                     )
                                 }
-                                StepCard(theme, "Step 2 — Copy the address and ports") {
+                                StepCard(theme, stringResource(R.string.transport_manual_step_2_title)) {
                                     Text(
-                                        "Enter the TV IP and pairing port shown in the pairing window, plus the connect port shown on the main Wireless debugging screen. These two ports are usually different.",
+                                        stringResource(R.string.transport_manual_step_2_body),
                                         color = theme.colors.type.secondary,
                                         fontSize = 13.sp,
                                         lineHeight = 19.sp,
                                     )
                                 }
-                                StepCard(theme, "Step 3 — Enter the pairing code") {
+                                StepCard(theme, stringResource(R.string.transport_manual_step_3_title)) {
                                     Text(
-                                        "Enter the current 6-digit code, then pair. If this fails, ZStream opens legacy ADB setup.",
+                                        stringResource(R.string.transport_manual_step_3_body),
                                         color = theme.colors.type.secondary,
                                         fontSize = 13.sp,
                                         lineHeight = 19.sp,
                                     )
                                 }
-                                ZsTextField(manualHost, { manualHost = it.trim() }, label = "TV IP address", singleLine = true, modifier = Modifier.fillMaxWidth())
-                                ZsTextField(manualPairingPort, { manualPairingPort = it.filter(Char::isDigit).take(5) }, label = "Pairing port", singleLine = true, modifier = Modifier.fillMaxWidth())
-                                ZsTextField(manualConnectPort, { manualConnectPort = it.filter(Char::isDigit).take(5) }, label = "Connect port", singleLine = true, modifier = Modifier.fillMaxWidth())
-                                ZsTextField(pairingCode, { pairingCode = it.filter(Char::isDigit).take(6) }, label = "6-digit pairing code", singleLine = true, modifier = Modifier.fillMaxWidth())
+                                ZsTextField(manualHost, { manualHost = it.trim() }, label = stringResource(R.string.transport_tv_ip_address), singleLine = true, modifier = Modifier.fillMaxWidth())
+                                ZsTextField(manualPairingPort, { manualPairingPort = it.filter(Char::isDigit).take(5) }, label = stringResource(R.string.transport_pairing_port), singleLine = true, modifier = Modifier.fillMaxWidth())
+                                ZsTextField(manualConnectPort, { manualConnectPort = it.filter(Char::isDigit).take(5) }, label = stringResource(R.string.transport_connect_port), singleLine = true, modifier = Modifier.fillMaxWidth())
+                                ZsTextField(pairingCode, { pairingCode = it.filter(Char::isDigit).take(6) }, label = stringResource(R.string.transport_pairing_code_6_digit), singleLine = true, modifier = Modifier.fillMaxWidth())
                                 ZsButton(
-                                    text = "Pair with manual details",
+                                    text = stringResource(R.string.transport_pair_manual),
                                     enabled = manualHost.isNotBlank() && manualPairingPort.toIntOrNull() in 1..65535 && manualConnectPort.toIntOrNull() in 1..65535 && pairingCode.length == 6,
                                     loading = running,
                                     onClick = {
                                         activeJob = scope.launch {
                                             lastError = null
-                                            status = "Pairing with manual details…"
+                                            status = context.getString(R.string.transport_pairing_manual)
                                             try {
                                                 val model = withContext(Dispatchers.IO) {
                                                     manager.pairAndConnect(manualHost, requireNotNull(manualPairingPort.toIntOrNull()), requireNotNull(manualConnectPort.toIntOrNull()), pairingCode)
                                                 }
                                                 connectionSucceeded(model)
                                             } catch (_: CancellationException) {
-                                                status = "Cancelled"
+                                                status = context.getString(R.string.transport_cancelled)
                                             } catch (t: Throwable) {
                                                 fail(t)
                                                 if (legacyHost.isBlank()) legacyHost = manualHost
                                                 setupMode = setupMode.fallback()
-                                                status += " Try legacy ADB."
+                                                status = context.getString(R.string.transport_status_with_legacy_hint, status)
                                             } finally {
                                                 activeJob = null
                                             }
@@ -389,8 +399,8 @@ fun TvInstallerScreen(onDismiss: () -> Unit) {
                                     modifier = Modifier.fillMaxWidth(),
                                 )
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    ZsTextButton(text = "Try automatic", enabled = !running, onClick = { setupMode = TvSetupMode.AUTOMATIC })
-                                    ZsTextButton(text = "Use legacy ADB", enabled = !running, onClick = {
+                                    ZsTextButton(text = stringResource(R.string.transport_try_automatic), enabled = !running, onClick = { setupMode = TvSetupMode.AUTOMATIC })
+                                    ZsTextButton(text = stringResource(R.string.transport_use_legacy_adb), enabled = !running, onClick = {
                                         if (legacyHost.isBlank()) legacyHost = manualHost
                                         setupMode = TvSetupMode.LEGACY
                                     })
@@ -398,47 +408,47 @@ fun TvInstallerScreen(onDismiss: () -> Unit) {
                             }
 
                             TvSetupMode.LEGACY -> {
-                                Text("Legacy ADB over network", color = theme.colors.type.emphasis, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
-                                ZsStatusBanner(message = "Use this for older TVs without Wireless debugging.", variant = ZsStatusBannerVariant.Info)
-                                StepCard(theme, "Step 1 — Enable debugging") {
+                                Text(stringResource(R.string.transport_legacy_title), color = theme.colors.type.emphasis, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                                ZsStatusBanner(message = stringResource(R.string.transport_legacy_hint), variant = ZsStatusBannerVariant.Info)
+                                StepCard(theme, stringResource(R.string.transport_legacy_step_1_title)) {
                                     Text(
-                                        "On the TV, enable Developer options and USB, network, or ADB debugging.",
+                                        stringResource(R.string.transport_legacy_step_1_body),
                                         color = theme.colors.type.secondary,
                                         fontSize = 13.sp,
                                         lineHeight = 19.sp,
                                     )
                                 }
-                                StepCard(theme, "Step 2 — Find the TV's IP address") {
+                                StepCard(theme, stringResource(R.string.transport_legacy_step_2_title)) {
                                     Text(
-                                        "Look in the TV's Network settings. The ADB port is usually 5555.",
+                                        stringResource(R.string.transport_legacy_step_2_body),
                                         color = theme.colors.type.secondary,
                                         fontSize = 13.sp,
                                         lineHeight = 19.sp,
                                     )
                                 }
-                                StepCard(theme, "Step 3 — Connect and accept the prompt") {
+                                StepCard(theme, stringResource(R.string.transport_legacy_step_3_title)) {
                                     Text(
-                                        "Enter both values and connect, then accept the debugging prompt on the TV (choose Always allow if available).",
+                                        stringResource(R.string.transport_legacy_step_3_body),
                                         color = theme.colors.type.secondary,
                                         fontSize = 13.sp,
                                         lineHeight = 19.sp,
                                     )
                                 }
-                                ZsTextField(legacyHost, { legacyHost = it.trim() }, label = "TV IP address", singleLine = true, modifier = Modifier.fillMaxWidth())
-                                ZsTextField(legacyPort, { legacyPort = it.filter(Char::isDigit).take(5) }, label = "ADB port", singleLine = true, modifier = Modifier.fillMaxWidth())
+                                ZsTextField(legacyHost, { legacyHost = it.trim() }, label = stringResource(R.string.transport_tv_ip_address), singleLine = true, modifier = Modifier.fillMaxWidth())
+                                ZsTextField(legacyPort, { legacyPort = it.filter(Char::isDigit).take(5) }, label = stringResource(R.string.transport_adb_port), singleLine = true, modifier = Modifier.fillMaxWidth())
                                 ZsButton(
-                                    text = "Connect with legacy ADB",
+                                    text = stringResource(R.string.transport_connect_legacy),
                                     enabled = legacyHost.isNotBlank() && legacyPort.toIntOrNull() in 1..65535,
                                     loading = running,
                                     onClick = {
                                         activeJob = scope.launch {
                                             lastError = null
-                                            status = "Connecting… Accept the debugging prompt on the TV."
+                                            status = context.getString(R.string.transport_connecting_accept_prompt)
                                             try {
                                                 val model = withContext(Dispatchers.IO) { manager.connectLegacy(legacyHost, requireNotNull(legacyPort.toIntOrNull())) }
                                                 connectionSucceeded(model)
                                             } catch (_: CancellationException) {
-                                                status = "Cancelled"
+                                                status = context.getString(R.string.transport_cancelled)
                                             } catch (t: Throwable) {
                                                 fail(t)
                                             } finally {
@@ -448,52 +458,52 @@ fun TvInstallerScreen(onDismiss: () -> Unit) {
                                     },
                                     modifier = Modifier.fillMaxWidth(),
                                 )
-                                ZsTextButton(text = "Back to wireless debugging", enabled = !running, onClick = { setupMode = TvSetupMode.MANUAL_WIRELESS })
+                                ZsTextButton(text = stringResource(R.string.transport_back_to_wireless), enabled = !running, onClick = { setupMode = TvSetupMode.MANUAL_WIRELESS })
                             }
                         }
                         if (status.isNotBlank()) {
                             Text(status, color = theme.colors.type.secondary, fontSize = 13.sp)
                         }
                         if (running) {
-                            ZsTextButton(text = "Cancel", onClick = { activeJob?.cancel() })
+                            ZsTextButton(text = stringResource(R.string.transport_cancel), onClick = { activeJob?.cancel() })
                         }
                     }
 
                     TvInstallerPage.DEVICES -> {
-                        Text("Paired TVs", color = theme.colors.type.emphasis, fontWeight = FontWeight.Bold, fontSize = 20.sp)
-                        Text("Choose where APKs will be installed, rename a TV, or add another one.", color = theme.colors.type.secondary, fontSize = 13.sp)
+                        Text(stringResource(R.string.transport_paired_tvs), color = theme.colors.type.emphasis, fontWeight = FontWeight.Bold, fontSize = 20.sp)
+                        Text(stringResource(R.string.transport_paired_tvs_description), color = theme.colors.type.secondary, fontSize = 13.sp)
                         devices.forEach { device ->
                             key(device.id, device.nickname) {
                                 var nickname by remember { mutableStateOf(device.nickname) }
                                 ZsCard(variant = ZsCardVariant.Elevated, modifier = Modifier.fillMaxWidth()) {
                                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                         Text(device.nickname, color = theme.colors.type.emphasis, fontWeight = FontWeight.SemiBold)
-                                        Text("Model: ${device.model}", color = theme.colors.type.secondary, fontSize = 13.sp)
-                                        Text("IP: ${device.host}", color = theme.colors.type.secondary, fontSize = 13.sp)
+                                        Text(stringResource(R.string.transport_model_value, device.model), color = theme.colors.type.secondary, fontSize = 13.sp)
+                                        Text(stringResource(R.string.transport_ip_value, device.host), color = theme.colors.type.secondary, fontSize = 13.sp)
                                         Text(device.portSummary(), color = theme.colors.type.secondary, fontSize = 13.sp)
                                         ZsTextField(
                                             value = nickname,
                                             onValueChange = { nickname = it },
-                                            label = "Nickname",
+                                            label = stringResource(R.string.transport_nickname),
                                             singleLine = true,
                                             modifier = Modifier.fillMaxWidth(),
                                         )
                                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                             ZsButton(
-                                                text = if (selectedDevice?.id == device.id) "Selected" else "Select",
+                                                text = stringResource(if (selectedDevice?.id == device.id) R.string.transport_selected else R.string.transport_select),
                                                 enabled = !running,
                                                 variant = if (selectedDevice?.id == device.id) ZsButtonVariant.Primary else ZsButtonVariant.Secondary,
                                                 onClick = {
                                                     selectedDevice = manager.selectSavedTv(device.id)
-                                                    status = "Selected ${device.nickname}"
+                                                    status = context.getString(R.string.transport_selected_tv, device.nickname)
                                                     page = TvInstallerPage.RELEASES
                                                 },
                                             )
-                                            ZsTextButton(text = "Save name", enabled = !running && nickname.isNotBlank(), onClick = {
+                                            ZsTextButton(text = stringResource(R.string.transport_save_name), enabled = !running && nickname.isNotBlank(), onClick = {
                                                 manager.renameSavedTv(device.id, nickname)
                                                 refreshDevices()
                                             })
-                                            ZsTextButton(text = "Forget", enabled = !running, onClick = {
+                                            ZsTextButton(text = stringResource(R.string.transport_forget), enabled = !running, onClick = {
                                                 manager.forgetSavedTv(device.id)
                                                 refreshDevices()
                                                 if (devices.isEmpty()) page = TvInstallerPage.CONNECTION
@@ -504,34 +514,34 @@ fun TvInstallerScreen(onDismiss: () -> Unit) {
                             }
                         }
                         ZsButton(
-                            text = "Add TV",
+                            text = stringResource(R.string.transport_add_tv),
                             enabled = !running,
                             variant = ZsButtonVariant.Secondary,
                             onClick = {
                                 setupMode = TvSetupMode.AUTOMATIC
-                                status = "No TV paired"
+                                status = context.getString(R.string.transport_no_tv_paired)
                                 page = TvInstallerPage.CONNECTION
                             },
                         )
                     }
 
                     TvInstallerPage.RELEASES -> {
-                        selectedDevice?.let { Text("Target: ${it.nickname} (${it.host})", color = theme.colors.type.text, fontSize = 13.sp) }
-                        ZsTextButton(text = "Change TV", enabled = !running, onClick = { page = TvInstallerPage.DEVICES })
-                        Text("GitHub releases", color = theme.colors.type.emphasis, fontWeight = FontWeight.Bold, fontSize = 20.sp)
-                        Text("Enter a public GitHub repository link. ZStream scans every release and lists its APK assets.", color = theme.colors.type.secondary, fontSize = 13.sp)
+                        selectedDevice?.let { Text(stringResource(R.string.transport_target_tv, it.nickname, it.host), color = theme.colors.type.text, fontSize = 13.sp) }
+                        ZsTextButton(text = stringResource(R.string.transport_change_tv), enabled = !running, onClick = { page = TvInstallerPage.DEVICES })
+                        Text(stringResource(R.string.transport_github_releases), color = theme.colors.type.emphasis, fontWeight = FontWeight.Bold, fontSize = 20.sp)
+                        Text(stringResource(R.string.transport_github_releases_description), color = theme.colors.type.secondary, fontSize = 13.sp)
                         ZsTextField(
                             value = repositoryUrl,
                             onValueChange = {
                                 repositoryUrl = it
                                 releaseUpdateManager.setRepositoryUrl(it)
                             },
-                            label = "GitHub repository link",
+                            label = stringResource(R.string.transport_github_repository_link),
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth(),
                         )
                         ZsButton(
-                            text = "Scan releases",
+                            text = stringResource(R.string.transport_scan_releases),
                             enabled = repositoryUrl.isNotBlank(),
                             loading = running,
                             onClick = { scanReleases() },
@@ -540,7 +550,7 @@ fun TvInstallerScreen(onDismiss: () -> Unit) {
                             Text(status, color = theme.colors.type.secondary, fontSize = 13.sp)
                         }
                         if (running) {
-                            ZsTextButton(text = "Cancel", onClick = { activeJob?.cancel() })
+                            ZsTextButton(text = stringResource(R.string.transport_cancel), onClick = { activeJob?.cancel() })
                         }
 
                         releasePage(apks, apkPage).forEach { apk ->
@@ -549,15 +559,15 @@ fun TvInstallerScreen(onDismiss: () -> Unit) {
                                 modifier = Modifier.fillMaxWidth().clickable {
                                     selectedApk = apk
                                     progress = null
-                                    status = "Ready to install"
+                                    status = context.getString(R.string.transport_ready_to_install)
                                     page = TvInstallerPage.RELEASE_DETAIL
                                 },
                             ) {
                                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                                     Text(apk.apkName, color = theme.colors.type.emphasis, fontWeight = FontWeight.SemiBold)
-                                    Text("Version ${apk.version} • Tag ${apk.releaseTag}", color = theme.colors.type.text, fontSize = 13.sp)
-                                    Text("${formatBytes(apk.size)} • Uploaded ${formatGithubDate(apk.assetCreatedAt)}", color = theme.colors.type.secondary, fontSize = 12.sp)
-                                    Text("Release: ${apk.releaseName}", color = theme.colors.type.secondary, fontSize = 12.sp)
+                                    Text(stringResource(R.string.transport_version_tag, apk.version, apk.releaseTag), color = theme.colors.type.text, fontSize = 13.sp)
+                                    Text(stringResource(R.string.transport_size_uploaded, formatBytes(apk.size), formatGithubDate(apk.assetCreatedAt)), color = theme.colors.type.secondary, fontSize = 12.sp)
+                                    Text(stringResource(R.string.transport_release_value, apk.releaseName), color = theme.colors.type.secondary, fontSize = 12.sp)
                                 }
                             }
                         }
@@ -565,9 +575,9 @@ fun TvInstallerScreen(onDismiss: () -> Unit) {
                         if (apks.isNotEmpty()) {
                             val pageCount = ceil(apks.size / APK_ROWS_PER_PAGE.toDouble()).toInt()
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                ZsTextButton(text = "Previous", enabled = apkPage > 0, onClick = { apkPage-- })
-                                Text("Page ${apkPage + 1} of $pageCount", color = theme.colors.type.text, fontSize = 13.sp)
-                                ZsTextButton(text = "Next", enabled = apkPage + 1 < pageCount, onClick = { apkPage++ })
+                                ZsTextButton(text = stringResource(R.string.transport_previous), enabled = apkPage > 0, onClick = { apkPage-- })
+                                Text(stringResource(R.string.transport_page_of, apkPage + 1, pageCount), color = theme.colors.type.text, fontSize = 13.sp)
+                                ZsTextButton(text = stringResource(R.string.transport_next), enabled = apkPage + 1 < pageCount, onClick = { apkPage++ })
                             }
                         }
                     }
@@ -577,8 +587,8 @@ fun TvInstallerScreen(onDismiss: () -> Unit) {
                             Text(apk.apkName, color = theme.colors.type.emphasis, fontWeight = FontWeight.Bold, fontSize = 20.sp)
                             ZsCard(variant = ZsCardVariant.Elevated, modifier = Modifier.fillMaxWidth()) {
                                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    Text("Version ${apk.version} • Tag ${apk.releaseTag}", color = theme.colors.type.text, fontSize = 14.sp)
-                                    Text("${formatBytes(apk.size)} • Uploaded ${formatGithubDate(apk.assetCreatedAt)}", color = theme.colors.type.secondary, fontSize = 13.sp)
+                                    Text(stringResource(R.string.transport_version_tag, apk.version, apk.releaseTag), color = theme.colors.type.text, fontSize = 14.sp)
+                                    Text(stringResource(R.string.transport_size_uploaded, formatBytes(apk.size), formatGithubDate(apk.assetCreatedAt)), color = theme.colors.type.secondary, fontSize = 13.sp)
                                     if (apk.releaseDescription.isNotBlank()) {
                                         Text(apk.releaseDescription, color = theme.colors.type.text, fontSize = 13.sp, lineHeight = 19.sp)
                                     }
@@ -587,37 +597,37 @@ fun TvInstallerScreen(onDismiss: () -> Unit) {
 
                             var showAdvanced by remember { mutableStateOf(false) }
                             ZsTextButton(
-                                text = if (showAdvanced) "Hide advanced details" else "Show advanced details",
+                                text = stringResource(if (showAdvanced) R.string.transport_hide_advanced else R.string.transport_show_advanced),
                                 onClick = { showAdvanced = !showAdvanced },
                             )
                             if (showAdvanced) {
                                 ZsCard(variant = ZsCardVariant.Elevated, modifier = Modifier.fillMaxWidth()) {
                                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                        Text("APK asset", color = theme.colors.type.emphasis, fontWeight = FontWeight.SemiBold)
-                                        MetadataLine("Label", apk.label ?: "None")
-                                        MetadataLine("Content type", apk.contentType)
-                                        MetadataLine("State", apk.state)
-                                        MetadataLine("Digest", apk.digest ?: "Not provided")
-                                        MetadataLine("Downloads", apk.downloadCount.toString())
-                                        MetadataLine("Uploaded by", apk.assetUploader)
-                                        MetadataLine("Updated", formatGithubDate(apk.assetUpdatedAt))
-                                        MetadataLine("Asset ID", apk.assetId.toString())
-                                        MetadataLine("Download URL", apk.downloadUrl)
+                                        Text(stringResource(R.string.transport_apk_asset), color = theme.colors.type.emphasis, fontWeight = FontWeight.SemiBold)
+                                        MetadataLine(stringResource(R.string.transport_label), apk.label ?: stringResource(R.string.transport_none))
+                                        MetadataLine(stringResource(R.string.transport_content_type), apk.contentType)
+                                        MetadataLine(stringResource(R.string.transport_state), apk.state)
+                                        MetadataLine(stringResource(R.string.transport_digest), apk.digest ?: stringResource(R.string.transport_not_provided))
+                                        MetadataLine(stringResource(R.string.transport_downloads), apk.downloadCount.toString())
+                                        MetadataLine(stringResource(R.string.transport_uploaded_by), apk.assetUploader)
+                                        MetadataLine(stringResource(R.string.transport_updated), formatGithubDate(apk.assetUpdatedAt))
+                                        MetadataLine(stringResource(R.string.transport_asset_id), apk.assetId.toString())
+                                        MetadataLine(stringResource(R.string.transport_download_url), apk.downloadUrl)
                                     }
                                 }
                                 ZsCard(variant = ZsCardVariant.Elevated, modifier = Modifier.fillMaxWidth()) {
                                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                        Text("Full release", color = theme.colors.type.emphasis, fontWeight = FontWeight.SemiBold)
-                                        MetadataLine("Release", apk.releaseName)
-                                        MetadataLine("Tag", apk.releaseTag)
-                                        MetadataLine("Target commit", apk.targetCommit)
-                                        MetadataLine("Released by", apk.releaseAuthor)
-                                        MetadataLine("Created", formatGithubDate(apk.releaseCreatedAt))
-                                        MetadataLine("Published", apk.releasePublishedAt?.let(::formatGithubDate) ?: "Not published")
-                                        MetadataLine("Release ID", apk.releaseId.toString())
-                                        MetadataLine("Draft", if (apk.draft) "Yes" else "No")
-                                        MetadataLine("Prerelease", if (apk.prerelease) "Yes" else "No")
-                                        MetadataLine("Release URL", apk.releaseUrl)
+                                        Text(stringResource(R.string.transport_full_release), color = theme.colors.type.emphasis, fontWeight = FontWeight.SemiBold)
+                                        MetadataLine(stringResource(R.string.transport_release), apk.releaseName)
+                                        MetadataLine(stringResource(R.string.transport_tag), apk.releaseTag)
+                                        MetadataLine(stringResource(R.string.transport_target_commit), apk.targetCommit)
+                                        MetadataLine(stringResource(R.string.transport_released_by), apk.releaseAuthor)
+                                        MetadataLine(stringResource(R.string.transport_created), formatGithubDate(apk.releaseCreatedAt))
+                                        MetadataLine(stringResource(R.string.transport_published), apk.releasePublishedAt?.let { formatGithubDate(it) } ?: stringResource(R.string.transport_not_published))
+                                        MetadataLine(stringResource(R.string.transport_release_id), apk.releaseId.toString())
+                                        MetadataLine(stringResource(R.string.transport_draft), stringResource(if (apk.draft) R.string.transport_yes else R.string.transport_no))
+                                        MetadataLine(stringResource(R.string.transport_prerelease), stringResource(if (apk.prerelease) R.string.transport_yes else R.string.transport_no))
+                                        MetadataLine(stringResource(R.string.transport_release_url), apk.releaseUrl)
                                     }
                                 }
                             }
@@ -648,20 +658,20 @@ fun TvInstallerScreen(onDismiss: () -> Unit) {
                                 Text(status, color = theme.colors.type.secondary, fontSize = 13.sp)
                             }
                             if (lastError != null) {
-                                ZsStatusBanner(message = userMessage(lastError!!), variant = ZsStatusBannerVariant.Error)
+                                ZsStatusBanner(message = userMessage(context, lastError!!), variant = ZsStatusBannerVariant.Error)
                             }
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 ZsButton(
-                                    text = "Install this APK",
+                                    text = stringResource(R.string.transport_install_apk),
                                     enabled = !running && selectedDevice != null,
                                     loading = running,
                                     onClick = { install(apk) },
                                 )
                                 if (running) {
-                                    ZsTextButton(text = "Cancel", onClick = { activeJob?.cancel() })
+                                    ZsTextButton(text = stringResource(R.string.transport_cancel), onClick = { activeJob?.cancel() })
                                 }
                                 if (!running && lastError != null) {
-                                    ZsTextButton(text = "Retry", onClick = { install(apk) })
+                                    ZsTextButton(text = stringResource(R.string.transport_retry), onClick = { install(apk) })
                                 }
                             }
                         }
@@ -711,18 +721,24 @@ private fun MetadataLine(label: String, value: String) {
     Text("$label: $value", color = theme.colors.type.text, fontSize = 12.sp)
 }
 
-private fun pageTitle(page: TvInstallerPage): String = when (page) {
-    TvInstallerPage.INTRO -> "Connect TV"
-    TvInstallerPage.CONNECTION -> "Connect TV"
-    TvInstallerPage.DEVICES -> "Paired TVs"
-    TvInstallerPage.RELEASES -> "Choose APK"
-    TvInstallerPage.RELEASE_DETAIL -> "Release details"
-}
+@Composable
+private fun pageTitle(page: TvInstallerPage): String = stringResource(when (page) {
+    TvInstallerPage.INTRO -> R.string.transport_connect_tv
+    TvInstallerPage.CONNECTION -> R.string.transport_connect_tv
+    TvInstallerPage.DEVICES -> R.string.transport_paired_tvs
+    TvInstallerPage.RELEASES -> R.string.transport_choose_apk
+    TvInstallerPage.RELEASE_DETAIL -> R.string.transport_release_details
+})
 
+@Composable
 private fun SavedTv.portSummary(): String = if (legacyPort != null) {
-    "Legacy ADB port: $legacyPort"
+    stringResource(R.string.transport_legacy_port_value, legacyPort)
 } else {
-    "Pairing port: ${pairingPort ?: "Unknown"} • Connect port: ${connectPort ?: "Rediscovered when connecting"}"
+    stringResource(
+        R.string.transport_pairing_connect_ports,
+        pairingPort?.toString() ?: stringResource(R.string.transport_unknown),
+        connectPort?.toString() ?: stringResource(R.string.transport_rediscovered_when_connecting),
+    )
 }
 
 private fun formatBytes(bytes: Long): String = when {
@@ -732,34 +748,37 @@ private fun formatBytes(bytes: Long): String = when {
     else -> "$bytes B"
 }
 
+@Composable
 private fun formatGithubDate(value: String): String = runCatching {
     val parser = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
         timeZone = TimeZone.getTimeZone("UTC")
     }
-    SimpleDateFormat("MMM d, yyyy h:mm a", Locale.getDefault()).format(requireNotNull(parser.parse(value)))
-}.getOrDefault(value.ifBlank { "Unknown" })
+    DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT, Locale.getDefault())
+        .format(requireNotNull(parser.parse(value)))
+}.getOrDefault(value.ifBlank { stringResource(R.string.transport_unknown) })
 
 private fun Long.fractionOf(total: Long): Float =
     if (total <= 0) 0f else (toDouble() / total).toFloat().coerceIn(0f, 1f)
 
+@Composable
 private fun progressLabel(progress: InstallProgress): String = when (progress) {
-    InstallProgress.Connecting -> "Connecting…"
-    is InstallProgress.Downloading -> "Downloading ${progress.bytes / 1_048_576} / ${progress.totalBytes / 1_048_576} MiB"
-    is InstallProgress.Transferring -> "Sending ${progress.bytes / 1_048_576} / ${progress.totalBytes / 1_048_576} MiB"
-    InstallProgress.Installing -> "Installing…"
+    InstallProgress.Connecting -> stringResource(R.string.transport_connecting)
+    is InstallProgress.Downloading -> stringResource(R.string.transport_downloading_mib, progress.bytes / 1_048_576, progress.totalBytes / 1_048_576)
+    is InstallProgress.Transferring -> stringResource(R.string.transport_sending_mib, progress.bytes / 1_048_576, progress.totalBytes / 1_048_576)
+    InstallProgress.Installing -> stringResource(R.string.transport_installing)
 }
 
-private fun userMessage(t: Throwable): String = when (t) {
+private fun userMessage(context: Context, t: Throwable): String = when (t) {
     is AdbOperationException -> when (t.kind) {
-        AdbFailureKind.DISCOVERY -> "Could not find the TV. Ensure Wireless Debugging is enabled."
-        AdbFailureKind.PAIRING -> "Pairing failed. Open a new pairing code and try again."
-        AdbFailureKind.PAIRING_REQUIRED -> "TV authorization was revoked. Pair the TV again."
-        AdbFailureKind.CONNECTION -> "Could not connect to the TV."
-        AdbFailureKind.DOWNLOAD -> "Could not download the APK. Check the connection."
-        AdbFailureKind.INSTALL -> t.message ?: "The TV rejected the APK."
-        AdbFailureKind.WRONG_DEVICE -> "The discovered device is not the selected TV."
-        AdbFailureKind.CANCELLED -> "Cancelled"
-        AdbFailureKind.UNKNOWN -> t.message ?: "Operation failed"
+        AdbFailureKind.DISCOVERY -> context.getString(R.string.transport_error_discovery)
+        AdbFailureKind.PAIRING -> context.getString(R.string.transport_error_pairing)
+        AdbFailureKind.PAIRING_REQUIRED -> context.getString(R.string.transport_error_pairing_required)
+        AdbFailureKind.CONNECTION -> context.getString(R.string.transport_error_connection)
+        AdbFailureKind.DOWNLOAD -> context.getString(R.string.transport_error_download)
+        AdbFailureKind.INSTALL -> context.getString(R.string.transport_error_install)
+        AdbFailureKind.WRONG_DEVICE -> context.getString(R.string.transport_error_wrong_device)
+        AdbFailureKind.CANCELLED -> context.getString(R.string.transport_cancelled)
+        AdbFailureKind.UNKNOWN -> context.getString(R.string.transport_operation_failed)
     }
-    else -> t.message ?: "Operation failed"
+    else -> context.getString(R.string.transport_operation_failed)
 }

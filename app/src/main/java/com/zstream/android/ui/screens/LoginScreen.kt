@@ -30,6 +30,7 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -39,6 +40,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
+import com.zstream.android.R
 import com.zstream.android.data.CryptoUtils
 import com.zstream.android.theme.LocalZStreamTheme
 import com.zstream.android.ui.LocalIsTv
@@ -84,7 +86,7 @@ fun LoginScreen(nav: NavController, vm: AccountViewModel = hiltViewModel()) {
                 }
             },
             icon = Icons.AutoMirrored.Filled.ArrowBack,
-            contentDescription = "Back",
+            contentDescription = stringResource(R.string.login_back),
             variant = ZsIconButtonVariant.Ghost,
             modifier = Modifier.align(Alignment.TopStart).padding(8.dp),
         )
@@ -143,12 +145,12 @@ private fun BoxScope.LoginPanel(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Text("Sign In", color = txt.text, fontSize = 26.sp, fontWeight = FontWeight.Bold)
-        Text("Enter your passphrase to sync your data.", color = txt.dimmed, fontSize = 13.sp)
+        Text(stringResource(R.string.login_sign_in), color = txt.text, fontSize = 26.sp, fontWeight = FontWeight.Bold)
+        Text(stringResource(R.string.login_description), color = txt.dimmed, fontSize = 13.sp)
         Spacer(Modifier.height(4.dp))
 
         ZsTextField(
-            label = "Device name",
+            label = stringResource(R.string.login_device_name),
             value = deviceName,
             onValueChange = { deviceName = it },
             singleLine = true,
@@ -158,7 +160,7 @@ private fun BoxScope.LoginPanel(
             modifier = Modifier.fillMaxWidth(),
         )
         ZsTextField(
-            label = "Passphrase",
+            label = stringResource(R.string.login_passphrase),
             value = passphrase,
             onValueChange = { passphrase = it },
             singleLine = true,
@@ -210,7 +212,7 @@ private fun BoxScope.LoginPanel(
         }
 
         ZsButton(
-            text = "Sign In",
+            text = stringResource(R.string.login_sign_in),
             onClick = { vm.login(passphrase, deviceName) },
             enabled = authState !is AuthState.Loading && passphrase.isNotBlank() && deviceName.isNotBlank(),
             loading = authState is AuthState.Loading,
@@ -219,14 +221,14 @@ private fun BoxScope.LoginPanel(
 
         Row(verticalAlignment = Alignment.CenterVertically) {
             HorizontalDivider(Modifier.weight(1f), color = txt.dimmed.copy(0.3f))
-            Text("  or  ", color = txt.dimmed, fontSize = 12.sp)
+            Text(stringResource(R.string.login_or), color = txt.dimmed, fontSize = 12.sp)
             HorizontalDivider(Modifier.weight(1f), color = txt.dimmed.copy(0.3f))
         }
 
         if (!isTv && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P)
         {
             ZsButton(
-                text = "Sign in with Passkey",
+                text = stringResource(R.string.login_with_passkey),
                 onClick = { vm.loginWithPasskey(context, deviceName.ifBlank { "Android" }) },
                 enabled = authState !is AuthState.Loading,
                 modifier = Modifier.fillMaxWidth().height(47.dp),
@@ -235,7 +237,7 @@ private fun BoxScope.LoginPanel(
             )
 
             ZsButton(
-                text = "Create account with Passkey",
+                text = stringResource(R.string.login_create_with_passkey),
                 onClick = { vm.registerWithPasskey(context, deviceName.ifBlank { "Android" }) },
                 enabled = authState !is AuthState.Loading && deviceName.isNotBlank(),
                 modifier = Modifier.fillMaxWidth().height(47.dp),
@@ -246,7 +248,7 @@ private fun BoxScope.LoginPanel(
 
         if (isTv) {
             ZsButton(
-                text = "Sign in from phone",
+                text = stringResource(R.string.login_from_phone),
                 onClick = onPhoneLogin,
                 enabled = authState !is AuthState.Loading,
                 modifier = Modifier.fillMaxWidth().height(48.dp),
@@ -257,7 +259,7 @@ private fun BoxScope.LoginPanel(
         }
 
         ZsTextButton(
-            text = "Don't have an account? Create one",
+            text = stringResource(R.string.login_create_account_prompt),
             onClick = onRegister,
         )
     }
@@ -282,9 +284,9 @@ private fun BoxScope.ShowPassphrasePanel(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Text("Your Passphrase", color = txt.text, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+        Text(stringResource(R.string.login_your_passphrase), color = txt.text, fontSize = 24.sp, fontWeight = FontWeight.Bold)
         Text(
-            "Write this down or copy it. You cannot recover your account without it.\nDo not include the numbers. the numbers are for your convenience. Separate each word with a space.",
+            stringResource(R.string.login_passphrase_instructions),
             color = txt.dimmed, fontSize = 13.sp,
         )
 
@@ -303,7 +305,7 @@ private fun BoxScope.ShowPassphrasePanel(
                     Modifier.clip(RoundedCornerShape(8.dp)).background(bg.secondary).padding(vertical = 8.dp, horizontal = 4.dp),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text("${i + 1}. $word", color = txt.text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                    Text(stringResource(R.string.login_passphrase_word, i + 1, word), color = txt.text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
                 }
             }
         }
@@ -311,7 +313,7 @@ private fun BoxScope.ShowPassphrasePanel(
         if (!isTv)
         {
             ZsButton(
-                text = if (copied) "Copied!" else "Copy to clipboard",
+                text = stringResource(if (copied) R.string.login_copied else R.string.login_copy_to_clipboard),
                 onClick = { clipboard.setText(AnnotatedString(mnemonic)); copied = true },
                 modifier = Modifier.height(44.dp),
                 variant = if (copied) ZsButtonVariant.Primary else ZsButtonVariant.Secondary,
@@ -320,7 +322,7 @@ private fun BoxScope.ShowPassphrasePanel(
         }
 
         ZsButton(
-            text = "I've saved it — continue",
+            text = stringResource(R.string.login_saved_continue),
             onClick = onNext,
             modifier = Modifier.height(48.dp),
         )
@@ -347,12 +349,12 @@ private fun BoxScope.ConfirmRegisterPanel(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Text("Create Account", color = txt.text, fontSize = 26.sp, fontWeight = FontWeight.Bold)
-        Text("Give this device a name, then create your account.", color = txt.dimmed, fontSize = 13.sp)
+        Text(stringResource(R.string.login_create_account), color = txt.text, fontSize = 26.sp, fontWeight = FontWeight.Bold)
+        Text(stringResource(R.string.login_create_description), color = txt.dimmed, fontSize = 13.sp)
         Spacer(Modifier.height(4.dp))
 
         ZsTextField(
-            label = "Device name",
+            label = stringResource(R.string.login_device_name),
             value = deviceName,
             onValueChange = { deviceName = it },
             singleLine = true,
@@ -373,7 +375,7 @@ private fun BoxScope.ConfirmRegisterPanel(
         }
 
         ZsButton(
-            text = "Create Account",
+            text = stringResource(R.string.login_create_account),
             onClick = { vm.register(mnemonic, deviceName) },
             enabled = authState !is AuthState.Loading && deviceName.isNotBlank(),
             loading = authState is AuthState.Loading,
@@ -383,7 +385,7 @@ private fun BoxScope.ConfirmRegisterPanel(
         if (!isTv && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P)
         {
             ZsButton(
-                text = "Create with Passkey",
+                text = stringResource(R.string.login_create_with_passkey_short),
                 onClick = { vm.registerWithPasskey(context, deviceName.ifBlank { "Android" }) },
                 enabled = authState !is AuthState.Loading && deviceName.isNotBlank(),
                 modifier = Modifier.height(48.dp),

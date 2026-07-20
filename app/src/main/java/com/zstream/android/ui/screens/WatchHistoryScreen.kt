@@ -18,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -27,6 +28,7 @@ import androidx.activity.compose.LocalActivity
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
+import com.zstream.android.R
 import com.zstream.android.Urls
 import com.zstream.android.theme.LocalZStreamTheme
 import com.zstream.android.ui.navigation.rememberSafeNavigateBack
@@ -74,12 +76,12 @@ fun WatchHistoryScreen(nav: NavController) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = Color.White)
             }
             Spacer(Modifier.width(8.dp))
-            Text("Watch History", color = theme.colors.type.emphasis, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            Text(stringResource(R.string.watch_history_title), color = theme.colors.type.emphasis, fontSize = 20.sp, fontWeight = FontWeight.Bold)
         }
 
         if (items.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("Nothing here yet", color = theme.colors.type.secondary, fontSize = 15.sp)
+                Text(stringResource(R.string.watch_history_empty), color = theme.colors.type.secondary, fontSize = 15.sp)
             }
         } else {
             LazyColumn(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)) {

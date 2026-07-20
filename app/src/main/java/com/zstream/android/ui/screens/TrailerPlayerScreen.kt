@@ -26,6 +26,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -44,6 +45,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import androidx.navigation.NavController
 import com.zstream.android.theme.LocalZStreamTheme
+import com.zstream.android.R
 import com.zstream.android.ui.LocalIsTv
 import com.zstream.android.ui.components.themed.ZsStatusBanner
 import com.zstream.android.ui.components.themed.ZsStatusBannerVariant
@@ -94,7 +96,7 @@ fun TrailerPlayerScreen(nav: NavController, vm: TrailerPlayerViewModel = hiltVie
                 isBuffering = state == Player.STATE_BUFFERING
             }
             override fun onPlayerError(error: PlaybackException) {
-                errorMessage = error.message ?: "Playback failed"
+                errorMessage = error.message ?: context.getString(R.string.trailer_playback_failed)
             }
         }
         player.addListener(listener)
@@ -163,7 +165,7 @@ fun TrailerPlayerScreen(nav: NavController, vm: TrailerPlayerViewModel = hiltVie
             )
         } else {
             ZsStatusBanner(
-                message = errorMessage ?: "Playback failed",
+                message = errorMessage ?: stringResource(R.string.trailer_playback_failed),
                 variant = ZsStatusBannerVariant.Error,
                 modifier = Modifier.align(Alignment.Center).padding(horizontal = 24.dp),
             )
@@ -192,7 +194,11 @@ fun TrailerPlayerScreen(nav: NavController, vm: TrailerPlayerViewModel = hiltVie
                             onClick = onBack,
                             modifier = Modifier.focusRequester(backFocusRequester),
                         ) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Color.White)
+                            Icon(
+                                Icons.AutoMirrored.Filled.ArrowBack,
+                                stringResource(R.string.trailer_back),
+                                tint = Color.White,
+                            )
                         }
                         if (vm.title.isNotBlank()) {
                             Spacer(Modifier.width(4.dp))
@@ -214,7 +220,9 @@ fun TrailerPlayerScreen(nav: NavController, vm: TrailerPlayerViewModel = hiltVie
                     ) {
                         Icon(
                             if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                            contentDescription = if (isPlaying) "Pause" else "Play",
+                            contentDescription = stringResource(
+                                if (isPlaying) R.string.trailer_pause else R.string.trailer_play,
+                            ),
                             tint = Color.White,
                             modifier = Modifier.size(36.dp),
                         )

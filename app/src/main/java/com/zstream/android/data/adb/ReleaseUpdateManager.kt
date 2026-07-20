@@ -244,14 +244,10 @@ class ReleaseUpdateManager @Inject constructor(
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        val message = if (hasTv) {
-            "A new APK is available. Update this phone and your paired TV."
-        } else {
-            "A new APK is available for this phone."
-        }
+        val message = context.getString(R.string.tv_update_prompt)
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle("ZStream update available")
+            .setContentTitle(context.getString(R.string.tv_update_available))
             .setContentText(message)
             .setStyle(NotificationCompat.BigTextStyle().bigText(message))
             .setContentIntent(pendingIntent)
@@ -280,8 +276,12 @@ class ReleaseUpdateManager @Inject constructor(
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         context.getSystemService(NotificationManager::class.java).createNotificationChannel(
-            NotificationChannel(CHANNEL_ID, "Release updates", NotificationManager.IMPORTANCE_DEFAULT).apply {
-                description = "Notifications when a watched GitHub repository publishes a new APK"
+            NotificationChannel(
+                CHANNEL_ID,
+                context.getString(R.string.settings_background_update_checks),
+                NotificationManager.IMPORTANCE_DEFAULT,
+            ).apply {
+                description = context.getString(R.string.settings_background_update_checks_description)
             },
         )
     }

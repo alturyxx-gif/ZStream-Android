@@ -1,6 +1,7 @@
 package com.zstream.android.data.local.preferences
 
 import android.content.Context
+import android.content.res.Resources
 import android.util.Log
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
@@ -132,9 +133,10 @@ class SettingsPreferences @Inject constructor(
             applicationFont = prefs[KEY_APPLICATION_FONT] ?: "onest",
             kidsModeEnabled = prefs[KEY_KIDS_MODE_ENABLED] ?: false,
             customTheme = decodeCustomTheme(prefs[KEY_CUSTOM_THEME]),
-            applicationLanguage = prefs[KEY_APPLICATION_LANGUAGE] ?: "en",
+            applicationLanguage = prefs[KEY_APPLICATION_LANGUAGE].orEmpty(),
             defaultSubtitleLanguage = prefs[KEY_DEFAULT_SUBTITLE_LANGUAGE]
-                ?: java.util.Locale.getDefault().language.takeIf { it in SUBTITLE_LANGUAGE_AUTO_DETECT_CODES },
+                ?: Resources.getSystem().configuration.locales[0].language
+                    .takeIf { it in SUBTITLE_LANGUAGE_AUTO_DETECT_CODES },
             enableThumbnails = prefs[KEY_ENABLE_THUMBNAILS] ?: false,
             enableImageLogos = prefs[KEY_ENABLE_IMAGE_LOGOS] ?: true,
             enableCarouselView = prefs[KEY_ENABLE_CAROUSEL_VIEW] ?: true,
@@ -212,7 +214,8 @@ class SettingsPreferences @Inject constructor(
             } else {
                 prefs.remove(KEY_CUSTOM_THEME)
             }
-            prefs[KEY_APPLICATION_LANGUAGE] = entity.applicationLanguage
+            // Written only by setApplicationLanguage(); whole-entity writers may hold a stale
+            // snapshot and must not undo Android's device-local app-language selection.
             if (entity.defaultSubtitleLanguage != null) {
                 prefs[KEY_DEFAULT_SUBTITLE_LANGUAGE] = entity.defaultSubtitleLanguage
             } else {
@@ -347,7 +350,6 @@ class SettingsPreferences @Inject constructor(
                 applicationFont = currentApplicationFont,
                 kidsModeEnabled = currentKidsModeEnabled,
                 customTheme = remote.customTheme?.toEntity(),
-                applicationLanguage = remote.applicationLanguage ?: "en",
                 defaultSubtitleLanguage = remote.defaultSubtitleLanguage,
                 enableThumbnails = remote.enableThumbnails ?: false,
                 enableImageLogos = remote.enableImageLogos ?: true,

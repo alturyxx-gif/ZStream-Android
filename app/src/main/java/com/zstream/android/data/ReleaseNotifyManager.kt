@@ -137,12 +137,17 @@ class ReleaseNotifyManager @Inject constructor(
         val subject = if (request.mediaType == "movie") {
             request.title
         } else {
-            "${request.title} S${request.seasonNumber}E${request.episodeNumber}"
+            context.getString(
+                R.string.system_release_episode_subject,
+                request.title,
+                request.seasonNumber.toString(),
+                request.episodeNumber.toString(),
+            )
         }
         return postNotification(
             notificationId = "release-subscription:${request.key}".hashCode(),
-            title = "Release notification subscribed",
-            message = "You’ll be notified when $subject is available.",
+            title = context.getString(R.string.system_release_subscription_title),
+            message = context.getString(R.string.system_release_subscription_message, subject),
             pendingIntent = null,
         )
     }
@@ -153,16 +158,16 @@ class ReleaseNotifyManager @Inject constructor(
         if (Build.VERSION.SDK_INT >= 33 &&
             context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) {
-            return "Allow notifications for Z-Stream before subscribing to a release."
+            return context.getString(R.string.system_release_allow_notifications)
         }
         if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) {
-            return "Notifications are disabled for Z-Stream in system settings."
+            return context.getString(R.string.system_release_notifications_disabled)
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = context.getSystemService(NotificationManager::class.java)
                 .getNotificationChannel(CHANNEL_ID)
             if (channel == null || channel.importance == NotificationManager.IMPORTANCE_NONE) {
-                return "Release notifications are disabled in system settings."
+                return context.getString(R.string.system_release_channel_disabled)
             }
         }
         return null
@@ -211,10 +216,16 @@ class ReleaseNotifyManager @Inject constructor(
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val (title, message) = if (entry.mediaType == "movie") {
-            "${entry.title} is out now" to "The movie you were waiting on just released."
+            context.getString(R.string.system_release_movie_title, entry.title) to
+                context.getString(R.string.system_release_movie_message)
         } else {
-            "${entry.title} S${entry.seasonNumber}E${entry.episodeNumber} is out now" to
-                (entry.episodeTitle?.takeIf(String::isNotBlank) ?: "A new episode just aired.")
+            context.getString(
+                R.string.system_release_episode_title,
+                entry.title,
+                entry.seasonNumber.toString(),
+                entry.episodeNumber.toString(),
+            ) to (entry.episodeTitle?.takeIf(String::isNotBlank)
+                ?: context.getString(R.string.system_release_episode_message))
         }
         return postNotification(notificationId, title, message, pendingIntent)
     }
@@ -251,8 +262,12 @@ class ReleaseNotifyManager @Inject constructor(
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         context.getSystemService(NotificationManager::class.java).createNotificationChannel(
-            NotificationChannel(CHANNEL_ID, "Release notifications", NotificationManager.IMPORTANCE_DEFAULT).apply {
-                description = "Notifies you when a movie or episode you're tracking releases"
+            NotificationChannel(
+                CHANNEL_ID,
+                context.getString(R.string.system_release_channel_name),
+                NotificationManager.IMPORTANCE_DEFAULT,
+            ).apply {
+                description = context.getString(R.string.system_release_channel_description)
             },
         )
     }

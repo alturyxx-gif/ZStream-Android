@@ -425,8 +425,12 @@ class PluginManager @Inject constructor(
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         context.getSystemService(NotificationManager::class.java).createNotificationChannel(
-            NotificationChannel(PLUGIN_UPDATE_CHANNEL_ID, "Plugin updates", NotificationManager.IMPORTANCE_LOW).apply {
-                description = "Notifications when a new source plugin build is staged"
+            NotificationChannel(
+                PLUGIN_UPDATE_CHANNEL_ID,
+                context.getString(R.string.system_plugin_update_channel_name),
+                NotificationManager.IMPORTANCE_LOW,
+            ).apply {
+                description = context.getString(R.string.system_plugin_update_channel_description)
             },
         )
     }
@@ -444,8 +448,8 @@ class PluginManager @Inject constructor(
         )
         val notification = NotificationCompat.Builder(context, PLUGIN_UPDATE_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle("Plugin update ready")
-            .setContentText("Source plugin v$displayVersion is staged — restart ZStream to apply it.")
+            .setContentTitle(context.getString(R.string.system_plugin_update_ready))
+            .setContentText(context.getString(R.string.system_plugin_update_message, displayVersion))
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
@@ -579,7 +583,7 @@ class PluginManager @Inject constructor(
         val plugin: Any = when (val s = pluginState.value) {
             is PluginState.Ready -> s.plugin
             is PluginState.UpdateAvailable -> s.plugin
-            else -> return@withContext StreamResult.Error("Plugin not ready")
+            else -> return@withContext StreamResult.Error("")
         }
         Log.d(TAG, "resolve() sourceId=$sourceId tmdbId=${media.tmdbId} type=${media.type}")
         try {
@@ -588,7 +592,7 @@ class PluginManager @Inject constructor(
             }
         } catch (t: Throwable) {
             Log.e(TAG, "Plugin resolve threw unexpectedly: ${t.message}", t)
-            StreamResult.Error(t.message ?: "Plugin error")
+            StreamResult.Error(t.message.orEmpty())
         }
     }
 
@@ -618,7 +622,10 @@ class PluginManager @Inject constructor(
                     it.parameterTypes.size == 3 &&
                     it.parameterTypes[0] == String::class.java &&
                     it.parameterTypes[1] == String::class.java
-            } ?: return StreamResult.Error("Plugin has no resolveJson() — incompatible plugin build")
+            } ?: run {
+                Log.e(TAG, "Plugin has no resolveJson() — incompatible plugin build")
+                return StreamResult.Error("")
+            }
 
             val mediaJson = media.toJson()
             Log.d(TAG, "resolveJson() request sourceId=$sourceId")
@@ -635,7 +642,7 @@ class PluginManager @Inject constructor(
                     }
                 }
                 when (val result = method.invoke(plugin, mediaJson, sourceId, jsonContinuation)) {
-                    null -> StreamResult.Error("Plugin returned null")
+                    null -> StreamResult.Error("")
                     COROUTINE_SUSPENDED -> {
                         Log.d(TAG, "resolveJson() suspended sourceId=$sourceId, awaiting async resume")
                         COROUTINE_SUSPENDED
@@ -650,7 +657,8 @@ class PluginManager @Inject constructor(
             }
         } catch (t: Throwable) {
             Log.e(TAG, "Reflective plugin resolve threw unexpectedly: ${t.message}", t)
-            StreamResult.Error(t.cause?.message ?: t.message ?: "Plugin error")
+            val message = t.cause?.message ?: t.message
+            StreamResult.Error(message.orEmpty())
         }
     }
 

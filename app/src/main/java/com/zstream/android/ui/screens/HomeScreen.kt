@@ -31,8 +31,10 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -88,6 +90,8 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
@@ -134,6 +138,7 @@ import org.xmlpull.v1.XmlPullParser
 import org.xmlpull.v1.XmlPullParserFactory
 import java.net.URL
 import java.text.SimpleDateFormat
+import java.text.DateFormat
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -256,7 +261,6 @@ private fun HomeBringIntoViewProvider(
 
 
 private val rssDateFormat = SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss zzz", Locale.US)
-private val displayDateFormat = SimpleDateFormat("MMM d, yyyy, h:mm a", Locale.US)
 
 @Composable
 private fun featuredCarouselTextShadow(strong: Boolean = false): Shadow {
@@ -268,23 +272,30 @@ private fun featuredCarouselTextShadow(strong: Boolean = false): Shadow {
     )
 }
 
+@Composable
 private fun formatDate(pubDate: String): String {
-    return try {
-        val date = rssDateFormat.parse(pubDate) ?: return pubDate
-        val display = displayDateFormat.format(date)
-        val diff = System.currentTimeMillis() - date.time
-        val relative = when {
-            diff < TimeUnit.MINUTES.toMillis(1) -> "just now"
-            diff < TimeUnit.HOURS.toMillis(1) -> "${TimeUnit.MILLISECONDS.toMinutes(diff)} min ago"
-            diff < TimeUnit.DAYS.toMillis(1) -> "${TimeUnit.MILLISECONDS.toHours(diff)}h ago"
-            diff < TimeUnit.DAYS.toMillis(7) -> "${TimeUnit.MILLISECONDS.toDays(diff)}d ago"
-            diff < TimeUnit.DAYS.toMillis(30) -> "${TimeUnit.MILLISECONDS.toDays(diff) / 7} week${if (TimeUnit.MILLISECONDS.toDays(diff) / 7 > 1) "s" else ""} ago"
-            else -> "${TimeUnit.MILLISECONDS.toDays(diff) / 30} month${if (TimeUnit.MILLISECONDS.toDays(diff) / 30 > 1) "s" else ""} ago"
+    val date = remember(pubDate) { runCatching { rssDateFormat.parse(pubDate) }.getOrNull() } ?: return pubDate
+    val display = remember(date) { DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(date) }
+    val diff = System.currentTimeMillis() - date.time
+    val relative = when {
+        diff < TimeUnit.MINUTES.toMillis(1) -> stringResource(R.string.home_just_now)
+        diff < TimeUnit.HOURS.toMillis(1) -> TimeUnit.MILLISECONDS.toMinutes(diff).toInt().let {
+            pluralStringResource(R.plurals.home_minutes_ago, it, it)
         }
-        "$display • $relative"
-    } catch (_: Exception) {
-        pubDate
+        diff < TimeUnit.DAYS.toMillis(1) -> TimeUnit.MILLISECONDS.toHours(diff).toInt().let {
+            pluralStringResource(R.plurals.home_hours_ago, it, it)
+        }
+        diff < TimeUnit.DAYS.toMillis(7) -> TimeUnit.MILLISECONDS.toDays(diff).toInt().let {
+            pluralStringResource(R.plurals.home_days_ago, it, it)
+        }
+        diff < TimeUnit.DAYS.toMillis(30) -> (TimeUnit.MILLISECONDS.toDays(diff) / 7).toInt().let {
+            pluralStringResource(R.plurals.home_weeks_ago, it, it)
+        }
+        else -> (TimeUnit.MILLISECONDS.toDays(diff) / 30).toInt().let {
+            pluralStringResource(R.plurals.home_months_ago, it, it)
+        }
     }
+    return stringResource(R.string.home_date_with_relative, display, relative)
 }
 
 private fun notificationCategoryColor(
@@ -298,13 +309,28 @@ private fun notificationCategoryColor(
     else -> theme.colors.type.dimmed
 }
 
+@Composable
+private fun localizedNotificationCategory(category: String): String = when (category.lowercase()) {
+    "announcement" -> stringResource(R.string.home_notification_category_announcement)
+    "feature" -> stringResource(R.string.home_notification_category_feature)
+    "update" -> stringResource(R.string.home_notification_category_update)
+    "bugfix" -> stringResource(R.string.home_notification_category_bugfix)
+    else -> category.replaceFirstChar { it.uppercase() }
+}
+
+@Composable
+private fun localizedHomeError(error: String): String = when (error) {
+    "No connection" -> stringResource(R.string.home_no_connection)
+    else -> error
+}
+
 private val defaultSectionOrder = listOf("continue_watching", "bookmarks")
 private val mediaSortOptions = listOf(
-    "date" to "Recently updated",
-    "title-asc" to "Title: A-Z",
-    "title-desc" to "Title: Z-A",
-    "year-asc" to "Year: oldest first",
-    "year-desc" to "Year: newest first",
+    "date" to R.string.home_sort_recently_updated,
+    "title-asc" to R.string.home_sort_title_ascending,
+    "title-desc" to R.string.home_sort_title_descending,
+    "year-asc" to R.string.home_sort_year_oldest,
+    "year-desc" to R.string.home_sort_year_newest,
 )
 
 private fun MediaSection.sorted(
@@ -348,6 +374,40 @@ internal val tmdbGenres = mapOf(
     10768 to "War & Politics",
     37 to "Western"
 )
+
+private val tmdbGenreStringIds = mapOf(
+    28 to R.string.home_genre_action,
+    12 to R.string.home_genre_adventure,
+    10759 to R.string.home_genre_action_adventure,
+    16 to R.string.home_genre_animation,
+    35 to R.string.home_genre_comedy,
+    80 to R.string.home_genre_crime,
+    99 to R.string.home_genre_documentary,
+    18 to R.string.home_genre_drama,
+    10751 to R.string.home_genre_family,
+    10762 to R.string.home_genre_kids,
+    878 to R.string.home_genre_scifi,
+    14 to R.string.home_genre_fantasy,
+    10765 to R.string.home_genre_scifi_fantasy,
+    36 to R.string.home_genre_history,
+    27 to R.string.home_genre_horror,
+    10402 to R.string.home_genre_music,
+    9648 to R.string.home_genre_mystery,
+    10763 to R.string.home_genre_news,
+    10764 to R.string.home_genre_reality,
+    10749 to R.string.home_genre_romance,
+    10766 to R.string.home_genre_soap,
+    10767 to R.string.home_genre_talk,
+    53 to R.string.home_genre_thriller,
+    10770 to R.string.home_genre_tv_movie,
+    10752 to R.string.home_genre_war,
+    10768 to R.string.home_genre_war_politics,
+    37 to R.string.home_genre_western,
+)
+
+@Composable
+internal fun localizedTmdbGenreName(id: Int): String =
+    tmdbGenreStringIds[id]?.let { stringResource(it) } ?: tmdbGenres[id].orEmpty()
 
 private data class NotificationItem(
     val guid: String,
@@ -416,18 +476,18 @@ private val rainbowColors = listOf(
 )
 
 private val searchPlaceholders = listOf(
-    "What do you want to watch?",
-    "What are you in the mood for?",
-    "What do you want to stream?",
-    "What's on your watchlist today?",
-    "How was your day?",
-    "My bad the app never works...",
-    ">ᴗ<"
+    R.string.home_search_placeholder_watch,
+    R.string.home_search_placeholder_mood,
+    R.string.home_search_placeholder_stream,
+    R.string.home_search_placeholder_watchlist,
+    R.string.home_search_placeholder_day,
+    R.string.home_search_placeholder_joke,
+    R.string.home_search_placeholder_kaomoji,
 )
 
 @Composable
 private fun rememberRandomPlaceholder(): String {
-    return remember { searchPlaceholders.random() }
+    return stringResource(remember { searchPlaceholders.random() })
 }
 
 @Composable
@@ -606,23 +666,23 @@ fun HomeScreen(
                 AlertDialog(
                     onDismissRequest = {},
                     containerColor = theme.colors.modal.background,
-                    title = { Text("ZStream update available", color = theme.colors.type.emphasis) },
+                    title = { Text(stringResource(R.string.home_update_available), color = theme.colors.type.emphasis) },
                     text = {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(
-                                "A new APK release$versionSuffix is available. Download and install it now? Background checks and their interval can be changed or disabled in Settings → Account.",
+                                stringResource(R.string.home_update_description, versionSuffix),
                                 color = theme.colors.type.text,
                             )
                             if (isTv) {
                                 Text(
-                                    "On a TV, if a system \"Install unknown apps\" screen appears, use the remote to grant it and come back.",
+                                    stringResource(R.string.home_update_tv_permission_hint),
                                     color = theme.colors.type.secondary,
                                 )
                             }
                             val downloadUrl = releaseUpdateManager.pendingDownloadUrl
                             when (val p = downloadProgress) {
                                 is com.zstream.android.data.adb.ApkDownloadProgress.Connecting ->
-                                    Text("Connecting…", color = theme.colors.type.secondary)
+                                    Text(stringResource(R.string.home_connecting), color = theme.colors.type.secondary)
                                 is com.zstream.android.data.adb.ApkDownloadProgress.Downloading -> {
                                     val frac = if (p.totalBytes > 0) p.bytes.toFloat() / p.totalBytes else null
                                     if (frac != null) {
@@ -632,12 +692,12 @@ fun HomeScreen(
                                     }
                                 }
                                 is com.zstream.android.data.adb.ApkDownloadProgress.Done ->
-                                    Text("Handing off to installer…", color = theme.colors.type.secondary)
+                                    Text(stringResource(R.string.home_handing_off_installer), color = theme.colors.type.secondary)
                                 null -> Unit
                             }
                             installError?.let { Text(it, color = theme.colors.video.scraping.error) }
                             if (downloadUrl == null) {
-                                Text("No downloadable APK found for this release.", color = theme.colors.type.secondary)
+                                Text(stringResource(R.string.home_no_downloadable_apk), color = theme.colors.type.secondary)
                             }
                         }
                     },
@@ -657,11 +717,12 @@ fun HomeScreen(
                                         releaseUpdateManager.clearPendingUpdate()
                                         showReleaseUpdatePrompt = false
                                     } catch (t: Throwable) {
-                                        installError = t.message ?: "Download failed."
+                                        Log.w("HomeScreen", "APK update download failed", t)
+                                        installError = context.getString(R.string.home_download_failed)
                                     }
                                 }
                             },
-                        ) { Text("Download & install", color = theme.colors.global.accentA) }
+                        ) { Text(stringResource(R.string.home_download_and_install), color = theme.colors.global.accentA) }
                     },
                     dismissButton = {
                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -669,12 +730,12 @@ fun HomeScreen(
                                 TextButton(enabled = !installing, onClick = {
                                     showTvAdbWizard = true
                                     showReleaseUpdatePrompt = false
-                                }) { Text("Use ADB instead", color = theme.colors.type.secondary) }
+                                }) { Text(stringResource(R.string.home_use_adb_instead), color = theme.colors.type.secondary) }
                             }
                             TextButton(enabled = !installing, onClick = {
                                 releaseUpdateManager.clearPendingUpdate()
                                 showReleaseUpdatePrompt = false
-                            }) { Text("No", color = theme.colors.type.secondary) }
+                            }) { Text(stringResource(R.string.home_no), color = theme.colors.type.secondary) }
                         }
                     },
                 )
@@ -686,10 +747,13 @@ fun HomeScreen(
             AlertDialog(
                 onDismissRequest = { showPluginUpdatePrompt = false },
                 containerColor = theme.colors.modal.background,
-                title = { Text("Source plugin update ready", color = theme.colors.type.emphasis) },
+                title = { Text(stringResource(R.string.home_plugin_update_ready), color = theme.colors.type.emphasis) },
                 text = {
                     Text(
-                        "A new source plugin build${stagedVersion.takeIf { it.isNotBlank() }?.let { " (v$it)" } ?: ""} is staged and will be used after a restart. Restart ZStream now?",
+                        stringResource(
+                            R.string.home_plugin_update_description,
+                            stagedVersion.takeIf { it.isNotBlank() }?.let { " (v$it)" }.orEmpty(),
+                        ),
                         color = theme.colors.type.text,
                     )
                 },
@@ -704,11 +768,11 @@ fun HomeScreen(
                             (context as? android.app.Activity)?.finish()
                             Runtime.getRuntime().exit(0)
                         }
-                    }) { Text("Restart now", color = theme.colors.global.accentA) }
+                    }) { Text(stringResource(R.string.home_restart_now), color = theme.colors.global.accentA) }
                 },
                 dismissButton = {
                     TextButton(onClick = { showPluginUpdatePrompt = false }) {
-                        Text("Later", color = theme.colors.type.secondary)
+                        Text(stringResource(R.string.home_later), color = theme.colors.type.secondary)
                     }
                 },
             )
@@ -765,26 +829,26 @@ fun HomeScreen(
                     modifier = Modifier.widthIn(max = 480.dp),
                 ) {
                     Column(Modifier.padding(horizontal = 24.dp, vertical = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text("Edit bookmark", color = theme.colors.type.emphasis, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                        Text(stringResource(R.string.home_edit_bookmark), color = theme.colors.type.emphasis, fontSize = 20.sp, fontWeight = FontWeight.Bold)
                         OutlinedTextField(
                             value = bookmarkEditTitle,
                             onValueChange = { bookmarkEditTitle = it },
-                            label = { Text("Title") },
+                            label = { Text(stringResource(R.string.home_title)) },
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth(),
                         )
                         OutlinedTextField(
                             value = bookmarkEditYear,
                             onValueChange = { bookmarkEditYear = it.filter(Char::isDigit).take(4) },
-                            label = { Text("Year") },
+                            label = { Text(stringResource(R.string.home_year)) },
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth(),
                         )
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                            Text("Groups", color = theme.colors.type.secondary, fontWeight = FontWeight.SemiBold)
+                            Text(stringResource(R.string.home_groups), color = theme.colors.type.secondary, fontWeight = FontWeight.SemiBold)
                             ZsIconButton(
                                 icon = Icons.Default.Add,
-                                contentDescription = "Create group",
+                                contentDescription = stringResource(R.string.home_create_group),
                                 onClick = { showCreateGroup = true },
                                 containerSize = 36.dp,
                                 iconSize = 18.dp,
@@ -820,7 +884,7 @@ fun HomeScreen(
                             }
                         }
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                            TextButton(onClick = { editingBookmark = null; showCreateGroup = false }) { Text("Cancel", color = theme.colors.type.secondary) }
+                            TextButton(onClick = { editingBookmark = null; showCreateGroup = false }) { Text(stringResource(R.string.home_cancel), color = theme.colors.type.secondary) }
                             TextButton(onClick = {
                                 val year = bookmarkEditYear.toIntOrNull()
                             vm.updateBookmark(
@@ -833,7 +897,7 @@ fun HomeScreen(
                             )
                                 editingBookmark = null
                                 showCreateGroup = false
-                            }) { Text("Save", color = theme.colors.global.accentA) }
+                            }) { Text(stringResource(R.string.home_save), color = theme.colors.global.accentA) }
                         }
                     }
                 }
@@ -864,17 +928,17 @@ fun HomeScreen(
                     modifier = Modifier.widthIn(max = 480.dp),
                 ) {
                     Column(Modifier.padding(horizontal = 24.dp, vertical = 20.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                        Text("Section settings", color = theme.colors.type.emphasis, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                        Text("Sort", color = theme.colors.type.secondary, fontWeight = FontWeight.SemiBold)
+                        Text(stringResource(R.string.home_section_settings), color = theme.colors.type.emphasis, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                        Text(stringResource(R.string.home_sort), color = theme.colors.type.secondary, fontWeight = FontWeight.SemiBold)
                         Box {
                             OutlinedButton(onClick = { showSortMenu = true }, modifier = Modifier.fillMaxWidth()) {
-                                Text(mediaSortOptions.first { it.first == currentSort }.second, modifier = Modifier.weight(1f))
+                                Text(stringResource(mediaSortOptions.first { it.first == currentSort }.second), modifier = Modifier.weight(1f))
                                 Icon(Icons.Default.ArrowDropDown, null)
                             }
                             DropdownMenu(expanded = showSortMenu, onDismissRequest = { showSortMenu = false }) {
                                 mediaSortOptions.forEach { (value, sortLabel) ->
                                     DropdownMenuItem(
-                                        text = { Text(sortLabel) },
+                                        text = { Text(stringResource(sortLabel)) },
                                         leadingIcon = { if (currentSort == value) Icon(Icons.Default.Check, null) },
                                         onClick = {
                                             if (section == "Continue Watching") {
@@ -892,16 +956,18 @@ fun HomeScreen(
                         }
                         if (customGroup != null) {
                             HorizontalDivider(color = theme.colors.type.divider.copy(alpha = 0.2f))
-                            Text("Edit group", color = theme.colors.type.emphasis, fontWeight = FontWeight.SemiBold)
+                            Text(stringResource(R.string.home_edit_group), color = theme.colors.type.emphasis, fontWeight = FontWeight.SemiBold)
                             Text(
-                                "Affects ${state.bookmarkEntities.values.count { customGroup in it.groups.orEmpty() }} bookmarks",
+                                state.bookmarkEntities.values.count { customGroup in it.groups.orEmpty() }.let {
+                                    pluralStringResource(R.plurals.home_affects_bookmarks, it, it)
+                                },
                                 color = theme.colors.type.secondary,
                                 fontSize = 13.sp,
                             )
                         OutlinedTextField(
                             value = label,
                             onValueChange = { editingGroup = "[${iconKey.lowercase()}]${it.trim()}" },
-                            label = { Text("Group name") },
+                            label = { Text(stringResource(R.string.home_group_name)) },
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth(),
                         )
@@ -930,12 +996,12 @@ fun HomeScreen(
                         }
                         }
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                            TextButton(onClick = { sectionSettings = null; editingGroup = null }) { Text("Cancel", color = theme.colors.type.secondary) }
+                            TextButton(onClick = { sectionSettings = null; editingGroup = null }) { Text(stringResource(R.string.home_cancel), color = theme.colors.type.secondary) }
                             TextButton(onClick = {
                                 if (customGroup != null && draftGroup != null) vm.renameGroup(customGroup, draftGroup)
                                 sectionSettings = null
                                 editingGroup = null
-                            }) { Text("Save", color = theme.colors.global.accentA) }
+                            }) { Text(stringResource(R.string.home_save), color = theme.colors.global.accentA) }
                         }
                     }
                 }
@@ -976,7 +1042,7 @@ fun HomeScreen(
             state.error != null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 var retryFocused by remember { mutableStateOf(false) }
                 Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
-                    Text(state.error!!, color = theme.colors.type.danger, textAlign = TextAlign.Center)
+                    Text(localizedHomeError(state.error!!), color = theme.colors.type.danger, textAlign = TextAlign.Center)
                     Spacer(Modifier.height(12.dp))
                     ZsOutlinedWrapper(
                         visible = retryFocused,
@@ -991,7 +1057,7 @@ fun HomeScreen(
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.onFocusChanged { retryFocused = it.isFocused }
                         ) {
-                            Text("Retry")
+                            Text(stringResource(R.string.home_retry))
                         }
                     }
                 }
@@ -1201,7 +1267,7 @@ fun HomeScreen(
                                                     .padding(horizontal = 16.dp, vertical = 10.dp),
                                                 contentAlignment = Alignment.Center
                                             )
-                                            { Text("Load More", color = theme.colors.type.emphasis, fontSize = 18.sp) }
+                                            { Text(stringResource(R.string.home_load_more), color = theme.colors.type.emphasis, fontSize = 18.sp) }
                                         } else {
                                             Box(
                                                 modifier = Modifier
@@ -1214,7 +1280,7 @@ fun HomeScreen(
                                                     .padding(horizontal = 16.dp, vertical = 10.dp),
                                                 contentAlignment = Alignment.Center
                                             )
-                                            { Text("That's all we have...", color = theme.colors.type.secondary, fontSize = 12.sp) }
+                                            { Text(stringResource(R.string.home_end_of_results), color = theme.colors.type.secondary, fontSize = 12.sp) }
                                         }
                                     }
                                 }
@@ -1226,13 +1292,13 @@ fun HomeScreen(
                             }
                             if (showContinueWatching && state.continueWatchingLoading && state.continueWatching.isEmpty()) {
                                 item("continue_watching_loading") {
-                                    HomeSectionLoading("Continue Watching")
+                                    HomeSectionLoading(stringResource(R.string.home_continue_watching))
                                 }
                                 item { Spacer(Modifier.height(20.dp)) }
                             }
                             if (showBookmarks && state.bookmarksLoading && state.bookmarks.isEmpty()) {
                                 item("bookmarks_loading") {
-                                    HomeSectionLoading("My Bookmarks")
+                                    HomeSectionLoading(stringResource(R.string.home_my_bookmarks))
                                 }
                                 item { Spacer(Modifier.height(20.dp)) }
                             }
@@ -1373,7 +1439,7 @@ fun HomeScreen(
                                 val rotationAngle = (pullOffset / maxPullOffset * 360).coerceIn(0f, 360f)
                                 Icon(
                                     imageVector = Icons.Default.ArrowDownward,
-                                    contentDescription = "Pull to refresh",
+                                    contentDescription = stringResource(R.string.home_pull_to_refresh),
                                     tint = theme.colors.global.accentA,
                                     modifier = Modifier
                                         .size(20.dp)
@@ -1488,7 +1554,7 @@ private fun BoxScope.OfflineBanner(visible: Boolean, onDismiss: () -> Unit) {
             modifier = Modifier.clickable(onClick = onDismiss),
         ) {
             Text(
-                "You're offline",
+                stringResource(R.string.home_you_are_offline),
                 color = theme.colors.type.text,
                 fontSize = 13.sp,
                 textAlign = TextAlign.Center,
@@ -1684,7 +1750,7 @@ private fun TopNavBar(
                             .clip(CircleShape),
                     )
                     Text(
-                        "Z-Stream",
+                        stringResource(R.string.home_brand_name),
                         color = theme.colors.type.emphasis,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.SemiBold,
@@ -1830,7 +1896,7 @@ private fun HeroSection(
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(
-            "What would you like\nto watch?",
+            stringResource(R.string.home_hero_question),
             color = theme.colors.type.emphasis, fontSize = 22.sp,
             fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, lineHeight = 28.sp,
             modifier = Modifier.padding(bottom = 20.dp, top = 4.dp),
@@ -2000,7 +2066,7 @@ private fun HomeSearchBarRow(
                     ZsIconButton(
                         onClick = { onSearch("") },
                         icon = Icons.Default.Close,
-                        contentDescription = "Clear search",
+                        contentDescription = stringResource(R.string.home_clear_search),
                         variant = ZsIconButtonVariant.Ghost,
                         containerSize = 28.dp,
                         iconSize = 16.dp,
@@ -2021,9 +2087,9 @@ internal fun SortPill(
     val theme = LocalZStreamTheme.current
     val isTv = LocalIsTv.current
     val label = when (sort) {
-        DiscoverSort.POPULARITY -> "Popularity"
-        DiscoverSort.RATING -> "Rating"
-        DiscoverSort.RELEASE -> "Release"
+        DiscoverSort.POPULARITY -> stringResource(R.string.home_sort_popularity)
+        DiscoverSort.RATING -> stringResource(R.string.home_sort_rating)
+        DiscoverSort.RELEASE -> stringResource(R.string.home_sort_release)
     }
 
     var isSortFocused by remember { mutableStateOf(false) }
@@ -2095,7 +2161,7 @@ internal fun SortPill(
             ) {
                 Icon(
                     imageVector = if (order == SortOrder.ASC) Icons.Default.ArrowUpward else Icons.Default.ArrowDownward,
-                    contentDescription = "Toggle sort order",
+                    contentDescription = stringResource(R.string.home_toggle_sort_order),
                     tint = theme.colors.global.accentA,
                     modifier = Modifier.size(16.dp)
                 )
@@ -2125,7 +2191,7 @@ internal fun TabTogglePill(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         tabs.forEachIndexed { index, tab ->
-            val label = if (tab == HomeTab.MOVIES) "Movies" else "TV"
+            val label = stringResource(if (tab == HomeTab.MOVIES) R.string.home_movies else R.string.home_tv)
             val selected = selectedTab == tab
             var isTabFocused by remember { mutableStateOf(false) }
 
@@ -2225,7 +2291,7 @@ internal fun GenrePills(
                 gap = 2.dp
             ) {
                 Text(
-                    text = name,
+                    text = localizedTmdbGenreName(id).ifBlank { name },
                     color = if (selected) theme.colors.type.emphasis else theme.colors.type.dimmed,
                     fontSize = 12.sp,
                     fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
@@ -2266,7 +2332,11 @@ private fun HomeTabs(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         HomeTab.entries.forEach { tab ->
-            val label = when (tab) { HomeTab.MOVIES -> "Movies"; HomeTab.TV -> "TV Shows"; HomeTab.EDITOR -> "Editor Picks" }
+            val label = stringResource(when (tab) {
+                HomeTab.MOVIES -> R.string.home_movies
+                HomeTab.TV -> R.string.home_tv_shows
+                HomeTab.EDITOR -> R.string.home_editor_picks
+            })
             val active = tab == activeTab
             var isFocused by remember { mutableStateOf(false) }
             ZsOutlinedWrapper(
@@ -2312,18 +2382,36 @@ private fun HomeTabs(
  */
 
 @Composable
+private fun localizedSectionTitle(title: String): String = when (title) {
+    "Continue Watching" -> stringResource(R.string.home_continue_watching)
+    "My Bookmarks" -> stringResource(R.string.home_my_bookmarks)
+    "Downloaded" -> stringResource(R.string.home_downloaded)
+    "Most Popular" -> stringResource(R.string.home_most_popular)
+    "In Cinemas" -> stringResource(R.string.home_in_cinemas)
+    "Top Rated" -> stringResource(R.string.home_top_rated)
+    "Trending" -> stringResource(R.string.home_trending)
+    "On the Air" -> stringResource(R.string.home_on_the_air)
+    "Editor Picks — Movies" -> stringResource(R.string.home_editor_picks_movies)
+    "Editor Picks — Shows" -> stringResource(R.string.home_editor_picks_shows)
+    else -> title
+}
+
+@Composable
 private fun SyncedSectionTitle(title: String) {
     val theme = LocalZStreamTheme.current
     val isTv = LocalIsTv.current
+    val continueWatchingTitle = stringResource(R.string.home_continue_watching)
+    val bookmarksTitle = stringResource(R.string.home_my_bookmarks)
     val match = Regex("^\\[([A-Za-z0-9_]+)](.*)$").find(title)
     val iconKey = match?.groupValues?.getOrNull(1)?.uppercase()
-        ?: if (title == "My Bookmarks") "BOOKMARK" else null
+        ?: if (title == "My Bookmarks" || title == bookmarksTitle) "BOOKMARK" else null
     val icon = when {
-        title == "Continue Watching" -> painterResource(R.drawable.ic_section_clock)
+        title == "Continue Watching" || title == continueWatchingTitle -> painterResource(R.drawable.ic_section_clock)
         iconKey != null -> groupIconPainter(iconKey)
         else -> null
     }
     val cleanTitle = match?.groupValues?.getOrNull(2)?.trim().orEmpty().ifBlank { title }
+    val displayTitle = if (match != null) cleanTitle else localizedSectionTitle(cleanTitle)
     Row(
         modifier = Modifier.padding(
             horizontal = if (isTv) TvHomeMetrics.screenPadding else 16.dp,
@@ -2344,7 +2432,7 @@ private fun SyncedSectionTitle(title: String) {
             }
         }
         Text(
-            text = cleanTitle,
+            text = displayTitle,
             color = theme.colors.type.emphasis,
             fontWeight = FontWeight.Bold,
             fontSize = if (isTv) TvHomeMetrics.sectionTitleSize else 16.sp,
@@ -2361,7 +2449,7 @@ private fun SectionEditActions(
     if (editing) {
         ZsIconButton(
             icon = Icons.Default.Settings,
-            contentDescription = "Section settings",
+            contentDescription = stringResource(R.string.home_section_settings),
             onClick = onSettings,
             containerSize = 38.dp,
             iconSize = 19.dp,
@@ -2371,7 +2459,7 @@ private fun SectionEditActions(
     ZsIconButton(
         variant = ZsIconButtonVariant.Secondary,
         icon = if (editing) Icons.Default.Check else Icons.Default.Edit,
-        contentDescription = if (editing) "Done editing" else "Edit section",
+        contentDescription = stringResource(if (editing) R.string.home_done_editing else R.string.home_edit_section),
         onClick = onToggleEditing,
         modifier = Modifier.padding(end = 20.dp),
         containerSize = 38.dp,
@@ -2456,7 +2544,7 @@ private fun MediaCarouselSection(
                     else {
                         val percentage = (watched / duration * 100f).coerceIn(0f, 100f)
                         if (percentage >= 95f) null else percentage to if (entry.type == "show" && entry.seasonNumber != null && entry.episodeNumber != null) {
-                            "S${entry.seasonNumber} - E${entry.episodeNumber}"
+                            stringResource(R.string.home_season_episode, entry.seasonNumber, entry.episodeNumber)
                         } else null
                     }
                 }
@@ -2484,7 +2572,7 @@ private fun MediaCarouselSection(
                                     .background(Color.Black.copy(alpha = 0.75f))
                             ) {
                                 IconButton(onClick = { onEditItem(media) }, modifier = Modifier.fillMaxSize()) {
-                                    Icon(Icons.Default.Edit, "Edit bookmark", tint = Color.White, modifier = Modifier.size(22.dp))
+                                    Icon(Icons.Default.Edit, stringResource(R.string.home_edit_bookmark), tint = Color.White, modifier = Modifier.size(22.dp))
                                 }
                             }
                         }
@@ -2497,7 +2585,7 @@ private fun MediaCarouselSection(
                                 .background(Color.Black.copy(alpha = 0.75f))
                         ) {
                             IconButton(onClick = { onRemoveItem(media) }, modifier = Modifier.fillMaxSize()) {
-                                Icon(Icons.Default.Close, "Remove", tint = Color.White, modifier = Modifier.size(22.dp))
+                                Icon(Icons.Default.Close, stringResource(R.string.home_remove), tint = Color.White, modifier = Modifier.size(22.dp))
                             }
                         }
                     }
@@ -2599,7 +2687,7 @@ private fun MediaGridRow(
                 else {
                     val percentage = (watched / duration * 100f).coerceIn(0f, 100f)
                     if (percentage >= 95f) null else percentage to if (entry.type == "show" && entry.seasonNumber != null && entry.episodeNumber != null) {
-                        "S${entry.seasonNumber} - E${entry.episodeNumber}"
+                        stringResource(R.string.home_season_episode, entry.seasonNumber, entry.episodeNumber)
                     } else null
                 }
             }
@@ -2632,14 +2720,14 @@ private fun MediaGridRow(
                                 .background(Color.Black.copy(alpha = 0.75f))
                         ) {
                             IconButton(onClick = { onEditItem(media) }, modifier = Modifier.fillMaxSize()) {
-                                Icon(Icons.Default.Edit, "Edit bookmark", tint = Color.White, modifier = Modifier.size(22.dp))
+                                Icon(Icons.Default.Edit, stringResource(R.string.home_edit_bookmark), tint = Color.White, modifier = Modifier.size(22.dp))
                             }
                         }
                     }
                     IconButton(
                         onClick = { onRemoveItem(media) },
                         modifier = Modifier.align(Alignment.TopCenter).offset(y = 62.dp).size(40.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.75f)),
-                    ) { Icon(Icons.Default.Close, "Remove", tint = Color.White, modifier = Modifier.size(22.dp)) }
+                    ) { Icon(Icons.Default.Close, stringResource(R.string.home_remove), tint = Color.White, modifier = Modifier.size(22.dp)) }
                 }
                 if (editable && isTv && tvEditMediaId == media.id && onRemoveItem != null) {
                     TvMediaEditMenu(
@@ -2782,7 +2870,7 @@ private fun LazyListScope.MediaGridPages(
                 ZsIconButton(
                     onClick = { if (clampedPage > 0) onPageChange(clampedPage - 1) },
                     icon = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
-                    contentDescription = "Previous page",
+                    contentDescription = stringResource(R.string.home_previous_page),
                     variant = ZsIconButtonVariant.Ghost,
                     enabled = clampedPage > 0,
                     containerSize = 48.dp,
@@ -2796,7 +2884,7 @@ private fun LazyListScope.MediaGridPages(
                 ZsIconButton(
                     onClick = { if (clampedPage < totalPages - 1) onPageChange(clampedPage + 1) },
                     icon = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                    contentDescription = "Next page",
+                    contentDescription = stringResource(R.string.home_next_page),
                     variant = ZsIconButtonVariant.Ghost,
                     enabled = clampedPage < totalPages - 1,
                     containerSize = 48.dp,
@@ -2866,7 +2954,7 @@ private fun LazyListScope.MediaGridPages(
                         .focusProperties { canFocus = !isTv }
                 )
                 Text(
-                    text = " / $totalPages",
+                    text = stringResource(R.string.home_page_total_suffix, totalPages),
                     color = theme.colors.type.emphasis,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Bold
@@ -2916,16 +3004,18 @@ private fun LayoutMenuDialog(
     var editingGroupName by remember { mutableStateOf("") }
     var editingGroupIcon by remember { mutableStateOf("BOOKMARK") }
     val scope = rememberCoroutineScope()
+    val continueWatchingLabel = stringResource(R.string.home_continue_watching_ellipsis)
+    val bookmarksLabel = stringResource(R.string.home_bookmarks)
 
-    val sections = remember(sectionOrder, allGroups) {
+    val sections = remember(sectionOrder, allGroups, continueWatchingLabel, bookmarksLabel) {
         mutableStateListOf<LayoutItem>().apply {
             sectionOrder.forEach { id ->
                 add(
                     LayoutItem(
                         id = id,
                         label = when (id) {
-                            "continue_watching" -> "Continue Watching..."
-                            "bookmarks" -> "Bookmarks"
+                            "continue_watching" -> continueWatchingLabel
+                            "bookmarks" -> bookmarksLabel
                             else -> if (id.startsWith("[")) normalizeGroupName(id) else id
                         },
                         visible = when (id) {
@@ -2967,7 +3057,7 @@ private fun LayoutMenuDialog(
             ) {
                 Column {
                     Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
-                        Text("Edit Layout", color = theme.colors.type.emphasis, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        Text(stringResource(R.string.home_edit_layout), color = theme.colors.type.emphasis, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                         ZsIconButton(
                             onClick = onDismiss,
                             icon = Icons.Default.Close,
@@ -3027,7 +3117,7 @@ private fun LayoutMenuDialog(
                                             editingGroupName = normalizeGroupName(section.id)
                                             editingGroupIcon = groupIconKey(section.id) ?: "BOOKMARK"
                                         }, modifier = Modifier.size(24.dp)) {
-                                            Icon(Icons.Default.Edit, "Edit group", tint = theme.colors.type.dimmed, modifier = Modifier.size(14.dp))
+                                            Icon(Icons.Default.Edit, stringResource(R.string.home_edit_group), tint = theme.colors.type.dimmed, modifier = Modifier.size(14.dp))
                                         }
                                     }
                                     Switch(
@@ -3059,7 +3149,7 @@ private fun LayoutMenuDialog(
             ) {
                 Column {
                     Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
-                        Text("Edit Layout", color = theme.colors.type.emphasis, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        Text(stringResource(R.string.home_edit_layout), color = theme.colors.type.emphasis, fontWeight = FontWeight.Bold, fontSize = 15.sp)
                         ZsIconButton(
                             onClick = onDismiss,
                             icon = Icons.Default.Close,
@@ -3102,7 +3192,7 @@ private fun LayoutMenuDialog(
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
                                     Icon(
-                                        Icons.Default.DragHandle, "Drag to reorder",
+                                        Icons.Default.DragHandle, stringResource(R.string.home_drag_to_reorder),
                                         tint = theme.colors.type.dimmed,
                                         modifier = Modifier
                                             .size(24.dp)
@@ -3168,7 +3258,7 @@ private fun LayoutMenuDialog(
                                             editingGroupName = normalizeGroupName(section.id)
                                             editingGroupIcon = groupIconKey(section.id) ?: "BOOKMARK"
                                         }, modifier = Modifier.size(24.dp)) {
-                                            Icon(Icons.Default.Edit, "Edit group", tint = theme.colors.type.dimmed, modifier = Modifier.size(14.dp))
+                                            Icon(Icons.Default.Edit, stringResource(R.string.home_edit_group), tint = theme.colors.type.dimmed, modifier = Modifier.size(14.dp))
                                         }
                                     }
                                     Switch(
@@ -3205,15 +3295,15 @@ private fun LayoutMenuDialog(
                 modifier = Modifier.widthIn(max = 384.dp),
             ) {
                 Column(Modifier.padding(horizontal = 16.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("Edit group", color = theme.colors.type.emphasis, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.home_edit_group), color = theme.colors.type.emphasis, fontSize = 20.sp, fontWeight = FontWeight.Bold)
                     OutlinedTextField(
                         value = editingGroupName,
                         onValueChange = { editingGroupName = it },
-                        label = { Text("Group name") },
+                        label = { Text(stringResource(R.string.home_group_name)) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                     )
-                    Text("Icon", color = theme.colors.type.secondary, fontSize = 12.sp)
+                    Text(stringResource(R.string.home_icon), color = theme.colors.type.secondary, fontSize = 12.sp)
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         groupIconOptions.forEach { (key, icon) ->
                             Surface(
@@ -3229,11 +3319,11 @@ private fun LayoutMenuDialog(
                         }
                     }
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                        TextButton(onClick = { editingGroup = null; editingGroupName = ""; editingGroupIcon = "BOOKMARK" }) { Text("Cancel", color = theme.colors.type.secondary) }
+                        TextButton(onClick = { editingGroup = null; editingGroupName = ""; editingGroupIcon = "BOOKMARK" }) { Text(stringResource(R.string.home_cancel), color = theme.colors.type.secondary) }
                         TextButton(enabled = editingGroupName.trim().isNotEmpty(), onClick = {
                             vm?.renameGroup(group, "[${editingGroupIcon.lowercase()}]${editingGroupName.trim()}")
                             editingGroup = null
-                        }) { Text("Save", color = theme.colors.global.accentA) }
+                        }) { Text(stringResource(R.string.home_save), color = theme.colors.global.accentA) }
                     }
                 }
             }
@@ -3265,6 +3355,7 @@ private fun SandwichMenuDialog(
     val uriHandler = LocalUriHandler.current
     val isTv = LocalIsTv.current
     val firstItemFocusRequester = remember { FocusRequester() }
+    val syncedFallback = stringResource(R.string.home_synced)
 
     LaunchedEffect(Unit) {
         if (isTv) {
@@ -3306,9 +3397,9 @@ private fun SandwichMenuDialog(
                         .imePadding()
                 ) {
                     if (session != null) {
-                        val displayName = session.nickname.ifBlank { session.deviceName.ifBlank { "Synced" } }
+                        val displayName = session.nickname.ifBlank { session.deviceName.ifBlank { syncedFallback } }
                         SandwichItem(
-                            Icons.Default.Person, "Profile: $displayName", theme = theme, tint = theme.colors.global.accentA,
+                            Icons.Default.Person, stringResource(R.string.home_profile_value, displayName), theme = theme, tint = theme.colors.global.accentA,
                             modifier = Modifier.focusRequester(firstItemFocusRequester)
                         ) {
                             nav.navigate("profileSwitcher")
@@ -3316,7 +3407,7 @@ private fun SandwichMenuDialog(
                         }
                     } else {
                         SandwichItem(
-                            Icons.Default.Star, "Sync to Cloud", theme = theme, tint = theme.colors.global.accentA,
+                            Icons.Default.Star, stringResource(R.string.home_sync_to_cloud), theme = theme, tint = theme.colors.global.accentA,
                             modifier = Modifier.focusRequester(firstItemFocusRequester)
                         ) {
                             nav.navigate("login")
@@ -3326,17 +3417,17 @@ private fun SandwichMenuDialog(
                     HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp), color = theme.colors.type.divider.copy(alpha = 0.15f))
 
                     val settingsModifier = if (session != null) Modifier.focusRequester(firstItemFocusRequester) else Modifier
-                    SandwichItem(Icons.Default.Settings, "Settings", theme = theme, modifier = settingsModifier) { nav.navigate("settings"); onDismiss() }
-                    SandwichItem(Icons.Default.Download, "Downloads", theme = theme) { nav.navigate("downloads"); onDismiss() }
-                    SandwichItem(Icons.Default.History, "Watch History", theme = theme) { nav.navigate("watchHistory"); onDismiss() }
-                    SandwichItem(Icons.Default.Tv, "Sync from phone", theme = theme) { nav.navigate("tvSync"); onDismiss() }
-                    SandwichItem(Icons.Default.Notifications, if (unreadCount > 0) "Notifications ($unreadCount)" else "Notifications", theme = theme) {
+                    SandwichItem(Icons.Default.Settings, stringResource(R.string.home_settings), theme = theme, modifier = settingsModifier) { nav.navigate("settings"); onDismiss() }
+                    SandwichItem(Icons.Default.Download, stringResource(R.string.home_downloads), theme = theme) { nav.navigate("downloads"); onDismiss() }
+                    SandwichItem(Icons.Default.History, stringResource(R.string.home_watch_history), theme = theme) { nav.navigate("watchHistory"); onDismiss() }
+                    SandwichItem(Icons.Default.Tv, stringResource(R.string.home_sync_from_phone), theme = theme) { nav.navigate("tvSync"); onDismiss() }
+                    SandwichItem(Icons.Default.Notifications, if (unreadCount > 0) stringResource(R.string.home_notifications_count, unreadCount) else stringResource(R.string.home_notifications), theme = theme) {
                         onNotifications()
                         onDismiss()
                     }
                     if (showHeaderActions) {
-                        SandwichItem(ImageVector.vectorResource(R.drawable.ic_discord), "Discord", theme = theme) { onDiscord(); onDismiss() }
-                        SandwichItem(Icons.Default.AttachMoney, "Tip Jar", theme = theme) { onTipJar(); onDismiss() }
+                        SandwichItem(ImageVector.vectorResource(R.drawable.ic_discord), stringResource(R.string.home_discord), theme = theme) { onDiscord(); onDismiss() }
+                        SandwichItem(Icons.Default.AttachMoney, stringResource(R.string.home_tip_jar), theme = theme) { onTipJar(); onDismiss() }
                     }
                     if (watchPartyEnabled) {
                         val watchPartyHostGraceDeadlineMs by vm.watchPartyHostGraceDeadlineMs.collectAsState()
@@ -3395,7 +3486,7 @@ private fun SandwichMenuDialog(
                                                 contentAlignment = Alignment.CenterStart
                                             ) {
                                                 if (watchPartyCode.isEmpty()) {
-                                                    Text("Enter a Watch Party code", color = theme.colors.type.dimmed, fontSize = 13.sp)
+                                                    Text(stringResource(R.string.home_enter_watch_party_code), color = theme.colors.type.dimmed, fontSize = 13.sp)
                                                 }
                                                 BasicTextField(
                                                     value = watchPartyCode,
@@ -3434,7 +3525,7 @@ private fun SandwichMenuDialog(
                                             ZsIconButton(
                                                 onClick = { isJoiningWatchParty = false },
                                                 icon = Icons.Default.Close,
-                                                contentDescription = "Cancel",
+                                                contentDescription = stringResource(R.string.home_cancel),
                                                 variant = ZsIconButtonVariant.Ghost,
                                                 containerSize = 24.dp,
                                                 iconSize = 14.dp
@@ -3442,7 +3533,7 @@ private fun SandwichMenuDialog(
                                         }
                                     } else {
                                         Text(
-                                            "Join a Watch Party",
+                                            stringResource(R.string.home_join_watch_party),
                                             color = theme.colors.type.text,
                                             fontSize = 14.sp,
                                             fontWeight = FontWeight.Normal
@@ -3506,7 +3597,7 @@ private fun SandwichMenuDialog(
                 .padding(vertical = 8.dp)) {
                 Column {
                     if (session != null) {
-                        val displayName = session.nickname.ifBlank { session.deviceName.ifBlank { "Synced" } }
+                        val displayName = session.nickname.ifBlank { session.deviceName.ifBlank { syncedFallback } }
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -3516,11 +3607,11 @@ private fun SandwichMenuDialog(
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
                             Icon(Icons.Default.CheckCircle, null, tint = theme.colors.type.success, modifier = Modifier.size(18.dp))
-                            Text("Synced: $displayName", color = theme.colors.type.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                            Text(stringResource(R.string.home_synced_value, displayName), color = theme.colors.type.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                         }
                     } else {
                         SandwichItem(
-                            Icons.Default.Star, "Sync to Cloud", theme = theme, tint = theme.colors.global.accentA,
+                            Icons.Default.Star, stringResource(R.string.home_sync_to_cloud), theme = theme, tint = theme.colors.global.accentA,
                         ) {
                             nav.navigate("login")
                             onDismiss()
@@ -3528,16 +3619,16 @@ private fun SandwichMenuDialog(
                     }
                     HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp), color = theme.colors.type.divider.copy(alpha = 0.15f))
 
-                    SandwichItem(Icons.Default.Settings, "Settings", theme = theme) { nav.navigate("settings"); onDismiss() }
-                    SandwichItem(Icons.Default.History, "Watch History", theme = theme) { nav.navigate("watchHistory"); onDismiss() }
-                    SandwichItem(Icons.Default.Download, "Downloads", theme = theme) { nav.navigate("downloads"); onDismiss() }
-                    SandwichItem(Icons.Default.Notifications, if (unreadCount > 0) "Notifications ($unreadCount)" else "Notifications", theme = theme) {
+                    SandwichItem(Icons.Default.Settings, stringResource(R.string.home_settings), theme = theme) { nav.navigate("settings"); onDismiss() }
+                    SandwichItem(Icons.Default.History, stringResource(R.string.home_watch_history), theme = theme) { nav.navigate("watchHistory"); onDismiss() }
+                    SandwichItem(Icons.Default.Download, stringResource(R.string.home_downloads), theme = theme) { nav.navigate("downloads"); onDismiss() }
+                    SandwichItem(Icons.Default.Notifications, if (unreadCount > 0) stringResource(R.string.home_notifications_count, unreadCount) else stringResource(R.string.home_notifications), theme = theme) {
                         onNotifications()
                         onDismiss()
                     }
                     if (showHeaderActions) {
-                        SandwichItem(ImageVector.vectorResource(R.drawable.ic_discord), "Discord", theme = theme) { onDiscord(); onDismiss() }
-                        SandwichItem(Icons.Default.AttachMoney, "Tip Jar", theme = theme) { onTipJar(); onDismiss() }
+                        SandwichItem(ImageVector.vectorResource(R.drawable.ic_discord), stringResource(R.string.home_discord), theme = theme) { onDiscord(); onDismiss() }
+                        SandwichItem(Icons.Default.AttachMoney, stringResource(R.string.home_tip_jar), theme = theme) { onTipJar(); onDismiss() }
                     }
                     if (watchPartyEnabled) {
                         val watchPartyHostGraceDeadlineMs by vm.watchPartyHostGraceDeadlineMs.collectAsState()
@@ -3581,7 +3672,7 @@ private fun SandwichMenuDialog(
                                     }),
                                     decorationBox = { input ->
                                         if (watchPartyCode.isEmpty()) {
-                                            Text("Watch Party code", color = theme.colors.type.dimmed, fontSize = 14.sp)
+                                            Text(stringResource(R.string.home_watch_party_code), color = theme.colors.type.dimmed, fontSize = 14.sp)
                                         }
                                         input()
                                     },
@@ -3595,12 +3686,12 @@ private fun SandwichMenuDialog(
                                     },
                                     enabled = watchPartyCode.length >= 4,
                                 ) {
-                                    Icon(Icons.Default.ArrowForward, "Join Watch Party")
+                                    Icon(Icons.AutoMirrored.Filled.ArrowForward, stringResource(R.string.home_join_watch_party))
                                 }
                             }
                             LaunchedEffect(Unit) { focusRequester.requestFocus() }
                         } else {
-                            SandwichItem(Icons.Default.Group, "Join a Watch Party", theme = theme) {
+                            SandwichItem(Icons.Default.Group, stringResource(R.string.home_join_watch_party), theme = theme) {
                                 isJoiningWatchParty = true
                             }
                         }
@@ -3671,16 +3762,16 @@ private fun WatchPartyActiveItem(
 
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                "Watch Party Active",
+                stringResource(R.string.home_watch_party_active),
                 color = theme.colors.type.emphasis,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Bold
             )
             Text(
                 when {
-                    isOffline -> "Connection lost"
-                    hostGraceDeadlineMs != null -> "Host reconnect window active"
-                    else -> "Room: ${roomCode ?: "..."}"
+                    isOffline -> stringResource(R.string.home_connection_lost)
+                    hostGraceDeadlineMs != null -> stringResource(R.string.home_host_reconnect_active)
+                    else -> stringResource(R.string.home_room_value, roomCode ?: "...")
                 },
                 color = if (isOffline) theme.colors.type.danger else theme.colors.type.secondary,
                 fontSize = 12.sp
@@ -3700,7 +3791,7 @@ private fun WatchPartyActiveItem(
         ZsIconButton(
             onClick = onJump,
             icon = Icons.Default.PlayArrow,
-            contentDescription = "Jump to Host",
+            contentDescription = stringResource(R.string.home_jump_to_host),
             variant = ZsIconButtonVariant.Ghost,
             containerSize = 32.dp,
             iconSize = 18.dp
@@ -3708,8 +3799,8 @@ private fun WatchPartyActiveItem(
 
         ZsIconButton(
             onClick = onLeave,
-            icon = Icons.Default.Logout,
-            contentDescription = "Leave",
+            icon = Icons.AutoMirrored.Filled.Logout,
+            contentDescription = stringResource(R.string.home_leave),
             variant = ZsIconButtonVariant.Ghost,
             containerSize = 32.dp,
             iconSize = 18.dp
@@ -3815,7 +3906,7 @@ private fun NotificationsDialog(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
-                            "Notifications",
+                            stringResource(R.string.home_notifications),
                             color = theme.colors.type.emphasis,
                             fontWeight = FontWeight.Bold,
                             fontSize = if (isTv) 14.sp else 15.sp,
@@ -3842,7 +3933,7 @@ private fun NotificationsDialog(
                                                 .padding(horizontal = 8.dp, vertical = 4.dp),
                                         ) {
                                     Text(
-                                        "Mark all read",
+                                        stringResource(R.string.home_mark_all_read),
                                         color = theme.colors.global.accentA,
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.SemiBold,
@@ -3865,7 +3956,7 @@ private fun NotificationsDialog(
                         Box(Modifier
                             .fillMaxWidth()
                             .height(200.dp), contentAlignment = Alignment.Center) {
-                            Text("No notifications", color = theme.colors.type.dimmed, fontSize = 13.sp)
+                            Text(stringResource(R.string.home_no_notifications), color = theme.colors.type.dimmed, fontSize = 13.sp)
                         }
                     } else {
                         Column(
@@ -3948,7 +4039,7 @@ private fun NotificationCard(
                             .padding(horizontal = 6.dp, vertical = 2.dp),
                     ) {
                         Text(
-                            notif.category.replaceFirstChar { it.uppercase() },
+                            localizedNotificationCategory(notif.category),
                             color = categoryColor, fontSize = 10.sp, fontWeight = FontWeight.SemiBold,
                         )
                     }
@@ -4011,7 +4102,7 @@ private fun NotificationDetailView(
                 modifier = Modifier.focusRequester(backFocusRequester)
             )
             Spacer(Modifier.width(8.dp))
-            Text("Notification", color = theme.colors.type.emphasis, fontWeight = FontWeight.Bold, fontSize = 15.sp, modifier = Modifier.weight(1f))
+            Text(stringResource(R.string.home_notification), color = theme.colors.type.emphasis, fontWeight = FontWeight.Bold, fontSize = 15.sp, modifier = Modifier.weight(1f))
             ZsIconButton(
                 onClick = onDismiss,
                 icon = Icons.Default.Close,
@@ -4034,7 +4125,7 @@ private fun NotificationDetailView(
                             .padding(horizontal = 6.dp, vertical = 2.dp),
                     ) {
                         Text(
-                            notif.category.replaceFirstChar { it.uppercase() },
+                            localizedNotificationCategory(notif.category),
                             color = categoryColor, fontSize = 11.sp, fontWeight = FontWeight.SemiBold,
                         )
                     }
@@ -4083,7 +4174,7 @@ private fun NotificationDetailView(
                                 .padding(horizontal = 12.dp, vertical = 8.dp),
                         ) {
                             Text(
-                                "Mark as read",
+                                stringResource(R.string.home_mark_as_read),
                                 color = theme.colors.type.secondary,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.SemiBold,
@@ -4119,7 +4210,7 @@ private fun NotificationDetailView(
                                 .padding(horizontal = 12.dp, vertical = 8.dp),
                         ) {
                             Text(
-                                "Open link",
+                                stringResource(R.string.home_open_link),
                                 color = theme.colors.global.accentA,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.SemiBold,
@@ -4130,7 +4221,7 @@ private fun NotificationDetailView(
             }
             Spacer(Modifier.height(4.dp))
             Text(
-                if (isRead) "Read notification" else "Unread notification",
+                stringResource(if (isRead) R.string.home_read_notification else R.string.home_unread_notification),
                 color = theme.colors.type.dimmed, fontSize = 10.sp,
             )
         }
@@ -4174,7 +4265,7 @@ private fun TipJarDialog(onDismiss: () -> Unit) {
         ) {
             Column {
                 Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
-                    Text("Tip Jar", color = theme.colors.type.emphasis, fontWeight = FontWeight.Bold, fontSize = if (isTv) 14.sp else 15.sp)
+                    Text(stringResource(R.string.home_tip_jar), color = theme.colors.type.emphasis, fontWeight = FontWeight.Bold, fontSize = if (isTv) 14.sp else 15.sp)
                     ZsIconButton(
                         onClick = onDismiss,
                         icon = Icons.Default.Close,
@@ -4187,7 +4278,7 @@ private fun TipJarDialog(onDismiss: () -> Unit) {
                 }
                 Spacer(Modifier.height(12.dp))
                 Text(
-                    "zstream is free and 99.9% ad-free. If you'd like to support hosting + the server bill, we would love your support on any amount to one of the addresses below. Tap an address to copy it.",
+                    stringResource(R.string.home_tip_jar_description),
                     color = theme.colors.type.text, fontSize = 12.sp, lineHeight = 18.sp,
                 )
                 Spacer(Modifier.height(16.dp))
@@ -4239,14 +4330,14 @@ private fun TipJarDialog(onDismiss: () -> Unit) {
                                         maxLines = 1, overflow = TextOverflow.Ellipsis,
                                     )
                                 }
-                                Text("Copy", color = theme.colors.global.accentA, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                                Text(stringResource(R.string.home_copy), color = theme.colors.global.accentA, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                             }
                         }
                     }
                 }
                 Spacer(Modifier.height(16.dp))
                 Text(
-                    "Thank you 💛 every tip helps keep the lights on.",
+                    stringResource(R.string.home_tip_thank_you),
                     color = theme.colors.type.dimmed, fontSize = 12.sp,
                     textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth(),
                 )
@@ -4535,7 +4626,7 @@ private fun FeaturedCarousel(
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                 Image(
                                     painter = painterResource(id = R.drawable.tmdb_logo),
-                                    contentDescription = "TMDB Logo",
+                                    contentDescription = stringResource(R.string.home_tmdb_logo),
                                     modifier = Modifier.size(if (isTv) 18.dp else 22.dp)
                                 )
                                 Text(
@@ -4557,7 +4648,7 @@ private fun FeaturedCarousel(
                                 )
                             }
 
-                            val typeLabel = if (type == "tv") "TV Show" else "Movie"
+                            val typeLabel = stringResource(if (type == "tv") R.string.home_tv_show else R.string.home_movie)
                             Text("•", color = Color.White.copy(alpha = 0.7f))
                             Text(
                                 typeLabel,
@@ -4662,7 +4753,7 @@ private fun FeaturedCarousel(
                                     ) {
                                         Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(if (isTv) 18.dp else 20.dp), tint = theme.colors.buttons.primaryText)
                                         Spacer(Modifier.width(8.dp))
-                                        Text("Play Now", fontSize = if (isTv) 14.sp else 15.sp, fontWeight = FontWeight.Bold)
+                                        Text(stringResource(R.string.home_play_now), fontSize = if (isTv) 14.sp else 15.sp, fontWeight = FontWeight.Bold)
                                     }
                                 }
 
@@ -4725,7 +4816,7 @@ private fun FeaturedCarousel(
                                     ) {
                                         Icon(Icons.Default.Info, contentDescription = null, modifier = Modifier.size(if (isTv) 18.dp else 20.dp), tint = theme.colors.buttons.secondaryText)
                                         Spacer(Modifier.width(8.dp))
-                                        Text("More Info", fontSize = if (isTv) 14.sp else 15.sp, fontWeight = FontWeight.Bold)
+                                        Text(stringResource(R.string.home_more_info), fontSize = if (isTv) 14.sp else 15.sp, fontWeight = FontWeight.Bold)
                                     }
                                 }
                             }
@@ -4880,7 +4971,7 @@ private fun SearchOverlay(
                             ZsIconButton(
                                 onClick = { onSearch("") },
                                 icon = Icons.Default.Close,
-                                contentDescription = "Clear search",
+                                contentDescription = stringResource(R.string.home_clear_search),
                                 variant = ZsIconButtonVariant.Ghost,
                                 containerSize = 28.dp,
                                 iconSize = 16.dp,
@@ -5142,7 +5233,7 @@ private fun TvHomeScreenContent(
                 if (state.searchQuery.isNotBlank() || state.isDiscoverMode) {
                     item {
                         Text(
-                            "Search results",
+                            stringResource(R.string.home_search_results),
                             color = theme.colors.type.emphasis,
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Bold,
@@ -5187,11 +5278,11 @@ private fun TvHomeScreenContent(
                                                 .padding(horizontal = 16.dp, vertical = 10.dp),
                                             contentAlignment = Alignment.Center
                                         ) {
-                                            Text("Load More", color = theme.colors.type.emphasis, fontSize = 18.sp)
+                                            Text(stringResource(R.string.home_load_more), color = theme.colors.type.emphasis, fontSize = 18.sp)
                                         }
                                     }
                                 } else {
-                                    Text("That's all we have...", color = theme.colors.type.secondary, fontSize = 12.sp)
+                                    Text(stringResource(R.string.home_end_of_results), color = theme.colors.type.secondary, fontSize = 12.sp)
                                 }
                             }
                         }
@@ -5201,7 +5292,7 @@ private fun TvHomeScreenContent(
                     if (showContinueWatchingLoading) {
                         item(key = "continue_watching_loading") {
                             HomeSectionLoading(
-                                title = "Continue Watching",
+                                title = stringResource(R.string.home_continue_watching),
                                 modifier = Modifier.onFocusChanged {
                                     if (it.hasFocus) {
                                         requestTvHomeScroll(
@@ -5217,7 +5308,7 @@ private fun TvHomeScreenContent(
                     }
                     if (showBookmarksLoading) {
                         item(key = "bookmarks_loading") {
-                            HomeSectionLoading(title = "My Bookmarks")
+                            HomeSectionLoading(title = stringResource(R.string.home_my_bookmarks))
                         }
                         item { Spacer(Modifier.height(TvHomeMetrics.sectionSpacing)) }
                     }
@@ -5367,7 +5458,7 @@ private fun TvHomeScreenContent(
                 ) {
                     Icon(
                         Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                        "PiP controls",
+                        stringResource(R.string.home_pip_controls),
                         tint = theme.colors.type.emphasis,
                     )
                 }
@@ -5415,20 +5506,20 @@ internal fun TvPipDrawerPanel(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Text(
-                    "Picture in picture",
+                    stringResource(R.string.home_picture_in_picture),
                     color = theme.colors.type.emphasis,
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                 )
-                TvPipDrawerRow("Open player", Icons.Default.OpenInFull, onOpenPip, Modifier.focusRequester(firstRowFocusRequester))
+                TvPipDrawerRow(stringResource(R.string.home_open_player), Icons.Default.OpenInFull, onOpenPip, Modifier.focusRequester(firstRowFocusRequester))
                 TvPipDrawerRow(
-                    if (isPipPlaying) "Pause" else "Play",
+                    stringResource(if (isPipPlaying) R.string.home_pause else R.string.home_play),
                     if (isPipPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                     onTogglePipPlayback,
                 )
-                TvPipDrawerRow("Move PiP", Icons.Default.SwapHoriz, onMovePip)
-                TvPipDrawerRow("Close PiP", Icons.Default.Close, onClosePip)
+                TvPipDrawerRow(stringResource(R.string.home_move_pip), Icons.Default.SwapHoriz, onMovePip)
+                TvPipDrawerRow(stringResource(R.string.home_close_pip), Icons.Default.Close, onClosePip)
             }
     }
 }
@@ -5507,7 +5598,7 @@ private fun TvTopBar(
                         .size(24.dp)
                         .clip(CircleShape)
                 )
-                Text("Z-Stream", color = theme.colors.type.emphasis, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Text(stringResource(R.string.home_brand_name), color = theme.colors.type.emphasis, fontSize = 18.sp, fontWeight = FontWeight.Bold)
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {

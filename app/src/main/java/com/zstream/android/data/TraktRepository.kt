@@ -8,9 +8,10 @@ import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.google.gson.Gson
-import com.zstream.android.BuildConfig
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
+import com.zstream.android.BuildConfig
+import com.zstream.android.R
 import com.zstream.android.data.local.dao.BookmarkDao
 import com.zstream.android.data.local.dao.ProgressDao
 import com.zstream.android.data.local.entity.BookmarkEntity
@@ -123,7 +124,9 @@ class TraktRepository @Inject constructor(
             .post(gson.toJson(body).toRequestBody("application/json".toMediaType()))
             .build()
         val authorization = withContext(Dispatchers.IO) { http.newCall(request).execute() }.use {
-            if (!it.isSuccessful) throw IllegalStateException("Trakt authorization failed (${it.code})")
+            if (!it.isSuccessful) {
+                throw IllegalStateException(context.getString(R.string.settings_trakt_authorization_failed, it.code))
+            }
             gson.fromJson(it.body?.string().orEmpty(), DeviceAuthorization::class.java)
         }
         _state.value = _state.value.copy(syncing = true, activationCode = authorization.userCode, lastError = null)
@@ -198,7 +201,7 @@ class TraktRepository @Inject constructor(
         }
     }
 
-    suspend fun syncWatchlist() = sync("Watchlist sync failed") {
+    suspend fun syncWatchlist() = sync(context.getString(R.string.settings_trakt_watchlist_sync_failed)) {
         bookmarkDao.getAllSync().forEach { bookmark ->
             api("/sync/watchlist", "POST", mediaPayload(bookmark.type, bookmark.tmdbId))
         }
@@ -226,7 +229,7 @@ class TraktRepository @Inject constructor(
         if (updates.isNotEmpty()) bookmarkDao.insertAll(updates)
     }
 
-    suspend fun syncHistory() = sync("History sync failed") {
+    suspend fun syncHistory() = sync(context.getString(R.string.settings_trakt_history_sync_failed)) {
         pullHistory()
         pullPlaybackProgress()
         progressDao.getAllSync().filter { it.duration > 0 && it.watched.toDouble() / it.duration >= .25 }.forEach { progress ->
@@ -374,7 +377,8 @@ class TraktRepository @Inject constructor(
         val wait = 500 - (System.currentTimeMillis() - lastRequestAt)
         if (wait > 0) delay(wait)
         val prefs = context.traktStore.data.first()
-        var token = prefs[accessKey] ?: throw IllegalStateException("Trakt is not connected")
+        var token = prefs[accessKey]
+            ?: throw IllegalStateException(context.getString(R.string.settings_not_connected))
         if ((prefs[expiresKey] ?: 0) < System.currentTimeMillis() + 60_000) token = refresh()
         fun request() = Request.Builder().url("https://api.trakt.tv$path")
             .header("Authorization", "Bearer $token")
@@ -392,14 +396,19 @@ class TraktRepository @Inject constructor(
         }
         response.use {
             val body = it.body?.string().orEmpty()
-            if (!it.isSuccessful) throw IllegalStateException("Trakt request failed (${it.code})")
+            if (!it.isSuccessful) {
+                throw IllegalStateException(context.getString(R.string.settings_trakt_request_failed, it.code))
+            }
             if (body.isBlank()) JsonObject() else JsonParser.parseString(body)
         }
     }
 
     private suspend fun refresh(): String = try {
         val prefs = context.traktStore.data.first()
-        val token = refreshToken(prefs[refreshKey] ?: throw IllegalStateException("Missing Trakt refresh token"))
+        val token = refreshToken(
+            prefs[refreshKey]
+                ?: throw IllegalStateException(context.getString(R.string.settings_trakt_session_expired))
+        )
         context.traktStore.edit {
             it[accessKey] = token.accessToken
             it[refreshKey] = token.refreshToken
@@ -408,7 +417,7 @@ class TraktRepository @Inject constructor(
         token.accessToken
     } catch (error: Exception) {
         context.traktStore.edit { it.clear() }
-        _state.value = TraktState(lastError = "Trakt session expired")
+        _state.value = TraktState(lastError = context.getString(R.string.settings_trakt_session_expired))
         throw error
     }
 
@@ -446,7 +455,9 @@ class TraktRepository @Inject constructor(
             .build()
         return withContext(Dispatchers.IO) { http.newCall(request).execute() }.use {
             val responseBody = it.body?.string().orEmpty()
-            if (!it.isSuccessful) throw IllegalStateException("Trakt authorization failed (${it.code})")
+            if (!it.isSuccessful) {
+                throw IllegalStateException(context.getString(R.string.settings_trakt_authorization_failed, it.code))
+            }
             gson.fromJson(responseBody, TokenResponse::class.java)
         }
     }
@@ -478,11 +489,13 @@ class TraktRepository @Inject constructor(
                         }
                         DevicePollAction.WAIT -> Unit
                         DevicePollAction.SLOW_DOWN -> intervalSeconds++
-                        DevicePollAction.FAIL -> throw IllegalStateException("Trakt authorization failed (${it.code})")
+                        DevicePollAction.FAIL -> throw IllegalStateException(
+                            context.getString(R.string.settings_trakt_authorization_failed, it.code)
+                        )
                     }
                 }
             }
-            throw IllegalStateException("Trakt authorization expired")
+            throw IllegalStateException(context.getString(R.string.settings_trakt_authorization_expired))
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {

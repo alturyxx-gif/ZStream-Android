@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">ZStream</string>
+    <string name="shortcut_home">گھر</string>
+    <string name="shortcut_discover">دریافت کریں۔</string>
+    <string name="shortcut_settings">ترتیبات</string>
+    <string name="shortcut_migration">ہجرت</string>
+</resources>

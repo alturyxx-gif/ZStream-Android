@@ -18,9 +18,9 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Brush
-import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.Edit
@@ -92,6 +92,7 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalActivity
@@ -101,6 +102,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import com.zstream.android.BuildConfig
+import com.zstream.android.R
 import com.zstream.android.Urls
 import com.zstream.android.data.AccountSession
 import com.zstream.android.data.AuroraKeyInfo
@@ -208,18 +210,36 @@ private fun TvSettingsScreen(
             scope.launch {
                 runCatching {
                     val json = context.contentResolver.openInputStream(it)?.bufferedReader()?.use { r -> r.readText() }
-                        ?: throw IllegalStateException("Could not read file")
+                        ?: throw IllegalStateException(context.getString(R.string.settings_error_could_not_read_file))
                     vm.importDataJson(json)
                 }.onSuccess { summary ->
-                    Toast.makeText(context, "Imported ${summary.bookmarksImported} bookmarks, ${summary.progressImported} progress entries", Toast.LENGTH_LONG).show()
+                    Toast.makeText(
+                        context,
+                        context.getString(
+                            R.string.settings_import_success,
+                            summary.bookmarksImported,
+                            summary.progressImported,
+                        ),
+                        Toast.LENGTH_LONG,
+                    ).show()
                 }.onFailure { e ->
-                    Toast.makeText(context, "Import failed: ${e.message}", Toast.LENGTH_LONG).show()
+                    Toast.makeText(
+                        context,
+                        context.getString(R.string.settings_import_failed, e.message.orEmpty()),
+                        Toast.LENGTH_LONG,
+                    ).show()
                 }
             }
         }
     }
 
-    val tabs = listOf("Account", "Preferences", "Appearance", "Subtitles", "Connections")
+    val tabs = listOf(
+        stringResource(R.string.settings_tab_account),
+        stringResource(R.string.settings_tab_preferences),
+        stringResource(R.string.settings_tab_appearance),
+        stringResource(R.string.settings_tab_subtitles),
+        stringResource(R.string.settings_tab_connections),
+    )
     val selectedTab = currentTab.coerceIn(0, tabs.lastIndex)
     val tabFocusRequesters = remember { List(tabs.size) { FocusRequester() } }
     val contentFirstItemFocusRequester = remember { FocusRequester() }
@@ -281,7 +301,7 @@ private fun TvSettingsScreen(
                             modifier = Modifier.size(16.dp),
                         )
                         Text(
-                            "Back",
+                            stringResource(R.string.settings_back),
                             color = if (backFocused) Color.White else theme.colors.type.secondary,
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Medium,
@@ -291,7 +311,7 @@ private fun TvSettingsScreen(
 
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "SETTINGS",
+                    stringResource(R.string.settings_title).uppercase(),
                     color = theme.colors.type.dimmed,
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
@@ -393,18 +413,21 @@ private fun WyzieIntegrationCard(
     vm: SettingsViewModel,
     context: android.content.Context,
 ) {
+    val keyRejected = stringResource(R.string.settings_key_rejected_wyzie)
+    val validationFailed = stringResource(R.string.settings_validation_failed)
+
     SettingsCard(theme) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-            Text("Wyzie Subtitles", color = theme.colors.type.text, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            Text(stringResource(R.string.settings_wyzie_subtitles), color = theme.colors.type.text, fontSize = 12.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(4.dp))
             Text(
-                "Optional API key for better-synced subtitles. Get one at store.wyzie.io/redeem.",
+                stringResource(R.string.settings_wyzie_description),
                 color = theme.colors.type.dimmed,
                 fontSize = 11.sp,
                 lineHeight = 16.sp,
             )
             Spacer(Modifier.height(10.dp))
-            Text("API Key", color = theme.colors.type.text, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            Text(stringResource(R.string.settings_api_key), color = theme.colors.type.text, fontSize = 12.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(6.dp))
             var tokenVisible by remember { mutableStateOf(false) }
             var wyzieInput by remember(settings.wyzieKey) { mutableStateOf(settings.wyzieKey.orEmpty()) }
@@ -425,10 +448,10 @@ private fun WyzieIntegrationCard(
                             TokenValidationState.Valid
                         } else {
                             vm.setWyzieKey(null)
-                            TokenValidationState.Invalid("Key was rejected by Wyzie.")
+                            TokenValidationState.Invalid(keyRejected)
                         }
                     },
-                    onFailure = { TokenValidationState.Invalid(it.message ?: "Validation failed.") },
+                    onFailure = { TokenValidationState.Invalid(it.message ?: validationFailed) },
                 )
             }
             BasicTextField(
@@ -456,7 +479,11 @@ private fun WyzieIntegrationCard(
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 IntegrationActionOutline(theme) {
                     TextButton(onClick = { tokenVisible = !tokenVisible }) {
-                        Text(if (tokenVisible) "Hide" else "Show", color = theme.colors.global.accentA, fontSize = 11.sp)
+                        Text(
+                            stringResource(if (tokenVisible) R.string.settings_hide else R.string.settings_show),
+                            color = theme.colors.global.accentA,
+                            fontSize = 11.sp,
+                        )
                     }
                 }
                 IntegrationActionOutline(theme) {
@@ -468,7 +495,7 @@ private fun WyzieIntegrationCard(
                         enabled = wyzieInput.isNotEmpty(),
                     ) {
                         Text(
-                            "Clear",
+                            stringResource(R.string.settings_clear),
                             color = if (wyzieInput.isNotEmpty()) theme.colors.buttons.danger else theme.colors.type.dimmed,
                             fontSize = 11.sp,
                         )
@@ -483,7 +510,7 @@ private fun WyzieIntegrationCard(
                             )
                         )
                     }) {
-                        Text("Get API key", color = theme.colors.global.accentA, fontSize = 11.sp)
+                        Text(stringResource(R.string.settings_get_api_key), color = theme.colors.global.accentA, fontSize = 11.sp)
                     }
                 }
             }
@@ -495,10 +522,10 @@ private fun WyzieIntegrationCard(
                 ) {
                     CircularProgressIndicator(modifier = Modifier.size(12.dp), strokeWidth = 2.dp, color = theme.colors.global.accentA)
                     Spacer(Modifier.width(8.dp))
-                    Text("Checking key…", color = theme.colors.type.dimmed, fontSize = 11.sp)
+                    Text(stringResource(R.string.settings_checking_key), color = theme.colors.type.dimmed, fontSize = 11.sp)
                 }
                 TokenValidationState.Valid -> ZsStatusBanner(
-                    message = "Key accepted by Wyzie.",
+                    message = stringResource(R.string.settings_key_accepted_wyzie),
                     variant = ZsStatusBannerVariant.Success,
                     modifier = Modifier.padding(top = 4.dp),
                 )
@@ -521,19 +548,19 @@ private fun TraktIntegrationCard(
 ) {
     SettingsCard(theme) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-            Text("Trakt", color = theme.colors.type.text, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            Text(stringResource(R.string.settings_trakt), color = theme.colors.type.text, fontSize = 12.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(4.dp))
-            Text("Sync your watchlist and history with Trakt.", color = theme.colors.type.dimmed, fontSize = 11.sp)
+            Text(stringResource(R.string.settings_trakt_description), color = theme.colors.type.dimmed, fontSize = 11.sp)
             Spacer(Modifier.height(4.dp))
             Text(
-                "Syncing might take a few minutes to complete. Changes on Trakt may conflict with local changes, so local items are prioritized.",
+                stringResource(R.string.settings_trakt_sync_notice),
                 color = theme.colors.type.dimmed,
                 fontSize = 11.sp,
                 lineHeight = 16.sp,
             )
             when {
-                trakt.activationCode != null -> Text("Enter code ${trakt.activationCode} at trakt.tv/activate", color = theme.colors.type.text, fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp))
-                trakt.syncing -> Text("Syncing…", color = theme.colors.type.dimmed, fontSize = 11.sp, modifier = Modifier.padding(top = 8.dp))
+                trakt.activationCode != null -> Text(stringResource(R.string.settings_trakt_enter_code, trakt.activationCode.orEmpty()), color = theme.colors.type.text, fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp))
+                trakt.syncing -> Text(stringResource(R.string.settings_syncing), color = theme.colors.type.dimmed, fontSize = 11.sp, modifier = Modifier.padding(top = 8.dp))
                 trakt.lastError != null -> Text(trakt.lastError.orEmpty(), color = theme.colors.buttons.danger, fontSize = 11.sp, modifier = Modifier.padding(top = 8.dp))
             }
             Spacer(Modifier.height(10.dp))
@@ -547,16 +574,16 @@ private fun TraktIntegrationCard(
                         trakt.avatar?.let {
                             coil.compose.AsyncImage(
                                 model = it,
-                                contentDescription = "Trakt profile avatar",
+                                contentDescription = stringResource(R.string.settings_trakt_profile_avatar),
                                 modifier = Modifier.size(28.dp).clip(CircleShape),
                             )
                         }
-                        Text(trakt.name ?: trakt.username ?: "Connected", color = theme.colors.type.text, fontWeight = FontWeight.Bold, maxLines = 1)
+                        Text(trakt.name ?: trakt.username ?: stringResource(R.string.settings_connected), color = theme.colors.type.text, fontWeight = FontWeight.Bold, maxLines = 1)
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         IntegrationActionOutline(theme) {
                             ZsButton(
-                                text = "Sync now",
+                                text = stringResource(R.string.settings_sync_now),
                                 onClick = vm::syncTrakt,
                                 enabled = !trakt.syncing,
                                 loading = trakt.syncing,
@@ -566,7 +593,7 @@ private fun TraktIntegrationCard(
                         }
                         IntegrationActionOutline(theme) {
                             ZsButton(
-                                text = "Disconnect",
+                                text = stringResource(R.string.settings_disconnect),
                                 onClick = vm::disconnectTrakt,
                                 variant = ZsButtonVariant.Danger,
                                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 7.dp),
@@ -577,7 +604,7 @@ private fun TraktIntegrationCard(
             } else {
                 IntegrationActionOutline(theme) {
                     ZsButton(
-                        text = "Connect Trakt",
+                        text = stringResource(R.string.settings_connect_trakt),
                         onClick = { vm.connectTrakt(context) },
                         variant = ZsButtonVariant.Purple,
                         loading = trakt.syncing,
@@ -593,9 +620,9 @@ private fun TraktIntegrationCard(
 private fun SimklIntegrationCard(theme: ZStreamTheme) {
     SettingsCard(theme) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-            Text("Simkl", color = theme.colors.type.text, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            Text(stringResource(R.string.settings_simkl), color = theme.colors.type.text, fontSize = 12.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(4.dp))
-            Text("Sync your watchlist and history with Simkl.", color = theme.colors.type.dimmed, fontSize = 11.sp)
+            Text(stringResource(R.string.settings_simkl_description), color = theme.colors.type.dimmed, fontSize = 11.sp)
             Spacer(Modifier.height(10.dp))
             UnsupportedIntegrationStatus(theme)
         }
@@ -608,7 +635,7 @@ private fun UnsupportedIntegrationStatus(theme: ZStreamTheme) {
         Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
             .background(theme.colors.background.secondary).padding(horizontal = 12.dp, vertical = 10.dp)
     ) {
-        Text("Not available on Android yet", color = theme.colors.type.dimmed, fontSize = 11.sp)
+        Text(stringResource(R.string.settings_not_available_android), color = theme.colors.type.dimmed, fontSize = 11.sp)
     }
 }
 
@@ -737,18 +764,37 @@ private fun PhoneSettingsScreen(
             scope.launch {
                 runCatching {
                     val json = context.contentResolver.openInputStream(it)?.bufferedReader()?.use { r -> r.readText() }
-                        ?: throw IllegalStateException("Could not read file")
+                        ?: throw IllegalStateException(context.getString(R.string.settings_error_could_not_read_file))
                     vm.importDataJson(json)
                 }.onSuccess { summary ->
-                    Toast.makeText(context, "Imported ${summary.bookmarksImported} bookmarks, ${summary.progressImported} progress entries", Toast.LENGTH_LONG).show()
+                    Toast.makeText(
+                        context,
+                        context.getString(
+                            R.string.settings_import_success,
+                            summary.bookmarksImported,
+                            summary.progressImported,
+                        ),
+                        Toast.LENGTH_LONG,
+                    ).show()
                 }.onFailure { e ->
-                    Toast.makeText(context, "Import failed: ${e.message}", Toast.LENGTH_LONG).show()
+                    Toast.makeText(
+                        context,
+                        context.getString(R.string.settings_import_failed, e.message.orEmpty()),
+                        Toast.LENGTH_LONG,
+                    ).show()
                 }
             }
         }
     }
 
-    val tabs = listOf("Account", "Preferences", "Appearance", "Player", "Subtitles", "Connections")
+    val tabs = listOf(
+        stringResource(R.string.settings_tab_account),
+        stringResource(R.string.settings_tab_preferences),
+        stringResource(R.string.settings_tab_appearance),
+        stringResource(R.string.settings_tab_player),
+        stringResource(R.string.settings_tab_subtitles),
+        stringResource(R.string.settings_tab_connections),
+    )
     val tabFocusRequesters = remember { List(tabs.size) { FocusRequester() } }
     val contentFirstItemFocusRequester = remember { FocusRequester() }
     var isContentFocused by remember { mutableStateOf(false) }
@@ -780,7 +826,7 @@ private fun PhoneSettingsScreen(
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = Color.White)
                 }
                 Spacer(Modifier.width(8.dp))
-                Text("Settings", color = theme.colors.type.emphasis, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                Text(stringResource(R.string.settings_title), color = theme.colors.type.emphasis, fontSize = 20.sp, fontWeight = FontWeight.Bold)
             }
 
             // Tab bar
@@ -889,7 +935,7 @@ private fun FebboxAuroraSection(
         }
     }
 
-    SectionLabel("Febbox / Aurora API", theme)
+    SectionLabel(stringResource(R.string.settings_febbox_aurora_api), theme)
     SettingsCard(theme) {
         var showKeys by remember {
             mutableStateOf(settings.febboxKeys.isNotEmpty() || settings.febboxKey != null)
@@ -903,17 +949,15 @@ private fun FebboxAuroraSection(
             verticalAlignment = Alignment.Top,
         ) {
             Column(Modifier.weight(1f).padding(end = 12.dp)) {
-                Text("Aurora API (4K)", color = theme.colors.type.text, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                Text(stringResource(R.string.settings_aurora_api_4k), color = theme.colors.type.text, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    "Bring your own FREE Febbox account(s) to unlock Aurora API — the best sources with " +
-                        "4K quality, Dolby Atmos, and the fastest load times. Add multiple keys and ZStream " +
-                        "automatically switches to the next one once a key's daily bandwidth runs out.",
+                    stringResource(R.string.settings_aurora_description),
                     color = theme.colors.type.dimmed, fontSize = 11.sp, lineHeight = 16.sp,
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    "Your tokens are never stored on our servers — they are sent directly from your device to Febbox.",
+                    stringResource(R.string.settings_aurora_privacy),
                     color = theme.colors.type.dimmed, fontSize = 10.sp, lineHeight = 14.sp,
                 )
             }
@@ -933,20 +977,20 @@ private fun FebboxAuroraSection(
             HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
 
             ZsBottomSheetSectionCard(
-                title = "To get a Febbox token",
+                title = stringResource(R.string.settings_febbox_token_instructions),
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
             ) {
                 val steps = listOf(
-                    "Go to febbox.com and log in with Google (use a fresh account!)",
-                    "Open DevTools or inspect the page",
-                    "Go to Application tab → Cookies",
-                    "Copy the 'ui' cookie's value",
-                    "Close the tab, but do NOT logout!",
+                    stringResource(R.string.settings_febbox_step_login),
+                    stringResource(R.string.settings_febbox_step_devtools),
+                    stringResource(R.string.settings_febbox_step_cookies),
+                    stringResource(R.string.settings_febbox_step_copy_cookie),
+                    stringResource(R.string.settings_febbox_step_close),
                 )
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     steps.forEachIndexed { i, step ->
                         Text(
-                            "${i + 1}. $step",
+                            stringResource(R.string.settings_numbered_step, i + 1, step),
                             color = theme.colors.type.text, fontSize = 11.sp, lineHeight = 16.sp,
                         )
                     }
@@ -956,12 +1000,12 @@ private fun FebboxAuroraSection(
             HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
 
             ZsBottomSheetSectionCard(
-                title = "Keys",
+                title = stringResource(R.string.settings_keys),
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
             ) {
                 Spacer(Modifier.height(8.dp))
                 if (settings.febboxKeys.isEmpty()) {
-                    Text("No keys added yet.", color = theme.colors.type.dimmed, fontSize = 11.sp)
+                    Text(stringResource(R.string.settings_no_keys_added), color = theme.colors.type.dimmed, fontSize = 11.sp)
                     Spacer(Modifier.height(8.dp))
                 }
                 settings.febboxKeys.forEachIndexed { index, key ->
@@ -982,7 +1026,13 @@ private fun FebboxAuroraSection(
                 IntegrationActionOutline(theme) {
                     TextButton(onClick = { vm.addFebboxKey() }) {
                         Text(
-                            if (settings.febboxKeys.isEmpty()) "+ Add key" else "+ Add another key",
+                            stringResource(
+                                if (settings.febboxKeys.isEmpty()) {
+                                    R.string.settings_add_key
+                                } else {
+                                    R.string.settings_add_another_key
+                                }
+                            ),
                             color = theme.colors.global.accentA,
                             fontSize = 11.sp,
                         )
@@ -1078,14 +1128,18 @@ private fun AuroraKeyRow(
         Spacer(Modifier.height(6.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = { tokenVisible = !tokenVisible }) {
-                Text(if (tokenVisible) "Hide" else "Show", color = theme.colors.global.accentA, fontSize = 11.sp)
+                Text(
+                    stringResource(if (tokenVisible) R.string.settings_hide else R.string.settings_show),
+                    color = theme.colors.global.accentA,
+                    fontSize = 11.sp,
+                )
             }
             TextButton(onClick = onRemove) {
-                Text("Remove", color = theme.colors.buttons.danger, fontSize = 11.sp)
+                Text(stringResource(R.string.settings_remove), color = theme.colors.buttons.danger, fontSize = 11.sp)
             }
             if (isActive) {
                 Text(
-                    "ACTIVE",
+                    stringResource(R.string.settings_active).uppercase(),
                     color = theme.colors.type.success,
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
@@ -1098,18 +1152,34 @@ private fun AuroraKeyRow(
             checking -> Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 2.dp)) {
                 CircularProgressIndicator(modifier = Modifier.size(12.dp), strokeWidth = 2.dp, color = theme.colors.global.accentA)
                 Spacer(Modifier.width(8.dp))
-                Text("Checking key…", color = theme.colors.type.dimmed, fontSize = 11.sp)
+                Text(stringResource(R.string.settings_checking_key), color = theme.colors.type.dimmed, fontSize = 11.sp)
             }
             currentInfo?.status == AuroraKeyStatus.VALID -> {
                 val message = if (currentInfo.usedLabel != null && currentInfo.limitLabel != null) {
                     if (currentInfo.exhausted) {
-                        "${currentInfo.usedLabel} / ${currentInfo.limitLabel} used — bandwidth exhausted for today"
+                        stringResource(
+                            R.string.settings_bandwidth_exhausted,
+                            currentInfo.usedLabel,
+                            currentInfo.limitLabel,
+                        )
                     } else {
-                        "${currentInfo.usedLabel} / ${currentInfo.limitLabel} used" +
-                            (currentInfo.resetLabel?.let { " (resets $it)" } ?: "")
+                        if (currentInfo.resetLabel != null) {
+                            stringResource(
+                                R.string.settings_bandwidth_used_resets,
+                                currentInfo.usedLabel,
+                                currentInfo.limitLabel,
+                                currentInfo.resetLabel,
+                            )
+                        } else {
+                            stringResource(
+                                R.string.settings_bandwidth_used,
+                                currentInfo.usedLabel,
+                                currentInfo.limitLabel,
+                            )
+                        }
                     }
                 } else {
-                    "Key is valid."
+                    stringResource(R.string.settings_key_valid)
                 }
                 ZsStatusBanner(
                     message = message,
@@ -1118,12 +1188,12 @@ private fun AuroraKeyRow(
                 )
             }
             currentInfo?.status == AuroraKeyStatus.INVALID -> ZsStatusBanner(
-                message = "Invalid or expired token.",
+                message = stringResource(R.string.settings_invalid_expired_token),
                 variant = ZsStatusBannerVariant.Error,
                 modifier = Modifier.padding(top = 2.dp),
             )
             currentInfo?.status == AuroraKeyStatus.API_DOWN -> ZsStatusBanner(
-                message = "Cannot reach Aurora API. Try again later.",
+                message = stringResource(R.string.settings_aurora_unreachable),
                 variant = ZsStatusBannerVariant.Error,
                 modifier = Modifier.padding(top = 2.dp),
             )
@@ -1142,18 +1212,18 @@ private fun BackendUrlSection(vm: SettingsViewModel, theme: ZStreamTheme, isTv: 
     if (!editing) {
         if (isTv) {
             TvSettingsRow(theme, onActivate = { editing = true }) {
-                Text("Backend URL", color = theme.colors.type.text, fontSize = 14.sp, modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 12.dp))
+                Text(stringResource(R.string.settings_backend_url), color = theme.colors.type.text, fontSize = 14.sp, modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 12.dp))
                 Text(activeUrl.removePrefix("https://").removePrefix("http://"), color = theme.colors.type.secondary, fontSize = 13.sp, maxLines = 1, modifier = Modifier
                     .widthIn(max = 220.dp)
                     .padding(end = 12.dp))
             }
         } else {
-            SettingsRow("Backend URL", activeUrl.removePrefix("https://").removePrefix("http://"), theme, onClick = { editing = true })
+            SettingsRow(stringResource(R.string.settings_backend_url), activeUrl.removePrefix("https://").removePrefix("http://"), theme, onClick = { editing = true })
         }
     } else {
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
             Text(
-                "Only affects account sync (login, progress, bookmarks, settings). TMDB, subtitles, plugin updates, and Artemis are unaffected.",
+                stringResource(R.string.settings_backend_url_description),
                 color = theme.colors.type.secondary,
                 fontSize = 12.sp,
                 modifier = Modifier.padding(bottom = 8.dp),
@@ -1161,7 +1231,7 @@ private fun BackendUrlSection(vm: SettingsViewModel, theme: ZStreamTheme, isTv: 
             ZsTextField(
                 value = draft,
                 onValueChange = { draft = it; error = null },
-                label = "Backend URL",
+                label = stringResource(R.string.settings_backend_url),
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -1169,15 +1239,15 @@ private fun BackendUrlSection(vm: SettingsViewModel, theme: ZStreamTheme, isTv: 
                 Text(it, color = theme.colors.type.danger, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
             }
             Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                ZsButton(text = "Save", onClick = {
+                ZsButton(text = stringResource(R.string.settings_save), onClick = {
                     val err = vm.setBackendUrl(draft)
                     if (err == null) editing = false else error = err
                 }, variant = ZsButtonVariant.Primary, modifier = Modifier.weight(1f))
-                ZsButton(text = "Reset to default", onClick = {
+                ZsButton(text = stringResource(R.string.settings_reset_to_default), onClick = {
                     vm.resetBackendUrl()
                     editing = false
                 }, variant = ZsButtonVariant.Secondary, modifier = Modifier.weight(1f))
-                ZsButton(text = "Cancel", onClick = { editing = false }, variant = ZsButtonVariant.Secondary, modifier = Modifier.weight(1f))
+                ZsButton(text = stringResource(R.string.settings_cancel), onClick = { editing = false }, variant = ZsButtonVariant.Secondary, modifier = Modifier.weight(1f))
             }
         }
     }
@@ -1200,26 +1270,30 @@ private fun PluginVersionSection(vm: SettingsViewModel, theme: ZStreamTheme, isT
             com.zstream.android.plugin.pluginVersionLabel((pluginState as com.zstream.android.plugin.PluginState.Ready).displayVersion)
         is com.zstream.android.plugin.PluginState.UpdateAvailable -> {
             val s = pluginState as com.zstream.android.plugin.PluginState.UpdateAvailable
-            "${com.zstream.android.plugin.pluginVersionLabel(s.currentDisplayVersion)} (${com.zstream.android.plugin.pluginVersionLabel(s.stagedDisplayVersion)} ready)"
+            stringResource(
+                R.string.settings_plugin_update_ready,
+                com.zstream.android.plugin.pluginVersionLabel(s.currentDisplayVersion),
+                com.zstream.android.plugin.pluginVersionLabel(s.stagedDisplayVersion),
+            )
         }
-        else -> "Not installed"
+        else -> stringResource(R.string.settings_not_installed)
     }
 
     if (isTv) {
         TvSettingsRow(theme) {
-            Text("Plugin Version", color = theme.colors.type.text, fontSize = 14.sp, modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 12.dp))
+            Text(stringResource(R.string.settings_plugin_version), color = theme.colors.type.text, fontSize = 14.sp, modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 12.dp))
             Text(versionLabel, color = theme.colors.type.secondary, fontSize = 13.sp, modifier = Modifier.padding(end = 12.dp))
         }
         TvSettingsRow(theme, onActivate = { vm.checkPluginUpdate() }) {
-            Text("Check for Plugin Update", color = theme.colors.type.link, fontSize = 14.sp, modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 12.dp))
+            Text(stringResource(R.string.settings_check_plugin_update), color = theme.colors.type.link, fontSize = 14.sp, modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 12.dp))
         }
         if (com.zstream.android.BuildConfig.DEBUG) {
             TvSettingsRow(theme, onActivate = { vm.simulatePluginUpdate(); returnToHomeForDialog() }) {
-                Text("Simulate Plugin Update (debug)", color = theme.colors.type.dimmed, fontSize = 13.sp, modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 12.dp))
+                Text(stringResource(R.string.settings_simulate_plugin_update), color = theme.colors.type.dimmed, fontSize = 13.sp, modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 12.dp))
             }
         }
     } else {
-        SettingsRow("Plugin Version", versionLabel, theme)
+        SettingsRow(stringResource(R.string.settings_plugin_version), versionLabel, theme)
         Row(
             Modifier
                 .fillMaxWidth()
@@ -1228,7 +1302,7 @@ private fun PluginVersionSection(vm: SettingsViewModel, theme: ZStreamTheme, isT
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("Check for Plugin Update", color = theme.colors.type.link, fontSize = 14.sp)
+            Text(stringResource(R.string.settings_check_plugin_update), color = theme.colors.type.link, fontSize = 14.sp)
         }
         if (com.zstream.android.BuildConfig.DEBUG) {
             Row(
@@ -1239,7 +1313,7 @@ private fun PluginVersionSection(vm: SettingsViewModel, theme: ZStreamTheme, isT
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("Simulate Plugin Update (debug)", color = theme.colors.type.dimmed, fontSize = 13.sp)
+                Text(stringResource(R.string.settings_simulate_plugin_update), color = theme.colors.type.dimmed, fontSize = 13.sp)
             }
         }
     }
@@ -1247,7 +1321,7 @@ private fun PluginVersionSection(vm: SettingsViewModel, theme: ZStreamTheme, isT
     updateMessage?.takeIf { it.isNotBlank() }?.let { msg ->
         Text(
             msg,
-            color = if (msg.startsWith("Update check failed")) theme.colors.type.danger else theme.colors.type.secondary,
+            color = if (msg.startsWith(stringResource(R.string.settings_update_check_failed_prefix))) theme.colors.type.danger else theme.colors.type.secondary,
             fontSize = 12.sp,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
         )
@@ -1282,11 +1356,11 @@ private fun AppUpdateSection(vm: SettingsViewModel, theme: ZStreamTheme, isTv: B
 
     if (isTv) {
         TvSettingsRow(theme, onActivate = { vm.checkAppUpdate() }) {
-            Text("Check for App Update", color = theme.colors.type.link, fontSize = 14.sp, modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 12.dp))
+            Text(stringResource(R.string.settings_check_app_update), color = theme.colors.type.link, fontSize = 14.sp, modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 12.dp))
         }
         if (com.zstream.android.BuildConfig.DEBUG) {
             TvSettingsRow(theme, onActivate = { vm.simulateAppUpdate(); returnToHomeForDialog() }) {
-                Text("Simulate App Update (debug)", color = theme.colors.type.dimmed, fontSize = 13.sp, modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 12.dp))
+                Text(stringResource(R.string.settings_simulate_app_update), color = theme.colors.type.dimmed, fontSize = 13.sp, modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 12.dp))
             }
         }
     } else {
@@ -1298,7 +1372,7 @@ private fun AppUpdateSection(vm: SettingsViewModel, theme: ZStreamTheme, isTv: B
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("Check for App Update", color = theme.colors.type.link, fontSize = 14.sp)
+            Text(stringResource(R.string.settings_check_app_update), color = theme.colors.type.link, fontSize = 14.sp)
         }
         if (com.zstream.android.BuildConfig.DEBUG) {
             Row(
@@ -1309,7 +1383,7 @@ private fun AppUpdateSection(vm: SettingsViewModel, theme: ZStreamTheme, isTv: B
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("Simulate App Update (debug)", color = theme.colors.type.dimmed, fontSize = 13.sp)
+                Text(stringResource(R.string.settings_simulate_app_update), color = theme.colors.type.dimmed, fontSize = 13.sp)
             }
         }
     }
@@ -1317,7 +1391,7 @@ private fun AppUpdateSection(vm: SettingsViewModel, theme: ZStreamTheme, isTv: B
     updateMessage?.takeIf { it.isNotBlank() }?.let { msg ->
         Text(
             msg,
-            color = if (msg.startsWith("Update check failed")) theme.colors.type.danger else theme.colors.type.secondary,
+            color = if (msg.startsWith(stringResource(R.string.settings_update_check_failed_prefix))) theme.colors.type.danger else theme.colors.type.secondary,
             fontSize = 12.sp,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
         )
@@ -1326,8 +1400,8 @@ private fun AppUpdateSection(vm: SettingsViewModel, theme: ZStreamTheme, isTv: B
     HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
 
     ZsSwitchRow(
-        title = "Background app update checks",
-        subtitle = "Check the saved GitHub repository for new app releases. Plugin updates are checked separately and always run.",
+        title = stringResource(R.string.settings_background_update_checks),
+        subtitle = stringResource(R.string.settings_background_update_checks_description),
         checked = releaseChecksEnabled,
         onCheckedChange = { enabled ->
             vm.setReleaseChecksEnabled(enabled)
@@ -1335,16 +1409,31 @@ private fun AppUpdateSection(vm: SettingsViewModel, theme: ZStreamTheme, isTv: B
                 notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
             }
         },
-        notice = if (releaseChecksEnabled && !notificationGranted) "Notification permission is disabled; the app will still show the update prompt when opened." else null,
+        notice = if (releaseChecksEnabled && !notificationGranted) {
+            stringResource(R.string.settings_notification_permission_disabled)
+        } else {
+            null
+        },
         modifier = Modifier.padding(horizontal = 16.dp),
     )
     if (releaseChecksEnabled) {
+        val intervalOptions = ReleaseCheckInterval.entries.map { interval ->
+            interval to stringResource(
+                when (interval) {
+                    ReleaseCheckInterval.HOUR -> R.string.settings_interval_hour
+                    ReleaseCheckInterval.DAY -> R.string.settings_interval_day
+                    ReleaseCheckInterval.WEEK -> R.string.settings_interval_week
+                },
+            )
+        }
         HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
         ZsDropdownRow(
-            title = "Check interval",
-            options = ReleaseCheckInterval.entries.map { it.label },
-            selected = releaseCheckInterval.label,
-            onSelect = vm::setReleaseCheckInterval,
+            title = stringResource(R.string.settings_check_interval),
+            options = intervalOptions.map { it.second },
+            selected = intervalOptions.first { it.first == releaseCheckInterval }.second,
+            onSelect = { selected ->
+                intervalOptions.firstOrNull { it.second == selected }?.first?.let(vm::setReleaseCheckInterval)
+            },
         )
     }
 }
@@ -1456,7 +1545,7 @@ private fun AccountSection(
         lastVersionTapAt = now
         if (versionTapCount < 6) return@onVersionTap
         versionTapCount = 0
-        Toast.makeText(context, "started with a spark now we're on fire", Toast.LENGTH_LONG).show()
+        Toast.makeText(context, context.getString(R.string.settings_dev_unlocked), Toast.LENGTH_LONG).show()
         nav.navigate("devVideo")
     }
 
@@ -1469,13 +1558,17 @@ private fun AccountSection(
         scope.launch {
             runCatching { vm.exportToDownloads() }
                 .onSuccess { fileName ->
-                    val message = "Saved backup to Downloads/$fileName"
+                    val message = context.getString(R.string.settings_backup_saved, fileName)
                     Toast.makeText(context, message, Toast.LENGTH_LONG).show()
                     delay(3500)
                     Toast.makeText(context, message, Toast.LENGTH_LONG).show()
                 }
                 .onFailure {
-                    Toast.makeText(context, "Export failed: ${it.message}", Toast.LENGTH_LONG).show()
+                    Toast.makeText(
+                        context,
+                        context.getString(R.string.settings_export_failed, it.message.orEmpty()),
+                        Toast.LENGTH_LONG,
+                    ).show()
                 }
         }
     }
@@ -1487,7 +1580,7 @@ private fun AccountSection(
         if (granted) {
             exportToDownloadsWithToast()
         } else {
-            Toast.makeText(context, "Storage permission is required to export on this Android version.", Toast.LENGTH_LONG).show()
+            Toast.makeText(context, context.getString(R.string.settings_storage_permission_required), Toast.LENGTH_LONG).show()
         }
     }
     val requestExportToDownloads: () -> Unit = {
@@ -1504,7 +1597,7 @@ private fun AccountSection(
         .padding(horizontal = if (isTv) 16.dp else 0.dp)
         .padding(bottom = 32.dp, top = if (isTv) 16.dp else 0.dp)) {
         Spacer(Modifier.height(8.dp))
-        SectionLabel("Account", theme)
+        SectionLabel(stringResource(R.string.settings_tab_account), theme)
 
         if (session != null) {
             if (isTv) {
@@ -1519,17 +1612,17 @@ private fun AccountSection(
                         onActivate = { showNicknameDialog = true },
                         modifier = if (firstItemFocusRequester != null) Modifier.focusRequester(firstItemFocusRequester) else Modifier
                     ) {
-                        Text("Nickname (press to edit)", color = theme.colors.type.text, fontSize = 14.sp, modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 12.dp))
-                        Text(nickname.ifEmpty { "—" }, color = theme.colors.type.secondary, fontSize = 13.sp, modifier = Modifier.padding(end = 12.dp))
+                        Text(stringResource(R.string.settings_nickname_press_to_edit), color = theme.colors.type.text, fontSize = 14.sp, modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 12.dp))
+                        Text(nickname.ifEmpty { stringResource(R.string.settings_not_set) }, color = theme.colors.type.secondary, fontSize = 13.sp, modifier = Modifier.padding(end = 12.dp))
                     }
                     HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                     TvSettingsRow(theme) {
-                        Text("Device Name", color = theme.colors.type.text, fontSize = 14.sp, modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 12.dp))
-                        Text(session.deviceName.ifEmpty { "Android" }, color = theme.colors.type.secondary, fontSize = 13.sp, modifier = Modifier.padding(end = 12.dp))
+                        Text(stringResource(R.string.settings_device_name), color = theme.colors.type.text, fontSize = 14.sp, modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 12.dp))
+                        Text(session.deviceName.ifEmpty { stringResource(R.string.settings_android) }, color = theme.colors.type.secondary, fontSize = 13.sp, modifier = Modifier.padding(end = 12.dp))
                     }
                     HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                     TvSettingsRow(theme) {
-                        Text("User ID", color = theme.colors.type.text, fontSize = 14.sp, modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 12.dp))
+                        Text(stringResource(R.string.settings_user_id), color = theme.colors.type.text, fontSize = 14.sp, modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 12.dp))
                         Text(session.userId, color = theme.colors.type.secondary, fontSize = 13.sp, maxLines = 1, modifier = Modifier
                             .widthIn(max = 200.dp)
                             .padding(end = 12.dp))
@@ -1543,28 +1636,28 @@ private fun AccountSection(
                         .background(theme.colors.settings.card.background)
                 ) {
                     TvSettingsRow(theme, onActivate = { nav.navigate("tvSync") }) {
-                        Text("Sync from phone", color = theme.colors.type.link, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 12.dp, top = 14.dp, bottom = 14.dp))
+                        Text(stringResource(R.string.settings_sync_from_phone), color = theme.colors.type.link, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 12.dp, top = 14.dp, bottom = 14.dp))
                     }
                     HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                     TvSettingsRow(theme, onActivate = requestExportToDownloads) {
-                        Text("Export Data", color = theme.colors.type.link, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 12.dp, top = 14.dp, bottom = 14.dp))
+                        Text(stringResource(R.string.settings_export_data), color = theme.colors.type.link, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 12.dp, top = 14.dp, bottom = 14.dp))
                     }
                     HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                     TvSettingsRow(theme, onActivate = onImport) {
-                        Text("Import Data", color = theme.colors.type.link, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 12.dp, top = 14.dp, bottom = 14.dp))
+                        Text(stringResource(R.string.settings_import_data), color = theme.colors.type.link, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 12.dp, top = 14.dp, bottom = 14.dp))
                     }
                     HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                     TvSettingsRow(theme, onActivate = { onLogoutConfirmChange(true) }) {
-                        Text("Log out", color = theme.colors.buttons.danger, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 12.dp, top = 14.dp, bottom = 14.dp))
+                        Text(stringResource(R.string.settings_log_out), color = theme.colors.buttons.danger, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 12.dp, top = 14.dp, bottom = 14.dp))
                     }
                 }
             } else {
                 SettingsCard(theme) {
-                    SettingsRow("Nickname", nickname.ifEmpty { "—" }, theme, onClick = { showNicknameDialog = true })
+                    SettingsRow(stringResource(R.string.settings_nickname), nickname.ifEmpty { stringResource(R.string.settings_not_set) }, theme, onClick = { showNicknameDialog = true })
                     HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
-                    SettingsRow("Device Name", session.deviceName.ifEmpty { "Android" }, theme)
+                    SettingsRow(stringResource(R.string.settings_device_name), session.deviceName.ifEmpty { stringResource(R.string.settings_android) }, theme)
                     HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
-                    SettingsRow("User ID", session.userId, theme)
+                    SettingsRow(stringResource(R.string.settings_user_id), session.userId, theme)
                 }
                 Spacer(Modifier.height(12.dp))
                 SettingsCard(theme) {
@@ -1574,7 +1667,7 @@ private fun AccountSection(
                             .fillMaxWidth()
                             .padding(horizontal = 4.dp)
                     ) {
-                        Text("Export Data", color = theme.colors.type.link, fontWeight = FontWeight.SemiBold)
+                        Text(stringResource(R.string.settings_export_data), color = theme.colors.type.link, fontWeight = FontWeight.SemiBold)
                     }
                 }
                 Spacer(Modifier.height(12.dp))
@@ -1585,7 +1678,7 @@ private fun AccountSection(
                             .fillMaxWidth()
                             .padding(horizontal = 4.dp)
                     ) {
-                        Text("Import Data", color = theme.colors.type.link, fontWeight = FontWeight.SemiBold)
+                        Text(stringResource(R.string.settings_import_data), color = theme.colors.type.link, fontWeight = FontWeight.SemiBold)
                     }
                 }
                 Spacer(Modifier.height(12.dp))
@@ -1596,7 +1689,7 @@ private fun AccountSection(
                             .fillMaxWidth()
                             .padding(horizontal = 4.dp)
                     ) {
-                        Text("Log out", color = theme.colors.buttons.danger, fontWeight = FontWeight.SemiBold)
+                        Text(stringResource(R.string.settings_log_out), color = theme.colors.buttons.danger, fontWeight = FontWeight.SemiBold)
                     }
                 }
             }
@@ -1613,7 +1706,7 @@ private fun AccountSection(
                         onActivate = { nav.navigate("login") },
                         modifier = if (firstItemFocusRequester != null) Modifier.focusRequester(firstItemFocusRequester) else Modifier
                     ) {
-                        Text("Log in / Register", color = theme.colors.type.link, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 12.dp, top = 14.dp, bottom = 14.dp))
+                        Text(stringResource(R.string.settings_log_in_register), color = theme.colors.type.link, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 12.dp, top = 14.dp, bottom = 14.dp))
                     }
                 }
                 Spacer(Modifier.height(12.dp))
@@ -1624,11 +1717,11 @@ private fun AccountSection(
                         .background(theme.colors.settings.card.background)
                 ) {
                     TvSettingsRow(theme, onActivate = requestExportToDownloads) {
-                        Text("Export Data", color = theme.colors.type.link, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 12.dp, top = 14.dp, bottom = 14.dp))
+                        Text(stringResource(R.string.settings_export_data), color = theme.colors.type.link, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 12.dp, top = 14.dp, bottom = 14.dp))
                     }
                     HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                     TvSettingsRow(theme, onActivate = onImport) {
-                        Text("Import Data", color = theme.colors.type.link, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 12.dp, top = 14.dp, bottom = 14.dp))
+                        Text(stringResource(R.string.settings_import_data), color = theme.colors.type.link, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 12.dp, top = 14.dp, bottom = 14.dp))
                     }
                 }
             } else {
@@ -1639,7 +1732,7 @@ private fun AccountSection(
                             .fillMaxWidth()
                             .padding(horizontal = 4.dp)
                     ) {
-                        Text("Log in / Register", color = theme.colors.type.link, fontWeight = FontWeight.SemiBold)
+                        Text(stringResource(R.string.settings_log_in_register), color = theme.colors.type.link, fontWeight = FontWeight.SemiBold)
                     }
                 }
                 Spacer(Modifier.height(12.dp))
@@ -1650,7 +1743,7 @@ private fun AccountSection(
                             .fillMaxWidth()
                             .padding(horizontal = 4.dp)
                     ) {
-                        Text("Export Data", color = theme.colors.type.link, fontWeight = FontWeight.SemiBold)
+                        Text(stringResource(R.string.settings_export_data), color = theme.colors.type.link, fontWeight = FontWeight.SemiBold)
                     }
                 }
                 Spacer(Modifier.height(12.dp))
@@ -1661,14 +1754,14 @@ private fun AccountSection(
                             .fillMaxWidth()
                             .padding(horizontal = 4.dp)
                     ) {
-                        Text("Import Data", color = theme.colors.type.link, fontWeight = FontWeight.SemiBold)
+                        Text(stringResource(R.string.settings_import_data), color = theme.colors.type.link, fontWeight = FontWeight.SemiBold)
                     }
                 }
             }
         }
 
         Spacer(Modifier.height(24.dp))
-        SectionLabel("App Info", theme)
+        SectionLabel(stringResource(R.string.settings_app_info), theme)
         if (isTv) {
             Column(
                 Modifier
@@ -1679,7 +1772,7 @@ private fun AccountSection(
                 BackendUrlSection(vm = vm, theme = theme, isTv = true)
                 HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                 TvSettingsRow(theme, onActivate = onVersionTap) {
-                    Text("App Version", color = theme.colors.type.text, fontSize = 14.sp, modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 12.dp))
+                    Text(stringResource(R.string.settings_app_version), color = theme.colors.type.text, fontSize = 14.sp, modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 12.dp))
                     Text(com.zstream.android.BuildConfig.VERSION_NAME, color = theme.colors.type.secondary, fontSize = 13.sp, modifier = Modifier.padding(end = 12.dp))
                 }
                 HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
@@ -1691,7 +1784,7 @@ private fun AccountSection(
             SettingsCard(theme) {
                 BackendUrlSection(vm = vm, theme = theme, isTv = false)
                 HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
-                SettingsRow("App Version", com.zstream.android.BuildConfig.VERSION_NAME, theme, onClick = onVersionTap)
+                SettingsRow(stringResource(R.string.settings_app_version), com.zstream.android.BuildConfig.VERSION_NAME, theme, onClick = onVersionTap)
                 HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                 PluginVersionSection(vm = vm, theme = theme, isTv = false, nav = nav)
                 HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
@@ -1704,28 +1797,28 @@ private fun AccountSection(
         AlertDialog(
             onDismissRequest = { onLogoutConfirmChange(false) },
             containerColor = theme.colors.modal.background,
-            title = { Text("Log out?", color = theme.colors.type.emphasis) },
-            text = { Text("You will be signed out of your account. Local user data (watch history and bookmarks) will be deleted, but your app settings will be preserved. Would you like to export your data first?", color = theme.colors.type.text) },
+            title = { Text(stringResource(R.string.settings_log_out_question), color = theme.colors.type.emphasis) },
+            text = { Text(stringResource(R.string.settings_log_out_warning), color = theme.colors.type.text) },
             confirmButton = {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     TextButton(onClick = {
                         onExport()
                         onLogoutConfirmChange(false)
                     }) {
-                        Text("Export", color = theme.colors.global.accentA)
+                        Text(stringResource(R.string.settings_export), color = theme.colors.global.accentA)
                     }
                     TextButton(onClick = {
                         accountVm.logout()
                         onLogoutConfirmChange(false)
                         if (isTv) nav.navigate("profileSwitcher") { popUpTo("home") }
                     }) {
-                        Text("Yes, Log out", color = theme.colors.buttons.danger)
+                        Text(stringResource(R.string.settings_yes_log_out), color = theme.colors.buttons.danger)
                     }
                 }
             },
             dismissButton = {
                 TextButton(onClick = { onLogoutConfirmChange(false) }) {
-                    Text("Cancel", color = theme.colors.type.secondary)
+                    Text(stringResource(R.string.settings_cancel), color = theme.colors.type.secondary)
                 }
             }
         )
@@ -1770,12 +1863,12 @@ private fun NicknameEditDialog(
                 .border(1.dp, theme.colors.type.divider.copy(alpha = 0.2f), RoundedCornerShape(16.dp))
                 .padding(16.dp)
         ) {
-            Text("Edit Nickname", color = theme.colors.type.emphasis, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            Text(stringResource(R.string.settings_edit_nickname), color = theme.colors.type.emphasis, fontWeight = FontWeight.Bold, fontSize = 16.sp)
             Spacer(Modifier.height(12.dp))
             ZsTextField(
                 value = draft,
                 onValueChange = { draft = it; accountVm.clearNicknameUpdateError() },
-                label = "Nickname",
+                label = stringResource(R.string.settings_nickname),
                 singleLine = true,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1786,14 +1879,14 @@ private fun NicknameEditDialog(
             }
             Row(Modifier.fillMaxWidth().padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 ZsButton(
-                    text = "Cancel",
+                    text = stringResource(R.string.settings_cancel),
                     onClick = onDismiss,
                     variant = ZsButtonVariant.Secondary,
                     enabled = !updating,
                     modifier = Modifier.weight(1f),
                 )
                 ZsButton(
-                    text = if (updating) "Saving…" else "Save",
+                    text = stringResource(if (updating) R.string.settings_saving else R.string.settings_save),
                     onClick = { accountVm.updateNickname(draft, onSuccess = onDismiss) },
                     variant = ZsButtonVariant.Primary,
                     enabled = !updating && draft.trim().isNotEmpty() && draft.trim() != currentNickname,
@@ -1819,11 +1912,35 @@ private fun PreferencesSection(
     var showDownloadSourceOrderDialog by remember { mutableStateOf(false) }
     val sourceOrder by vm.sourceOrder.collectAsState()
     val downloadSourceOrder by vm.downloadSourceOrder.collectAsState()
+    val applicationLanguages = listOf(
+        "" to stringResource(R.string.settings_language_system_default),
+        "en" to stringResource(R.string.settings_language_english),
+        "zh-CN" to stringResource(R.string.settings_language_simplified_chinese),
+        "hi" to stringResource(R.string.settings_language_hindi),
+        "es" to stringResource(R.string.settings_language_spanish),
+        "ar" to stringResource(R.string.settings_language_arabic),
+        "fr" to stringResource(R.string.settings_language_french),
+        "bn" to stringResource(R.string.settings_language_bengali),
+        "pt-BR" to stringResource(R.string.settings_language_brazilian_portuguese),
+        "id" to stringResource(R.string.settings_language_indonesian),
+        "ur-PK" to stringResource(R.string.settings_language_urdu),
+        "ru" to stringResource(R.string.settings_language_russian),
+    )
+    val selectedApplicationLanguage = applicationLanguages
+        .firstOrNull { it.first == settings.applicationLanguage }
+        ?.second
+        ?: applicationLanguages.first().second
+    val selectApplicationLanguage: (String) -> Unit = { selected ->
+        applicationLanguages.firstOrNull { it.second == selected }?.first?.let(vm::setApplicationLanguage)
+    }
+    val seekOptions = DOUBLE_TAP_SEEK_OPTIONS.map {
+        it to stringResource(R.string.settings_seconds, it)
+    }
 
     Column(Modifier
         .padding(bottom = 32.dp, top = if (isTv) 16.dp else 0.dp).padding(horizontal = if (isTv) 16.dp else 0.dp)) {
         Spacer(Modifier.height(8.dp))
-        SectionLabel("Language", theme)
+        SectionLabel(stringResource(R.string.settings_language), theme)
         if (isTv) {
             Column(
                 Modifier
@@ -1831,22 +1948,28 @@ private fun PreferencesSection(
                     .clip(RoundedCornerShape(12.dp))
                     .background(theme.colors.settings.card.background)
             ) {
-                TvSettingsRow(
+                TvDropdownRow(
+                    title = stringResource(R.string.settings_application_language),
+                    options = applicationLanguages.map { it.second },
+                    selected = selectedApplicationLanguage,
+                    onSelect = selectApplicationLanguage,
                     theme = theme,
-                    modifier = if (firstItemFocusRequester != null) Modifier.focusRequester(firstItemFocusRequester) else Modifier
-                ) {
-                    Text("Application Language", color = theme.colors.type.text, fontSize = 14.sp, modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 12.dp))
-                    Text(settings.applicationLanguage.uppercase(), color = theme.colors.type.secondary, fontSize = 13.sp, modifier = Modifier.padding(end = 12.dp))
-                }
+                    modifier = if (firstItemFocusRequester != null) Modifier.focusRequester(firstItemFocusRequester) else Modifier,
+                )
             }
         } else {
             SettingsCard(theme) {
-                SettingsRow("Application Language", settings.applicationLanguage.uppercase(), theme)
+                ZsDropdownRow(
+                    title = stringResource(R.string.settings_application_language),
+                    options = applicationLanguages.map { it.second },
+                    selected = selectedApplicationLanguage,
+                    onSelect = selectApplicationLanguage,
+                )
             }
         }
 
         Spacer(Modifier.height(16.dp))
-        SectionLabel("Playback", theme)
+        SectionLabel(stringResource(R.string.settings_playback), theme)
         if (isTv) {
             Column(
                 Modifier
@@ -1855,28 +1978,28 @@ private fun PreferencesSection(
                     .background(theme.colors.settings.card.background)
             ) {
                 TvSettingsRow(theme, onActivate = { vm.setEnableAutoplay(!settings.enableAutoplay) }) {
-                    TvSwitchContent("Autoplay", "Automatically play the next episode", settings.enableAutoplay, enabled = !settings.enableLowPerformanceMode)
+                    TvSwitchContent(stringResource(R.string.settings_autoplay), stringResource(R.string.settings_autoplay_description), settings.enableAutoplay, enabled = !settings.enableLowPerformanceMode)
                 }
                 if (settings.enableAutoplay && !settings.enableLowPerformanceMode) {
                     HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                     TvSettingsRow(theme, onActivate = { vm.setEnableSkipCredits(!settings.enableSkipCredits) }) {
-                        TvSwitchContent("Skip Credits", "Auto-skip opening credits", settings.enableSkipCredits, indent = true)
+                        TvSwitchContent(stringResource(R.string.settings_skip_credits), stringResource(R.string.settings_skip_credits_description), settings.enableSkipCredits, indent = true)
                     }
                 }
                 HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                 TvSettingsRow(theme, onActivate = { vm.setEnableLowPerformanceMode(!settings.enableLowPerformanceMode) }) {
-                    TvSwitchContent("Low Performance Mode", "Disable animations and visual effects", settings.enableLowPerformanceMode)
+                    TvSwitchContent(stringResource(R.string.settings_low_performance_mode), stringResource(R.string.settings_low_performance_mode_description), settings.enableLowPerformanceMode)
                 }
                 HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                 TvSettingsRow(theme, onActivate = { vm.setEnableNativeSubtitles(!settings.enableNativeSubtitles) }) {
-                    TvSwitchContent("Native Subtitles", "Use native subtitle renderer", settings.enableNativeSubtitles)
+                    TvSwitchContent(stringResource(R.string.settings_native_subtitles), stringResource(R.string.settings_native_subtitles_description), settings.enableNativeSubtitles)
                 }
             }
         } else {
             SettingsCard(theme) {
                 ZsSwitchRow(
-                    title = "Autoplay",
-                    subtitle = "Automatically play the next episode",
+                    title = stringResource(R.string.settings_autoplay),
+                    subtitle = stringResource(R.string.settings_autoplay_description),
                     checked = settings.enableAutoplay,
                     onCheckedChange = vm::setEnableAutoplay,
                     enabled = !settings.enableLowPerformanceMode,
@@ -1885,8 +2008,8 @@ private fun PreferencesSection(
                 if (settings.enableAutoplay && !settings.enableLowPerformanceMode) {
                     HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                     ZsSwitchRow(
-                        title = "Skip Credits",
-                        subtitle = "Auto-skip opening credits",
+                        title = stringResource(R.string.settings_skip_credits),
+                        subtitle = stringResource(R.string.settings_skip_credits_description),
                         checked = settings.enableSkipCredits,
                         onCheckedChange = vm::setEnableSkipCredits,
                         modifier = Modifier.padding(start = 32.dp, end = 16.dp),
@@ -1894,24 +2017,24 @@ private fun PreferencesSection(
                 }
                 HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                 ZsSwitchRow(
-                    title = "Low Performance Mode",
-                    subtitle = "Disable animations and visual effects",
+                    title = stringResource(R.string.settings_low_performance_mode),
+                    subtitle = stringResource(R.string.settings_low_performance_mode_description),
                     checked = settings.enableLowPerformanceMode,
                     onCheckedChange = vm::setEnableLowPerformanceMode,
                     modifier = Modifier.padding(horizontal = 16.dp),
                 )
                 HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                 ZsSwitchRow(
-                    title = "Native Subtitles",
-                    subtitle = "Use native subtitle renderer",
+                    title = stringResource(R.string.settings_native_subtitles),
+                    subtitle = stringResource(R.string.settings_native_subtitles_description),
                     checked = settings.enableNativeSubtitles,
                     onCheckedChange = vm::setEnableNativeSubtitles,
                     modifier = Modifier.padding(horizontal = 16.dp),
                 )
                 HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                 ZsSwitchRow(
-                    title = "Play Trailers In App",
-                    subtitle = "Off opens trailers in an external video app instead",
+                    title = stringResource(R.string.settings_play_trailers_in_app),
+                    subtitle = stringResource(R.string.settings_play_trailers_in_app_description),
                     checked = settings.trailersOpenInApp,
                     onCheckedChange = vm::setTrailersOpenInApp,
                     modifier = Modifier.padding(horizontal = 16.dp),
@@ -1921,7 +2044,7 @@ private fun PreferencesSection(
 
         if (isTv) {
             Spacer(Modifier.height(16.dp))
-            SectionLabel("Input", theme)
+            SectionLabel(stringResource(R.string.settings_input), theme)
 
             Column(
                 Modifier
@@ -1930,34 +2053,34 @@ private fun PreferencesSection(
                     .background(theme.colors.settings.card.background)
                 ) {
                     TvSettingsRow(theme, onActivate = { vm.setEnableNativeKeyboard(!settings.enableNativeKeyboard) }) {
-                        TvSwitchContent("Use Native Keyboard", "Hide virtual keyboard and use system input", settings.enableNativeKeyboard)
+                        TvSwitchContent(stringResource(R.string.settings_use_native_keyboard), stringResource(R.string.settings_use_native_keyboard_description), settings.enableNativeKeyboard)
                     }
                 }
         }
 
         Spacer(Modifier.height(16.dp))
         if (!isTv) {
-            SectionLabel("Player Controls", theme)
+            SectionLabel(stringResource(R.string.settings_player_controls), theme)
             SettingsCard(theme) {
                 ZsSwitchRow(
-                    title = "Hold to Boost",
-                    subtitle = "Hold to increase playback speed",
+                    title = stringResource(R.string.settings_hold_to_boost),
+                    subtitle = stringResource(R.string.settings_hold_to_boost_description),
                     checked = settings.enableHoldToBoost,
                     onCheckedChange = vm::setEnableHoldToBoost,
                     modifier = Modifier.padding(horizontal = 16.dp),
                 )
                 HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                 ZsSwitchRow(
-                    title = "Brightness/Volume Gestures",
-                    subtitle = "Swipe the left/right half of the player to adjust brightness/volume",
+                    title = stringResource(R.string.settings_brightness_volume_gestures),
+                    subtitle = stringResource(R.string.settings_brightness_volume_gestures_description),
                     checked = settings.enableSideGestures,
                     onCheckedChange = vm::setEnableSideGestures,
                     modifier = Modifier.padding(horizontal = 16.dp),
                 )
                 HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                 ZsSwitchRow(
-                    title = "Double-tap to Seek",
-                    subtitle = "Double-tap to seek forward/backward",
+                    title = stringResource(R.string.settings_double_tap_seek),
+                    subtitle = stringResource(R.string.settings_double_tap_seek_description),
                     checked = settings.enableDoubleClickToSeek,
                     onCheckedChange = vm::setEnableDoubleClickToSeek,
                     modifier = Modifier.padding(horizontal = 16.dp),
@@ -1965,11 +2088,11 @@ private fun PreferencesSection(
                 if (settings.enableDoubleClickToSeek) {
                     HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                     ZsDropdownRow(
-                        title = "Seek Amount",
-                        options = DOUBLE_TAP_SEEK_OPTIONS.map { "$it seconds" },
-                        selected = "${settings.doubleTapSeekSeconds} seconds",
+                        title = stringResource(R.string.settings_seek_amount),
+                        options = seekOptions.map { it.second },
+                        selected = seekOptions.first { it.first == settings.doubleTapSeekSeconds }.second,
                         onSelect = { option ->
-                            option.substringBefore(" ").toIntOrNull()?.let(vm::setDoubleTapSeekSeconds)
+                            seekOptions.firstOrNull { it.second == option }?.first?.let(vm::setDoubleTapSeekSeconds)
                         },
                         modifier = Modifier.padding(horizontal = 16.dp),
                     )
@@ -1978,7 +2101,7 @@ private fun PreferencesSection(
         }
 
         Spacer(Modifier.height(16.dp))
-        SectionLabel("Sources", theme)
+        SectionLabel(stringResource(R.string.settings_sources), theme)
         if (isTv) {
             Column(
                 Modifier
@@ -1987,52 +2110,52 @@ private fun PreferencesSection(
                     .background(theme.colors.settings.card.background)
             ) {
                 TvSettingsRow(theme, onActivate = { vm.setManualSourceSelection(!settings.manualSourceSelection) }) {
-                    TvSwitchContent("Manual Source Selection", "Choose sources manually", settings.manualSourceSelection)
+                    TvSwitchContent(stringResource(R.string.settings_manual_source_selection), stringResource(R.string.settings_manual_source_selection_description), settings.manualSourceSelection)
                 }
                 HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                 TvSettingsRow(theme, onActivate = { vm.setEnableAutoResumeOnPlaybackError(!settings.enableAutoResumeOnPlaybackError) }) {
-                    TvSwitchContent("Auto-resume on Error", "Automatically try next source on playback error", settings.enableAutoResumeOnPlaybackError)
+                    TvSwitchContent(stringResource(R.string.settings_auto_resume_error), stringResource(R.string.settings_auto_resume_error_description), settings.enableAutoResumeOnPlaybackError)
                 }
                 HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                 TvSettingsRow(theme, onActivate = { vm.setAllowParallelDownload(!settings.allowParallelDownload) }) {
                     TvSwitchContent(
-                        "Allow parallel download",
-                        "Allow downloading of multiple media at same time",
+                        stringResource(R.string.settings_allow_parallel_download),
+                        stringResource(R.string.settings_allow_parallel_download_description),
                         settings.allowParallelDownload,
-                        warning = "This might make downloads unstable",
+                        warning = stringResource(R.string.settings_parallel_download_warning),
                     )
                 }
                 HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                 TvSettingsRow(theme, onActivate = { showSourceOrderDialog = true }) {
-                    TvChevronContent("Custom Source Order", "Choose which sources are tried first")
+                    TvChevronContent(stringResource(R.string.settings_custom_source_order), stringResource(R.string.settings_custom_source_order_description))
                 }
                 HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                 TvSettingsRow(theme, onActivate = { showDownloadSourceOrderDialog = true }) {
-                    TvChevronContent("Preferred Source Order for Downloads", "Choose which sources downloads try first")
+                    TvChevronContent(stringResource(R.string.settings_download_source_order), stringResource(R.string.settings_download_source_order_description))
                 }
             }
         } else {
             SettingsCard(theme) {
                 ZsSwitchRow(
-                    title = "Manual Source Selection",
-                    subtitle = "Choose sources manually",
+                    title = stringResource(R.string.settings_manual_source_selection),
+                    subtitle = stringResource(R.string.settings_manual_source_selection_description),
                     checked = settings.manualSourceSelection,
                     onCheckedChange = vm::setManualSourceSelection,
                     modifier = Modifier.padding(horizontal = 16.dp),
                 )
                 HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                 ZsSwitchRow(
-                    title = "Auto-resume on Error",
-                    subtitle = "Automatically try next source on playback error",
+                    title = stringResource(R.string.settings_auto_resume_error),
+                    subtitle = stringResource(R.string.settings_auto_resume_error_description),
                     checked = settings.enableAutoResumeOnPlaybackError,
                     onCheckedChange = vm::setEnableAutoResumeOnPlaybackError,
                     modifier = Modifier.padding(horizontal = 16.dp),
                 )
                 HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                 ZsSwitchRow(
-                    title = "Allow parallel download",
-                    subtitle = "Allow downloading of multiple media at same time",
-                    notice = "This might make downloads unstable",
+                    title = stringResource(R.string.settings_allow_parallel_download),
+                    subtitle = stringResource(R.string.settings_allow_parallel_download_description),
+                    notice = stringResource(R.string.settings_parallel_download_warning),
                     checked = settings.allowParallelDownload,
                     onCheckedChange = vm::setAllowParallelDownload,
                     modifier = Modifier.padding(horizontal = 16.dp),
@@ -2046,10 +2169,10 @@ private fun PreferencesSection(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(Modifier.weight(1f)) {
-                        Text("Custom Source Order", color = theme.colors.type.text, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                        Text("Choose which sources are tried first", color = theme.colors.type.dimmed, fontSize = 12.sp)
+                        Text(stringResource(R.string.settings_custom_source_order), color = theme.colors.type.text, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                        Text(stringResource(R.string.settings_custom_source_order_description), color = theme.colors.type.dimmed, fontSize = 12.sp)
                     }
-                    Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = theme.colors.type.dimmed)
+                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = theme.colors.type.dimmed)
                 }
                 HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                 Row(
@@ -2060,10 +2183,10 @@ private fun PreferencesSection(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(Modifier.weight(1f)) {
-                        Text("Preferred Source Order for Downloads", color = theme.colors.type.text, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                        Text("Choose which sources downloads try first", color = theme.colors.type.dimmed, fontSize = 12.sp)
+                        Text(stringResource(R.string.settings_download_source_order), color = theme.colors.type.text, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                        Text(stringResource(R.string.settings_download_source_order_description), color = theme.colors.type.dimmed, fontSize = 12.sp)
                     }
-                    Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = theme.colors.type.dimmed)
+                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = theme.colors.type.dimmed)
                 }
             }
         }
@@ -2077,6 +2200,8 @@ private fun PreferencesSection(
             onReorder = vm::reorderSources,
             onDismiss = { showSourceOrderDialog = false },
             onReset = vm::resetSourceOrder,
+            title = stringResource(R.string.settings_custom_source_order),
+            subtitle = stringResource(R.string.settings_sources_tried_top_to_bottom),
         )
     }
 
@@ -2087,8 +2212,8 @@ private fun PreferencesSection(
             onReorder = vm::reorderDownloadSources,
             onDismiss = { showDownloadSourceOrderDialog = false },
             onReset = vm::resetDownloadSourceOrder,
-            title = "Preferred Source Order for Downloads",
-            subtitle = "Downloads try sources top to bottom",
+            title = stringResource(R.string.settings_download_source_order),
+            subtitle = stringResource(R.string.settings_downloads_try_sources_top_to_bottom),
         )
     }
 }
@@ -2150,7 +2275,7 @@ private fun RowScope.TvChevronContent(title: String, subtitle: String? = null) {
         }
     }
     Icon(
-        Icons.Filled.ChevronRight,
+        Icons.AutoMirrored.Filled.KeyboardArrowRight,
         contentDescription = null,
         tint = theme.colors.type.dimmed,
         modifier = Modifier.padding(end = 12.dp),
@@ -2169,8 +2294,8 @@ private fun SourceOrderDialog(
     onReorder: (List<SourceInfo>) -> Unit,
     onDismiss: () -> Unit,
     onReset: () -> Unit,
-    title: String = "Custom Source Order",
-    subtitle: String = "Sources are tried top to bottom",
+    title: String,
+    subtitle: String,
 ) {
     val items = remember(sources) { mutableStateListOf(*sources.toTypedArray()) }
     var draggedIndex by remember { mutableStateOf<Int?>(null) }
@@ -2197,7 +2322,7 @@ private fun SourceOrderDialog(
                     Text(subtitle, color = theme.colors.type.dimmed, fontSize = 12.sp)
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    ZsTextButton(text = "Reset", onClick = onReset)
+                    ZsTextButton(text = stringResource(R.string.settings_reset), onClick = onReset)
                     var closeFocused by remember { mutableStateOf(false) }
                     ZsOutlinedWrapper(
                         shape = RoundedCornerShape(8.dp),
@@ -2212,7 +2337,7 @@ private fun SourceOrderDialog(
                                 .focusRequester(closeFocusRequester)
                                 .onFocusChanged { closeFocused = it.isFocused },
                         ) {
-                            Icon(Icons.Filled.Close, contentDescription = "Close", tint = theme.colors.type.secondary)
+                            Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.settings_close), tint = theme.colors.type.secondary)
                         }
                     }
                 }
@@ -2220,7 +2345,7 @@ private fun SourceOrderDialog(
             Spacer(Modifier.height(8.dp))
 
             if (items.isEmpty()) {
-                Text("No sources available yet.", color = theme.colors.type.dimmed, fontSize = 13.sp, modifier = Modifier.padding(vertical = 12.dp))
+                Text(stringResource(R.string.settings_no_sources_available), color = theme.colors.type.dimmed, fontSize = 13.sp, modifier = Modifier.padding(vertical = 12.dp))
             }
 
             Column(
@@ -2248,7 +2373,7 @@ private fun SourceOrderDialog(
                             Text("${index + 1}", color = theme.colors.type.dimmed, fontSize = 12.sp, modifier = Modifier.width(16.dp))
                             Icon(
                                 Icons.Filled.DragHandle,
-                                contentDescription = "Drag to reorder",
+                                contentDescription = stringResource(R.string.settings_drag_to_reorder),
                                 tint = theme.colors.type.dimmed,
                                 modifier = Modifier
                                     .size(22.dp)
@@ -2315,7 +2440,7 @@ private fun SourceOrderDialog(
                                         .size(32.dp)
                                         .onFocusChanged { upFocused = it.isFocused },
                                 ) {
-                                    Icon(Icons.Filled.KeyboardArrowUp, contentDescription = "Move up", tint = if (index > 0) theme.colors.type.secondary else theme.colors.type.dimmed.copy(alpha = 0.3f))
+                                    Icon(Icons.Filled.KeyboardArrowUp, contentDescription = stringResource(R.string.settings_move_up), tint = if (index > 0) theme.colors.type.secondary else theme.colors.type.dimmed.copy(alpha = 0.3f))
                                 }
                             }
                             var downFocused by remember { mutableStateOf(false) }
@@ -2338,7 +2463,7 @@ private fun SourceOrderDialog(
                                         .size(32.dp)
                                         .onFocusChanged { downFocused = it.isFocused },
                                 ) {
-                                    Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Move down", tint = if (index < items.size - 1) theme.colors.type.secondary else theme.colors.type.dimmed.copy(alpha = 0.3f))
+                                    Icon(Icons.Filled.KeyboardArrowDown, contentDescription = stringResource(R.string.settings_move_down), tint = if (index < items.size - 1) theme.colors.type.secondary else theme.colors.type.dimmed.copy(alpha = 0.3f))
                                 }
                             }
                         }
@@ -2367,7 +2492,7 @@ private fun AppearanceSection(
         .padding(bottom = 32.dp)
         .padding(top = if (isTv) 16.dp else 0.dp)) {
         Spacer(Modifier.height(8.dp))
-        SectionLabel("Home Page", theme)
+        SectionLabel(stringResource(R.string.settings_home_page), theme)
         if (isTv) {
             Column(
                 Modifier
@@ -2381,20 +2506,20 @@ private fun AppearanceSection(
                     onActivate = { vm.setEnableFeatured(!settings.enableFeatured) },
                     modifier = if (firstItemFocusRequester != null) Modifier.focusRequester(firstItemFocusRequester) else Modifier
                 ) {
-                    TvSwitchContent("Featured", "Show featured content in discover", settings.enableFeatured, enabled = !settings.enableLowPerformanceMode)
+                    TvSwitchContent(stringResource(R.string.settings_featured), stringResource(R.string.settings_featured_description), settings.enableFeatured, enabled = !settings.enableLowPerformanceMode)
                 }
                 HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                 TvSettingsRow(theme, onActivate = { vm.setEnableImageLogos(!settings.enableImageLogos) }) {
-                    TvSwitchContent("Image Logos", "Show logo images for media", settings.enableImageLogos, enabled = !settings.enableLowPerformanceMode)
+                    TvSwitchContent(stringResource(R.string.settings_image_logos), stringResource(R.string.settings_image_logos_description), settings.enableImageLogos, enabled = !settings.enableLowPerformanceMode)
                 }
                 HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                 TvSettingsRow(theme, onActivate = { vm.setEnableCarouselView(!settings.enableCarouselView) }) {
-                    TvSwitchContent("Carousel View", "Switch between carousel and grid view", settings.enableCarouselView)
+                    TvSwitchContent(stringResource(R.string.settings_carousel_view), stringResource(R.string.settings_carousel_view_description_tv), settings.enableCarouselView)
                 }
                 if (!settings.enableCarouselView) {
                     HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                     TvSliderRow(
-                        label = "Number of rows in the grid",
+                        label = stringResource(R.string.settings_grid_rows),
                         value = settings.gridRows.toFloat(),
                         rangeStart = 1f,
                         rangeEnd = 8f,
@@ -2406,12 +2531,12 @@ private fun AppearanceSection(
                 }
                 HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                 TvSettingsRow(theme, onActivate = { vm.setEnableMinimalCards(!settings.enableMinimalCards) }) {
-                    TvSwitchContent("Minimal Cards", "Compact card display", settings.enableMinimalCards)
+                    TvSwitchContent(stringResource(R.string.settings_minimal_cards), stringResource(R.string.settings_minimal_cards_description), settings.enableMinimalCards)
                 }
                 if (settings.enableCarouselView) {
                     HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                     TvSliderRow(
-                        label = "Carousel item limit",
+                        label = stringResource(R.string.settings_carousel_item_limit),
                         value = settings.homeSectionCarouselLimit.toFloat(),
                         rangeStart = 1f,
                         rangeEnd = 50f,
@@ -2426,14 +2551,14 @@ private fun AppearanceSection(
                     HomeLayoutMenuSignal.request()
                     nav.navigate("home")
                 }) {
-                    Text("Edit home sections", color = theme.colors.type.text, fontSize = 14.sp, modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 12.dp))
+                    Text(stringResource(R.string.settings_edit_home_sections), color = theme.colors.type.text, fontSize = 14.sp, modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 12.dp))
                 }
             }
         } else {
             SettingsCard(theme) {
                 ZsSwitchRow(
-                    title = "Featured",
-                    subtitle = "Show featured content in discover",
+                    title = stringResource(R.string.settings_featured),
+                    subtitle = stringResource(R.string.settings_featured_description),
                     checked = settings.enableFeatured,
                     onCheckedChange = {
                         vm.setEnableFeatured(it)
@@ -2444,8 +2569,8 @@ private fun AppearanceSection(
                 )
                 HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                 ZsSwitchRow(
-                    title = "Image Logos",
-                    subtitle = "Show logo images for media",
+                    title = stringResource(R.string.settings_image_logos),
+                    subtitle = stringResource(R.string.settings_image_logos_description),
                     checked = settings.enableImageLogos,
                     onCheckedChange = vm::setEnableImageLogos,
                     enabled = !settings.enableLowPerformanceMode,
@@ -2453,8 +2578,8 @@ private fun AppearanceSection(
                 )
                 HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                 ZsSwitchRow(
-                    title = "Carousel View",
-                    subtitle = "Switch between a carousel and grid view for continue watching and bookmarks",
+                    title = stringResource(R.string.settings_carousel_view),
+                    subtitle = stringResource(R.string.settings_carousel_view_description),
                     checked = settings.enableCarouselView,
                     onCheckedChange = vm::setEnableCarouselView,
                     modifier = Modifier.padding(horizontal = 16.dp),
@@ -2467,7 +2592,7 @@ private fun AppearanceSection(
                     Column {
                         HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                         SliderRow(
-                            label = "Number of rows in the grid",
+                            label = stringResource(R.string.settings_grid_rows),
                             value = settings.gridRows.toFloat(),
                             rangeStart = 1f,
                             rangeEnd = 8f,
@@ -2480,8 +2605,8 @@ private fun AppearanceSection(
                 }
                 HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                 ZsSwitchRow(
-                    title = "Minimal Cards",
-                    subtitle = "Compact card display",
+                    title = stringResource(R.string.settings_minimal_cards),
+                    subtitle = stringResource(R.string.settings_minimal_cards_description),
                     checked = settings.enableMinimalCards,
                     onCheckedChange = vm::setEnableMinimalCards,
                     modifier = Modifier.padding(horizontal = 16.dp),
@@ -2494,7 +2619,7 @@ private fun AppearanceSection(
                     Column {
                         HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                         SliderRow(
-                            label = "Carousel item limit",
+                            label = stringResource(R.string.settings_carousel_item_limit),
                             value = settings.homeSectionCarouselLimit.toFloat(),
                             rangeStart = 1f,
                             rangeEnd = 50f,
@@ -2517,13 +2642,13 @@ private fun AppearanceSection(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("Edit home sections", color = theme.colors.type.text, fontSize = 14.sp)
+                    Text(stringResource(R.string.settings_edit_home_sections), color = theme.colors.type.text, fontSize = 14.sp)
                 }
             }
         }
 
         Spacer(Modifier.height(16.dp))
-        SectionLabel("Parental Controls", theme)
+        SectionLabel(stringResource(R.string.settings_parental_controls), theme)
         if (isTv) {
             Column(
                 Modifier
@@ -2533,14 +2658,14 @@ private fun AppearanceSection(
                     .background(theme.colors.settings.card.background)
             ) {
                 TvSettingsRow(theme, onActivate = { vm.setKidsModeEnabled(!settings.kidsModeEnabled) }) {
-                    TvSwitchContent("Kids Mode", "Hide 17+/mature and unrated content everywhere", settings.kidsModeEnabled)
+                    TvSwitchContent(stringResource(R.string.settings_kids_mode), stringResource(R.string.settings_kids_mode_description), settings.kidsModeEnabled)
                 }
             }
         } else {
             SettingsCard(theme) {
                 ZsSwitchRow(
-                    title = "Kids Mode",
-                    subtitle = "Hide 17+/mature and unrated content everywhere",
+                    title = stringResource(R.string.settings_kids_mode),
+                    subtitle = stringResource(R.string.settings_kids_mode_description),
                     checked = settings.kidsModeEnabled,
                     onCheckedChange = vm::setKidsModeEnabled,
                     modifier = Modifier.padding(horizontal = 16.dp),
@@ -2549,7 +2674,7 @@ private fun AppearanceSection(
         }
 
         Spacer(Modifier.height(16.dp))
-        SectionLabel("Player UI", theme)
+        SectionLabel(stringResource(R.string.settings_player_ui), theme)
         if (isTv) {
             Column(
                 Modifier
@@ -2559,18 +2684,18 @@ private fun AppearanceSection(
                     .background(theme.colors.settings.card.background)
             ) {
                 TvSettingsRow(theme, onActivate = { vm.setEnablePauseOverlay(!settings.enablePauseOverlay) }) {
-                    TvSwitchContent("Pause Overlay", "Show overlay when paused", settings.enablePauseOverlay, enabled = !settings.enableLowPerformanceMode)
+                    TvSwitchContent(stringResource(R.string.settings_pause_overlay), stringResource(R.string.settings_pause_overlay_description), settings.enablePauseOverlay, enabled = !settings.enableLowPerformanceMode)
                 }
                 HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                 TvSettingsRow(theme, onActivate = { vm.setForceCompactEpisodeView(!settings.forceCompactEpisodeView) }) {
-                    TvSwitchContent("Compact Episode View", "Compact episode list in player", settings.forceCompactEpisodeView, enabled = !settings.enableLowPerformanceMode)
+                    TvSwitchContent(stringResource(R.string.settings_compact_episode_view), stringResource(R.string.settings_compact_episode_view_description), settings.forceCompactEpisodeView, enabled = !settings.enableLowPerformanceMode)
                 }
             }
         } else {
             SettingsCard(theme) {
                 ZsSwitchRow(
-                    title = "Pause Overlay",
-                    subtitle = "Show overlay when paused",
+                    title = stringResource(R.string.settings_pause_overlay),
+                    subtitle = stringResource(R.string.settings_pause_overlay_description),
                     checked = settings.enablePauseOverlay,
                     onCheckedChange = vm::setEnablePauseOverlay,
                     enabled = !settings.enableLowPerformanceMode,
@@ -2578,8 +2703,8 @@ private fun AppearanceSection(
                 )
                 HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                 ZsSwitchRow(
-                    title = "Compact Episode View",
-                    subtitle = "Compact episode list in player",
+                    title = stringResource(R.string.settings_compact_episode_view),
+                    subtitle = stringResource(R.string.settings_compact_episode_view_description),
                     checked = settings.forceCompactEpisodeView,
                     onCheckedChange = vm::setForceCompactEpisodeView,
                     enabled = !settings.enableLowPerformanceMode,
@@ -2589,7 +2714,7 @@ private fun AppearanceSection(
         }
 
         Spacer(Modifier.height(16.dp))
-        SectionLabel("Theme", theme)
+        SectionLabel(stringResource(R.string.settings_theme), theme)
         if (isTv) {
             Column(
                 Modifier
@@ -2599,13 +2724,13 @@ private fun AppearanceSection(
                     .background(theme.colors.settings.card.background)
             ) {
                 TvSettingsRow(theme) {
-                    Text("Active Theme", color = theme.colors.type.text, fontSize = 14.sp, modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 12.dp))
+                    Text(stringResource(R.string.settings_active_theme), color = theme.colors.type.text, fontSize = 14.sp, modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 12.dp))
                     Text(activeTheme.name, color = theme.colors.type.secondary, fontSize = 13.sp, modifier = Modifier.padding(end = 12.dp))
                 }
             }
         } else {
             SettingsCard(theme) {
-                SettingsRow("Active Theme", activeTheme.name, theme)
+                SettingsRow(stringResource(R.string.settings_active_theme), activeTheme.name, theme)
             }
         }
 
@@ -2626,10 +2751,10 @@ private fun AppearanceSection(
         }
 
         Spacer(Modifier.height(16.dp))
-        SectionLabel("Font", theme)
+        SectionLabel(stringResource(R.string.settings_font), theme)
         SettingsCard(theme) {
             ZsDropdownRow(
-                "Application Font",
+                stringResource(R.string.settings_application_font),
                 com.zstream.android.ui.theme.AppFonts.options.map { it.displayName },
                 com.zstream.android.ui.theme.AppFonts.byId(settings.applicationFont).displayName,
                 { displayName ->
@@ -2658,25 +2783,25 @@ private fun PlayerSection(
             // TV uses its own dedicated in-app PiP mechanism (back button on the player), not
             // the system auto-PiP-on-background behavior this setting controls.
             Text(
-                "Nothing to configure here on TV yet.",
+                stringResource(R.string.settings_nothing_to_configure_tv),
                 color = theme.colors.type.secondary,
                 fontSize = 13.sp,
                 modifier = Modifier.padding(horizontal = 16.dp),
             )
         } else {
-            SectionLabel("Background Playback", theme)
+            SectionLabel(stringResource(R.string.settings_background_playback), theme)
             SettingsCard(theme) {
                 ZsSwitchRow(
-                    title = "Auto Picture-in-Picture",
-                    subtitle = "When leaving the app while a video is playing: on = automatically enter Picture-in-Picture, off = pause playback.",
+                    title = stringResource(R.string.settings_auto_picture_in_picture),
+                    subtitle = stringResource(R.string.settings_auto_picture_in_picture_description),
                     checked = settings.autoPipEnabled,
                     onCheckedChange = vm::setAutoPipEnabled,
                     modifier = Modifier.padding(horizontal = 16.dp),
                 )
                 HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                 ZsSwitchRow(
-                    title = "Play When Screen Locks",
-                    subtitle = "When the screen locks while a video is playing: on = keep playing in the background, off = pause playback.",
+                    title = stringResource(R.string.settings_play_when_screen_locks),
+                    subtitle = stringResource(R.string.settings_play_when_screen_locks_description),
                     checked = settings.enableBackgroundPlaybackOnScreenLock,
                     onCheckedChange = vm::setEnableBackgroundPlaybackOnScreenLock,
                     modifier = Modifier.padding(horizontal = 16.dp),
@@ -2689,7 +2814,7 @@ private fun PlayerSection(
 
 @Composable
 private fun SubtitlePreview(settings: SettingsEntity, theme: ZStreamTheme, vm: SettingsViewModel, isTv: Boolean = false) {
-    val sampleText = "This is a preview of your subtitles\nThis is a preview of your second line."
+    val sampleText = stringResource(R.string.settings_subtitle_preview_text)
     val textColor = Color(android.graphics.Color.parseColor(settings.subtitleColor))
     val bgAlpha = settings.subtitleBackgroundOpacity.coerceIn(0f, 1f)
     val density = androidx.compose.ui.platform.LocalDensity.current
@@ -2759,7 +2884,7 @@ private fun SubtitlePreview(settings: SettingsEntity, theme: ZStreamTheme, vm: S
         // Drag tip
         if (!isTv) {
             Text(
-                "Drag text to reposition",
+                stringResource(R.string.settings_drag_text_to_reposition),
                 color = Color.White.copy(alpha = 0.4f),
                 fontSize = 10.sp,
                 modifier = Modifier
@@ -2770,7 +2895,7 @@ private fun SubtitlePreview(settings: SettingsEntity, theme: ZStreamTheme, vm: S
 
         //  Subtitle preview (native or custom)
         val previewLabel = if (settings.enableNativeSubtitles)
-            "Native subtitle sample text" else sampleText
+            stringResource(R.string.settings_native_subtitle_sample) else sampleText
 
         // Blur modifier: works on API 31+ via Modifier.blur; gracefully no-ops below.
         val blurMod: Modifier = if (settings.subtitleBackgroundBlurEnabled && settings.subtitleBackgroundBlur > 0f)
@@ -2886,6 +3011,27 @@ private fun SubtitlesSettingsContent(
     isTv: Boolean = false,
     firstItemFocusRequester: FocusRequester? = null,
 ) {
+    val presets = listOf(
+        "netflix" to "Netflix",
+        "youtube" to "YouTube",
+        "anime" to stringResource(R.string.settings_anime),
+        "custom" to stringResource(R.string.settings_custom),
+    )
+    val subtitleStyles = listOf(
+        "default" to stringResource(R.string.settings_style_default),
+        "raised" to stringResource(R.string.settings_style_raised),
+        "depressed" to stringResource(R.string.settings_style_depressed),
+        "Border" to stringResource(R.string.settings_style_border),
+        "dropShadow" to stringResource(R.string.settings_style_drop_shadow),
+    )
+    val selectedSubtitleStyle = subtitleStyles
+        .firstOrNull { it.first == settings.subtitleFontStyle }
+        ?.second
+        ?: subtitleStyles.first().second
+    val selectSubtitleStyle: (String) -> Unit = { selected ->
+        subtitleStyles.firstOrNull { it.second == selected }?.first?.let(vm::setSubtitleFontStyle)
+    }
+    val pixelSuffix = stringResource(R.string.settings_pixel_suffix)
     val currentPreset = remember(settings) {
         when {
             // Netflix: white, no background, drop shadow, not bold, condensed font
@@ -2926,19 +3072,13 @@ private fun SubtitlesSettingsContent(
     if (isTv) {
         Column(Modifier.padding(bottom = 32.dp)) {
             Spacer(Modifier.height(8.dp))
-            SectionLabel("Presets", theme)
+            SectionLabel(stringResource(R.string.settings_presets), theme)
             Row(
                 Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                val presets = listOf(
-                    "netflix" to "Netflix",
-                    "youtube" to "YouTube",
-                    "anime" to "Anime",
-                    "custom" to "Custom"
-                )
                 presets.forEach { (key, label) ->
                     var presetFocused by remember { mutableStateOf(false) }
                     val isSelected = currentPreset == key
@@ -2994,7 +3134,7 @@ private fun SubtitlesSettingsContent(
             }
 
             Spacer(Modifier.height(8.dp))
-            SectionLabel("Behavior", theme)
+            SectionLabel(stringResource(R.string.settings_behavior), theme)
             Column(
                 Modifier
                     .fillMaxWidth()
@@ -3003,7 +3143,7 @@ private fun SubtitlesSettingsContent(
                     .background(theme.colors.settings.card.background)
             ) {
                 TvDropdownRow(
-                    "Preferred language",
+                    stringResource(R.string.settings_preferred_subtitle_language),
                     SUBTITLE_LANGUAGES.map { it.second },
                     subtitleLanguageDisplayName(settings.defaultSubtitleLanguage),
                     { display -> vm.setDefaultSubtitleLanguage(subtitleLanguageCodeFor(display)) },
@@ -3011,13 +3151,13 @@ private fun SubtitlesSettingsContent(
                 )
                 HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                 TvSettingsRow(theme, onActivate = { vm.setEnableNativeSubtitles(!settings.enableNativeSubtitles) }) {
-                    TvSwitchContent("Native Subtitles", "Use system subtitle renderer", settings.enableNativeSubtitles)
+                    TvSwitchContent(stringResource(R.string.settings_native_subtitles), stringResource(R.string.settings_native_subtitles_system_description), settings.enableNativeSubtitles)
                 }
             }
 
             if (!settings.enableNativeSubtitles) {
                 Spacer(Modifier.height(8.dp))
-                SectionLabel("Background", theme)
+                SectionLabel(stringResource(R.string.settings_background), theme)
                 Column(
                     Modifier
                         .fillMaxWidth()
@@ -3025,19 +3165,19 @@ private fun SubtitlesSettingsContent(
                         .clip(RoundedCornerShape(12.dp))
                         .background(theme.colors.settings.card.background)
                 ) {
-                    TvSliderRow("Background Opacity", settings.subtitleBackgroundOpacity * 100, 0f, 100f, { "${it.toInt()}%" }, { vm.setSubtitleBackgroundOpacity(it / 100f) }, theme)
+                    TvSliderRow(stringResource(R.string.settings_background_opacity), settings.subtitleBackgroundOpacity * 100, 0f, 100f, { "${it.toInt()}%" }, { vm.setSubtitleBackgroundOpacity(it / 100f) }, theme)
                     HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                     TvSettingsRow(theme, onActivate = { vm.setSubtitleBackgroundBlurEnabled(!settings.subtitleBackgroundBlurEnabled) }) {
-                        TvSwitchContent("Background Blur", "Apply blur effect behind subtitles", settings.subtitleBackgroundBlurEnabled)
+                        TvSwitchContent(stringResource(R.string.settings_background_blur), stringResource(R.string.settings_background_blur_description), settings.subtitleBackgroundBlurEnabled)
                     }
                     if (settings.subtitleBackgroundBlurEnabled) {
                         HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
-                        TvSliderRow("Blur Amount", settings.subtitleBackgroundBlur * 100, 0f, 100f, { "${it.toInt()}%" }, { vm.setSubtitleBackgroundBlur(it / 100f) }, theme)
+                        TvSliderRow(stringResource(R.string.settings_blur_amount), settings.subtitleBackgroundBlur * 100, 0f, 100f, { "${it.toInt()}%" }, { vm.setSubtitleBackgroundBlur(it / 100f) }, theme)
                     }
                 }
 
                 Spacer(Modifier.height(8.dp))
-                SectionLabel("Text", theme)
+                SectionLabel(stringResource(R.string.settings_text), theme)
                 Column(
                     Modifier
                         .fillMaxWidth()
@@ -3045,18 +3185,18 @@ private fun SubtitlesSettingsContent(
                         .clip(RoundedCornerShape(12.dp))
                         .background(theme.colors.settings.card.background)
                 ) {
-                    TvSliderRow("Text Size", settings.subtitleSize * 100, 1f, 200f, { "${it.toInt()}%" }, { vm.setSubtitleSize(it / 100f) }, theme)
+                    TvSliderRow(stringResource(R.string.settings_text_size), settings.subtitleSize * 100, 1f, 200f, { "${it.toInt()}%" }, { vm.setSubtitleSize(it / 100f) }, theme)
                     HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
-                    TvDropdownRow("Style", listOf("default", "raised", "depressed", "Border", "dropShadow"), settings.subtitleFontStyle, vm::setSubtitleFontStyle, theme)
+                    TvDropdownRow(stringResource(R.string.settings_style), subtitleStyles.map { it.second }, selectedSubtitleStyle, selectSubtitleStyle, theme)
                     if (settings.subtitleFontStyle == "Border") {
                         HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
-                        TvSliderRow("Border Thickness", settings.subtitleBorderThickness, 0f, 10f, { "${it.toInt()}px" }, { vm.setSubtitleBorderThickness(it) }, theme)
+                        TvSliderRow(stringResource(R.string.settings_border_thickness), settings.subtitleBorderThickness, 0f, 10f, { "${it.toInt()}$pixelSuffix" }, { vm.setSubtitleBorderThickness(it) }, theme)
                     }
                     HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
-                    TvDropdownRow("Font Family", com.zstream.android.ui.theme.SubtitleFontOptions, com.zstream.android.ui.theme.subtitleFontLabel(settings.subtitleFont), { vm.setSubtitleFont(com.zstream.android.ui.theme.subtitleFontId(it)) }, theme)
+                    TvDropdownRow(stringResource(R.string.settings_font_family), com.zstream.android.ui.theme.SubtitleFontOptions, com.zstream.android.ui.theme.subtitleFontLabel(settings.subtitleFont), { vm.setSubtitleFont(com.zstream.android.ui.theme.subtitleFontId(it)) }, theme)
                     HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                     TvSettingsRow(theme, onActivate = { vm.setSubtitleBold(!settings.subtitleBold) }) {
-                        TvSwitchContent("Bold", null, settings.subtitleBold)
+                        TvSwitchContent(stringResource(R.string.settings_bold), null, settings.subtitleBold)
                     }
                     HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
 
@@ -3071,7 +3211,7 @@ private fun SubtitlesSettingsContent(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text("Color", color = theme.colors.type.text, fontSize = 13.sp)
+                            Text(stringResource(R.string.settings_color), color = theme.colors.type.text, fontSize = 13.sp)
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Text(
                                     settings.subtitleColor.uppercase(),
@@ -3107,7 +3247,7 @@ private fun SubtitlesSettingsContent(
                 }
 
                 Spacer(Modifier.height(8.dp))
-                SectionLabel("Layout", theme)
+                SectionLabel(stringResource(R.string.settings_layout), theme)
                 Column(
                     Modifier
                         .fillMaxWidth()
@@ -3115,9 +3255,9 @@ private fun SubtitlesSettingsContent(
                         .clip(RoundedCornerShape(12.dp))
                         .background(theme.colors.settings.card.background)
                 ) {
-                    TvSliderRow("Vertical Position", settings.subtitleVerticalPosition, -15f, 30f, { "${it.toInt()}" }, { vm.setSubtitleVerticalPosition(it) }, theme)
+                    TvSliderRow(stringResource(R.string.settings_vertical_position), settings.subtitleVerticalPosition, -15f, 30f, { "${it.toInt()}" }, { vm.setSubtitleVerticalPosition(it) }, theme)
                     HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
-                    TvSliderRow("Line Spacing", settings.subtitleLineHeight * 100, 100f, 250f, { "${it.toInt()}%" }, { vm.setSubtitleLineHeight(it / 100f) }, theme)
+                    TvSliderRow(stringResource(R.string.settings_line_spacing), settings.subtitleLineHeight * 100, 100f, 250f, { "${it.toInt()}%" }, { vm.setSubtitleLineHeight(it / 100f) }, theme)
                 }
 
                 Spacer(Modifier.height(12.dp))
@@ -3148,7 +3288,7 @@ private fun SubtitlesSettingsContent(
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             Icon(Icons.Default.Refresh, null, modifier = Modifier.size(14.dp), tint = theme.colors.type.secondary)
-                            Text("Reset", color = theme.colors.type.secondary, fontSize = 12.sp)
+                            Text(stringResource(R.string.settings_reset), color = theme.colors.type.secondary, fontSize = 12.sp)
                         }
                     }
                 }
@@ -3157,19 +3297,13 @@ private fun SubtitlesSettingsContent(
     } else {
         Column(Modifier.padding(bottom = 32.dp)) {
             Spacer(Modifier.height(8.dp))
-            SectionLabel("Presets", theme)
+            SectionLabel(stringResource(R.string.settings_presets), theme)
             Row(
                 Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                val presets = listOf(
-                    "netflix" to "Netflix",
-                    "youtube" to "YouTube",
-                    "anime" to "Anime",
-                    "custom" to "Custom"
-                )
                 presets.forEach { (key, label) ->
                     val isSelected = currentPreset == key
                     val cardBg = if (isSelected) theme.colors.global.accentA else theme.colors.background.secondary
@@ -3200,18 +3334,18 @@ private fun SubtitlesSettingsContent(
             }
 
             Spacer(Modifier.height(8.dp))
-            SectionLabel("Behavior", theme)
+            SectionLabel(stringResource(R.string.settings_behavior), theme)
             SettingsCard(theme) {
                 ZsDropdownRow(
-                    "Preferred language",
+                    stringResource(R.string.settings_preferred_subtitle_language),
                     SUBTITLE_LANGUAGES.map { it.second },
                     subtitleLanguageDisplayName(settings.defaultSubtitleLanguage),
                     { display -> vm.setDefaultSubtitleLanguage(subtitleLanguageCodeFor(display)) },
                 )
                 HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                 ZsSwitchRow(
-                    title = "Native Subtitles",
-                    subtitle = "Use system subtitle renderer",
+                    title = stringResource(R.string.settings_native_subtitles),
+                    subtitle = stringResource(R.string.settings_native_subtitles_system_description),
                     checked = settings.enableNativeSubtitles,
                     onCheckedChange = vm::setEnableNativeSubtitles,
                     modifier = Modifier.padding(horizontal = 16.dp),
@@ -3220,38 +3354,38 @@ private fun SubtitlesSettingsContent(
 
             if (!settings.enableNativeSubtitles) {
                 Spacer(Modifier.height(8.dp))
-                SectionLabel("Background", theme)
+                SectionLabel(stringResource(R.string.settings_background), theme)
                 SettingsCard(theme) {
-                    SliderRow("Background Opacity", settings.subtitleBackgroundOpacity * 100, 0f, 100f, { "${it.toInt()}%" }, { vm.setSubtitleBackgroundOpacity(it / 100f) }, theme)
+                    SliderRow(stringResource(R.string.settings_background_opacity), settings.subtitleBackgroundOpacity * 100, 0f, 100f, { "${it.toInt()}%" }, { vm.setSubtitleBackgroundOpacity(it / 100f) }, theme)
                     HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                     ZsSwitchRow(
-                        title = "Background Blur",
-                        subtitle = "Apply blur effect behind subtitles",
+                        title = stringResource(R.string.settings_background_blur),
+                        subtitle = stringResource(R.string.settings_background_blur_description),
                         checked = settings.subtitleBackgroundBlurEnabled,
                         onCheckedChange = vm::setSubtitleBackgroundBlurEnabled,
                         modifier = Modifier.padding(horizontal = 16.dp),
                     )
                     if (settings.subtitleBackgroundBlurEnabled) {
                         HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
-                        SliderRow("Blur Amount", settings.subtitleBackgroundBlur * 100, 0f, 100f, { "${it.toInt()}%" }, { vm.setSubtitleBackgroundBlur(it / 100f) }, theme)
+                        SliderRow(stringResource(R.string.settings_blur_amount), settings.subtitleBackgroundBlur * 100, 0f, 100f, { "${it.toInt()}%" }, { vm.setSubtitleBackgroundBlur(it / 100f) }, theme)
                     }
                 }
 
                 Spacer(Modifier.height(8.dp))
-                SectionLabel("Text", theme)
+                SectionLabel(stringResource(R.string.settings_text), theme)
                 SettingsCard(theme) {
-                    SliderRow("Text Size", settings.subtitleSize * 100, 1f, 200f, { "${it.toInt()}%" }, { vm.setSubtitleSize(it / 100f) }, theme)
+                    SliderRow(stringResource(R.string.settings_text_size), settings.subtitleSize * 100, 1f, 200f, { "${it.toInt()}%" }, { vm.setSubtitleSize(it / 100f) }, theme)
                     HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
-                    ZsDropdownRow("Style", listOf("default", "raised", "depressed", "Border", "dropShadow"), settings.subtitleFontStyle, vm::setSubtitleFontStyle)
+                    ZsDropdownRow(stringResource(R.string.settings_style), subtitleStyles.map { it.second }, selectedSubtitleStyle, selectSubtitleStyle)
                     if (settings.subtitleFontStyle == "Border") {
                         HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
-                        SliderRow("Border Thickness", settings.subtitleBorderThickness, 0f, 10f, { "${it.toInt()}px" }, { vm.setSubtitleBorderThickness(it) }, theme)
+                        SliderRow(stringResource(R.string.settings_border_thickness), settings.subtitleBorderThickness, 0f, 10f, { "${it.toInt()}$pixelSuffix" }, { vm.setSubtitleBorderThickness(it) }, theme)
                     }
                     HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
-                    ZsDropdownRow("Font Family", com.zstream.android.ui.theme.SubtitleFontOptions, com.zstream.android.ui.theme.subtitleFontLabel(settings.subtitleFont), { vm.setSubtitleFont(com.zstream.android.ui.theme.subtitleFontId(it)) })
+                    ZsDropdownRow(stringResource(R.string.settings_font_family), com.zstream.android.ui.theme.SubtitleFontOptions, com.zstream.android.ui.theme.subtitleFontLabel(settings.subtitleFont), { vm.setSubtitleFont(com.zstream.android.ui.theme.subtitleFontId(it)) })
                     HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
                     ZsSwitchRow(
-                        title = "Bold",
+                        title = stringResource(R.string.settings_bold),
                         checked = settings.subtitleBold,
                         onCheckedChange = vm::setSubtitleBold,
                         modifier = Modifier.padding(horizontal = 16.dp),
@@ -3270,7 +3404,7 @@ private fun SubtitlesSettingsContent(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text("Color", color = theme.colors.type.text, fontSize = 13.sp)
+                        Text(stringResource(R.string.settings_color), color = theme.colors.type.text, fontSize = 13.sp)
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(
                                 settings.subtitleColor.uppercase(),
@@ -3305,11 +3439,11 @@ private fun SubtitlesSettingsContent(
                 }
 
                 Spacer(Modifier.height(8.dp))
-                SectionLabel("Layout", theme)
+                SectionLabel(stringResource(R.string.settings_layout), theme)
                 SettingsCard(theme) {
-                    SliderRow("Vertical Position", settings.subtitleVerticalPosition, -15f, 30f, { "${it.toInt()}" }, { vm.setSubtitleVerticalPosition(it) }, theme)
+                    SliderRow(stringResource(R.string.settings_vertical_position), settings.subtitleVerticalPosition, -15f, 30f, { "${it.toInt()}" }, { vm.setSubtitleVerticalPosition(it) }, theme)
                     HorizontalDivider(color = theme.colors.utils.divider.copy(alpha = 0.2f))
-                    SliderRow("Line Spacing", settings.subtitleLineHeight * 100, 100f, 250f, { "${it.toInt()}%" }, { vm.setSubtitleLineHeight(it / 100f) }, theme)
+                    SliderRow(stringResource(R.string.settings_line_spacing), settings.subtitleLineHeight * 100, 100f, 250f, { "${it.toInt()}%" }, { vm.setSubtitleLineHeight(it / 100f) }, theme)
                 }
 
                 Spacer(Modifier.height(12.dp))
@@ -3320,7 +3454,7 @@ private fun SubtitlesSettingsContent(
                 ) {
                     Icon(Icons.Default.Refresh, null, modifier = Modifier.size(14.dp))
                     Spacer(Modifier.width(6.dp))
-                    Text("Reset", fontSize = 12.sp)
+                    Text(stringResource(R.string.settings_reset), fontSize = 12.sp)
                 }
             }
         }
@@ -3401,10 +3535,10 @@ private fun SubtitleColorPickerDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = theme.colors.background.secondary,
-        title = { Text("Pick a Color", color = theme.colors.type.emphasis) },
+        title = { Text(stringResource(R.string.settings_pick_color), color = theme.colors.type.emphasis) },
         text = {
             Column {
-                Text("Select a color for your subtitles.", color = theme.colors.type.text, fontSize = 13.sp)
+                Text(stringResource(R.string.settings_select_subtitle_color), color = theme.colors.type.text, fontSize = 13.sp)
                 Spacer(Modifier.height(16.dp))
                 @OptIn(ExperimentalLayoutApi::class)
                 FlowRow(
@@ -3433,7 +3567,7 @@ private fun SubtitleColorPickerDialog(
         },
         confirmButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel", color = theme.colors.global.accentA)
+                Text(stringResource(R.string.settings_cancel), color = theme.colors.global.accentA)
             }
         },
     )
@@ -3623,6 +3757,7 @@ private fun TvDropdownRow(
     selected: String,
     onSelect: (String) -> Unit,
     theme: ZStreamTheme,
+    modifier: Modifier = Modifier,
 ) {
     var expanded by remember { mutableStateOf(false) }
     var isFocused by remember { mutableStateOf(false) }
@@ -3637,7 +3772,7 @@ private fun TvDropdownRow(
         modifier = Modifier.padding(horizontal = 12.dp),
     ) {
         Row(
-            Modifier
+            modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(8.dp))
                 .onFocusChanged { isFocused = it.isFocused }
@@ -3841,22 +3976,31 @@ private fun ConnectionsSection(
 ) {
     val trakt by vm.traktState.collectAsStateWithLifecycle()
     val context = androidx.compose.ui.platform.LocalContext.current
+    val validationFailed = stringResource(R.string.settings_validation_failed)
+    val tmdbKeyRejected = stringResource(R.string.settings_key_rejected_tmdb)
+    val introDbKeyRejected = stringResource(R.string.settings_key_rejected_introdb)
+    val traktConnectionStatus = if (trakt.connected) {
+        trakt.name?.let { stringResource(R.string.settings_connected_as, it) }
+            ?: stringResource(R.string.settings_connected)
+    } else {
+        stringResource(R.string.settings_not_connected)
+    }
     if (isTv) {
         Column(Modifier
             .padding(bottom = 32.dp)
             .padding(top = 16.dp)) {
             Spacer(Modifier.height(8.dp))
-            SectionLabel("Trakt", theme)
+            SectionLabel(stringResource(R.string.settings_trakt), theme)
             Column(
                 Modifier.fillMaxWidth().padding(horizontal = 16.dp).clip(RoundedCornerShape(12.dp))
                     .background(theme.colors.settings.card.background).padding(16.dp)
             ) {
-                Text(if (trakt.connected) "Connected${trakt.name?.let { " as $it" } ?: ""}" else "Not connected",
+                Text(traktConnectionStatus,
                     color = theme.colors.type.text, fontWeight = FontWeight.Bold)
-                Text("Trakt connections are managed from a mobile device.", color = theme.colors.type.dimmed, fontSize = 11.sp)
+                Text(stringResource(R.string.settings_trakt_managed_mobile), color = theme.colors.type.dimmed, fontSize = 11.sp)
             }
             Spacer(Modifier.height(16.dp))
-            SectionLabel("TMDB API Key", theme)
+            SectionLabel(stringResource(R.string.settings_tmdb_api_key), theme)
             Column(
                 Modifier
                     .fillMaxWidth()
@@ -3865,10 +4009,10 @@ private fun ConnectionsSection(
                     .background(theme.colors.settings.card.background)
             ) {
                 Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-                    Text("TMDB Token (optional)", color = theme.colors.type.text, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.settings_tmdb_token_optional), color = theme.colors.type.text, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        "Add your TMDB API key for direct TMDB-backed features.",
+                        stringResource(R.string.settings_tmdb_key_description),
                         color = theme.colors.type.dimmed, fontSize = 11.sp, lineHeight = 16.sp,
                     )
                     Spacer(Modifier.height(10.dp))
@@ -3892,10 +4036,10 @@ private fun ConnectionsSection(
                                     TokenValidationState.Valid
                                 } else {
                                     vm.setTmdbApiKey(null) // Prevent saving invalid key
-                                    TokenValidationState.Invalid("Key was rejected by TMDB.")
+                                    TokenValidationState.Invalid(tmdbKeyRejected)
                                 }
                             },
-                            onFailure = { TokenValidationState.Invalid(it.message ?: "Validation failed.") }
+                            onFailure = { TokenValidationState.Invalid(it.message ?: validationFailed) }
                         )
                     }
 
@@ -3931,7 +4075,7 @@ private fun ConnectionsSection(
                                     .clickable { tokenVisible = !tokenVisible }
                                     .padding(horizontal = 8.dp, vertical = 6.dp),
                             ) {
-                                Text(if (tokenVisible) "Hide" else "Show",
+                                Text(stringResource(if (tokenVisible) R.string.settings_hide else R.string.settings_show),
                                     color = theme.colors.global.accentA, fontSize = 11.sp)
                             }
                         }
@@ -3961,7 +4105,7 @@ private fun ConnectionsSection(
                                     }
                                     .padding(horizontal = 8.dp, vertical = 6.dp),
                             ) {
-                                Text("Clear",
+                                Text(stringResource(R.string.settings_clear),
                                     color = if (tmdbInput.isNotEmpty()) theme.colors.buttons.danger else theme.colors.type.dimmed,
                                     fontSize = 11.sp)
                             }
@@ -3977,12 +4121,12 @@ private fun ConnectionsSection(
                                     color = theme.colors.global.accentA,
                                 )
                                 Spacer(Modifier.width(8.dp))
-                                Text("Checking key…", color = theme.colors.type.dimmed, fontSize = 11.sp)
+                                Text(stringResource(R.string.settings_checking_key), color = theme.colors.type.dimmed, fontSize = 11.sp)
                             }
                         }
                         TokenValidationState.Valid -> {
                             ZsStatusBanner(
-                                message = "Key accepted by TMDB.",
+                                message = stringResource(R.string.settings_key_accepted_tmdb),
                                 variant = ZsStatusBannerVariant.Success,
                                 modifier = Modifier.padding(top = 4.dp)
                             )
@@ -4002,7 +4146,7 @@ private fun ConnectionsSection(
             FebboxAuroraSection(vm, settings, theme, isTv = true)
 
             Spacer(Modifier.height(16.dp))
-            SectionLabel("External Services", theme)
+            SectionLabel(stringResource(R.string.settings_external_services), theme)
             Column(
                 Modifier
                     .fillMaxWidth()
@@ -4011,10 +4155,10 @@ private fun ConnectionsSection(
                     .background(theme.colors.settings.card.background)
             ) {
               Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-                Text("TheIntroDB (optional)", color = theme.colors.type.text, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                Text(stringResource(R.string.settings_introdb_optional), color = theme.colors.type.text, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    "Add your TheIntroDB API key to submit new skip segments from the player.",
+                    stringResource(R.string.settings_introdb_tv_description),
                     color = theme.colors.type.dimmed, fontSize = 11.sp, lineHeight = 16.sp,
                 )
                 Spacer(Modifier.height(10.dp))
@@ -4046,12 +4190,12 @@ private fun ConnectionsSection(
                                 TokenValidationState.Valid
                             } else {
                                 vm.setTidbKey(null) // Prevent saving invalid key
-                                TokenValidationState.Invalid("Key was rejected by TheIntroDB.")
+                                TokenValidationState.Invalid(introDbKeyRejected)
                             }
                         },
                         onFailure = {
                             TokenValidationState.Invalid(
-                                it.message ?: "Validation failed."
+                                it.message ?: validationFailed
                             )
                         }
                     )
@@ -4088,7 +4232,7 @@ private fun ConnectionsSection(
                                 .padding(horizontal = 8.dp, vertical = 6.dp),
                         ) {
                             Text(
-                                if (tokenVisible) "Hide" else "Show",
+                                stringResource(if (tokenVisible) R.string.settings_hide else R.string.settings_show),
                                 color = theme.colors.global.accentA, fontSize = 11.sp
                             )
                         }
@@ -4120,7 +4264,7 @@ private fun ConnectionsSection(
                                 .padding(horizontal = 8.dp, vertical = 6.dp),
                         ) {
                             Text(
-                                "Clear",
+                                stringResource(R.string.settings_clear),
                                 color = if (tidbInput.isNotEmpty()) theme.colors.buttons.danger else theme.colors.type.dimmed,
                                 fontSize = 11.sp
                             )
@@ -4141,7 +4285,7 @@ private fun ConnectionsSection(
                             )
                             Spacer(Modifier.width(8.dp))
                             Text(
-                                "Checking key…",
+                                stringResource(R.string.settings_checking_key),
                                 color = theme.colors.type.dimmed,
                                 fontSize = 11.sp
                             )
@@ -4150,7 +4294,7 @@ private fun ConnectionsSection(
 
                     TokenValidationState.Valid -> {
                         ZsStatusBanner(
-                            message = "Key accepted by TheIntroDB.",
+                            message = stringResource(R.string.settings_key_accepted_introdb),
                             variant = ZsStatusBannerVariant.Success,
                             modifier = Modifier.padding(top = 4.dp)
                         )
@@ -4172,13 +4316,13 @@ private fun ConnectionsSection(
             .padding(bottom = 32.dp)
             .padding(top = if (isTv) 16.dp else 0.dp)) {
             Spacer(Modifier.height(8.dp))
-            SectionLabel("TMDB API Key", theme)
+            SectionLabel(stringResource(R.string.settings_tmdb_api_key), theme)
             SettingsCard(theme) {
                 Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-                    Text("TMDB Token (optional)", color = theme.colors.type.text, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.settings_tmdb_token_optional), color = theme.colors.type.text, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        "Add your TMDB API key for direct TMDB-backed features.",
+                        stringResource(R.string.settings_tmdb_key_description),
                         color = theme.colors.type.dimmed,
                         fontSize = 11.sp,
                         lineHeight = 16.sp,
@@ -4204,10 +4348,10 @@ private fun ConnectionsSection(
                                     TokenValidationState.Valid
                                 } else {
                                     vm.setTmdbApiKey(null) // Prevent saving invalid key
-                                    TokenValidationState.Invalid("Key was rejected by TMDB.")
+                                    TokenValidationState.Invalid(tmdbKeyRejected)
                                 }
                             },
-                            onFailure = { TokenValidationState.Invalid(it.message ?: "Validation failed.") }
+                            onFailure = { TokenValidationState.Invalid(it.message ?: validationFailed) }
                         )
                     }
 
@@ -4244,7 +4388,7 @@ private fun ConnectionsSection(
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         TextButton(onClick = { tokenVisible = !tokenVisible }) {
                             Text(
-                                if (tokenVisible) "Hide" else "Show",
+                                stringResource(if (tokenVisible) R.string.settings_hide else R.string.settings_show),
                                 color = theme.colors.global.accentA,
                                 fontSize = 11.sp,
                             )
@@ -4254,7 +4398,7 @@ private fun ConnectionsSection(
                             vm.setTmdbApiKey(null) 
                         }, enabled = tmdbInput.isNotEmpty()) {
                             Text(
-                                "Clear",
+                                stringResource(R.string.settings_clear),
                                 color = if (tmdbInput.isNotEmpty()) theme.colors.buttons.danger else theme.colors.type.dimmed,
                                 fontSize = 11.sp,
                             )
@@ -4270,12 +4414,12 @@ private fun ConnectionsSection(
                                     color = theme.colors.global.accentA,
                                 )
                                 Spacer(Modifier.width(8.dp))
-                                Text("Checking key…", color = theme.colors.type.dimmed, fontSize = 11.sp)
+                                Text(stringResource(R.string.settings_checking_key), color = theme.colors.type.dimmed, fontSize = 11.sp)
                             }
                         }
                         TokenValidationState.Valid -> {
                             ZsStatusBanner(
-                                message = "Key accepted by TMDB.",
+                                message = stringResource(R.string.settings_key_accepted_tmdb),
                                 variant = ZsStatusBannerVariant.Success,
                                 modifier = Modifier.padding(top = 4.dp)
                             )
@@ -4295,19 +4439,19 @@ private fun ConnectionsSection(
             FebboxAuroraSection(vm, settings, theme, isTv = false)
 
             Spacer(Modifier.height(16.dp))
-            SectionLabel("Integrations", theme)
+            SectionLabel(stringResource(R.string.settings_integrations), theme)
             SettingsCard(theme) {
                 Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-                    Text("TheIntroDB", color = theme.colors.type.text, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.settings_introdb), color = theme.colors.type.text, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        "Contribute to TheIntroDB by leaving feedback on intro, recap, and credits segments.",
+                        stringResource(R.string.settings_introdb_description),
                         color = theme.colors.type.dimmed,
                         fontSize = 11.sp,
                         lineHeight = 16.sp,
                     )
                     Spacer(Modifier.height(10.dp))
-                    Text("API Key", color = theme.colors.type.text, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.settings_api_key), color = theme.colors.type.text, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(6.dp))
                     var tokenVisible by remember { mutableStateOf(false) }
                     var tidbInput by remember(settings.tidbKey) { mutableStateOf(settings.tidbKey ?: "") }
@@ -4329,10 +4473,10 @@ private fun ConnectionsSection(
                                     TokenValidationState.Valid
                                 } else {
                                     vm.setTidbKey(null) // Prevent saving invalid key
-                                    TokenValidationState.Invalid("Key was rejected by TheIntroDB.")
+                                    TokenValidationState.Invalid(introDbKeyRejected)
                                 }
                             },
-                            onFailure = { TokenValidationState.Invalid(it.message ?: "Validation failed.") }
+                            onFailure = { TokenValidationState.Invalid(it.message ?: validationFailed) }
                         )
                     }
                     BasicTextField(
@@ -4369,7 +4513,7 @@ private fun ConnectionsSection(
                         IntegrationActionOutline(theme) {
                             TextButton(onClick = { tokenVisible = !tokenVisible }) {
                                 Text(
-                                    if (tokenVisible) "Hide" else "Show",
+                                    stringResource(if (tokenVisible) R.string.settings_hide else R.string.settings_show),
                                     color = theme.colors.global.accentA,
                                     fontSize = 11.sp,
                                 )
@@ -4381,7 +4525,7 @@ private fun ConnectionsSection(
                                 vm.setTidbKey(null)
                             }, enabled = tidbInput.isNotEmpty()) {
                                 Text(
-                                    "Clear",
+                                    stringResource(R.string.settings_clear),
                                     color = if (tidbInput.isNotEmpty()) theme.colors.buttons.danger else theme.colors.type.dimmed,
                                     fontSize = 11.sp,
                                 )
@@ -4398,12 +4542,12 @@ private fun ConnectionsSection(
                                     color = theme.colors.global.accentA,
                                 )
                                 Spacer(Modifier.width(8.dp))
-                                Text("Checking key…", color = theme.colors.type.dimmed, fontSize = 11.sp)
+                                Text(stringResource(R.string.settings_checking_key), color = theme.colors.type.dimmed, fontSize = 11.sp)
                             }
                         }
                         TokenValidationState.Valid -> {
                             ZsStatusBanner(
-                                message = "Key accepted by TheIntroDB.",
+                                message = stringResource(R.string.settings_key_accepted_introdb),
                                 variant = ZsStatusBannerVariant.Success,
                                 modifier = Modifier.padding(top = 4.dp)
                             )
