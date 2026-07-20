@@ -292,7 +292,6 @@ data class AutoplayEpisodeTarget(
 )
 
 private const val AD_COOLDOWN_MS = 30 * 60 * 1000L
-internal const val PRE_ROLL_AD_TAG_URL = "https://youradexchange.com/video/select.php?r=11761118"
 private const val MOBILE_AD_USER_AGENT =
     "Mozilla/5.0 (Linux; Android 13; Pixel 7 Build/TQ3A.230805.001; wv) " +
         "AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 " +
@@ -1526,12 +1525,13 @@ class PlayerViewModel @OptIn(UnstableApi::class)
 
     private suspend fun resolvePreRollAdUri(): String? {
         if (_adOnCooldown.value) return null
-        if (!isTv) return PRE_ROLL_AD_TAG_URL
+        val adTagUrl = pluginManager.preRollAdTagUrl() ?: return null
+        if (!isTv) return adTagUrl
 
         return withContext(Dispatchers.IO) {
             runCatching {
                 val request = Request.Builder()
-                    .url(PRE_ROLL_AD_TAG_URL)
+                    .url(adTagUrl)
                     .header("User-Agent", MOBILE_AD_USER_AGENT)
                     .header("Accept", "application/xml,text/xml,*/*")
                     .cacheControl(CacheControl.FORCE_NETWORK)

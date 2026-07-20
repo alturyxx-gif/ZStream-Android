@@ -571,6 +571,27 @@ class PluginManager @Inject constructor(
         }
     }
 
+    /**
+     * Pre-roll ad tag URL, sourced from the plugin so it can be rotated (ad network/zone changes)
+     * via a background plugin update alone — no app release needed. Null if the plugin isn't
+     * ready or predates this method (older cached build).
+     */
+    fun preRollAdTagUrl(): String? {
+        val plugin = readyPlugin() ?: return null
+        return try {
+            val method = plugin.javaClass.methods.firstOrNull {
+                it.name == "preRollAdTagUrl" && it.parameterTypes.isEmpty()
+            } ?: run {
+                Log.e(TAG, "Plugin has no preRollAdTagUrl() — incompatible plugin build")
+                return null
+            }
+            (method.invoke(plugin) as? String)?.takeIf { it.isNotBlank() }
+        } catch (t: Throwable) {
+            Log.e(TAG, "preRollAdTagUrl() threw: ${t.message}", t)
+            null
+        }
+    }
+
     private fun readyPlugin(): Any? = when (val s = pluginState.value) {
         is PluginState.Ready -> s.plugin
         is PluginState.UpdateAvailable -> s.plugin
