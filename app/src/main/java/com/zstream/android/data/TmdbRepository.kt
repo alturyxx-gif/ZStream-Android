@@ -48,8 +48,30 @@ class TmdbRepository @Inject constructor(
         return response.results.filter { it.mediaType == "movie" || it.mediaType == "tv" }
     }
     suspend fun searchPaged(query: String, page: Int = 1): com.zstream.android.data.model.PagedResponse<Media> = api.search(query, page, metadataLanguage())
-    suspend fun movieDetail(id: Int) = api.movieDetail(id, language = metadataLanguage())
+    suspend fun movieDetail(id: Int): MovieDetail {
+        val language = metadataLanguage()
+        val detail = api.movieDetail(id, language = language)
+        if (language == null || !detail.overview.isNullOrBlank()) return detail
+        val fallbackOverview = api.movieDetail(id, language = null).overview
+        return if (fallbackOverview.isNullOrBlank()) detail else detail.copy(overview = fallbackOverview)
+    }
     suspend fun collection(id: Int) = api.collection(id, metadataLanguage())
-    suspend fun tvDetail(id: Int) = api.tvDetail(id, language = metadataLanguage())
-    suspend fun season(id: Int, season: Int) = api.season(id, season, metadataLanguage())
+    suspend fun tvDetail(id: Int): TvDetail {
+        val language = metadataLanguage()
+        val detail = api.tvDetail(id, language = language)
+        if (language == null || !detail.overview.isNullOrBlank()) return detail
+        val fallbackOverview = api.tvDetail(id, language = null).overview
+        return if (fallbackOverview.isNullOrBlank()) detail else detail.copy(overview = fallbackOverview)
+    }
+    suspend fun season(id: Int, season: Int): Season {
+        val language = metadataLanguage()
+        val result = api.season(id, season, language)
+        if (language == null || result.episodes.isNullOrEmpty() || result.episodes.none { it.overview.isNullOrBlank() }) return result
+        val fallback = api.season(id, season, null)
+        val fallbackById = fallback.episodes?.associateBy { it.id } ?: emptyMap()
+        return result.copy(episodes = result.episodes.map { ep ->
+            if (!ep.overview.isNullOrBlank()) ep
+            else fallbackById[ep.id]?.overview?.takeUnless { it.isBlank() }?.let { ep.copy(overview = it) } ?: ep
+        })
+    }
 }
