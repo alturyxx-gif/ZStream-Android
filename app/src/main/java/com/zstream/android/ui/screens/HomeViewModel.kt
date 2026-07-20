@@ -183,6 +183,8 @@ class HomeViewModel @Inject constructor(
     val state = _state.asStateFlow()
     private var currentSearchPage = 1
     private var searchGeneration = 0
+    private var observedMetadataLanguage: String? = null
+    private var hasObservedMetadataLanguage = false
 
     init {
         com.zstream.android.CrashLog.breadcrumb("HomeVM", "init start")
@@ -263,6 +265,10 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch {
             settingsPrefs.settings.collect { s ->
                 val kidsModeChanged = _state.value.kidsModeEnabled != s.kidsModeEnabled
+                val metadataLanguage = s.applicationLanguage.ifBlank { null }
+                val metadataLanguageChanged = hasObservedMetadataLanguage && observedMetadataLanguage != metadataLanguage
+                observedMetadataLanguage = metadataLanguage
+                hasObservedMetadataLanguage = true
                 _state.update { it.copy(
                     enableDiscover = s.enableDiscover,
                     enableFeatured = s.enableFeatured,
@@ -273,9 +279,10 @@ class HomeViewModel @Inject constructor(
                     gridRows = s.gridRows,
                     kidsModeEnabled = s.kidsModeEnabled,
                 ) }
-                if (kidsModeChanged) {
+                if (kidsModeChanged || metadataLanguageChanged) {
                     discoverSourcePages.clear()
                     load()
+                    loadPopularForSearch()
                 } else {
                     scheduleDiscoverReplenish()
                 }
@@ -460,10 +467,22 @@ class HomeViewModel @Inject constructor(
                             try {
                                 if (media.type == "movie") {
                                     val detail = repo.movieDetail(media.id)
-                                    media.copy(logoPath = detail.images?.logos?.firstOrNull()?.file_path)
+                                    media.copy(
+                                        title = detail.title,
+                                        overview = detail.overview,
+                                        releaseDate = detail.releaseDate,
+                                        voteAverage = detail.voteAverage,
+                                        logoPath = detail.images?.logos?.firstOrNull()?.file_path,
+                                    )
                                 } else {
                                     val detail = repo.tvDetail(media.id)
-                                    media.copy(logoPath = detail.images?.logos?.firstOrNull()?.file_path)
+                                    media.copy(
+                                        name = detail.name,
+                                        overview = detail.overview,
+                                        firstAirDate = detail.firstAirDate,
+                                        voteAverage = detail.voteAverage,
+                                        logoPath = detail.images?.logos?.firstOrNull()?.file_path,
+                                    )
                                 }
                             } catch (e: Exception) {
                                 media
