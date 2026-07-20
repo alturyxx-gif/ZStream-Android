@@ -29,8 +29,6 @@ interface TmdbApi {
         @Query("language") language: String? = null
     ): TvDetail
     @GET("tv/{id}/season/{season}") suspend fun season(@Path("id") id: Int, @Path("season") season: Int, @Query("language") language: String? = null): Season
-    @GET("tv/{id}/episode_groups") suspend fun episodeGroups(@Path("id") id: Int): EpisodeGroupsResponse
-    @GET("tv/episode_group/{groupId}") suspend fun episodeGroupDetail(@Path("groupId") groupId: String): EpisodeGroupDetail
     @GET("collection/{id}") suspend fun collection(@Path("id") id: Int, @Query("language") language: String? = null): CollectionDetails
     @GET("movie/{id}/release_dates") suspend fun movieReleaseDates(@Path("id") id: Int): ReleaseDatesResponse
     @GET("tv/{id}/content_ratings") suspend fun tvContentRatings(@Path("id") id: Int): ContentRatingsResponse

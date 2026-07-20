@@ -12,15 +12,14 @@ import com.zstream.android.data.local.dao.CachedEpisodeDao
 import com.zstream.android.data.local.dao.DownloadDao
 import com.zstream.android.data.local.entity.CachedEpisodeEntity
 import com.zstream.android.data.local.entity.DownloadEntity
+import com.zstream.android.data.local.entity.ProgressEntity
 import com.zstream.android.data.model.Episode
 import com.zstream.android.data.model.MovieDetail
 import com.zstream.android.data.model.Season
 import com.zstream.android.data.model.TvDetail
 import com.zstream.android.R
-import com.zstream.android.data.model.TvSeasonCatalog
 import com.zstream.android.data.model.airedEpisodes
 import com.zstream.android.data.model.CollectionSummary
-import com.zstream.android.data.model.EpisodeGroupResolver
 import com.zstream.android.data.remote.CollectionDetails
 import com.zstream.android.download.DownloadResolver
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -38,7 +37,7 @@ import javax.inject.Inject
 sealed class DetailState {
     object Loading : DetailState()
     data class Movie(val detail: MovieDetail, val certification: String? = null) : DetailState()
-    data class Tv(val detail: TvDetail, val selectedSeason: Season? = null, val certification: String? = null, val seasonCatalog: TvSeasonCatalog? = null) : DetailState()
+    data class Tv(val detail: TvDetail, val selectedSeason: Season? = null, val certification: String? = null) : DetailState()
     data class Error(val message: String) : DetailState()
 }
 
@@ -116,9 +115,7 @@ class DetailViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private var pendingInitialSeasonNumber: Int? = requestedSeasonNumber
-    private var pendingInitialEpisodeNumber: Int? = requestedEpisodeNumber
     private var initialSeasonResolved = false
-    private var seasonCatalog: TvSeasonCatalog? = null
 
     init {
         if (mediaType == "tv") {
@@ -127,7 +124,6 @@ class DetailViewModel @Inject constructor(
                     if (requestedSeasonNumber != null) return@collectLatest
                     val seasonNumber = currentProgress?.seasonNumber ?: return@collectLatest
                     pendingInitialSeasonNumber = seasonNumber
-                    pendingInitialEpisodeNumber = currentProgress.episodeNumber
                     applyPendingInitialSeason()
                 }
             }
@@ -254,38 +250,14 @@ class DetailViewModel @Inject constructor(
                     val filteredDetail = detail.similar?.results?.let { similarItems ->
                         detail.copy(similar = detail.similar.copy(results = certRepo.filterForKids(similarItems, kidsModeEnabled)))
                     } ?: detail
-
-                    val catalog = if (offline) {
-                        buildOfflineSeasonCatalog(filteredDetail)
-                    } else {
-                        runCatching { repo.seasonCatalog(id, filteredDetail) }
-                            .getOrElse { com.zstream.android.data.model.EpisodeGroupResolver.defaultCatalogFromDetail(filteredDetail) }
-                    }
-                    seasonCatalog = catalog
-
-                    val detailForUi = if (catalog.usingEpisodeGroups) {
-                        filteredDetail.copy(
-                            seasons = catalog.seasons.map { it.copy(episodes = null) },
-                            numberOfSeasons = catalog.seasons.size,
-                        )
-                    } else {
-                        filteredDetail
-                    }
-
-                    val preferredSeasonNumber = resolveInitialDisplaySeason(
-                        catalog = catalog,
-                        preferredSeason = pendingInitialSeasonNumber ?: progress.value?.seasonNumber,
-                        preferredEpisode = pendingInitialEpisodeNumber ?: progress.value?.episodeNumber,
-                        preferredEpisodeId = progress.value?.episodeId,
-                    )
-                    val firstSeason = preferredSeasonNumber?.let { fetchOrCachedSeason(it) }
-                        ?: catalog.seasons.firstOrNull { it.seasonNumber > 0 }?.seasonNumber?.let { fetchOrCachedSeason(it) }
-                        ?: detailForUi.seasons
-                            ?.firstOrNull { it.seasonNumber > 0 }
-                            ?.let { fetchOrCachedSeason(it.seasonNumber) }
-
+                    val preferredSeasonNumber = pendingInitialSeasonNumber ?: progress.value?.seasonNumber
+                    val firstSeason = preferredSeasonNumber?.let { seasonNumber ->
+                        filteredDetail.seasons?.firstOrNull { it.seasonNumber == seasonNumber }?.let { fetchOrCachedSeason(seasonNumber) }
+                    } ?: filteredDetail.seasons
+                        ?.firstOrNull { it.seasonNumber > 0 }
+                        ?.let { fetchOrCachedSeason(it.seasonNumber) }
                     val certification = certRepo.getCertification(detail.id, "tv")
-                    _state.value = DetailState.Tv(detailForUi, firstSeason, certification, catalog)
+                    _state.value = DetailState.Tv(filteredDetail, firstSeason, certification)
                     applyPendingInitialSeason()
                     if (!offline) loadImdbTrailers(detail.imdbId ?: detail.externalIds?.imdbId)
                 }
@@ -330,25 +302,10 @@ class DetailViewModel @Inject constructor(
         )
     }
 
-    /**
-     * Fetches a season live when online (caching the result), otherwise falls back to the local cache.
-     * When an episode-group catalog is active, seasons come from that layout (display S/E).
-     */
+    /** Fetches a season live when online (caching the result), otherwise falls back to the local cache. */
     private suspend fun fetchOrCachedSeason(seasonNumber: Int): Season? {
-        val catalog = seasonCatalog
-        if (catalog != null && catalog.usingEpisodeGroups) {
-            val fromCatalog = catalog.season(seasonNumber)
-            if (fromCatalog != null) {
-                cacheSeason(fromCatalog)
-                return fromCatalog
-            }
-        }
         if (connectivityObserver.isOnlineNow()) {
-            val season = if (catalog != null) {
-                runCatching { repo.seasonForPlayback(id, seasonNumber) }.getOrNull()
-            } else {
-                runCatching { repo.season(id, seasonNumber) }.getOrNull()
-            }
+            val season = runCatching { repo.season(id, seasonNumber) }.getOrNull()
             if (season != null) {
                 cacheSeason(season)
                 return season
@@ -392,62 +349,6 @@ class DetailViewModel @Inject constructor(
         if (episodes.isNotEmpty()) cachedEpisodeDao.upsertAll(episodes)
     }
 
-    /** Rebuild season list from Room cache written the last time we were online (display S/E). */
-    private suspend fun buildOfflineSeasonCatalog(detail: TvDetail): TvSeasonCatalog {
-        val seasonNumbers = cachedEpisodeDao.getAvailableSeasonsSync(id.toString())
-            .filter { it > 0 }
-            .sorted()
-        if (seasonNumbers.isEmpty()) {
-            return com.zstream.android.data.model.EpisodeGroupResolver.defaultCatalogFromDetail(detail)
-        }
-        val seasons = seasonNumbers.mapNotNull { number ->
-            val cached = cachedEpisodeDao.getSeasonSync(id.toString(), number)
-            if (cached.isEmpty()) return@mapNotNull null
-            Season(
-                id = 0,
-                seasonNumber = number,
-                name = "Season $number",
-                episodeCount = cached.size,
-                posterPath = null,
-                episodes = cached.map { entry ->
-                    Episode(
-                        id = entry.episodeId,
-                        name = entry.title,
-                        episodeNumber = entry.episode,
-                        seasonNumber = entry.season,
-                        stillPath = entry.stillPath,
-                        overview = entry.overview,
-                        airDate = entry.airDate,
-                    )
-                },
-            )
-        }
-        // Multiple cached seasons usually means we previously applied a group split (or normal multi-season).
-        return TvSeasonCatalog(
-            seasons = seasons,
-            usingEpisodeGroups = seasons.size > 1 &&
-                (detail.seasons.orEmpty().filter { it.seasonNumber > 0 }.size <= 1 ||
-                    detail.seasons.orEmpty().any { (it.episodeCount ?: 0) >= EpisodeGroupResolver.LARGE_SEASON_EPISODE_THRESHOLD }),
-        )
-    }
-
-    /**
-     * Finds the season that was viewed last, with backwards compatibility
-     */
-    private fun resolveInitialDisplaySeason(
-        catalog: TvSeasonCatalog,
-        preferredSeason: Int?,
-        preferredEpisode: Int?,
-        preferredEpisodeId: String?,
-    ): Int? {
-        val match = catalog.findEpisode(preferredSeason, preferredEpisode, preferredEpisodeId)
-        if (match != null) return match.seasonNumber
-        if (preferredSeason != null && catalog.seasons.any { it.seasonNumber == preferredSeason }) {
-            return preferredSeason
-        }
-        return catalog.seasons.firstOrNull { it.seasonNumber > 0 }?.seasonNumber
-    }
-
     private fun loadImdbTrailers(imdbId: String?) {
         if (imdbId.isNullOrBlank()) return
         viewModelScope.launch {
@@ -465,9 +366,7 @@ class DetailViewModel @Inject constructor(
     fun selectSeason(seasonNumber: Int) {
         val current = _state.value as? DetailState.Tv ?: return
         viewModelScope.launch {
-            fetchOrCachedSeason(seasonNumber)?.let {
-                _state.value = current.copy(selectedSeason = it, seasonCatalog = seasonCatalog ?: current.seasonCatalog)
-            }
+            fetchOrCachedSeason(seasonNumber)?.let { _state.value = current.copy(selectedSeason = it) }
         }
     }
 
@@ -495,7 +394,7 @@ class DetailViewModel @Inject constructor(
         }
     }
 
-    fun markEpisodeWatched(episode: Episode) {
+    fun markEpisodeWatched(episode: com.zstream.android.data.model.Episode) {
         val current = _state.value as? DetailState.Tv ?: return
         val season = current.selectedSeason
         viewModelScope.launch {
@@ -519,7 +418,7 @@ class DetailViewModel @Inject constructor(
         }
     }
 
-    fun clearEpisodeWatchHistory(episode: Episode) {
+    fun clearEpisodeWatchHistory(episode: com.zstream.android.data.model.Episode) {
         val current = _state.value as? DetailState.Tv ?: return
         val season = current.selectedSeason
         viewModelScope.launch {
@@ -589,33 +488,20 @@ class DetailViewModel @Inject constructor(
 
     private fun applyPendingInitialSeason() {
         if (initialSeasonResolved) return
-        val preferredSeason = pendingInitialSeasonNumber ?: return
+        val seasonNumber = pendingInitialSeasonNumber ?: return
         val current = _state.value as? DetailState.Tv ?: return
-        val catalog = seasonCatalog ?: current.seasonCatalog
-        val displaySeason = resolveInitialDisplaySeason(
-            catalog = catalog ?: TvSeasonCatalog(
-                seasons = current.detail.seasons.orEmpty(),
-                usingEpisodeGroups = false,
-            ),
-            preferredSeason = preferredSeason,
-            preferredEpisode = pendingInitialEpisodeNumber,
-            preferredEpisodeId = progress.value?.episodeId,
-        ) ?: preferredSeason
-
-        if (current.selectedSeason?.seasonNumber == displaySeason) {
+        if (current.selectedSeason?.seasonNumber == seasonNumber) {
             initialSeasonResolved = true
             return
         }
-        if (current.detail.seasons.orEmpty().none { it.seasonNumber == displaySeason }) {
+        if (current.detail.seasons.orEmpty().none { it.seasonNumber == seasonNumber }) {
             initialSeasonResolved = true
             return
         }
 
         initialSeasonResolved = true
         viewModelScope.launch {
-            fetchOrCachedSeason(displaySeason)?.let {
-                _state.value = current.copy(selectedSeason = it, seasonCatalog = catalog ?: current.seasonCatalog)
-            }
+            fetchOrCachedSeason(seasonNumber)?.let { _state.value = current.copy(selectedSeason = it) }
         }
     }
 

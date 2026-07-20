@@ -135,10 +135,6 @@ data class Episode(
     @SerializedName("still_path") val stillPath: String?,
     val overview: String?,
     @SerializedName("air_date") val airDate: String?,
-    /** The "real" season number according to TMDB - ignoring episode group seasons*/
-    val sourceSeasonNumber: Int? = null,
-    /** See [sourceSeasonNumber]. */
-    val sourceEpisodeNumber: Int? = null,
 )
 
 private fun todayIsoDate(): String =
