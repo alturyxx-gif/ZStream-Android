@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Tv
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
@@ -38,6 +39,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -52,6 +54,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -66,6 +69,8 @@ import com.zstream.android.data.TvSyncPayload
 import com.zstream.android.data.TvSyncReceiverState
 import com.zstream.android.data.TvSyncRepository
 import com.zstream.android.data.PasskeySessionTransfer
+import com.zstream.android.data.adb.AdbOperationException
+import com.zstream.android.data.adb.TvAdbManager
 import com.zstream.android.data.local.entity.SettingsEntity
 import com.zstream.android.theme.LocalZStreamTheme
 import com.zstream.android.ui.LocalIsTv
@@ -79,10 +84,12 @@ import com.zstream.android.ui.components.themed.ZsStatusBanner
 import com.zstream.android.ui.components.themed.ZsStatusBannerVariant
 import com.zstream.android.ui.navigation.rememberSafeNavigateBack
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -213,6 +220,7 @@ private fun TvManageScreen(
     vm: TvSyncViewModel,
 ) {
     val theme = LocalZStreamTheme.current
+    val context = LocalContext.current
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     val onBack = rememberSafeNavigateBack(nav, scope)
     val pairedTvs by vm.pairedTvs.collectAsStateWithLifecycle()
@@ -223,6 +231,38 @@ private fun TvManageScreen(
     var hasScanned by remember { mutableStateOf(false) }
     val statuses = remember { mutableStateMapOf<String, TvOnlineStatus>() }
     val renaming = remember { mutableStateMapOf<String, String>() }
+
+    // Uninstall targets the ADB-paired TV (same one the "Update" button below installs to) --
+    // TV sync pairing (this screen, for Trakt/watch-progress sync) and ADB pairing (for
+    // sideloading installs/uninstalls) are separate systems, so this isn't guaranteed to be the
+    // exact row's TV if the user has paired more than one. Matches the existing "Update" button's
+    // behavior rather than introducing a new targeting scheme.
+    var uninstallConfirmFor by remember { mutableStateOf<com.zstream.android.data.PairedTv?>(null) }
+    var uninstalling by remember { mutableStateOf(false) }
+    var uninstallStatus by remember { mutableStateOf<String?>(null) }
+    var uninstallError by remember { mutableStateOf<String?>(null) }
+
+    fun uninstallApp() {
+        uninstallConfirmFor = null
+        uninstalling = true
+        uninstallError = null
+        uninstallStatus = null
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) { TvAdbManager.get(context).uninstallApp() }
+                uninstallStatus = context.getString(R.string.tv_sync_uninstall_success)
+            } catch (t: Throwable) {
+                Log.w(TV_SYNC_UI_TAG, "uninstallApp failed", t)
+                uninstallError = if (t is AdbOperationException) {
+                    t.message ?: context.getString(R.string.tv_sync_uninstall_failed)
+                } else {
+                    context.getString(R.string.tv_sync_uninstall_failed)
+                }
+            } finally {
+                uninstalling = false
+            }
+        }
+    }
 
     fun keyOf(host: String, port: Int) = "$host:$port"
 
@@ -280,6 +320,13 @@ private fun TvManageScreen(
                     contentDescription = stringResource(R.string.tv_sync_refresh),
                     variant = ZsIconButtonVariant.Ghost,
                 )
+            }
+
+            uninstallStatus?.let {
+                ZsStatusBanner(message = it, variant = ZsStatusBannerVariant.Success)
+            }
+            uninstallError?.let {
+                ZsStatusBanner(message = it, variant = ZsStatusBannerVariant.Error)
             }
 
             if (pairedTvs.isEmpty() && !hasScanned) {
@@ -400,6 +447,14 @@ private fun TvManageScreen(
                                         buttonModifier = Modifier.fillMaxWidth(),
                                     )
                                 }
+                                ZsButton(
+                                    text = stringResource(R.string.tv_sync_uninstall),
+                                    variant = ZsButtonVariant.Danger,
+                                    loading = uninstalling,
+                                    onClick = { uninstallConfirmFor = tv },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    buttonModifier = Modifier.fillMaxWidth(),
+                                )
                             }
                         }
                     }
@@ -458,6 +513,25 @@ private fun TvManageScreen(
                 .align(Alignment.BottomEnd)
                 .navigationBarsPadding()
                 .padding(24.dp),
+        )
+    }
+
+    uninstallConfirmFor?.let { tv ->
+        AlertDialog(
+            onDismissRequest = { uninstallConfirmFor = null },
+            containerColor = theme.colors.modal.background,
+            title = { Text(stringResource(R.string.tv_sync_uninstall_confirm_title), color = theme.colors.type.emphasis) },
+            text = { Text(stringResource(R.string.tv_sync_uninstall_confirm_body, tv.nickname), color = theme.colors.type.text) },
+            confirmButton = {
+                TextButton(onClick = { uninstallApp() }) {
+                    Text(stringResource(R.string.tv_sync_uninstall), color = theme.colors.buttons.danger)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { uninstallConfirmFor = null }) {
+                    Text(stringResource(R.string.tv_sync_cancel), color = theme.colors.type.secondary)
+                }
+            },
         )
     }
 }

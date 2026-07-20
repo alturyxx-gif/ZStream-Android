@@ -496,6 +496,49 @@ class TvAdbManager private constructor(
         }
     }
 
+    /**
+     * Resolves (and if needed reconnects) the endpoint of the saved TV, reusing an already-open
+     * connection when present. Shared by [installFromUrl] and [uninstallApp] since both need a
+     * live shell session before issuing package-manager commands.
+     */
+    private fun ensureConnectedEndpoint(logPrefix: String): DiscoveredAdbEndpoints = try {
+        if (isConnected) {
+            val model = runShell("getprop", "ro.product.model").trim()
+            val saved = getSavedTv()
+            val host = saved?.host ?: "unknown"
+            val connectPort = saved?.connectPort ?: saved?.legacyPort
+            Log.d(tag, "$logPrefix using active connection host=$host model=$model connectPort=$connectPort")
+            DiscoveredAdbEndpoints(host, saved?.pairingPort, connectPort)
+        } else {
+            Log.d(tag, "$logPrefix discovering local legacy endpoint")
+            discoverLocalLegacyEndpoint()
+        }
+    } catch (e: AdbOperationException) {
+        Log.w(tag, "$logPrefix reconnect failed kind=${e.kind} msg=${e.message}")
+        throw e
+    } catch (e: Throwable) {
+        Log.w(tag, "$logPrefix connect failed type=${e.javaClass.simpleName} msg=${e.message}")
+        throw AdbOperationException(AdbFailureKind.DISCOVERY, "Could not find the TV's legacy ADB endpoint.", e)
+    }
+
+    /**
+     * Uninstalls [packageName] (this app, by default) from the connected/saved TV via
+     * `pm uninstall`. Separate from [installFromUrl] on purpose — some installs need the old
+     * app removed first before a new one will go on, but that's a deliberate, user-triggered
+     * step, not something install should do silently and risk wiping app data the user wanted
+     * to keep.
+     */
+    fun uninstallApp(packageName: String = com.zstream.android.BuildConfig.APPLICATION_ID): String {
+        Log.d(tag, "uninstallApp start package=$packageName")
+        ensureConnectedEndpoint("uninstallApp")
+        val output = runShell("pm", "uninstall", packageName).trim()
+        Log.d(tag, "uninstallApp result=$output")
+        if (!output.equals("Success", ignoreCase = true)) {
+            throw AdbOperationException(AdbFailureKind.INSTALL, "Uninstall failed: $output")
+        }
+        return output
+    }
+
     fun installFromUrl(
         url: String,
         expectedDigest: String? = null,
@@ -506,25 +549,7 @@ class TvAdbManager private constructor(
         val validatedUrl = validateApkUrl(url)
         Log.d(tag, "installFromUrl start url=$validatedUrl cancelled=${isCancelled()}")
         onProgress(InstallProgress.Connecting)
-        val endpoint = try {
-            if (isConnected) {
-                val model = runShell("getprop", "ro.product.model").trim()
-                val saved = getSavedTv()
-                val host = saved?.host ?: "unknown"
-                val connectPort = saved?.connectPort ?: saved?.legacyPort
-                Log.d(tag, "installFromUrl using active connection host=$host model=$model connectPort=$connectPort")
-                DiscoveredAdbEndpoints(host, saved?.pairingPort, connectPort)
-            } else {
-                Log.d(tag, "installFromUrl discovering local legacy endpoint")
-                discoverLocalLegacyEndpoint()
-            }
-        } catch (e: AdbOperationException) {
-            Log.w(tag, "installFromUrl reconnect failed kind=${e.kind} msg=${e.message}")
-            throw e
-        } catch (e: Throwable) {
-            Log.w(tag, "installFromUrl connect failed type=${e.javaClass.simpleName} msg=${e.message}")
-            throw AdbOperationException(AdbFailureKind.DISCOVERY, "Could not find the TV's legacy ADB endpoint.", e)
-        }
+        val endpoint = ensureConnectedEndpoint("installFromUrl")
         Log.d(tag, "installFromUrl connected host=${endpoint.host} pairingPort=${endpoint.pairingPort} connectPort=${endpoint.connectPort}")
         val model = getSavedTv()?.model ?: endpoint.host
         val apk = try {
