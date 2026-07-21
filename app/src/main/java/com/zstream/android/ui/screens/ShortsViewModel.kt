@@ -59,7 +59,9 @@ class ShortsViewModel @Inject constructor(
             val now = System.currentTimeMillis() / 1000
             if (now < cached.expiresAtEpochSec) return cached
         }
-        val resolved = runCatching { repository.resolveStream(videoId) }.getOrNull() ?: return null
+        val resolved = runCatching { repository.resolveStream(videoId) }
+            .onFailure { android.util.Log.e("ShortsVM", "resolveStream failed for $videoId", it) }
+            .getOrNull() ?: return null
         streamCache[videoId] = resolved
         return resolved
     }

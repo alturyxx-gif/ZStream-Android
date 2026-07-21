@@ -61,7 +61,20 @@ fun ShortsScreen(nav: NavController, vm: ShortsViewModel = hiltViewModel()) {
     val state by vm.state.collectAsState()
     val pagerState = rememberPagerState(pageCount = { state.items.size })
 
-    val players = remember { List(PLAYER_POOL_SIZE) { ExoPlayer.Builder(context).build() } }
+    val players = remember {
+        List(PLAYER_POOL_SIZE) { index ->
+            ExoPlayer.Builder(context).build().apply {
+                addListener(object : androidx.media3.common.Player.Listener {
+                    override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                        android.util.Log.e("ShortsPlayer", "player[$index] error", error)
+                    }
+                    override fun onPlaybackStateChanged(state: Int) {
+                        android.util.Log.d("ShortsPlayer", "player[$index] state=$state")
+                    }
+                })
+            }
+        }
+    }
     DisposableEffect(Unit) {
         onDispose { players.forEach { it.release() } }
     }
