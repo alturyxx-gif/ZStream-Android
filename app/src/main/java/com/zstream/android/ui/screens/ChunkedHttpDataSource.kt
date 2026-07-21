@@ -52,7 +52,24 @@ private class ChunkedHttpDataSource(
             .setPosition(position)
             .setLength(chunkBudget)
             .build()
-        upstream.open(chunkSpec)
+        android.util.Log.d(
+            "ChunkedDS",
+            "opening chunk position=$position length=$chunkBudget end=$chunkEnd knownTotal=$knownTotalLength uri=${baseDataSpec.uri}",
+        )
+        try {
+            upstream.open(chunkSpec)
+        } catch (e: Exception) {
+            val invalidResponse = e as? androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException
+            android.util.Log.e(
+                "ChunkedDS",
+                "chunk open failed position=$position length=$chunkBudget " +
+                    "code=${invalidResponse?.responseCode} " +
+                    "headers=${invalidResponse?.headerFields} " +
+                    "body=${invalidResponse?.responseBody?.let { String(it) }}",
+                e,
+            )
+            throw e
+        }
     }
 
     override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
