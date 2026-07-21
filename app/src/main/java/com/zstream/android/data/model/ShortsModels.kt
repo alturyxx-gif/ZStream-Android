@@ -26,4 +26,7 @@ data class ShortsStreamResponse(
     val height: Int,
     val isVertical: Boolean,
     @SerializedName("expiresAt") val expiresAtEpochSec: Long,
+    val userAgent: String,
+    val clipStartMs: Long = 0L,
+    val clipEndMs: Long? = null,
 )

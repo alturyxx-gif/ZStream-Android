@@ -11,6 +11,46 @@ import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.random.Random
+
+private data class InnertubeClient(
+    val name: String,
+    val version: String,
+    val clientNameId: String,
+    val extra: Map<String, Any>,
+    val userAgent: String,
+)
+
+private val CLIENTS = listOf(
+    InnertubeClient(
+        name = "ANDROID_VR",
+        version = "1.65.10",
+        clientNameId = "28",
+        extra = mapOf(
+            "deviceMake" to "Oculus",
+            "deviceModel" to "Quest 3",
+            "androidSdkVersion" to 32,
+            "osName" to "Android",
+            "osVersion" to "12L",
+        ),
+        userAgent = "com.google.android.apps.youtube.vr.oculus/1.65.10 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip",
+    ),
+    InnertubeClient(
+        name = "IOS",
+        version = "21.02.3",
+        clientNameId = "5",
+        extra = mapOf(
+            "deviceMake" to "Apple",
+            "deviceModel" to "iPhone16,2",
+            "osName" to "iPhone",
+            "osVersion" to "18.3.2.22D82",
+        ),
+        userAgent = "com.google.ios.youtube/21.02.3 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)",
+    ),
+)
+
+private const val CLIP_WINDOW_SEC = 5 * 60
+private const val CLIP_THRESHOLD_SEC = 6 * 60
 
 @Singleton
 class YoutubeStreamResolver @Inject constructor() {
@@ -19,19 +59,25 @@ class YoutubeStreamResolver @Inject constructor() {
         .readTimeout(15, TimeUnit.SECONDS)
         .build()
 
-    private val vrUserAgent =
-        "com.google.android.apps.youtube.vr.oculus/1.65.10 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip"
     private val webUserAgent =
         "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
 
     suspend fun resolve(videoId: String): ShortsStreamResponse = withContext(Dispatchers.IO) {
         val (apiKey, visitorData) = fetchBootstrap(videoId)
-        val playerResponse = fetchPlayerResponse(videoId, apiKey, visitorData)
 
-        val status = playerResponse.optJSONObject("playabilityStatus")?.optString("status")
-        check(status == "OK") { "Video not playable ($status) for $videoId" }
+        var playerResponse: JSONObject? = null
+        for (client in CLIENTS) {
+            val response = fetchPlayerResponse(videoId, apiKey, visitorData, client)
+            val status = response.optJSONObject("playabilityStatus")?.optString("status")
+            if (status == "OK") {
+                playerResponse = response
+                break
+            }
+        }
+        val response = checkNotNull(playerResponse) { "Video not playable for $videoId (all clients failed)" }
+        val usedUserAgent = CLIENTS.first { it.name == response.getUsedClientName() }.userAgent
 
-        val adaptiveFormats = playerResponse
+        val adaptiveFormats = response
             .getJSONObject("streamingData")
             .getJSONArray("adaptiveFormats")
 
@@ -66,6 +112,16 @@ class YoutubeStreamResolver @Inject constructor() {
         val width = video.optInt("width")
         val height = video.optInt("height")
 
+        val lengthSec = response.optJSONObject("videoDetails")?.optString("lengthSeconds")?.toLongOrNull() ?: 0L
+        var clipStartMs = 0L
+        var clipEndMs: Long? = null
+        if (lengthSec > CLIP_THRESHOLD_SEC) {
+            val maxStartSec = lengthSec - CLIP_WINDOW_SEC
+            val startSec = Random.nextLong(0, maxStartSec.coerceAtLeast(1))
+            clipStartMs = startSec * 1000
+            clipEndMs = (startSec + CLIP_WINDOW_SEC) * 1000
+        }
+
         ShortsStreamResponse(
             videoUrl = video.getString("url"),
             audioUrl = audio.getString("url"),
@@ -74,6 +130,9 @@ class YoutubeStreamResolver @Inject constructor() {
             height = height,
             isVertical = height > width,
             expiresAtEpochSec = System.currentTimeMillis() / 1000 + 4 * 3600,
+            userAgent = usedUserAgent,
+            clipStartMs = clipStartMs,
+            clipEndMs = clipEndMs,
         )
     }
 
@@ -94,23 +153,24 @@ class YoutubeStreamResolver @Inject constructor() {
         return apiKey to visitorData
     }
 
-    private fun fetchPlayerResponse(videoId: String, apiKey: String, visitorData: String?): JSONObject {
-        val client = JSONObject().apply {
-            put("clientName", "ANDROID_VR")
-            put("clientVersion", "1.65.10")
-            put("deviceMake", "Oculus")
-            put("deviceModel", "Quest 3")
-            put("androidSdkVersion", 32)
-            put("userAgent", vrUserAgent)
-            put("osName", "Android")
-            put("osVersion", "12L")
+    private fun fetchPlayerResponse(
+        videoId: String,
+        apiKey: String,
+        visitorData: String?,
+        client: InnertubeClient,
+    ): JSONObject {
+        val clientJson = JSONObject().apply {
+            put("clientName", client.name)
+            put("clientVersion", client.version)
+            client.extra.forEach { (k, v) -> put(k, v) }
+            put("userAgent", client.userAgent)
             put("hl", "en")
             put("gl", "US")
             if (visitorData != null) put("visitorData", visitorData)
         }
         val body = JSONObject().apply {
             put("videoId", videoId)
-            put("context", JSONObject().apply { put("client", client) })
+            put("context", JSONObject().apply { put("client", clientJson) })
             put("contentCheckOk", true)
             put("racyCheckOk", true)
         }
@@ -118,16 +178,20 @@ class YoutubeStreamResolver @Inject constructor() {
         val request = Request.Builder()
             .url("https://www.youtube.com/youtubei/v1/player?key=$apiKey")
             .header("Content-Type", "application/json")
-            .header("User-Agent", vrUserAgent)
-            .header("X-Youtube-Client-Name", "28")
-            .header("X-Youtube-Client-Version", "1.65.10")
+            .header("User-Agent", client.userAgent)
+            .header("X-Youtube-Client-Name", client.clientNameId)
+            .header("X-Youtube-Client-Version", client.version)
             .post(body.toString().toRequestBody("application/json".toMediaType()))
             .build()
 
         http.newCall(request).execute().use { response ->
-            return JSONObject(response.body?.string().orEmpty())
+            val json = JSONObject(response.body?.string().orEmpty())
+            json.put("_usedClient", client.name)
+            return json
         }
     }
+
+    private fun JSONObject.getUsedClientName(): String = getString("_usedClient")
 
     companion object {
         private const val DEFAULT_API_KEY = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8"

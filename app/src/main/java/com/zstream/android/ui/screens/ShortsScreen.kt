@@ -1,6 +1,5 @@
 package com.zstream.android.ui.screens
 
-import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -38,7 +37,10 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
 import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.MergingMediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
@@ -52,8 +54,8 @@ import com.zstream.android.ui.components.themed.ZsButton
 import com.zstream.android.ui.components.themed.ZsButtonVariant
 
 private const val PLAYER_POOL_SIZE = 3
-private const val SHORTS_USER_AGENT =
-    "Mozilla/5.0 (Linux; Android 11; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
+private const val MAX_ERROR_RETRIES = 2
+private const val PREFETCH_AHEAD = 3
 
 @Composable
 fun ShortsScreen(nav: NavController, vm: ShortsViewModel = hiltViewModel()) {
@@ -61,12 +63,24 @@ fun ShortsScreen(nav: NavController, vm: ShortsViewModel = hiltViewModel()) {
     val state by vm.state.collectAsState()
     val pagerState = rememberPagerState(pageCount = { state.items.size })
 
+    val loadControl = remember {
+        DefaultLoadControl.Builder()
+            .setBufferDurationsMs(15_000, 50_000, 1_000, 2_500)
+            .build()
+    }
+    val retryCounts = remember { mutableMapOf<ExoPlayer, Int>() }
     val players = remember {
         List(PLAYER_POOL_SIZE) { index ->
-            ExoPlayer.Builder(context).build().apply {
-                addListener(object : androidx.media3.common.Player.Listener {
-                    override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+            ExoPlayer.Builder(context).setLoadControl(loadControl).build().apply {
+                repeatMode = Player.REPEAT_MODE_ONE
+                addListener(object : Player.Listener {
+                    override fun onPlayerError(error: PlaybackException) {
                         android.util.Log.e("ShortsPlayer", "player[$index] error", error)
+                        val retries = retryCounts.getOrDefault(this@apply, 0)
+                        if (retries < MAX_ERROR_RETRIES) {
+                            retryCounts[this@apply] = retries + 1
+                            this@apply.prepare()
+                        }
                     }
                     override fun onPlaybackStateChanged(state: Int) {
                         android.util.Log.d("ShortsPlayer", "player[$index] state=$state")
@@ -79,9 +93,6 @@ fun ShortsScreen(nav: NavController, vm: ShortsViewModel = hiltViewModel()) {
         onDispose { players.forEach { it.release() } }
     }
 
-    // Tracks which videoId is currently loaded into each pool player, so
-    // scrolling back to an already-loaded slot just resumes instead of
-    // re-resolving + re-loading the source.
     val loadedVideoId = remember { mutableMapOf<ExoPlayer, String>() }
 
     LaunchedEffect(pagerState.currentPage, state.items.size, state.endReached) {
@@ -99,15 +110,21 @@ fun ShortsScreen(nav: NavController, vm: ShortsViewModel = hiltViewModel()) {
         players.forEach { p -> if (p !== settledPlayer) p.playWhenReady = false }
 
         items.getOrNull(settled)?.let { item ->
-            loadIntoPlayer(context, settledPlayer, item.videoId, vm, autoPlay = true, loadedVideoId)
+            retryCounts[settledPlayer] = 0
+            loadIntoPlayer(settledPlayer, item.videoId, vm, autoPlay = true, loadedVideoId)
         }
 
         val nextItem = items.getOrNull(settled + 1)
         if (nextItem != null) {
             val nextPlayer = players[(settled + 1) % PLAYER_POOL_SIZE]
             if (nextPlayer !== settledPlayer) {
-                loadIntoPlayer(context, nextPlayer, nextItem.videoId, vm, autoPlay = false, loadedVideoId)
+                retryCounts[nextPlayer] = 0
+                loadIntoPlayer(nextPlayer, nextItem.videoId, vm, autoPlay = false, loadedVideoId)
             }
+        }
+
+        for (ahead in 2..PREFETCH_AHEAD) {
+            items.getOrNull(settled + ahead)?.let { vm.prefetchStream(it.videoId) }
         }
     }
 
@@ -128,9 +145,6 @@ private fun ShortsPlayerItem(item: ShortItem, player: ExoPlayer, nav: NavControl
     val theme = LocalZStreamTheme.current
 
     Box(Modifier.fillMaxSize()) {
-        // Blurred thumbnail backdrop -- fills the space around non-vertical
-        // (16:9) clips instead of a plain black letterbox, the standard
-        // Reels/TikTok treatment for non-vertical source video.
         AsyncImage(
             model = item.thumbnailUrl,
             contentDescription = null,
@@ -183,7 +197,6 @@ private fun ShortsPlayerItem(item: ShortItem, player: ExoPlayer, nav: NavControl
 }
 
 private suspend fun loadIntoPlayer(
-    context: Context,
     player: ExoPlayer,
     videoId: String,
     vm: ShortsViewModel,
@@ -196,11 +209,26 @@ private suspend fun loadIntoPlayer(
     }
     val stream = vm.streamFor(videoId) ?: return
 
-    val dataSourceFactory = DefaultHttpDataSource.Factory().setUserAgent(SHORTS_USER_AGENT)
+    val dataSourceFactory = DefaultHttpDataSource.Factory().setUserAgent(stream.userAgent)
+
+    fun clippedItem(uri: String): MediaItem {
+        val builder = MediaItem.Builder().setUri(uri)
+        val end = stream.clipEndMs
+        if (end != null) {
+            builder.setClippingConfiguration(
+                MediaItem.ClippingConfiguration.Builder()
+                    .setStartPositionMs(stream.clipStartMs)
+                    .setEndPositionMs(end)
+                    .build()
+            )
+        }
+        return builder.build()
+    }
+
     val videoSource = ProgressiveMediaSource.Factory(dataSourceFactory)
-        .createMediaSource(MediaItem.fromUri(stream.videoUrl))
+        .createMediaSource(clippedItem(stream.videoUrl))
     val audioSource = ProgressiveMediaSource.Factory(dataSourceFactory)
-        .createMediaSource(MediaItem.fromUri(stream.audioUrl))
+        .createMediaSource(clippedItem(stream.audioUrl))
 
     player.setMediaSource(MergingMediaSource(videoSource, audioSource))
     player.prepare()

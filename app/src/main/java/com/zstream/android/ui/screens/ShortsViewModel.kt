@@ -54,6 +54,11 @@ class ShortsViewModel @Inject constructor(
         }
     }
 
+    fun prefetchStream(videoId: String) {
+        if (streamCache.containsKey(videoId)) return
+        viewModelScope.launch { streamFor(videoId) }
+    }
+
     suspend fun streamFor(videoId: String): ShortsStreamResponse? {
         streamCache[videoId]?.let { cached ->
             val now = System.currentTimeMillis() / 1000
