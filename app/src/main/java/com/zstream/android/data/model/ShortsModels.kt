@@ -24,4 +24,6 @@ data class ShortsStreamResponse(
     val userAgent: String,
     val clipStartMs: Long = 0L,
     val clipEndMs: Long? = null,
+    val videoContentLength: Long = 0L,
+    val audioContentLength: Long = 0L,
 )

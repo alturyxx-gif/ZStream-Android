@@ -133,6 +133,8 @@ class YoutubeStreamResolver @Inject constructor() {
             userAgent = usedUserAgent,
             clipStartMs = clipStartMs,
             clipEndMs = clipEndMs,
+            videoContentLength = video.optString("contentLength").toLongOrNull() ?: 0L,
+            audioContentLength = audio.optString("contentLength").toLongOrNull() ?: 0L,
         )
     }
 

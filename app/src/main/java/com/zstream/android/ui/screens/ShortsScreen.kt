@@ -210,9 +210,9 @@ private suspend fun loadIntoPlayer(
     }
     val stream = vm.streamFor(videoId) ?: return false
 
-    val dataSourceFactory = DefaultHttpDataSource.Factory()
-        .setUserAgent(stream.userAgent)
-        .setDefaultRequestProperties(mapOf("Range" to "bytes=0-"))
+    val httpFactory = DefaultHttpDataSource.Factory().setUserAgent(stream.userAgent)
+    val videoDataSourceFactory = ChunkedHttpDataSourceFactory(httpFactory, stream.videoContentLength)
+    val audioDataSourceFactory = ChunkedHttpDataSourceFactory(httpFactory, stream.audioContentLength)
 
     fun clippedItem(uri: String): MediaItem {
         val builder = MediaItem.Builder().setUri(uri)
@@ -228,9 +228,9 @@ private suspend fun loadIntoPlayer(
         return builder.build()
     }
 
-    val videoSource = ProgressiveMediaSource.Factory(dataSourceFactory)
+    val videoSource = ProgressiveMediaSource.Factory(videoDataSourceFactory)
         .createMediaSource(clippedItem(stream.videoUrl))
-    val audioSource = ProgressiveMediaSource.Factory(dataSourceFactory)
+    val audioSource = ProgressiveMediaSource.Factory(audioDataSourceFactory)
         .createMediaSource(clippedItem(stream.audioUrl))
 
     player.setMediaSource(MergingMediaSource(videoSource, audioSource))
