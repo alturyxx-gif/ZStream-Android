@@ -20,6 +20,7 @@ data class Media(
     @SerializedName("media_type") val mediaType: String?,
     @SerializedName("genre_ids") val genreIds: List<Int>?,
     val logoPath: String? = null,
+    val popularity: Double? = null,
 ) {
     val displayTitle get() = title ?: name ?: ""
     val displayDate get() = releaseDate ?: firstAirDate ?: ""

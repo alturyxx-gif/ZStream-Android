@@ -93,7 +93,7 @@ fun ShortsScreen(nav: NavController, vm: ShortsViewModel = hiltViewModel()) {
 
     val loadedVideoId = remember { mutableMapOf<ExoPlayer, String>() }
 
-    LaunchedEffect(pagerState.currentPage, state.items.size, state.endReached) {
+    LaunchedEffect(pagerState.currentPage, state.items.size) {
         if (state.items.isNotEmpty() && pagerState.currentPage >= state.items.size - 3) {
             vm.loadNextPage()
         }
@@ -109,7 +109,10 @@ fun ShortsScreen(nav: NavController, vm: ShortsViewModel = hiltViewModel()) {
 
         items.getOrNull(settled)?.let { item ->
             retryCounts[settledPlayer] = 0
-            loadIntoPlayer(settledPlayer, item.videoId, vm, autoPlay = true, loadedVideoId)
+            val loaded = loadIntoPlayer(settledPlayer, item.videoId, vm, autoPlay = true, loadedVideoId)
+            if (!loaded && settled + 1 < items.size) {
+                pagerState.animateScrollToPage(settled + 1)
+            }
         }
 
         val nextItem = items.getOrNull(settled + 1)
@@ -200,12 +203,12 @@ private suspend fun loadIntoPlayer(
     vm: ShortsViewModel,
     autoPlay: Boolean,
     loadedVideoId: MutableMap<ExoPlayer, String>,
-) {
+): Boolean {
     if (loadedVideoId[player] == videoId) {
         player.playWhenReady = autoPlay
-        return
+        return true
     }
-    val stream = vm.streamFor(videoId) ?: return
+    val stream = vm.streamFor(videoId) ?: return false
 
     val dataSourceFactory = DefaultHttpDataSource.Factory().setUserAgent(stream.userAgent)
 
@@ -232,4 +235,5 @@ private suspend fun loadIntoPlayer(
     player.prepare()
     player.playWhenReady = autoPlay
     loadedVideoId[player] = videoId
+    return true
 }

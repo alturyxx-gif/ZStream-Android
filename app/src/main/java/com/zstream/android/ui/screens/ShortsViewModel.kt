@@ -19,17 +19,15 @@ class ShortsViewModel @Inject constructor(
 
     data class UiState(
         val items: List<ShortItem> = emptyList(),
-        val cursor: String? = null,
-        val endReached: Boolean = false,
         val loading: Boolean = false,
     )
 
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
 
-    // Resolved video/audio URLs are signed + short-lived -- cached in memory
-    // only for as long as they're actually still valid, never persisted.
     private val streamCache = mutableMapOf<String, ShortsStreamResponse>()
+    private val failedUntilEpochSec = mutableMapOf<String, Long>()
+    private val seenVideoIds = mutableSetOf<String>()
 
     init {
         loadNextPage()
@@ -37,26 +35,28 @@ class ShortsViewModel @Inject constructor(
 
     fun loadNextPage() {
         val current = _state.value
-        if (current.loading || current.endReached) return
+        if (current.loading) return
         _state.value = current.copy(loading = true)
         viewModelScope.launch {
-            val page = runCatching { repository.loadPage(current.cursor) }.getOrNull()
-            _state.value = if (page == null) {
-                _state.value.copy(loading = false)
-            } else {
-                _state.value.copy(
-                    items = _state.value.items + page.items,
-                    cursor = page.nextCursor,
-                    endReached = page.nextCursor == null,
-                    loading = false,
-                )
-            }
+            val excludeIds = seenVideoIds + failedUntilEpochSec.keys
+            val page = runCatching { repository.loadPage(excludeIds) }.getOrNull().orEmpty()
+            seenVideoIds.addAll(page.map { it.videoId })
+            _state.value = _state.value.copy(
+                items = _state.value.items + page,
+                loading = false,
+            )
         }
     }
 
     fun prefetchStream(videoId: String) {
         if (streamCache.containsKey(videoId)) return
+        if (isRecentlyFailed(videoId)) return
         viewModelScope.launch { streamFor(videoId) }
+    }
+
+    private fun isRecentlyFailed(videoId: String): Boolean {
+        val until = failedUntilEpochSec[videoId] ?: return false
+        return System.currentTimeMillis() / 1000 < until
     }
 
     suspend fun streamFor(videoId: String): ShortsStreamResponse? {
@@ -64,10 +64,18 @@ class ShortsViewModel @Inject constructor(
             val now = System.currentTimeMillis() / 1000
             if (now < cached.expiresAtEpochSec) return cached
         }
+        if (isRecentlyFailed(videoId)) return null
         val resolved = runCatching { repository.resolveStream(videoId) }
-            .onFailure { android.util.Log.e("ShortsVM", "resolveStream failed for $videoId", it) }
+            .onFailure {
+                android.util.Log.e("ShortsVM", "resolveStream failed for $videoId", it)
+                failedUntilEpochSec[videoId] = System.currentTimeMillis() / 1000 + FAILURE_RETRY_COOLDOWN_SEC
+            }
             .getOrNull() ?: return null
         streamCache[videoId] = resolved
         return resolved
+    }
+
+    companion object {
+        private const val FAILURE_RETRY_COOLDOWN_SEC = 15 * 60L
     }
 }

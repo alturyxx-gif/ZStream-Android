@@ -13,11 +13,6 @@ data class ShortItem(
     val mediaType: String?,
 )
 
-data class ShortsFeedResponse(
-    val items: List<ShortItem>,
-    val nextCursor: String?,
-)
-
 data class ShortsStreamResponse(
     val videoUrl: String,
     val audioUrl: String,
