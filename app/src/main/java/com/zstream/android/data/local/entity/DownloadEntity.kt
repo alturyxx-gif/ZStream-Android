@@ -19,6 +19,11 @@ data class DownloadEntity(
     val title: String, // movie title, or show title for an episode
     val season: Int? = null,
     val episode: Int? = null,
+    // TMDB episode-group display season/episode (what aired as "Season 4 Episode 3" even though
+    // TMDB itself bundles it under season/episode above). Null when the show doesn't use episode
+    // groups or the mapping wasn't known at download time -- UI falls back to season/episode.
+    val displaySeason: Int? = null,
+    val displayEpisode: Int? = null,
     val episodeTitle: String? = null,
     val sourceId: String,
     val variantId: String,

@@ -15,6 +15,11 @@ sealed class DownloadTarget {
         val season: Int,
         val episode: Int,
         val episodeTitle: String? = null,
+        // TMDB episode-group display numbering (e.g. "Season 4 Episode 3" even though `season`/
+        // `episode` above -- the real TMDB numbers used for resolving/keys -- are "1"/"31").
+        // Defaults to season/episode for non-grouped shows.
+        val displaySeason: Int = season,
+        val displayEpisode: Int = episode,
     ) : DownloadTarget()
 }
 
@@ -36,9 +41,9 @@ fun DownloadTarget.folderSegments(): List<String> = when (this) {
         listOf(sanitizeFileName(label))
     }
     is DownloadTarget.Episode -> {
-        val seasonLabel = "Season %02d".format(season)
+        val seasonLabel = "Season %02d".format(displaySeason)
         val episodeLabel = buildString {
-            append("S%02dE%02d".format(season, episode))
+            append("S%02dE%02d".format(displaySeason, displayEpisode))
             if (!episodeTitle.isNullOrBlank()) append(" - $episodeTitle")
         }
         listOf(sanitizeFileName(showTitle), sanitizeFileName(seasonLabel), sanitizeFileName(episodeLabel))
@@ -50,7 +55,7 @@ fun DownloadTarget.baseFileName(): String = when (this) {
     is DownloadTarget.Movie -> sanitizeFileName(if (year != null) "$title ($year)" else title)
     is DownloadTarget.Episode -> sanitizeFileName(
         buildString {
-            append("S%02dE%02d".format(season, episode))
+            append("S%02dE%02d".format(displaySeason, displayEpisode))
             if (!episodeTitle.isNullOrBlank()) append(" - $episodeTitle")
         }
     )

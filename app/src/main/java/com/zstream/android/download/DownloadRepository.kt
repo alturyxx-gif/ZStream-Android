@@ -118,6 +118,8 @@ class DownloadRepository @Inject constructor(
             },
             season = (request.target as? DownloadTarget.Episode)?.season,
             episode = (request.target as? DownloadTarget.Episode)?.episode,
+            displaySeason = (request.target as? DownloadTarget.Episode)?.displaySeason,
+            displayEpisode = (request.target as? DownloadTarget.Episode)?.displayEpisode,
             episodeTitle = (request.target as? DownloadTarget.Episode)?.episodeTitle,
             sourceId = request.sourceId,
             variantId = request.variantId,

@@ -389,7 +389,7 @@ private fun DetailList(
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
         modifier = if (isTv) Modifier.focusRestorer() else Modifier,
     ) {
-        downloads.groupBy { it.season ?: 0 }.forEach { (season, episodes) ->
+        downloads.groupBy { it.displaySeason ?: it.season ?: 0 }.forEach { (season, episodes) ->
             item("download-season:$season") { SeasonHeader(season, theme) }
             items(episodes, key = { "d:${it.id}" }) { entity ->
                 DownloadItem(entity, theme, isTv, null, { if (entity.status == DownloadStatus.DONE) onPlayDownload(entity) }, { onPause(entity) }, { onResume(entity) }, { onCancel(entity) }, { onDelete(entity) }, { onRetry(entity) })
@@ -854,8 +854,8 @@ private fun libraryGroupSummary(mediaKind: String, items: List<LocalMediaEntity>
 @Composable
 private fun downloadTitleFor(entity: DownloadEntity): String {
     if (entity.type != "show") return entity.title
-    val season = entity.season?.toString()?.padStart(2, '0') ?: "?"
-    val episode = entity.episode?.toString()?.padStart(2, '0') ?: "?"
+    val season = (entity.displaySeason ?: entity.season)?.toString()?.padStart(2, '0') ?: "?"
+    val episode = (entity.displayEpisode ?: entity.episode)?.toString()?.padStart(2, '0') ?: "?"
     return stringResource(R.string.system_release_episode_subject, entity.title, season, episode)
 }
 

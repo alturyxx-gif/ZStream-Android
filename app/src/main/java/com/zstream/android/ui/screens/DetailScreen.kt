@@ -24,6 +24,8 @@ import com.zstream.android.R
 import com.zstream.android.data.ReleaseSubscriptionRequest
 import com.zstream.android.data.model.Episode
 import com.zstream.android.data.model.MovieDetail
+import com.zstream.android.data.model.realSeasonNumber
+import com.zstream.android.data.model.realEpisodeNumber
 import com.zstream.android.theme.LocalZStreamTheme
 import com.zstream.android.ui.LocalIsTv
 import com.zstream.android.ui.components.themed.ZsStatusBanner
@@ -96,8 +98,8 @@ internal fun rememberTrackedReleaseInteraction(
                 mediaType = "tv",
                 title = showTitle,
                 posterPath = posterPath,
-                seasonNumber = episode.seasonNumber,
-                episodeNumber = episode.episodeNumber,
+                seasonNumber = episode.realSeasonNumber,
+                episodeNumber = episode.realEpisodeNumber,
                 episodeTitle = episode.name,
             )
         } else {

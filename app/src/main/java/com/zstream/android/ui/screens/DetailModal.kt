@@ -113,6 +113,8 @@ import com.zstream.android.data.model.airedEpisodes
 import com.zstream.android.data.model.formattedAirDate
 import com.zstream.android.data.model.hasAired
 import com.zstream.android.data.model.hasReleased
+import com.zstream.android.data.model.realSeasonNumber
+import com.zstream.android.data.model.realEpisodeNumber
 import com.zstream.android.theme.ZStreamTheme
 import com.zstream.android.ui.LocalIsTv
 import com.zstream.android.ui.components.themed.ZsBottomSheetSectionHeader
@@ -861,7 +863,7 @@ fun TvDetailModal(
                                 if (sNum != null && eNum != null) downloadedEpisodes["$sNum|$eNum"] else null
                             } else null
                             val firstEp = selectedSeason?.episodes?.airedEpisodes()?.firstOrNull()
-                            val firstEpDownload = firstEp?.let { downloadedEpisodes["${it.seasonNumber}|${it.episodeNumber}"] }
+                            val firstEpDownload = firstEp?.let { downloadedEpisodes["${it.realSeasonNumber}|${it.realEpisodeNumber}"] }
                             val anyDownload = downloadedEpisodes.values
                                 .filter { it.season != null && it.episode != null }
                                 .minWithOrNull(compareBy({ it.season }, { it.episode }))
@@ -874,7 +876,7 @@ fun TvDetailModal(
                                     nav.navigate("player/tv/${detail.id}?season=$sNum&episode=$eNum&title=${detail.name.encode()}&year=${detail.firstAirDate?.take(4)?.toIntOrNull() ?: 0}&poster=${detail.posterPath?.encode() ?: ""}")
                                 }
                                 firstEpDownload != null && isOffline -> nav.navigate("localPlayer/${firstEpDownload.id}")
-                                !isOffline && firstEp != null -> nav.navigate("player/tv/${detail.id}?season=${firstEp.seasonNumber}&episode=${firstEp.episodeNumber}&title=${detail.name.encode()}&year=${detail.firstAirDate?.take(4)?.toIntOrNull() ?: 0}&poster=${detail.posterPath?.encode() ?: ""}")
+                                !isOffline && firstEp != null -> nav.navigate("player/tv/${detail.id}?season=${firstEp.realSeasonNumber}&episode=${firstEp.realEpisodeNumber}&title=${detail.name.encode()}&year=${detail.firstAirDate?.take(4)?.toIntOrNull() ?: 0}&poster=${detail.posterPath?.encode() ?: ""}")
                                 anyDownload != null && isOffline -> nav.navigate("localPlayer/${anyDownload.id}")
                                 anyDownload != null -> nav.navigate("player/tv/${detail.id}?season=${anyDownload.season}&episode=${anyDownload.episode}&title=${detail.name.encode()}&year=${detail.firstAirDate?.take(4)?.toIntOrNull() ?: 0}&poster=${detail.posterPath?.encode() ?: ""}")
                             }
@@ -1108,12 +1110,12 @@ internal fun SharedEpisodeRow(
     val isAired = ep.hasAired()
     val releaseKey = com.zstream.android.data.local.entity.trackedEpisodeKey(
         showId,
-        ep.seasonNumber,
-        ep.episodeNumber,
+        ep.realSeasonNumber,
+        ep.realEpisodeNumber,
     )
     val observedReleasePendingKeys by trackedReleaseVm.pendingKeys.collectAsState()
     val releasePending = releaseKey in (releasePendingKeys ?: observedReleasePendingKeys)
-    val isTracked by remember(releaseKey) { trackedReleaseVm.isEpisodeTracked(showId, ep.seasonNumber, ep.episodeNumber) }
+    val isTracked by remember(releaseKey) { trackedReleaseVm.isEpisodeTracked(showId, ep.realSeasonNumber, ep.realEpisodeNumber) }
         .collectAsState(initial = false)
 
     val dismissState = rememberSwipeToDismissBoxState(
@@ -1149,14 +1151,14 @@ internal fun SharedEpisodeRow(
                             else {
                                 val encodedTitle = java.net.URLEncoder.encode(title, "UTF-8").replace("+", "%20")
                                 val encodedPoster = posterPath?.let { java.net.URLEncoder.encode(it, "UTF-8").replace("+", "%20") } ?: ""
-                                nav.navigate("player/tv/$showId?season=${ep.seasonNumber}&episode=${ep.episodeNumber}&title=$encodedTitle&year=${ep.airDate?.take(4)?.toIntOrNull() ?: 0}&poster=$encodedPoster")
+                                nav.navigate("player/tv/$showId?season=${ep.realSeasonNumber}&episode=${ep.realEpisodeNumber}&title=$encodedTitle&year=${ep.airDate?.take(4)?.toIntOrNull() ?: 0}&poster=$encodedPoster")
                             }
                         } else if (onEpisodeClick != null) {
                             onEpisodeClick()
                         } else {
                             val encodedTitle = java.net.URLEncoder.encode(title, "UTF-8").replace("+", "%20")
                             val encodedPoster = posterPath?.let { java.net.URLEncoder.encode(it, "UTF-8").replace("+", "%20") } ?: ""
-                            nav.navigate("player/tv/$showId?season=${ep.seasonNumber}&episode=${ep.episodeNumber}&title=$encodedTitle&year=${ep.airDate?.take(4)?.toIntOrNull() ?: 0}&poster=$encodedPoster")
+                            nav.navigate("player/tv/$showId?season=${ep.realSeasonNumber}&episode=${ep.realEpisodeNumber}&title=$encodedTitle&year=${ep.airDate?.take(4)?.toIntOrNull() ?: 0}&poster=$encodedPoster")
                         }
                     }
             ) {

@@ -32,6 +32,8 @@ class DownloadResolver @Inject constructor(
         posterPath: String?,
         season: Int? = null,
         episode: Int? = null,
+        displaySeason: Int? = null,
+        displayEpisode: Int? = null,
         episodeTitle: String? = null,
         destinationTreeUri: String? = null,
     ): Result<Long> = runCatching {
@@ -88,6 +90,8 @@ class DownloadResolver @Inject constructor(
                 season = season ?: 1,
                 episode = episode ?: 1,
                 episodeTitle = episodeTitle,
+                displaySeason = displaySeason ?: season ?: 1,
+                displayEpisode = displayEpisode ?: episode ?: 1,
             )
         } else {
             DownloadTarget.Movie(title = title)

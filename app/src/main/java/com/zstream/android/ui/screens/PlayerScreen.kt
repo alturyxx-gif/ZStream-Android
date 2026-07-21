@@ -478,8 +478,10 @@ private fun publishNowPlaying(
             ?.episodes
             ?.firstOrNull { it.episodeNumber == episode }
             ?.name
+        val display = vm.displaySeasonEpisode()
         buildList {
-            if (season != null && episode != null) add(resources.getString(R.string.player_season_episode_short, season, episode))
+            if (display != null) add(resources.getString(R.string.player_season_episode_short, display.first, display.second))
+            else if (season != null && episode != null) add(resources.getString(R.string.player_season_episode_short, season, episode))
             episodeName?.let { add(it) }
         }.joinToString(" · ").takeIf { it.isNotBlank() }
     } else {
@@ -795,6 +797,16 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                         shape = RoundedCornerShape(8.dp)
                     ) {
                         Text(stringResource(R.string.player_retry))
+                    }
+                    if (s.canRetryWithEpisodeGroups) {
+                        Spacer(Modifier.height(8.dp))
+                        Button(
+                            onClick = vm::retryWithEpisodeGroupNumbering,
+                            border = androidx.compose.foundation.BorderStroke(1.dp, theme.colors.type.emphasis.copy(alpha = 0.2f)),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text(stringResource(R.string.player_retry_alternate_numbering))
+                        }
                     }
                 }
                 IconButton(onClick = onBack, modifier = Modifier
@@ -1877,7 +1889,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     player = player,
                     title = vm.title,
                     episodeLabel = if (vm.mediaType == "tv") when {
-                        vm.season != null && vm.episode != null -> stringResource(R.string.player_season_episode_short, vm.season!!, vm.episode!!)
+                        vm.displaySeasonEpisode() != null -> vm.displaySeasonEpisode()!!.let { stringResource(R.string.player_season_episode_short, it.first, it.second) }
                         vm.season != null -> stringResource(R.string.player_season_short, vm.season!!)
                         vm.episode != null -> stringResource(R.string.player_episode_short, vm.episode!!)
                         else -> null

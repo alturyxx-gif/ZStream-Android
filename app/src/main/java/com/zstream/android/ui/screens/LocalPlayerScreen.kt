@@ -309,7 +309,9 @@ class LocalPlayerViewModel @Inject constructor(
             storage.resolvePlayableUri(path, treeUri)?.let { uri -> path to uri }
         }
         val title = if (entity.type == "show") {
-            "${entity.title} S${entity.season.toString().padStart(2, '0')}E${entity.episode.toString().padStart(2, '0')}"
+            val season = entity.displaySeason ?: entity.season
+            val episode = entity.displayEpisode ?: entity.episode
+            "${entity.title} S${season.toString().padStart(2, '0')}E${episode.toString().padStart(2, '0')}"
         } else {
             entity.title
         }

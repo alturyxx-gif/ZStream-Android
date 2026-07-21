@@ -79,6 +79,8 @@ import com.zstream.android.data.model.MovieDetail
 import com.zstream.android.data.model.Season
 import com.zstream.android.data.model.TvDetail
 import com.zstream.android.data.model.airedEpisodes
+import com.zstream.android.data.model.realSeasonNumber
+import com.zstream.android.data.model.realEpisodeNumber
 import com.zstream.android.theme.ZStreamTheme
 import com.zstream.android.ui.LocalIsTv
 import com.zstream.android.ui.components.themed.ZsBottomSheetSectionHeader
@@ -507,21 +509,22 @@ internal fun ColumnScope.SharedTvDetailContent(
             if (
                 !requestedEpisodeHandled &&
                 requestedEpisodeNumber != null &&
-                episodes.any { it.episodeNumber == requestedEpisodeNumber }
+                episodes.any { it.realEpisodeNumber == requestedEpisodeNumber }
             ) {
                 withFrameNanos { }
                 requestedEpisodeRequester.bringIntoView()
                 requestedEpisodeHandled = true
             }
         }
-        val progressMap = allProgress
-            .filter { it.seasonNumber == selectedSeason.seasonNumber }
-            .associateBy { it.episodeNumber }
+        // Progress/downloads are keyed by real TMDB numbers everywhere else in the app (Trakt,
+        // subtitles, resolve) -- match on episode.realSeasonNumber/realEpisodeNumber here too,
+        // not the (possibly episode-group display) selectedSeason.seasonNumber/episode.episodeNumber.
+        val progressMap = allProgress.associateBy { "${it.seasonNumber}|${it.episodeNumber}" }
         ZsBottomSheetSectionHeader(stringResource(R.string.shared_detail_episodes))
         val airedEpisodesForDownload = episodes.airedEpisodes()
-        val seasonPending = airedEpisodesForDownload.any { pendingDownloads.contains("${it.seasonNumber}|${it.episodeNumber}") }
+        val seasonPending = airedEpisodesForDownload.any { pendingDownloads.contains("${it.realSeasonNumber}|${it.realEpisodeNumber}") }
         val seasonFullyDownloaded = airedEpisodesForDownload.isNotEmpty() &&
-            airedEpisodesForDownload.all { downloadedEpisodes.containsKey("${it.seasonNumber}|${it.episodeNumber}") }
+            airedEpisodesForDownload.all { downloadedEpisodes.containsKey("${it.realSeasonNumber}|${it.realEpisodeNumber}") }
         if (!isOffline && !seasonFullyDownloaded) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp), horizontalArrangement = Arrangement.End) {
                 val (queued, total) = seasonDownloadProgress ?: (0 to 0)
@@ -571,7 +574,7 @@ internal fun ColumnScope.SharedTvDetailContent(
             }
         }
         episodes.forEach { episode ->
-            val requestedEpisodeModifier = if (episode.episodeNumber == requestedEpisodeNumber) {
+            val requestedEpisodeModifier = if (episode.realEpisodeNumber == requestedEpisodeNumber) {
                 Modifier.bringIntoViewRequester(requestedEpisodeRequester)
             } else {
                 Modifier
@@ -583,16 +586,16 @@ internal fun ColumnScope.SharedTvDetailContent(
                 posterPath = detail.posterPath,
                 nav = nav,
                 theme = theme,
-                episodeProgress = progressMap[episode.episodeNumber],
+                episodeProgress = progressMap["${episode.realSeasonNumber}|${episode.realEpisodeNumber}"],
                 trackedReleaseVm = trackedReleaseVm,
                 releasePendingKeys = releasePendingKeys,
                 onToggleRelease = onToggleEpisodeRelease,
                 enableWatchActions = true,
                 onMarkWatched = { onMarkEpisodeWatched(episode) },
                 onClearHistory = { onClearEpisodeWatchHistory(episode) },
-                downloadEntry = downloadedEpisodes["${episode.seasonNumber}|${episode.episodeNumber}"],
+                downloadEntry = downloadedEpisodes["${episode.realSeasonNumber}|${episode.realEpisodeNumber}"],
                 onDownloadEpisode = { onDownloadEpisode(episode) },
-                isDownloadPending = pendingDownloads.contains("${episode.seasonNumber}|${episode.episodeNumber}"),
+                isDownloadPending = pendingDownloads.contains("${episode.realSeasonNumber}|${episode.realEpisodeNumber}"),
                 isOffline = isOffline,
                 modifier = requestedEpisodeModifier,
             )

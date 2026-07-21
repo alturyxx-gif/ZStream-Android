@@ -135,7 +135,22 @@ data class Episode(
     @SerializedName("still_path") val stillPath: String?,
     val overview: String?,
     @SerializedName("air_date") val airDate: String?,
+    /** The "real" season number according to TMDB - ignoring episode group seasons*/
+    val sourceSeasonNumber: Int? = null,
+    /** See [sourceSeasonNumber]. */
+    val sourceEpisodeNumber: Int? = null,
 )
+
+/**
+ * True TMDB season/episode coordinates, ignoring any episode-group display remapping.
+ * [Episode.seasonNumber]/[Episode.episodeNumber] may be display numbers (e.g. "Season 2 Episode 1"
+ * shown for a bundled anime season) — anything leaving the UI layer for an external system keyed
+ * by real TMDB numbers (playback source resolution/downloads, subtitle lookups, skip-segment
+ * lookups, Trakt, release tracking) MUST use these instead of the raw fields. For non-grouped
+ * shows these equal [Episode.seasonNumber]/[Episode.episodeNumber].
+ */
+val Episode.realSeasonNumber: Int get() = sourceSeasonNumber ?: seasonNumber
+val Episode.realEpisodeNumber: Int get() = sourceEpisodeNumber ?: episodeNumber
 
 private fun todayIsoDate(): String =
     SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())

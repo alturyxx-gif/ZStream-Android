@@ -51,6 +51,8 @@ import com.zstream.android.data.local.dao.DownloadDao
 import com.zstream.android.data.local.dao.LocalLibraryDao
 import com.zstream.android.data.local.entity.DownloadStatus
 import com.zstream.android.data.model.airedEpisodes
+import com.zstream.android.data.model.realSeasonNumber
+import com.zstream.android.data.model.realEpisodeNumber
 import com.google.gson.Gson
 import com.zstream.android.data.WatchPartyManager
 import com.zstream.android.data.WatchPartyAction
@@ -119,7 +121,11 @@ sealed class PlayerState {
         val playbackFailure: PlaybackFailure? = null,
         val preRollAdUri: String? = null,
     ) : PlayerState()
-    data class Error(val message: String, val sources: List<SourceResult>) : PlayerState()
+    data class Error(
+        val message: String,
+        val sources: List<SourceResult>,
+        val canRetryWithEpisodeGroups: Boolean = false,
+    ) : PlayerState()
 }
 
 data class SubtitleTrack(
@@ -624,6 +630,7 @@ class PlayerViewModel @OptIn(UnstableApi::class)
             }
             val d = detail ?: return@launch
             _tvDetail.value = d
+            runCatching { tmdbRepo.seasonCatalog(id, d) }
             val sNum = season ?: d.seasons?.firstOrNull()?.seasonNumber ?: 1
             loadSeason(sNum)
         }
@@ -776,16 +783,65 @@ class PlayerViewModel @OptIn(UnstableApi::class)
         viewModelScope.launch { sourceOrderStore.saveOrder(newOrder) }
     }
 
-    private suspend fun buildPluginMediaRequest(preferredVariantId: String? = null): PluginMediaRequest {
+    /**
+     * If this show uses TMDB episode groups and the current episode has a display
+     * season/episode different from its real one, returns that display pair. Used to let
+     * the user manually retry resolution with episode-group numbering when a source expects
+     * it instead of the real TMDB numbers (some sources scrape by display numbering for
+     * heavily-regrouped anime and there's no reliable way to detect this upfront).
+     */
+    private suspend fun episodeGroupDisplayNumbers(): Pair<Int, Int>? {
+        if (mediaType != "tv") return null
+        val catalog = tmdbRepo.cachedSeasonCatalog(id)
+            ?: runCatching { tmdbRepo.seasonCatalog(id, _tvDetail.value) }.getOrNull()
+            ?: return null
+        if (!catalog.usingEpisodeGroups) return null
+        val match = catalog.seasons.asSequence().flatMap { it.episodes.orEmpty().asSequence() }
+            .firstOrNull { it.sourceSeasonNumber == season && it.sourceEpisodeNumber == episode }
+            ?: return null
+        if (match.seasonNumber == season && match.episodeNumber == episode) return null
+        return match.seasonNumber to match.episodeNumber
+    }
+
+    /**
+     * Episode-group display season/episode for the currently playing episode (what actually
+     * aired as e.g. "Season 4 Episode 3", vs. the real TMDB "Season 1 Episode 31" used for
+     * resolving/keys) -- for UI labels only. Falls back to the real numbers when the catalog
+     * isn't loaded yet or the show doesn't use episode groups.
+     */
+    fun displaySeasonEpisode(): Pair<Int, Int>? {
+        val s = season ?: return null
+        val e = episode ?: return null
+        val catalog = tmdbRepo.cachedSeasonCatalog(id)?.takeIf { it.usingEpisodeGroups } ?: return s to e
+        val match = catalog.seasons.asSequence().flatMap { it.episodes.orEmpty().asSequence() }
+            .firstOrNull { it.sourceSeasonNumber == s && it.sourceEpisodeNumber == e }
+            ?: return s to e
+        return match.seasonNumber to match.episodeNumber
+    }
+
+    fun hasEpisodeGroupAlternative(): Boolean {
+        val catalog = tmdbRepo.cachedSeasonCatalog(id) ?: return false
+        if (!catalog.usingEpisodeGroups) return false
+        val match = catalog.seasons.asSequence().flatMap { it.episodes.orEmpty().asSequence() }
+            .firstOrNull { it.sourceSeasonNumber == season && it.sourceEpisodeNumber == episode }
+            ?: return false
+        return match.seasonNumber != season || match.episodeNumber != episode
+    }
+
+    private suspend fun buildPluginMediaRequest(
+        preferredVariantId: String? = null,
+        useEpisodeGroupNumbering: Boolean = false,
+    ): PluginMediaRequest {
         // Rotate off an exhausted/invalid Aurora key before scraping, so a fresh key with
         // bandwidth left is used automatically instead of failing the whole source.
         auroraKeyManager.ensureActiveKey()
         val current = settingsPrefs.settings.first()
+        val displayNumbers = if (useEpisodeGroupNumbering) episodeGroupDisplayNumbers() else null
         return PluginMediaRequest(
             type = if (mediaType == "tv") PluginMediaRequest.Type.SHOW else PluginMediaRequest.Type.MOVIE,
             tmdbId = id.toString(),
-            season = season,
-            episode = episode,
+            season = displayNumbers?.first ?: season,
+            episode = displayNumbers?.second ?: episode,
             preferredVariantId = preferredVariantId,
             title = title,
             year = year.takeIf { it > 0 },
@@ -865,6 +921,13 @@ class PlayerViewModel @OptIn(UnstableApi::class)
 
     fun load() = loadInternal(selectedSourceId = castSourceId, preferredVariantId = castVariantId)
 
+    /**
+     * Manual user-triggered retry (from the "no sources found" screen) that resolves using the
+     * episode-group display season/episode instead of the real TMDB numbers, for shows where
+     * some sources apparently scrape by display numbering. See [episodeGroupDisplayNumbers].
+     */
+    fun retryWithEpisodeGroupNumbering() = loadInternal(automaticRecovery = true, useEpisodeGroupNumbering = true)
+
     private fun loadInternal(
         selectedSourceId: String? = null,
         automaticRecovery: Boolean = false,
@@ -876,6 +939,7 @@ class PlayerViewModel @OptIn(UnstableApi::class)
         // tried first even if Aurora isn't the user's preferred source — still falls back to
         // the rest of the order if it fails, unlike selectedSourceId which excludes everything else.
         prioritizedSourceId: String? = null,
+        useEpisodeGroupNumbering: Boolean = false,
     ) {
         sources.clear()
         failedVariantUrls.clear()
@@ -937,7 +1001,7 @@ class PlayerViewModel @OptIn(UnstableApi::class)
                             details = playbackFailureDetails(message),
                             title = appContext.getString(R.string.player_source_error),
                         )
-                    ) ?: PlayerState.Error(message, emptyList())
+                    ) ?: PlayerState.Error(message, emptyList(), canRetryWithEpisodeGroups = !useEpisodeGroupNumbering && hasEpisodeGroupAlternative())
                     return@runCatching
                 }
 
@@ -947,7 +1011,7 @@ class PlayerViewModel @OptIn(UnstableApi::class)
                 sources.addAll(initialSources)
                 _state.value = PlayerState.Scraping(sources.toList())
 
-                val media = buildPluginMediaRequest(preferredVariantId)
+                val media = buildPluginMediaRequest(preferredVariantId, useEpisodeGroupNumbering)
 
                 for (source in orderedSources) {
                     val updated = sources.map {
@@ -1040,7 +1104,7 @@ class PlayerViewModel @OptIn(UnstableApi::class)
                         details = playbackFailureDetails(message),
                         title = appContext.getString(R.string.player_source_error),
                     )
-                ) ?: PlayerState.Error(message, sources.toList())
+                ) ?: PlayerState.Error(message, sources.toList(), canRetryWithEpisodeGroups = !useEpisodeGroupNumbering && hasEpisodeGroupAlternative())
 
             }.onFailure {
                 Log.e("PlayerVM", "load error: ${it.message}", it)
