@@ -63,14 +63,12 @@ fun ShortsScreen(nav: NavController, vm: ShortsViewModel = hiltViewModel()) {
     val state by vm.state.collectAsState()
     val pagerState = rememberPagerState(pageCount = { state.items.size })
 
-    val loadControl = remember {
-        DefaultLoadControl.Builder()
-            .setBufferDurationsMs(15_000, 50_000, 1_000, 2_500)
-            .build()
-    }
     val retryCounts = remember { mutableMapOf<ExoPlayer, Int>() }
     val players = remember {
         List(PLAYER_POOL_SIZE) { index ->
+            val loadControl = DefaultLoadControl.Builder()
+                .setBufferDurationsMs(15_000, 50_000, 1_000, 2_500)
+                .build()
             ExoPlayer.Builder(context).setLoadControl(loadControl).build().apply {
                 repeatMode = Player.REPEAT_MODE_ONE
                 addListener(object : Player.Listener {
