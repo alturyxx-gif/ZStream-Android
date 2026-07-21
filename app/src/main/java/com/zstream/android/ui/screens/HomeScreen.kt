@@ -3420,6 +3420,7 @@ private fun SandwichMenuDialog(
                     SandwichItem(Icons.Default.Settings, stringResource(R.string.home_settings), theme = theme, modifier = settingsModifier) { nav.navigate("settings"); onDismiss() }
                     SandwichItem(Icons.Default.Download, stringResource(R.string.home_downloads), theme = theme) { nav.navigate("downloads"); onDismiss() }
                     SandwichItem(Icons.Default.History, stringResource(R.string.home_watch_history), theme = theme) { nav.navigate("watchHistory"); onDismiss() }
+                    SandwichItem(Icons.Default.PlayArrow, stringResource(R.string.home_shorts), theme = theme) { nav.navigate("shorts"); onDismiss() }
                     SandwichItem(Icons.Default.Tv, stringResource(R.string.home_sync_from_phone), theme = theme) { nav.navigate("tvSync"); onDismiss() }
                     SandwichItem(Icons.Default.Notifications, if (unreadCount > 0) stringResource(R.string.home_notifications_count, unreadCount) else stringResource(R.string.home_notifications), theme = theme) {
                         onNotifications()
@@ -3621,6 +3622,7 @@ private fun SandwichMenuDialog(
 
                     SandwichItem(Icons.Default.Settings, stringResource(R.string.home_settings), theme = theme) { nav.navigate("settings"); onDismiss() }
                     SandwichItem(Icons.Default.History, stringResource(R.string.home_watch_history), theme = theme) { nav.navigate("watchHistory"); onDismiss() }
+                    SandwichItem(Icons.Default.PlayArrow, stringResource(R.string.home_shorts), theme = theme) { nav.navigate("shorts"); onDismiss() }
                     SandwichItem(Icons.Default.Download, stringResource(R.string.home_downloads), theme = theme) { nav.navigate("downloads"); onDismiss() }
                     SandwichItem(Icons.Default.Notifications, if (unreadCount > 0) stringResource(R.string.home_notifications_count, unreadCount) else stringResource(R.string.home_notifications), theme = theme) {
                         onNotifications()

@@ -416,6 +416,7 @@
     <string name="home_settings">Settings</string>
     <string name="home_downloads">Downloads</string>
     <string name="home_watch_history">Watch History</string>
+    <string name="home_shorts">Shorts</string>
     <string name="home_sync_from_phone">Sync from phone</string>
     <string name="home_notifications">Notifications</string>
     <string name="home_notifications_count">Notifications (%1$d)</string>

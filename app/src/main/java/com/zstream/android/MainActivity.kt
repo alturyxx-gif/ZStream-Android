@@ -278,7 +278,7 @@ fun AppBehaviorEffect(navController: NavController, isTv: Boolean) {
             val activity = context as? Activity ?: return@OnDestinationChangedListener
             val route = destination.route ?: ""
             val isPlayerRoute = route.startsWith("player") || route.startsWith("localPlayer") ||
-                route.startsWith("localFilePlayer") || route.startsWith("trailer")
+                route.startsWith("localFilePlayer") || route.startsWith("trailer") || route.startsWith("shorts")
             if (isPlayerRoute) {
                 activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             } else {
@@ -293,6 +293,8 @@ fun AppBehaviorEffect(navController: NavController, isTv: Boolean) {
                 // Trailers follow whichever orientation the phone is physically held in,
                 // instead of being forced landscape like the main player.
                 activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            } else if (route.startsWith("shorts")) {
+                activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
             } else {
                 activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
             }

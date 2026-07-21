@@ -15,6 +15,7 @@ import com.zstream.android.ui.screens.*
 fun NavGraph(nav: NavHostController) {
     NavHost(nav, startDestination = "home") {
         composable("home") { HomeScreen(nav) }
+        composable("shorts") { ShortsScreen(nav) }
         composable("search") { SearchScreen(nav) }
         composable("more/{source}?group={group}") { MoreScreen(nav) }
         dialog(

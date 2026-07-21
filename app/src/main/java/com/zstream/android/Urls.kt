@@ -11,4 +11,5 @@ object Urls {
     const val NOTIFICATIONS_RSS = "https://zstream.mov/notifications.xml"
     const val PASSKEY_RP_ID = "zstream.mov"
     const val RYBBIT_BASE = "https://justice.fontaine.lol/api/"
+    const val CYNTHIA_BASE = "https://cynthia.fontaine.lol/"
 }
