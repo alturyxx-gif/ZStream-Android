@@ -26,6 +26,7 @@ private class ChunkedHttpDataSource(
     private var position: Long = 0
     private var bytesRemaining: Long = 0
     private var chunkEnd: Long = 0
+    private var opened = false
 
     override fun open(dataSpec: DataSpec): Long {
         transferInitializing(dataSpec)
@@ -39,6 +40,7 @@ private class ChunkedHttpDataSource(
             Long.MAX_VALUE
         }
         openChunk()
+        opened = true
         transferStarted(dataSpec)
         return bytesRemaining
     }
@@ -78,7 +80,13 @@ private class ChunkedHttpDataSource(
     override fun getUri(): Uri? = upstream.uri
 
     override fun close() {
-        upstream.close()
-        transferEnded()
+        try {
+            upstream.close()
+        } finally {
+            if (opened) {
+                opened = false
+                transferEnded()
+            }
+        }
     }
 }
