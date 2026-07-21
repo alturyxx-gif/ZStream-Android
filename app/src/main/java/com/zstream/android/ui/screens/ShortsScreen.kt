@@ -210,7 +210,9 @@ private suspend fun loadIntoPlayer(
     }
     val stream = vm.streamFor(videoId) ?: return false
 
-    val dataSourceFactory = DefaultHttpDataSource.Factory().setUserAgent(stream.userAgent)
+    val dataSourceFactory = DefaultHttpDataSource.Factory()
+        .setUserAgent(stream.userAgent)
+        .setDefaultRequestProperties(mapOf("Range" to "bytes=0-"))
 
     fun clippedItem(uri: String): MediaItem {
         val builder = MediaItem.Builder().setUri(uri)
