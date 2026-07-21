@@ -804,6 +804,9 @@ class SettingsViewModel @Inject constructor(
                 val type = obj.get("type")?.safeString() ?: "movie"
                 val year = obj.get("year")?.safeInt()
                 val poster = obj.get("poster")?.safeString() ?: obj.get("posterPath")?.safeString()
+                // Preserves the imported row's own recency so it can't outrank progress made
+                // since the import (see ProgressRepository.updateProgress's `updatedAt` param).
+                val entryUpdatedAt = obj.get("updatedAt")?.safeLong()
 
                 // ZStream's own ProgressEntity export shape: watched/duration/episodeId/seasonId
                 // sit directly on the entry (one flat row per movie or per episode), unlike
@@ -817,6 +820,7 @@ class SettingsViewModel @Inject constructor(
                         seasonId = obj.get("seasonId")?.safeString(),
                         episodeNumber = obj.get("episodeNumber")?.safeInt(),
                         seasonNumber = obj.get("seasonNumber")?.safeInt(),
+                        updatedAt = entryUpdatedAt ?: System.currentTimeMillis(),
                     )
                     progressImported++
                     return@runCatching
@@ -825,7 +829,10 @@ class SettingsViewModel @Inject constructor(
                 obj.safeObject("progress")?.let { p ->
                     val watched = p.get("watched")?.safeNumberAsInt() ?: 0
                     val duration = p.get("duration")?.safeNumberAsInt() ?: 0
-                    progressRepo.updateProgress(tmdbId, title, type, watched, duration, year, poster)
+                    progressRepo.updateProgress(
+                        tmdbId, title, type, watched, duration, year, poster,
+                        updatedAt = entryUpdatedAt ?: System.currentTimeMillis(),
+                    )
                     progressImported++
                 }
 
@@ -841,10 +848,12 @@ class SettingsViewModel @Inject constructor(
                         val seasonId = ep.get("seasonId")?.safeString()
                         val episodeNumber = ep.get("number")?.safeInt()
                         val seasonNumber = seasonId?.let { sid -> seasons?.safeObject(sid)?.get("number")?.safeInt() }
+                        val epUpdatedAt = ep.get("updatedAt")?.safeLong()
                         progressRepo.updateProgress(
                             tmdbId, title, type, watched, duration, year, poster,
                             episodeId = episodeId, seasonId = seasonId,
                             episodeNumber = episodeNumber, seasonNumber = seasonNumber,
+                            updatedAt = epUpdatedAt ?: entryUpdatedAt ?: System.currentTimeMillis(),
                         )
                         progressImported++
                     }.onFailure { e -> Log.w("SettingsViewModel", "Skipping malformed episode entry $tmdbId/$episodeId", e) }

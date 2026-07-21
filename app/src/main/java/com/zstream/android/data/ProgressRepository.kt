@@ -105,6 +105,10 @@ class ProgressRepository @Inject constructor(
         seasonId: String? = null,
         episodeNumber: Int? = null,
         seasonNumber: Int? = null,
+        // Overrides the "now" timestamp used to rank Continue Watching entries -- needed when
+        // replaying historical rows (e.g. a data import) so an old watch doesn't get stamped as
+        // more recent than progress that was actually made after it.
+        updatedAt: Long = System.currentTimeMillis(),
     ) {
         // Extract relative path if it's a full URL
         val safePoster = if (posterPath.isNullOrBlank()) null else posterPath
@@ -153,7 +157,7 @@ class ProgressRepository @Inject constructor(
             seasonId = seasonId,
             episodeNumber = episodeNumber,
             seasonNumber = seasonNumber,
-            updatedAt = System.currentTimeMillis(),
+            updatedAt = updatedAt,
         )
 
         // Update local cache first
