@@ -55,7 +55,7 @@ import com.zstream.android.ui.components.themed.ZsButtonVariant
 
 private const val PLAYER_POOL_SIZE = 3
 private const val MAX_ERROR_RETRIES = 2
-private const val PREFETCH_AHEAD = 3
+private const val PREFETCH_AHEAD = 2
 
 @Composable
 fun ShortsScreen(nav: NavController, vm: ShortsViewModel = hiltViewModel()) {

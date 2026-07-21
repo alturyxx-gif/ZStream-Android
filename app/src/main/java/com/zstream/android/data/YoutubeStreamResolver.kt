@@ -23,6 +23,18 @@ private data class InnertubeClient(
 
 private val CLIENTS = listOf(
     InnertubeClient(
+        name = "IOS",
+        version = "21.02.3",
+        clientNameId = "5",
+        extra = mapOf(
+            "deviceMake" to "Apple",
+            "deviceModel" to "iPhone16,2",
+            "osName" to "iPhone",
+            "osVersion" to "18.3.2.22D82",
+        ),
+        userAgent = "com.google.ios.youtube/21.02.3 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)",
+    ),
+    InnertubeClient(
         name = "ANDROID_VR",
         version = "1.65.10",
         clientNameId = "28",
@@ -34,18 +46,6 @@ private val CLIENTS = listOf(
             "osVersion" to "12L",
         ),
         userAgent = "com.google.android.apps.youtube.vr.oculus/1.65.10 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip",
-    ),
-    InnertubeClient(
-        name = "IOS",
-        version = "21.02.3",
-        clientNameId = "5",
-        extra = mapOf(
-            "deviceMake" to "Apple",
-            "deviceModel" to "iPhone16,2",
-            "osName" to "iPhone",
-            "osVersion" to "18.3.2.22D82",
-        ),
-        userAgent = "com.google.ios.youtube/21.02.3 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)",
     ),
 )
 
