@@ -30,19 +30,14 @@ android {
         if (localProps.exists()) {
             localProps.inputStream().use { props.load(it) }
         }
-        // No hardcoded defaults for any of these -- public repo. Env vars are CI secrets;
-        // local.properties (gitignored) covers local dev. Empty values disable the feature.
-        val tmdbApiKey = System.getenv("TMDB_API_KEY") ?: props.getProperty("tmdb.api_key", "")
+        // Fuck this im hardcoding this
+        val tmdbApiKey = "0fd8ade0f772180c8f8d651787c35e14"
         buildConfigField("String", "TMDB_API_KEY", "\"$tmdbApiKey\"")
         val traktClientId = System.getenv("TRAKT_CLIENT_ID") ?: props.getProperty("trakt.client_id", "")
         val traktClientSecret = System.getenv("TRAKT_CLIENT_SECRET") ?: props.getProperty("trakt.client_secret", "")
         buildConfigField("String", "TRAKT_CLIENT_ID", "\"$traktClientId\"")
         buildConfigField("String", "TRAKT_CLIENT_SECRET", "\"$traktClientSecret\"")
-        // No real site id is ever committed here -- this is a public repo, and a hardcoded
-        // default would mean every fork/CI/random build silently reports into our own Rybbit
-        // dashboard. Resolution order: RYBBIT_SITE_ID env var (set as a GitHub Actions secret on
-        // the real release pipeline) -> `rybbit.site_id` in local.properties (gitignored, for
-        // local dev) -> empty string, which RybbitAnalytics treats as "tracking disabled".
+       
         val rybbitSiteId = System.getenv("RYBBIT_SITE_ID") ?: props.getProperty("rybbit.site_id", "")
         buildConfigField("String", "RYBBIT_SITE_ID", "\"$rybbitSiteId\"")
     }
