@@ -3226,7 +3226,12 @@ internal fun PlayerControls(
                                         val newValue =
                                             (sideDragStartValue + dy / size.height.toFloat()).coerceIn(0f, 1f)
                                         sideGestureValue = newValue
-                                        if (isLeftHalf) applyScreenBrightness(newValue) else applyPlayerVolume(newValue)
+                                        if (isLeftHalf) {
+                                            // At the very bottom, release the override entirely instead of
+                                            // locking to 0 -- lets the phone's auto-brightness take back over
+                                            // until the user drags back up, at which point we re-lock.
+                                            if (newValue <= 0f) resetScreenBrightness() else applyScreenBrightness(newValue)
+                                        } else applyPlayerVolume(newValue)
                                     }
                                 }
                             }
