@@ -294,7 +294,7 @@ fun AppBehaviorEffect(navController: NavController, isTv: Boolean) {
                 // instead of being forced landscape like the main player.
                 activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
             } else if (route.startsWith("shorts")) {
-                activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
             } else {
                 activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
             }

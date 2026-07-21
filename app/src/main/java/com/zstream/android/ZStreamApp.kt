@@ -34,9 +34,7 @@ class ZStreamApp : Application(), ImageLoaderFactory {
         rybbitAnalytics.trackEvent("app_open")
 
         // Subscribes every install to the shared broadcast topic so the backend can push an
-        // announcement to all users by sending a single FCM message to this topic. Skipped when
-        // google-services.json isn't present in this build (Firebase never initializes then),
-        // so a missing local Firebase config can't crash the whole app.
+        // announcement to all users by sending a single FCM message to this topic.
         if (FirebaseApp.getApps(this).isNotEmpty()) {
             FirebaseMessaging.getInstance().subscribeToTopic(com.zstream.android.data.BroadcastMessagingService.BROADCAST_TOPIC)
                 .addOnFailureListener { e -> Log.w("ZStreamApp", "Failed to subscribe to broadcast topic", e) }
