@@ -23,7 +23,7 @@ android {
         minSdk = 24
         targetSdk = 36
         versionCode = 3
-        versionName = "v1.6.3"
+        versionName = "v1.6.4"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         val props = Properties()
         val localProps = rootProject.file("local.properties")
