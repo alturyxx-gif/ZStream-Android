@@ -1,5 +1,6 @@
 package com.zstream.android.data
 
+import android.util.Base64
 import com.zstream.android.data.model.ShortsStreamResponse
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -13,6 +14,34 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.random.Random
 
+// i ported whole pot token and decrypted youtube for shorts feature lol
+private fun createColdStartToken(contentBinding: String, clientState: Int = 1): String {
+    val contentBindingBytes = contentBinding.toByteArray(Charsets.UTF_8)
+    val timestamp = (System.currentTimeMillis() / 1000).toInt()
+    val randomKeys = intArrayOf(Random.nextInt(256), Random.nextInt(256))
+
+    val header = byteArrayOf(
+        randomKeys[0].toByte(), randomKeys[1].toByte(),
+        0, clientState.toByte(),
+        (timestamp ushr 24).toByte(), (timestamp ushr 16).toByte(),
+        (timestamp ushr 8).toByte(), timestamp.toByte(),
+    )
+
+    val packet = ByteArray(2 + header.size + contentBindingBytes.size)
+    packet[0] = 34
+    packet[1] = (header.size + contentBindingBytes.size).toByte()
+    header.copyInto(packet, 2)
+    contentBindingBytes.copyInto(packet, 2 + header.size)
+
+    val keyLength = randomKeys.size
+    for (i in keyLength until packet.size - 2) {
+        packet[2 + i] = (packet[2 + i].toInt() xor packet[2 + (i % keyLength)].toInt()).toByte()
+    }
+
+    val std = Base64.encodeToString(packet, Base64.NO_WRAP)
+    return std.replace('+', '-').replace('/', '_')
+}
+
 private data class InnertubeClient(
     val name: String,
     val version: String,
@@ -22,18 +51,6 @@ private data class InnertubeClient(
 )
 
 private val CLIENTS = listOf(
-    InnertubeClient(
-        name = "IOS",
-        version = "21.02.3",
-        clientNameId = "5",
-        extra = mapOf(
-            "deviceMake" to "Apple",
-            "deviceModel" to "iPhone16,2",
-            "osName" to "iPhone",
-            "osVersion" to "18.3.2.22D82",
-        ),
-        userAgent = "com.google.ios.youtube/21.02.3 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)",
-    ),
     InnertubeClient(
         name = "ANDROID_VR",
         version = "1.65.10",
@@ -122,9 +139,11 @@ class YoutubeStreamResolver @Inject constructor() {
             clipEndMs = (startSec + CLIP_WINDOW_SEC) * 1000
         }
 
+        val pot = createColdStartToken(videoId)
+
         ShortsStreamResponse(
-            videoUrl = video.getString("url"),
-            audioUrl = audio.getString("url"),
+            videoUrl = video.getString("url") + "&pot=" + pot,
+            audioUrl = audio.getString("url") + "&pot=" + pot,
             mimeType = "video/mp4",
             width = width,
             height = height,
@@ -175,6 +194,10 @@ class YoutubeStreamResolver @Inject constructor() {
             put("context", JSONObject().apply { put("client", clientJson) })
             put("contentCheckOk", true)
             put("racyCheckOk", true)
+            put(
+                "serviceIntegrityDimensions",
+                JSONObject().apply { put("poToken", createColdStartToken(videoId)) },
+            )
         }
 
         val request = Request.Builder()
