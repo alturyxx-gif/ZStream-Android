@@ -23,6 +23,9 @@ class ThemeViewModel @Inject constructor(
     private val _currentFont = mutableStateOf("onest")
     val currentFont: State<String> = _currentFont
 
+    private val _lowPerformanceMode = mutableStateOf(false)
+    val lowPerformanceMode: State<Boolean> = _lowPerformanceMode
+
     init {
         viewModelScope.launch {
             settingsPreferences.settings
@@ -38,6 +41,13 @@ class ThemeViewModel @Inject constructor(
                 .map { settings -> settings.applicationFont }
                 .collect { font ->
                     _currentFont.value = font
+                }
+        }
+        viewModelScope.launch {
+            settingsPreferences.settings
+                .map { settings -> settings.enableLowPerformanceMode }
+                .collect { enabled ->
+                    _lowPerformanceMode.value = enabled
                 }
         }
     }

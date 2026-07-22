@@ -128,6 +128,8 @@ import com.zstream.android.ui.components.themed.ZsSwitchRow
 import com.zstream.android.ui.components.themed.ZsTextButton
 import com.zstream.android.ui.components.themed.ZsTextField
 import com.zstream.android.ui.components.themed.ZsThemePreviewCard
+import com.zstream.android.ui.components.themed.ZsSignatureThemeGrid
+import com.zstream.android.theme.signature.signatureThemeMetas
 import com.zstream.android.ui.navigation.rememberSafeNavigateBack
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
@@ -2749,6 +2751,19 @@ private fun AppearanceSection(
                 )
             }
         }
+
+        Spacer(Modifier.height(16.dp))
+        SectionLabel(stringResource(R.string.settings_signature_themes), theme)
+        Spacer(Modifier.height(4.dp))
+        ZsSignatureThemeGrid(
+            metas = signatureThemeMetas,
+            activeId = activeTheme.id,
+            animate = !settings.enableLowPerformanceMode,
+            onSelect = { meta -> vm.setApplicationTheme(meta.id) },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
+        )
 
         Spacer(Modifier.height(16.dp))
         SectionLabel(stringResource(R.string.settings_font), theme)
