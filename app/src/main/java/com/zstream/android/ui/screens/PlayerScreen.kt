@@ -57,6 +57,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.automirrored.filled.VolumeDown
 import androidx.compose.material.icons.automirrored.filled.VolumeMute
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
@@ -105,6 +106,8 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -523,6 +526,10 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
     val activity = context as? Activity
     val playerScope = rememberCoroutineScope()
     val onBack = rememberSafeNavigateBack(nav, playerScope)
+
+    val timeoutMsg = stringResource(R.string.player_playback_start_timeout)
+    val castFailedMsg = stringResource(R.string.player_cast_failed)
+    val failedLoadDetailsMsg = stringResource(R.string.player_failed_load_details)
 
     LaunchedEffect(vm) {
         vm.recoveryNotice.collect { Toast.makeText(context, it, Toast.LENGTH_SHORT).show() }
@@ -1090,9 +1097,9 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                         !player.isPlaying &&
                         !isPlaybackFailed
                     ) vm.onPlaybackError(
-                        message = context.getString(R.string.player_playback_start_timeout),
+                        message = timeoutMsg,
                         details = buildGenericPlaybackErrorDetails(
-                            message = context.getString(R.string.player_playback_start_timeout),
+                            message = timeoutMsg,
                             sourceId = s.sourceId,
                             title = vm.title,
                             mediaType = vm.mediaType,
@@ -1245,14 +1252,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     if (!isEnding || hasAutoplayAttempted) return@LaunchedEffect
 
                     hasAutoplayAttempted = true
-                    val target = vm.getAutoplayEpisodeTarget() ?: return@LaunchedEffect
-                    val encodedTitle = Uri.encode(vm.title)
-                    val encodedPoster = Uri.encode(vm.poster.orEmpty())
-                    nav.navigate(
-                        "player/tv/${vm.tmdbId}?season=${target.seasonNumber}&episode=${target.episodeNumber}" +
-                            "&seasonId=${target.seasonId}&episodeId=${target.episodeId}" +
-                            "&title=$encodedTitle&year=${vm.year}&poster=$encodedPoster&autoplay=true"
-                    ) { popUpTo("home") }
+                    vm.navigateToNextEpisode(nav)
                 }
 
                 LaunchedEffect(player, watchPartyEnabled, isHost) {
@@ -1914,7 +1914,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                                     player.pause()
                                     Toast.makeText(context, R.string.player_casting_to_tv, Toast.LENGTH_SHORT).show()
                                 }.onFailure {
-                                    Toast.makeText(context, it.message ?: context.getString(R.string.player_cast_failed), Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, it.message ?: castFailedMsg, Toast.LENGTH_SHORT).show()
                                 }
                             }
                         }
@@ -1998,7 +1998,7 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                                         .orEmpty()
                                     PlayerInfoState.Movie(detail, certification, trailers)
                                 }
-                            }.getOrElse { PlayerInfoState.Error(it.message ?: context.getString(R.string.player_failed_load_details)) }
+                            }.getOrElse { PlayerInfoState.Error(it.message ?: failedLoadDetailsMsg) }
                         }
                     },
                     onBack = onBack,
@@ -2046,7 +2046,10 @@ fun PlayerScreen(nav: NavController, vm: PlayerViewModel = hiltViewModel()) {
                     nav = nav,
                     tvDetail = tvDetail,
                     currentSeasonDetail = currentSeasonDetail,
-                    pauseMetadata = vm.pauseMetadata.collectAsState().value
+                    pauseMetadata = vm.pauseMetadata.collectAsState().value,
+                    hasNextEpisode = vm.nextEpisodeTarget.collectAsState().value != null,
+                    onNextEpisode = { vm.navigateToNextEpisode(nav) },
+                    onReplay = { vm.replayCurrentEpisode(player) }
                 )
                 }
                 }
@@ -2723,6 +2726,7 @@ private fun volumeBoostToMillibels(volumeBoost: Int): Int {
  * on-screen bounds of PlayerView's own video surface directly via View APIs. That's ground truth
  * for whatever Android actually rendered, for every resize mode, with no assumptions.
  */
+@OptIn(UnstableApi::class)
 @Composable
 internal fun VideoBrightnessOverlay(playerView: PlayerView?, brightness: Int, modifier: Modifier = Modifier) {
     if (brightness == 100 || playerView == null) return
@@ -2877,6 +2881,9 @@ internal fun PlayerControls(
     localFileInfo: LocalFileInfo? = null,
     downloadedEpisodesForShow: Map<String, com.zstream.android.data.local.entity.DownloadEntity> = emptyMap(),
     onCast: (() -> Unit)? = null,
+    hasNextEpisode: Boolean = false,
+    onNextEpisode: () -> Unit = {},
+    onReplay: () -> Unit = {},
 ) {
     val menuOpen = menuPage != null
     val playbackErrorActive = readyState.playbackFailure != null
@@ -2967,6 +2974,20 @@ internal fun PlayerControls(
     val selectedQualityLabel = if (autoQualitySelected) stringResource(R.string.player_auto) else qualityOptions.firstOrNull { it.selected }?.label ?: stringResource(R.string.player_auto)
     val selectedAudioLabel = audioOptions.firstOrNull { it.selected }?.label ?: stringResource(R.string.player_default)
     val currentTimeSeconds = positionMs / 1000f
+
+    val timeBasedNextEpisodeVisibility = remember(positionMs, durationMs, mediaType, hasNextEpisode) {
+        if (mediaType != "tv" || !hasNextEpisode || durationMs < 1_000L) SkipButtonVisibility.None
+        else {
+            val secondsFromEnd = (durationMs - positionMs) / 1000f
+            val percentage = positionMs.toFloat() / durationMs.toFloat()
+            when {
+                secondsFromEnd <= 30f -> SkipButtonVisibility.Always
+                percentage >= 0.93f -> SkipButtonVisibility.Hover
+                else -> SkipButtonVisibility.None
+            }
+        }
+    }
+
     val activeSkipSegments = remember(skipSegments, currentTimeSeconds) {
         skipSegments.filter { shouldShowSkipButton(currentTimeSeconds, it) != SkipButtonVisibility.None }
     }
@@ -3009,6 +3030,7 @@ internal fun PlayerControls(
     val bookmarkFocusRequester = remember { FocusRequester() }
     val settingsFocusRequester = remember { FocusRequester() }
     val episodesFocusRequester = remember { FocusRequester() }
+    val nextEpisodeFocusRequester = remember { FocusRequester() }
     val pipFocusRequester = remember { FocusRequester() }
     val skipFocusRequester = remember { FocusRequester() }
     val muteFocusRequester = remember { FocusRequester() }
@@ -3636,6 +3658,11 @@ internal fun PlayerControls(
                     downRequester = ccFocusRequester,
                     onSeekBack = { player.seekTo((player.currentPosition - 10_000).coerceAtLeast(0)) },
                     onSeekFwd = { player.seekTo((player.currentPosition + 10_000).coerceAtMost(durationMs)) },
+                    timeBasedNextEpisodeVisibility = timeBasedNextEpisodeVisibility,
+                    onReplay = onReplay,
+                    onNextEpisode = onNextEpisode,
+                    nextEpisodeIcon = Icons.Default.SkipNext,
+                    defaultSkipIcon = painterResource(R.drawable.ic_player_skip_fwd),
                     modifier = Modifier.align(Alignment.BottomEnd)
                 )
 
@@ -3792,6 +3819,7 @@ internal fun PlayerControls(
                             )
                         }
                         var ccBtnFocused by remember { mutableStateOf(false) }
+                        var nextBtnFocused by remember { mutableStateOf(false) }
                         var episodesBtnFocused by remember { mutableStateOf(false) }
                         if (isTv) {
                             if (mediaType == "tv") {
@@ -3826,6 +3854,40 @@ internal fun PlayerControls(
                                                 if (showInfoSheet || menuOpen) canFocus = false
                                             },
                                     )
+                                }
+                            }
+                            if (isTv && mediaType == "tv") {
+                                ZsOutlinedWrapper(
+                                    visible = nextBtnFocused,
+                                    shape = RoundedCornerShape(50),
+                                    outlineColor = Color.White,
+                                    gap = 4.dp,
+                                ) {
+                                    IconButton(
+                                        onClick = { onNextEpisode() },
+                                        enabled = hasNextEpisode,
+                                        modifier = Modifier
+                                            .size(BOTTOM_BAR_MENU_BUTTON_SIZE)
+                                            .background(
+                                                if (nextBtnFocused) Color.White.copy(alpha = 0.2f) else Color.Transparent,
+                                                CircleShape
+                                            )
+                                            .alpha(if (hasNextEpisode) 1f else 0.4f)
+                                            .focusRequester(nextEpisodeFocusRequester)
+                                            .focusProperties {
+                                                up =
+                                                    if (activeSkipSegments.isNotEmpty()) skipFocusRequester else playFocusRequester
+                                                if (showInfoSheet || menuOpen) canFocus = false
+                                            }
+                                            .onFocusChanged { nextBtnFocused = it.isFocused }
+                                    ) {
+                                        Icon(
+                                            Icons.Default.SkipNext,
+                                            stringResource(R.string.player_next_episode),
+                                            tint = Color.White,
+                                            modifier = Modifier.size(BOTTOM_BAR_MENU_ICON_SIZE)
+                                        )
+                                    }
                                 }
                             }
                             ZsOutlinedWrapper(
@@ -3946,6 +4008,22 @@ internal fun PlayerControls(
                                         onMenuPageChange(PlayerMenuPage.Episodes)
                                     },
                                 )
+                            }
+                            if (!isTv && mediaType == "tv") {
+                                IconButton(
+                                    onClick = { onNextEpisode() },
+                                    enabled = hasNextEpisode,
+                                    modifier = Modifier
+                                        .size(BOTTOM_BAR_MENU_BUTTON_SIZE)
+                                        .alpha(if (hasNextEpisode) 1f else 0.4f)
+                                ) {
+                                    Icon(
+                                        Icons.Default.SkipNext,
+                                        stringResource(R.string.player_next_episode),
+                                        tint = Color.White,
+                                        modifier = Modifier.size(BOTTOM_BAR_MENU_ICON_SIZE)
+                                    )
+                                }
                             }
                             IconButton(onClick = {
                                 onControlsVisibilityChanged(true)
@@ -4752,9 +4830,20 @@ private fun SkipSegmentOverlay(
     downRequester: FocusRequester? = null,
     onSeekBack: () -> Unit = {},
     onSeekFwd: () -> Unit = {},
+    timeBasedNextEpisodeVisibility: SkipButtonVisibility = SkipButtonVisibility.None,
+    onReplay: () -> Unit = {},
+    onNextEpisode: () -> Unit = {},
+    nextEpisodeIcon: ImageVector,
+    defaultSkipIcon: Painter,
 ) {
     val isTv = LocalIsTv.current
-    if (segments.isEmpty()) return
+    val hasTidbCreditsToEnd = segments.any { it.type == "credits" && it.endMs == null }
+    val showTimeBasedPrompt = !hasTidbCreditsToEnd && (
+        timeBasedNextEpisodeVisibility == SkipButtonVisibility.Always ||
+        (timeBasedNextEpisodeVisibility == SkipButtonVisibility.Hover && controlsVisible)
+    )
+
+    if (segments.isEmpty() && !showTimeBasedPrompt) return
     val bottomOffset by animateDpAsState(
         targetValue = if (controlsVisible) 96.dp else 48.dp,
         animationSpec = tween(durationMillis = 200),
@@ -4769,21 +4858,178 @@ private fun SkipSegmentOverlay(
         segments.forEachIndexed { index, segment ->
             val visibility = shouldShowSkipButton(currentTimeSeconds, segment)
             val show = visibility == SkipButtonVisibility.Always || (visibility == SkipButtonVisibility.Hover && controlsVisible)
+            val isNextEpisodeCredits = segment.type == "credits" && segment.endMs == null
             var isFocused by remember { mutableStateOf(false) }
+            var isReplayFocused by remember { mutableStateOf(false) }
 
             AnimatedVisibility(
                 visible = show,
                 enter = fadeIn() + slideInVertically(initialOffsetY = { it / 3 }),
                 exit = fadeOut() + slideOutVertically(targetOffsetY = { it / 3 }),
             ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    if (isNextEpisodeCredits) {
+                        ZsOutlinedWrapper(
+                            visible = isReplayFocused && isTv,
+                            shape = RoundedCornerShape(8.dp),
+                            outlineColor = Color.White,
+                            gap = 4.dp,
+                        ) {
+                            TextButton(
+                                onClick = onReplay,
+                                colors = ButtonDefaults.textButtonColors(
+                                    containerColor = theme.colors.background.secondary.copy(alpha = 0.9f),
+                                    contentColor = theme.colors.type.emphasis,
+                                ),
+                                shape = RoundedCornerShape(8.dp),
+                                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 0.dp),
+                                modifier = Modifier
+                                    .height(40.dp)
+                                    .onFocusChanged { isReplayFocused = it.isFocused }
+                                    .focusProperties {
+                                        if (isTv) {
+                                            left = FocusRequester.Cancel
+                                            right = FocusRequester.Default
+                                            up = upRequester ?: FocusRequester.Default
+                                            down = downRequester ?: FocusRequester.Default
+                                        }
+                                    }
+                            ) {
+                                Text(stringResource(R.string.player_restart), fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+
+                    ZsOutlinedWrapper(
+                        visible = isFocused && isTv,
+                        shape = RoundedCornerShape(8.dp),
+                        outlineColor = Color.White,
+                        gap = 4.dp,
+                    ) {
+                        TextButton(
+                            onClick = { 
+                                if (isNextEpisodeCredits) onNextEpisode() else onSkip(segment)
+                            },
+                            colors = ButtonDefaults.textButtonColors(
+                                containerColor = theme.colors.buttons.primary,
+                                contentColor = theme.colors.buttons.primaryText,
+                            ),
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                            modifier = Modifier
+                                .width(SKIP_SEGMENT_BUTTON_WIDTH)
+                                .height(40.dp)
+                                .then(
+                                    if (isTv && index == 0 && focusRequester != null) Modifier.focusRequester(
+                                        focusRequester
+                                    ) else Modifier
+                                )
+                                .then(if (isTv) Modifier.focusProperties {
+                                    if (showInfoSheet || menuOpen) {
+                                        canFocus = false
+                                    }
+                                    up = upRequester ?: FocusRequester.Default
+                                    down = downRequester ?: FocusRequester.Default
+                                    left = if (isNextEpisodeCredits) FocusRequester.Default else FocusRequester.Cancel
+                                    right = FocusRequester.Cancel
+                                } else Modifier)
+                                .onFocusChanged { isFocused = it.isFocused }
+                                .onKeyEvent { keyEvent ->
+                                    if (isTv && keyEvent.type == KeyEventType.KeyDown) {
+                                        when (keyEvent.nativeKeyEvent.keyCode) {
+                                            android.view.KeyEvent.KEYCODE_DPAD_LEFT -> {
+                                                if (!isNextEpisodeCredits) onSeekBack()
+                                                false // Let D-pad logic handle movement if it's credits
+                                            }
+
+                                            android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                                                if (!isNextEpisodeCredits) onSeekFwd()
+                                                true
+                                            }
+
+                                            else -> false
+                                        }
+                                    } else false
+                                }
+                                .graphicsLayer(scaleX = 0.95f, scaleY = 0.95f)
+                        ) {
+                            Icon(
+                                painter = if (isNextEpisodeCredits) rememberVectorPainter(nextEpisodeIcon) else defaultSkipIcon,
+                                contentDescription = null,
+                                tint = theme.colors.buttons.primaryText,
+                                modifier = Modifier
+                                    .size(18.dp)
+                                    .then(if (isNextEpisodeCredits) Modifier.offset(x = 1.2.dp) else Modifier)
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                if (isNextEpisodeCredits && durationMs > 0L) stringResource(R.string.player_next_episode) else skipSegmentLabel(
+                                    segment.type
+                                ),
+                                color = theme.colors.buttons.primaryText,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        var isTimeBasedFocused by remember { mutableStateOf(false) }
+        var isTimeBasedReplayFocused by remember { mutableStateOf(false) }
+
+        AnimatedVisibility(
+            visible = showTimeBasedPrompt,
+            enter = fadeIn() + slideInVertically(initialOffsetY = { it / 3 }),
+            exit = fadeOut() + slideOutVertically(targetOffsetY = { it / 3 }),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
                 ZsOutlinedWrapper(
-                    visible = isFocused && isTv,
+                    visible = isTimeBasedReplayFocused && isTv,
                     shape = RoundedCornerShape(8.dp),
                     outlineColor = Color.White,
                     gap = 4.dp,
                 ) {
                     TextButton(
-                        onClick = { onSkip(segment) },
+                        onClick = onReplay,
+                        colors = ButtonDefaults.textButtonColors(
+                            containerColor = theme.colors.background.secondary.copy(alpha = 0.9f),
+                            contentColor = theme.colors.type.emphasis,
+                        ),
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 0.dp),
+                        modifier = Modifier
+                            .height(40.dp)
+                            .onFocusChanged { isTimeBasedReplayFocused = it.isFocused }
+                            .focusProperties {
+                                if (isTv) {
+                                    left = FocusRequester.Cancel
+                                    right = FocusRequester.Default
+                                    up = upRequester ?: FocusRequester.Default
+                                    down = downRequester ?: FocusRequester.Default
+                                }
+                            }
+                    ) {
+                        Text(stringResource(R.string.player_restart), fontWeight = FontWeight.Bold)
+                    }
+                }
+
+                ZsOutlinedWrapper(
+                    visible = isTimeBasedFocused && isTv,
+                    shape = RoundedCornerShape(8.dp),
+                    outlineColor = Color.White,
+                    gap = 4.dp,
+                ) {
+                    TextButton(
+                        onClick = onNextEpisode,
                         colors = ButtonDefaults.textButtonColors(
                             containerColor = theme.colors.buttons.primary,
                             contentColor = theme.colors.buttons.primaryText,
@@ -4793,51 +5039,29 @@ private fun SkipSegmentOverlay(
                         modifier = Modifier
                             .width(SKIP_SEGMENT_BUTTON_WIDTH)
                             .height(40.dp)
-                            .then(
-                                if (isTv && index == 0 && focusRequester != null) Modifier.focusRequester(
-                                    focusRequester
-                                ) else Modifier
-                            )
+                            .then(if (isTv && focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
                             .then(if (isTv) Modifier.focusProperties {
                                 if (showInfoSheet || menuOpen) {
                                     canFocus = false
                                 }
                                 up = upRequester ?: FocusRequester.Default
                                 down = downRequester ?: FocusRequester.Default
-                                left = FocusRequester.Cancel
+                                left = FocusRequester.Default
                                 right = FocusRequester.Cancel
                             } else Modifier)
-                            .onFocusChanged { isFocused = it.isFocused }
-                            .onKeyEvent { keyEvent ->
-                                if (isTv && keyEvent.type == KeyEventType.KeyDown) {
-                                    when (keyEvent.nativeKeyEvent.keyCode) {
-                                        android.view.KeyEvent.KEYCODE_DPAD_LEFT -> {
-                                            onSeekBack()
-                                            true
-                                        }
-
-                                        android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                                            onSeekFwd()
-                                            true
-                                        }
-
-                                        else -> false
-                                    }
-                                } else false
-                            }
-                            .graphicsLayer(scaleX = 0.95f, scaleY = 0.95f)
+                            .onFocusChanged { isTimeBasedFocused = it.isFocused }
                     ) {
                         Icon(
-                            painterResource(R.drawable.ic_player_skip_fwd),
-                            null,
+                            imageVector = nextEpisodeIcon,
+                            contentDescription = null,
                             tint = theme.colors.buttons.primaryText,
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier
+                                .size(18.dp)
+                                .offset(x = 1.2.dp)
                         )
                         Spacer(Modifier.width(6.dp))
                         Text(
-                            if (segment.type == "credits" && segment.endMs == null && durationMs > 0L) stringResource(R.string.player_next_episode) else skipSegmentLabel(
-                                segment.type
-                            ),
+                            stringResource(R.string.player_next_episode),
                             color = theme.colors.buttons.primaryText,
                             fontWeight = FontWeight.Bold,
                             maxLines = 1,
