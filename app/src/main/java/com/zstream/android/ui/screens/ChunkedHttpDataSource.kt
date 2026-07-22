@@ -52,10 +52,6 @@ private class ChunkedHttpDataSource(
             .setPosition(position)
             .setLength(chunkBudget)
             .build()
-        android.util.Log.d(
-            "ChunkedDS",
-            "opening chunk position=$position length=$chunkBudget end=$chunkEnd knownTotal=$knownTotalLength uri=${baseDataSpec.uri}",
-        )
         try {
             upstream.open(chunkSpec)
         } catch (e: Exception) {

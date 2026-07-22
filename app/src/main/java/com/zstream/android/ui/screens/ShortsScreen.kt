@@ -54,7 +54,7 @@ import com.zstream.android.ui.components.themed.ZsButton
 import com.zstream.android.ui.components.themed.ZsButtonVariant
 import okhttp3.OkHttpClient
 
-private const val PLAYER_POOL_SIZE = 3
+private const val PLAYER_POOL_SIZE = 2
 private const val MAX_ERROR_RETRIES = 2
 private const val PREFETCH_AHEAD = 2
 
@@ -70,7 +70,7 @@ fun ShortsScreen(nav: NavController, vm: ShortsViewModel = hiltViewModel()) {
     val players = remember {
         List(PLAYER_POOL_SIZE) { index ->
             val loadControl = DefaultLoadControl.Builder()
-                .setBufferDurationsMs(15_000, 50_000, 1_000, 2_500)
+                .setBufferDurationsMs(8_000, 20_000, 1_000, 2_500)
                 .build()
             ExoPlayer.Builder(context).setLoadControl(loadControl).build().apply {
                 repeatMode = Player.REPEAT_MODE_ONE
@@ -82,9 +82,6 @@ fun ShortsScreen(nav: NavController, vm: ShortsViewModel = hiltViewModel()) {
                             retryCounts[this@apply] = retries + 1
                             this@apply.prepare()
                         }
-                    }
-                    override fun onPlaybackStateChanged(state: Int) {
-                        android.util.Log.d("ShortsPlayer", "player[$index] state=$state")
                     }
                 })
             }
