@@ -5,7 +5,6 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Shader
 import androidx.compose.ui.graphics.ShaderBrush
 import kotlin.random.Random
 
@@ -26,7 +25,11 @@ fun Grain(opacity: Float, modifier: Modifier = Modifier) {
     if (opacity <= 0f) return
     val bitmap = remember { buildNoiseBitmap() }
     val shader = remember(bitmap) {
-        android.graphics.BitmapShader(bitmap, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT)
+        android.graphics.BitmapShader(
+            bitmap,
+            android.graphics.Shader.TileMode.REPEAT,
+            android.graphics.Shader.TileMode.REPEAT,
+        )
     }
     val brush = remember(shader) { ShaderBrush(shader) }
 
