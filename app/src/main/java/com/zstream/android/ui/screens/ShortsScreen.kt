@@ -39,7 +39,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
-import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.MergingMediaSource
@@ -52,10 +52,13 @@ import com.zstream.android.data.model.ShortItem
 import com.zstream.android.theme.LocalZStreamTheme
 import com.zstream.android.ui.components.themed.ZsButton
 import com.zstream.android.ui.components.themed.ZsButtonVariant
+import okhttp3.OkHttpClient
 
 private const val PLAYER_POOL_SIZE = 3
 private const val MAX_ERROR_RETRIES = 2
 private const val PREFETCH_AHEAD = 2
+
+private val shortsOkHttpClient = OkHttpClient.Builder().build()
 
 @Composable
 fun ShortsScreen(nav: NavController, vm: ShortsViewModel = hiltViewModel()) {
@@ -210,7 +213,7 @@ private suspend fun loadIntoPlayer(
     }
     val stream = vm.streamFor(videoId) ?: return false
 
-    val httpFactory = DefaultHttpDataSource.Factory().setUserAgent(stream.userAgent)
+    val httpFactory = OkHttpDataSource.Factory(shortsOkHttpClient).setUserAgent(stream.userAgent)
     val videoDataSourceFactory = ChunkedHttpDataSourceFactory(httpFactory, stream.videoContentLength)
     val audioDataSourceFactory = ChunkedHttpDataSourceFactory(httpFactory, stream.audioContentLength)
 
