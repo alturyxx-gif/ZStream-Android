@@ -426,6 +426,9 @@ class PlayerViewModel @OptIn(UnstableApi::class)
     private val _movieDetail = MutableStateFlow<com.zstream.android.data.model.MovieDetail?>(null)
     val movieDetail = _movieDetail.asStateFlow()
 
+    private val _nextEpisodeTarget = MutableStateFlow<AutoplayEpisodeTarget?>(null)
+    val nextEpisodeTarget = _nextEpisodeTarget.asStateFlow()
+
     val pauseMetadata = combine(
         _movieDetail,
         _tvDetail,
@@ -650,6 +653,7 @@ class PlayerViewModel @OptIn(UnstableApi::class)
             runCatching { tmdbRepo.seasonCatalog(id, d) }
             val sNum = season ?: d.seasons?.firstOrNull()?.seasonNumber ?: 1
             loadSeason(sNum)
+            updateNextEpisodeTarget()
         }
     }
 
@@ -666,7 +670,10 @@ class PlayerViewModel @OptIn(UnstableApi::class)
 
     fun loadSeason(number: Int) {
         viewModelScope.launch {
-            fetchSeasonWithRetry(number)?.let { _currentSeasonDetail.value = it }
+            fetchSeasonWithRetry(number)?.let {
+                _currentSeasonDetail.value = it
+                updateNextEpisodeTarget()
+            }
         }
     }
 
@@ -676,6 +683,10 @@ class PlayerViewModel @OptIn(UnstableApi::class)
         episode = episodeNumber
 
         viewModelScope.launch {
+            _nextEpisodeTarget.value = null
+            _skipSegments.value = emptyList()
+            skipSegmentsCacheKey = null
+
             val sDetail = if (_currentSeasonDetail.value?.seasonNumber != seasonNumber) {
                 fetchSeasonWithRetry(seasonNumber)?.also { _currentSeasonDetail.value = it }
             } else _currentSeasonDetail.value
@@ -688,6 +699,7 @@ class PlayerViewModel @OptIn(UnstableApi::class)
 
             _state.value = PlayerState.Idle
             checkLocalPlayback()
+            updateNextEpisodeTarget()
         }
     }
 
@@ -960,7 +972,12 @@ class PlayerViewModel @OptIn(UnstableApi::class)
     ) {
         sources.clear()
         failedVariantUrls.clear()
-        if (!automaticRecovery) failedPlaybackSourceIds.clear()
+        if (!automaticRecovery) {
+            failedPlaybackSourceIds.clear()
+            _nextEpisodeTarget.value = null
+            _skipSegments.value = emptyList()
+            skipSegmentsCacheKey = null
+        }
         viewModelScope.launch {
             val previousReady = _state.value as? PlayerState.Ready
             runCatching {
@@ -1777,6 +1794,30 @@ class PlayerViewModel @OptIn(UnstableApi::class)
 
     fun setOverrideCasing(enabled: Boolean) {
         _overrideCasing.value = enabled
+    }
+
+    fun updateNextEpisodeTarget() {
+        viewModelScope.launch {
+            _nextEpisodeTarget.value = getAutoplayEpisodeTarget()
+        }
+    }
+
+    fun navigateToNextEpisode(navController: androidx.navigation.NavController) {
+        viewModelScope.launch {
+            val target = _nextEpisodeTarget.value ?: getAutoplayEpisodeTarget() ?: return@launch
+            val encodedTitle = android.net.Uri.encode(title)
+            val encodedPoster = android.net.Uri.encode(poster.orEmpty())
+            navController.navigate(
+                "player/tv/$tmdbId?season=${target.seasonNumber}&episode=${target.episodeNumber}" +
+                        "&seasonId=${target.seasonId}&episodeId=${target.episodeId}" +
+                        "&title=$encodedTitle&year=$year&poster=$encodedPoster&autoplay=true"
+            ) { popUpTo("home") }
+        }
+    }
+
+    fun replayCurrentEpisode(player: androidx.media3.exoplayer.ExoPlayer) {
+        player.seekTo(0)
+        player.play()
     }
 
     suspend fun getAutoplayEpisodeTarget(): AutoplayEpisodeTarget? = withContext(Dispatchers.IO) {
