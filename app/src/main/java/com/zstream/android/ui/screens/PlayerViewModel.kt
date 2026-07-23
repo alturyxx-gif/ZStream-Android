@@ -359,6 +359,23 @@ class PlayerViewModel @OptIn(UnstableApi::class)
     val year = savedState.get<Int>("year") ?: 0
     val poster = savedState.get<String>("poster")?.decodeRouteParam()?.takeIf { it.isNotBlank() }
     val tmdbId = id.toString()
+
+    private var cachedIsAnime: Boolean? = null
+
+    private suspend fun isAnimeTitle(): Boolean {
+        cachedIsAnime?.let { return it }
+        val result = runCatching {
+            if (mediaType == "tv") {
+                val detail = tmdbRepo.tvDetail(id)
+                detail.originalLanguage == "ja" && detail.genres?.any { it.id == 16 } == true
+            } else {
+                val detail = tmdbRepo.movieDetail(id)
+                detail.originalLanguage == "ja" && detail.genres?.any { it.id == 16 } == true
+            }
+        }.getOrDefault(false)
+        cachedIsAnime = result
+        return result
+    }
     var seasonId = savedState.get<String>("seasonId")
         private set
     var episodeId = savedState.get<String>("episodeId")
@@ -948,9 +965,10 @@ class PlayerViewModel @OptIn(UnstableApi::class)
             val previousReady = _state.value as? PlayerState.Ready
             runCatching {
                 val settingsValue = settingsPrefs.settings.first()
+                val isAnime = isAnimeTitle()
                 val displaySources = sourceOrderStore.getOrderedSources(
                     hasAuroraKey = !settingsValue.febboxKey.isNullOrBlank(),
-                )
+                ).filter { it.id != "tokyo" || isAnime }
                 cachedDisplaySources = displaySources
 
                 if (selectedSourceId == null && settingsValue.manualSourceSelection && !automaticRecovery) {

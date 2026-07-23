@@ -61,6 +61,7 @@ data class MovieDetail(
     val similar: SimilarMoviesResponse? = null,
     @SerializedName("belongs_to_collection") val belongsToCollection: CollectionSummary? = null,
     @SerializedName("imdb_id") val imdbId: String? = null,
+    @SerializedName("original_language") val originalLanguage: String? = null,
 ) {
     fun posterUrl(size: String = "w500"): String? {
         val path = posterPath ?: return null
@@ -102,12 +103,13 @@ data class TvDetail(
     val similar: SimilarShowsResponse? = null,
     @SerializedName("external_ids") val externalIds: ExternalIds? = null,
     @SerializedName("imdb_id") val imdbId: String? = null,
+    @SerializedName("original_language") val originalLanguage: String? = null,
 ) {
     fun posterUrl(size: String = "w500"): String? {
         val path = posterPath ?: return null
         return if (path.startsWith("http")) path else Urls.TMDB_IMAGE + "$size$path"
     }
-    
+
     fun backdropUrl(size: String = "w1280"): String? {
         val path = backdropPath ?: return null
         return if (path.startsWith("http")) path else Urls.TMDB_IMAGE + "$size$path"
